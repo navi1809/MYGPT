@@ -1,197 +1,24 @@
-import java.sql.*;
-import java.util.*;
-
-public class AIF29Batch {
-
-    // Fields to simulate records and control variables
-    private String wsFirstInRec;
-    private String wsRecCd;
-    private String wsDebtNmb;
-    private int wsDebtYr;
-    private int wsDebtSqNmb;
-    private int wsDebtUpi;
-    private String wsResponseDt;
-    private String wsNoticeDt;
-    private int wsRemLines;
-    private String wsErrCd;
-    private String wsLowDt;
-    private String wsCurrDt;
-    private String wsAlphaDebt;
-    private String wsAlphaSeq;
-    private String wsAlphaUpi;
-
-    // Database connection
-    private Connection connection;
-
-    // Constructor
-    public AIF29Batch(Connection connection) {
-        this.connection = connection;
-        initializeVariables();
-    }
-
-    // Initialize all required variables
-    private void initializeVariables() {
-        wsFirstInRec = "Y";
-        wsRecCd = "";
-        wsDebtNmb = "";
-        wsDebtYr = 0;
-        wsDebtSqNmb = 0;
-        wsDebtUpi = 0;
-        wsResponseDt = "";
-        wsNoticeDt = "";
-        wsRemLines = 0;
-        wsErrCd = "";
-        wsLowDt = "2024-01-01"; // Example start date
-        wsCurrDt = "2024-12-31"; // Example end date
-        wsAlphaDebt = "";
-        wsAlphaSeq = "";
-        wsAlphaUpi = "";
-    }
-
-    // Main batch processing
-    public void processBatch() {
-        try {
-            initParameters();
-            readInputRecords();
-
-            while (!"X".equals(wsFirstInRec)) {
-                processRecord();
-                readInputRecords();
-            }
-
-            closeResources();
-            generateReport();
-
-        } catch (Exception e) {
-            System.err.println("Error during batch processing: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    // Initialize parameters
-    private void initParameters() {
-        System.out.println("Initializing batch parameters...");
-        wsFirstInRec = "Y";
-    }
-
-    // Read input records
-    private void readInputRecords() {
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT * FROM SR_AIF29_INREC")) {
-
-            if (rs.next()) {
-                wsDebtNmb = rs.getString("DEBT_NMB");
-                wsDebtYr = rs.getInt("DEBT_YR");
-                wsDebtSqNmb = rs.getInt("DEBT_SQ_NMB");
-                wsDebtUpi = rs.getInt("UPI");
-            } else {
-                wsFirstInRec = "X"; // No more records
-            }
-
-        } catch (SQLException e) {
-            System.err.println("Error reading input records: " + e.getMessage());
-        }
-    }
-
-    // Process each record
-    private void processRecord() {
-        if (wsDebtYr >= 0 && wsDebtYr <= 99) {
-            processApplicationSpecific();
-        } else {
-            wsAlphaDebt = wsDebtNmb;
-
-            if (wsAlphaDebt.compareTo("A") >= 0 && wsAlphaDebt.compareTo("U") <= 0) {
-                processAlphaYear();
-            }
-
-            wsDebtSqNmb = Integer.parseInt(wsAlphaSeq);
-            wsDebtUpi = Integer.parseInt(wsAlphaUpi);
-
-            processApplicationSpecific();
-        }
-    }
-
-    private void processApplicationSpecific() {
-        System.out.println("Processing application-specific record for DEBT_YR: " + wsDebtYr);
-
-        String query = "INSERT INTO TWNDEBT_MATCH_REQ (DEBT_YR, DEBT_SQ_NMB, UPI, RESPONSE_DT) "
-                + "VALUES (?, ?, ?, ?)";
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("1", wsDebtYr);
-        params.put("2", wsDebtSqNmb);
-        params.put("3", wsDebtUpi);
-        params.put("4", wsResponseDt);
-
-        executeSQLQuery(query, params);
-    }
-
-    private void processAlphaYear() {
-        System.out.println("Processing alpha year logic...");
-        // Additional logic for alpha year can go here.
-    }
-
-    // Generate report
-    private void generateReport() {
-        System.out.println("Generating report...");
-        String query = "SELECT DEBT_YR, DEBT_SQ_NMB, COUNT(*) "
-                + "FROM TWNDEBT_MATCH_REQ "
-                + "WHERE RESPONSE_DT BETWEEN ? AND ? "
-                + "GROUP BY DEBT_YR, DEBT_SQ_NMB";
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("1", wsLowDt);
-        params.put("2", wsCurrDt);
-
-        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
-            int index = 1;
-            for (Object value : params.values()) {
-                pstmt.setObject(index++, value);
-            }
-
-            try (ResultSet rs = pstmt.executeQuery()) {
-                while (rs.next()) {
-                    int debtYear = rs.getInt("DEBT_YR");
-                    int debtSeq = rs.getInt("DEBT_SQ_NMB");
-                    int count = rs.getInt("COUNT(*)");
-                    System.out.println("Year: " + debtYear + ", Sequence: " + debtSeq + ", Count: " + count);
-                }
-            }
-
-        } catch (SQLException e) {
-            System.err.println("Error generating report: " + e.getMessage());
-        }
-    }
-
-    // Close resources
-    private void closeResources() {
-        System.out.println("Closing resources...");
-        // Add logic for resource cleanup if necessary
-    }
-
-    // Execute SQL Queries
-    private void executeSQLQuery(String query, Map<String, Object> params) {
-        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
-            int index = 1;
-            for (Object value : params.values()) {
-                pstmt.setObject(index++, value);
-            }
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
-            System.err.println("Error executing SQL query: " + e.getMessage());
-        }
-    }
-
-    public static void main(String[] args) {
-        // Example connection setup (replace with actual database credentials)
-        try (Connection connection = DriverManager.getConnection(
-                "jdbc:mysql://localhost:3306/database_name", "username", "password")) {
-
-            AIF29Batch batch = new AIF29Batch(connection);
-            batch.processBatch();
-
-        } catch (SQLException e) {
-            System.err.println("Database connection error: " + e.getMessage());
-        }
-    }
-}
+{
+    "question": "What will be the output of this code?\n\n@Component\nclass ServiceA {\n    public String getMessage() {\n        return \"ServiceA\";\n    }\n}\n\n@Component\nclass ServiceB {\n    @Autowired\n    private ServiceA serviceA;\n\n    public String getMessage() {\n        return \"ServiceB -> \" + serviceA.getMessage();\n    }\n}\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        ApplicationContext context = SpringApplication.run(Application.class, args);\n        ServiceB serviceB = context.getBean(ServiceB.class);\n        System.out.println(serviceB.getMessage());\n    }\n}",
+    "answer": "The output will be: 'ServiceB -> ServiceA'. This is because Spring Boot's dependency injection provides the ServiceA bean to ServiceB."
+  },
+  {
+    "question": "What happens when there is a circular dependency between two Spring beans?",
+    "answer": "Spring Boot will throw a BeanCurrentlyInCreationException. Circular dependencies can be resolved using @Lazy or by refactoring the code to remove the dependency cycle."
+  },
+  {
+    "question": "What will be the response to a GET request at '/test' when using @RestController?\n\n@RestController\nclass MyController {\n    @GetMapping(\"/test\")\n    public String test() {\n        return \"Hello from RestController\";\n    }\n}",
+    "answer": "The response will be 'Hello from RestController' because @RestController combines @Controller and @ResponseBody, directly returning the string as the response body."
+  },
+  {
+    "question": "What will happen if a property configured in application.properties is missing in the @ConfigurationProperties class?\n\n@Configuration\n@ConfigurationProperties(prefix = \"app\")\nclass AppConfig {\n    private String name;\n    private String version;\n\n    // getters and setters\n}",
+    "answer": "If the property is missing, the corresponding field in the AppConfig class will remain null unless a default value is assigned in the class."
+  },
+  {
+    "question": "What will be printed to the console?\n\n@Component\nclass LazyService {\n    public LazyService() {\n        System.out.println(\"LazyService initialized\");\n    }\n\n    public String getMessage() {\n        return \"LazyService is active\";\n    }\n}\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n\n    @Bean\n    public CommandLineRunner runner(@Lazy LazyService lazyService) {\n        return args -> {\n            System.out.println(\"Runner is running\");\n            System.out.println(lazyService.getMessage());\n        };\n    }\n}",
+    "answer": "The output will be:\n'Runner is running'\n'LazyService initialized'\n'LazyService is active'. The LazyService bean is initialized only when it is accessed in the runner."
+  },
+  {
+    "question": "What will happen if a RuntimeException is thrown inside a @Transactional method?\n\n@Service\nclass MyService {\n    @Transactional\n    public void performTransaction() {\n        System.out.println(\"Transaction started\");\n        throw new RuntimeException(\"Exception occurred\");\n    }\n}",
+    "answer": "The transaction will roll back because Spring automatically rolls back transactions for unchecked exceptions (subclasses of RuntimeException)."
+  }
