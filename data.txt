@@ -1,102 +1,137 @@
-Here is a sample dataset that creates relationships between the tables:
+Combining the **four batches (AIF34A, AIF35A, AIF36A, and AIF37A)**, their relationship, transaction flows, and status updates can be summarized as follows:
 
 ---
 
-### **Sample Data**
-
-#### **`TWNDEBT`**
-```sql
-INSERT INTO "W026DTI1"."TWNDEBT" 
-(DEBT_YR, DEBT_SQ_NMB, CMN_BNFT_RDN_PCT, DEBT_STS_RSN_CD, DEBT_STS, RPYMT_MTHD, JDGMT_STS_CD, DEBT_BAL_AMT, ESTBL_DT, AID_CD)
-VALUES
-(2023, 1, 0.123, '01', 'A', 'M', 'N', 1500.50, '2023-01-01', 'ABC');
-```
-
-#### **`TWNRESP_PRSN_DBTR`**
-```sql
-INSERT INTO "WNMTD"."TWNRESP_PRSN_DBTR" 
-(UPI) 
-VALUES
-(1001);
-```
-
-#### **`TWNDEBT_RESP_PRSN`**
-```sql
-INSERT INTO "W026DTI1"."TWNDEBT_RESP_PRSN" 
-(DEBT_YR, DEBT_SQ_NMB, UPI, RESP_ESTBL_DT, RESP_IND, TAX_INTC_IND, ADR_MATCH_STS, NOTICE_DT, TOP_STS, TOP_DBTR_TYPE)
-VALUES
-(2023, 1, 1001, '2023-01-10', 'Y', 'N', 'M', '2023-01-20', 'C', 'I');
-```
-
-#### **`TWNDEBT_MATCH_REQ`**
-```sql
-INSERT INTO "W026DTI1"."TWNDEBT_MATCH_REQ" 
-(DEBT_YR, DEBT_SQ_NMB, UPI, REQUEST_DT, RESPONSE_DT, SSN, NAME_CTL, LAST_NAME, FIRST_NAME, STS_CD, ERROR_CD)
-VALUES
-(2023, 1, 1001, '2023-02-01', '2023-02-05', '123456789', 'NC', 'Smith', 'John', 'A', '00');
-```
-
-#### **`TWNDRT_PYMT`**
-```sql
-INSERT INTO "W026DTI1"."TWNDRT_PYMT" 
-(RCPT_ADJMT_NMB, CHKMO_DT, RCVD_ADJMT_AMT, PYMT_TYPE_CD, UPI)
-VALUES
-(5001, '2023-02-15', 500.00, 'CC', 1001);
-```
-
-#### **`TWNRPM_AUDIT_TRAIL`**
-```sql
-INSERT INTO "W026DTI1"."TWNRPM_AUDIT_TRAIL" 
-(RPM_ADT_TRL_TS, TRN_DT, TRN_AMT, TRN_TYPE, DEBT_YR, DEBT_SQ_NMB, RCPT_ADJMT_NMB, UPI)
-VALUES
-(TIMESTAMP '2023-02-16 10:00:00', '2023-02-16', 500.00, 'P', 2023, 1, 5001, 1001);
-```
-
-#### **`TWNDEBT_TOP_COLL`**
-```sql
-INSERT INTO "W026DTI1"."TWNDEBT_TOP_COLL" 
-(RPM_ADT_TRL_TS, DEBT_YR, DEBT_SQ_NMB, UPI, SSN, OFFSET_NET_AMT, OFFSET_FEE_AMT, OFFSET_TRACE_NMB, OFFSET_CYCLE_NMB)
-VALUES
-(TIMESTAMP '2023-02-16 10:00:00', 2023, 1, 1001, '123456789', 500.00, 10.00, 'T12345', 'C67890');
-```
-
-#### **`TWNDBT_MTHLY_STATS`**
-```sql
-INSERT INTO "W026DTI1"."TWNDBT_MTHLY_STATS" 
-(PRD_YR_MTH, DBT_CLSFN_CD, AMT_BEG_BAL, NMB_BEG_BAL, AMT_END_BAL, NMB_END_BAL, AMT_NEW_ESTBL_DBT, NMB_NEW_ESTBL_DBT)
-VALUES
-('202302', 'A', 1500.50, 1, 1000.50, 1, 500.00, 1);
-```
-
-#### **`TWNDBTR_DTLS`**
-```sql
-INSERT INTO "W026DTI1"."TWNDBTR_DTLS" 
-(UPI, DBTR_SSN, APT_NMB, CTY, HM_PHN_NMB, HOUSE_NMB, LST_NM, FRST_NM, MID_NM, ZIP_CD)
-VALUES
-(1001, '123456789', '101', 'New York', '1234567890', '10', 'Smith', 'John', 'A.', '10001');
-```
+### **High-Level Overview**
+The four batches are part of a **Treasury Offset Program (TOP)** cycle, handling debts, collections, reversals, unprocessable transactions, and updates. They interact with various **data sources, tables, and processes** to ensure the integrity and accuracy of debt-related data.
 
 ---
 
-### **Relationships**
-1. **`TWNDEBT` ↔ `TWNDEBT_RESP_PRSN`**
-   - Debt Year (`DEBT_YR`) and Sequence Number (`DEBT_SQ_NMB`) link debts to responsible persons.
+### **Roles of Each Batch**
+1. **AIF34A (Collections and Reversals):**
+   - Handles collections and reversals received from TOP.
+   - Updates:
+     - **Audit trail** for all transactions (`TWNRPM_AUDIT_TRAIL`).
+     - **TOP Collections table** (`TWNDEBT_TOP_COLL`).
+     - Debt balances and statuses (`TWNDEBT`).
+   - Generates an activity report summarizing collections and reversals.
 
-2. **`TWNRESP_PRSN_DBTR` ↔ `TWNDEBT_RESP_PRSN`**
-   - `UPI` connects responsible persons to their unique identifiers.
+2. **AIF35A (Unprocessable Records):**
+   - Processes records rejected by TOP for errors (e.g., invalid trace numbers, zero balances).
+   - Verifies debt existence in `TWNDEBT_MATCH_REQ`.
+   - Outputs a detailed report of errors and unresolved records.
 
-3. **`TWNDEBT_RESP_PRSN` ↔ `TWNDEBT_MATCH_REQ`**
-   - Debt Year, Sequence Number, and `UPI` link debt responsibilities to match requests.
+3. **AIF36A (Weekly Updates to TOP):**
+   - Prepares and sends updates to TOP, such as:
+     - Changes in debt balances.
+     - New debts.
+     - Closed debts.
+   - Maintains logs of sent records, including errors or discrepancies.
 
-4. **`TWNDRT_PYMT` ↔ `TWNRPM_AUDIT_TRAIL`**
-   - Receipt Adjustment Number (`RCPT_ADJMT_NMB`) links payments to their audit trail.
-
-5. **`TWNRPM_AUDIT_TRAIL` ↔ `TWNDEBT_TOP_COLL`**
-   - Timestamp (`RPM_ADT_TRL_TS`) connects audit trails to top-level collections.
-
-6. **`TWNDBTR_DTLS` ↔ `TWNRESP_PRSN_DBTR`**
-   - `UPI` ties debtor details to the responsible person.
+4. **AIF37A (Weekly Reconciliation):**
+   - Reconciles internal data with TOP's responses.
+   - Verifies whether updates sent by AIF36A have been successfully processed.
+   - Adjusts balances and statuses based on reconciliation results.
+   - Generates reports summarizing reconciliation outcomes.
 
 ---
 
-This data ensures all foreign key relationships are respected and gives a clear picture of how the tables interact. Let me know if you need further explanations or additional examples!
+### **Relationships Between Batches**
+1. **Data Dependencies:**
+   - **AIF36A** relies on `TWNDEBT`, `TWNDEBT_MATCH_REQ`, and `TWNDEBT_TOP_COLL` to prepare update files for TOP.
+   - **AIF34A** and **AIF37A** use `TWNDEBT_MATCH_REQ` and `TWNDEBT` to validate and update debt balances after reconciliation or collection.
+   - **AIF35A** ensures rejected records are logged for analysis, indirectly impacting the next cycle in **AIF36A**.
+
+2. **Transaction Flow:**
+   - **AIF34A**: Processes incoming collections/reversals → Updates debt balances.
+   - **AIF36A**: Prepares updates based on balances and statuses from **AIF34A** and past reconciliation results.
+   - **AIF37A**: Reconciles data sent by **AIF36A** with TOP responses.
+   - **AIF35A**: Handles records rejected by TOP from **AIF36A** or during reconciliation in **AIF37A**.
+
+3. **Table Relationships:**
+   - **TWNDEBT**: Core table for tracking debt balances, statuses, and metadata.
+   - **TWNDEBT_TOP_COLL**: Stores collection data processed in **AIF34A**.
+   - **TWNDEBT_MATCH_REQ**: Acts as a validation layer for debts, used in all batches.
+   - **TWNRPM_AUDIT_TRAIL**: Tracks audit trails for changes and updates, primarily populated by **AIF34A** and **AIF37A**.
+
+4. **Error Handling:**
+   - Errors encountered in **AIF36A** (e.g., invalid records) flow into **AIF35A** for analysis and reporting.
+   - Reconciliation mismatches in **AIF37A** may trigger retries or adjustments in **AIF36A**.
+
+---
+
+### **Transaction Flow Diagram**
+Here is a simplified transaction flow for the entire cycle:
+
+1. **Incoming Data:**
+   - TOP sends collections and reversals to **AIF34A**.
+   - TOP sends rejected records to **AIF35A**.
+
+2. **Processing Cycle:**
+   - **AIF34A** updates balances and generates reports.
+   - **AIF35A** logs unprocessable records for review.
+
+3. **Updates to TOP:**
+   - **AIF36A** prepares and sends update files to TOP.
+   - Records include changes in balances, closures, and new debts.
+
+4. **Reconciliation:**
+   - **AIF37A** matches internal data with TOP responses.
+   - Adjustments are made to balances/statuses if discrepancies are found.
+
+---
+
+### **Status Updates and Their Lifecycle**
+1. **Debt Statuses (TWNDEBT):**
+   - **Open:** Active debt available for collection.
+   - **Collected:** Balance reduced after a successful collection.
+   - **Reversed:** Reversal of a prior collection due to errors.
+   - **Closed:** Debt fully resolved or written off.
+   - **Unprocessable:** Rejected records handled by **AIF35A**.
+
+2. **TOP Status Indicators (TWNDEBT_MATCH_REQ):**
+   - **TOPS_CHANGE_IND:** Tracks changes in debt records sent to TOP.
+   - **TOPS_ERROR_CD:** Logs errors encountered during processing.
+
+---
+
+### **Detailed Workflow**
+#### **AIF34A → AIF36A:**
+- Collections and reversals processed by **AIF34A** update debt balances.
+- The updated data forms the basis for updates sent to TOP in **AIF36A**.
+
+#### **AIF36A → AIF37A:**
+- **AIF36A** sends update files to TOP.
+- TOP responds with processed records, errors, and discrepancies, reconciled by **AIF37A**.
+
+#### **AIF37A → AIF35A:**
+- Records unprocessable during reconciliation are logged and analyzed by **AIF35A**.
+
+#### **AIF35A → AIF36A (Next Cycle):**
+- Insights from unprocessable records help refine updates in the next **AIF36A** cycle.
+
+---
+
+### **Error Handling Across Batches**
+1. **AIF34A:** 
+   - Handles collection/reversal errors by setting `WS-TOP-ERR` and logging them.
+   - Adjusts balances in `TWNDEBT` if errors impact current records.
+
+2. **AIF35A:**
+   - Logs and reports rejected records from TOP.
+   - Identifies recurring issues (e.g., invalid trace numbers) for investigation.
+
+3. **AIF36A:**
+   - Flags records with discrepancies before sending updates.
+   - Uses error logs from **AIF35A** to improve data quality.
+
+4. **AIF37A:**
+   - Identifies and logs reconciliation mismatches.
+   - Adjusts debt statuses in `TWNDEBT` for unresolved discrepancies.
+
+---
+
+### **Summary**
+The four batches operate as a cohesive unit, with clearly defined roles in the transaction lifecycle. Data flows between them through shared tables, ensuring updates and corrections propagate throughout the system.
+
+Would you like a flowchart or more details on specific processes?
