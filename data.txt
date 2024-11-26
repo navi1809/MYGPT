@@ -1,56 +1,23 @@
-import java.awt.*;
-import java.awt.event.InputEvent;
-import java.io.IOException;
+@Test
+    public void testBatchJobWithMockRepositoryInsert() throws Exception {
+        // Arrange: Mock the behavior of the ItemReader
+        when(mockItemReader.read()).thenReturn("Item1", "Item2", "Item3", null);
 
-public class KeepActive {
-    public static void main(String[] args) {
-        try {
-            Robot robot = new Robot();
-            System.out.println("Keep Active program started. Press Ctrl+C to stop.");
+        // Mock the ItemProcessor (returning same value)
+        when(mockItemProcessor.process(any(String.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-            while (true) {
-                // Simulate mouse movement
-                Point mousePos = MouseInfo.getPointerInfo().getLocation();
-                int x = (int) mousePos.getX();
-                int y = (int) mousePos.getY();
-                
-                robot.mouseMove(x + 1, y); // Move mouse slightly
-                Thread.sleep(500);        // Pause for 0.5 seconds
-                robot.mouseMove(x, y);    // Move mouse back
-                Thread.sleep(300000);     // Wait 5 minutes (300,000 ms) before next activity
+        // Mock repository insert (we don't actually want to perform the insert)
+        doNothing().when(mockRepository).save(any());
 
-                // Simulate Teams and Zoom activity
-                focusApplication("Teams");
-                focusApplication("Zoom");
-                simulateKeyPress(robot);  // Simulate a spacebar press
-            }
-        } catch (AWTException | InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
+        // Inject mocked dependencies
+        JobExecution jobExecution = jobLauncherTestUtils.launchJob();
 
-    private static void focusApplication(String appName) {
-        String os = System.getProperty("os.name").toLowerCase();
-        try {
-            if (os.contains("win")) {
-                // For Windows, use cmd to open or bring the application to focus
-                Runtime.getRuntime().exec("cmd /c start " + appName);
-            } else if (os.contains("mac")) {
-                // For macOS, use the `open` command
-                Runtime.getRuntime().exec("open -a " + appName);
-            } else if (os.contains("nix") || os.contains("nux") || os.contains("aix")) {
-                // For Linux, use `xdg-open`
-                Runtime.getRuntime().exec("xdg-open " + appName);
-            }
-        } catch (IOException e) {
-            System.out.println("Could not focus application: " + appName);
-            e.printStackTrace();
-        }
-    }
+        // Assert: Check that the job completes successfully
+        assertEquals(ExitStatus.COMPLETED, jobExecution.getExitStatus());
 
-    private static void simulateKeyPress(Robot robot) {
-        robot.keyPress(KeyEvent.VK_SPACE);
-        robot.keyRelease(KeyEvent.VK_SPACE);
-        System.out.println("Simulated activity in Teams and Zoom.");
+        // Verify that the repository's save method was called for each item
+        verify(mockRepository, times(3)).save(any());  // Three items to insert
+
+        // Verify other interactions as needed
     }
 }
