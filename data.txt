@@ -1,1772 +1,360 @@
-package gov.illinois.ies.business.entities.ws.vlp;
+package gov.illinois.ies.business.batch.in;
 
-import gov.hhs.cms.dsh.sim.ee.vclpcc.rest.CloseCaseRequestType;
-import gov.hhs.cms.dsh.sim.ee.vclpcc.rest.CloseCaseResponseType;
-import gov.hhs.cms.dsh.sim.ee.vclpsav.ResubmitRequestType;
-import gov.hhs.cms.dsh.sim.ee.vclpsav.ResubmitResponseType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.DHSIDType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.I327DocumentID3Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.I551DocumentID4Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.I571DocumentID5Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.I766DocumentID9Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.I94DocumentID2Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.I94UnexpForeignPassportDocumentID10Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.InitialVerificationIndividualResponseSetType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.InitialVerificationIndividualResponseType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.InitialVerificationRequestSetType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.InitialVerificationRequestType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.InitialVerificationResponseSetType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.InitialVerificationResponseType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.MacReadI551DocumentID22Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.OtherCase1DocumentID1Type;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.PassportCountryType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.ResponseMetadataType;
-import gov.hhs.cms.dsh.sim.ee.vlp.rest.TempI551DocumentID21Type;
-import gov.illinois.framework.management.logging.ILog;
 import gov.illinois.framework.management.util.FwConstants;
 import gov.illinois.framework.management.util.FwPropertyLoader;
-import gov.illinois.fw.business.rules.AbstractBO;
-import gov.illinois.fw.management.logger.LogLevel;
-import gov.illinois.fw.management.logger.Logger;
-import gov.illinois.ies.business.batch.in.TokenServiceHelper;
-import gov.illinois.ies.business.entities.dataclearances.InterfacesExceptionVO;
-import gov.illinois.ies.business.entities.dataclearances.LawfulPresenceDetailsOutputVO;
-import gov.illinois.ies.business.entities.dataclearances.LawfulPresenceInputVO;
-import gov.illinois.ies.business.entities.dataclearances.VLPReferenceHelper;
-import gov.illinois.ies.business.entities.individual.DcIndividualAlienCargo;
-import gov.illinois.ies.business.entities.individual.DcIndvCargo;
-import gov.illinois.ies.business.entities.selfservice.T1004AppIndvCargo;
-import gov.illinois.ies.business.rules.in.INInterfacesHelper;
+import gov.illinois.fw.business.exceptions.ApplicationException;
+import gov.illinois.fw.business.exceptions.FrameworkException;
+import gov.illinois.fw.management.logger.Debug;
+import gov.illinois.ies.business.entities.interfaces.IesServicesAuthTokenCargo;
+import gov.illinois.ies.business.entities.interfaces.IesServicesAuthTokenCollection;
 import gov.illinois.ies.business.rules.in.InterfacesException;
-
-import java.io.IOException;
-import java.io.StringWriter;
-import java.sql.Timestamp;
-import java.util.List;
-import java.util.Properties;
-import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
-import javax.net.ssl.SSLSocketFactory;
-import javax.xml.bind.JAXBContext;
-import javax.xml.bind.JAXBElement;
-import javax.xml.bind.JAXBException;
-import javax.xml.bind.Marshaller;
-import javax.xml.bind.Unmarshaller;
-import javax.xml.datatype.DatatypeConfigurationException;
-import javax.xml.soap.SOAPFault;
-import javax.xml.transform.stream.StreamSource;
-import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLStreamReader;
-import javax.xml.ws.BindingProvider;
-import javax.xml.ws.Dispatch;
-import javax.xml.ws.soap.SOAPFaultException;
-
-import org.apache.wink.client.ClientConfig;
-import org.apache.wink.client.ClientResponse;
-import org.apache.wink.client.Resource;
-import org.apache.wink.client.RestClient;
-import org.apache.wink.client.handlers.BasicAuthSecurityHandler;
-import org.xml.sax.SAXException;
-
 import gov.illinois.ies.business.rules.mo.util.StringUtils;
-import gov.illinois.ies.management.uddi.FwUDDIManager;
 
-import com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.CloseCasePortTypeCloseCaseInput;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.CloseCasePortTypeCloseCaseOutput;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.VLP_CloseCase37__connectors_CloseCasePortType_CloseCase_WSD_PortProxy;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.Fault;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.Fault2;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.Reasons;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.Reasons2;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.VLP_VLP37__connectors_VerifyLawfulPresencePortType_V37_WSD_PortProxy;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.VerifyLawfulPresencePortTypeInitialVerificationV37Input;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.VerifyLawfulPresencePortTypeInitialVerificationV37Output;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.VerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Input;
-import com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.VerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output;
-import com.google.gson.Gson;
-import com.google.gson.annotations.SerializedName;
-import java.io.StringReader;
-import java.net.URLEncoder;
+import java.sql.Connection;
+import java.sql.Timestamp;
+import java.util.concurrent.TimeUnit;
 
-public class VLPWsInputAdapter extends AbstractBO {
-	//private int eligibilityCd32 = 32;
-	private String countryOfIssuance_CIV = "CIV";
-	private static Logger logger = Logger.getInstance();
-	private static String SUCCESS_RESPONSE = "HS000000";
-	private static String TIME_OUT	= FwPropertyLoader.getPropertyOf(FwConstants.APPLICATION_PROPERTY_FILE, "WEB_SERIVICES_IES_TIMEOUT");
-	private static String VLP_STEP1_REST_ENDPOINT = "VLP_STEP1_REST_ENDPOINT"; 
-	private static String VLP_CLOSE_CASE_REST_ENDPOINT = "VLP_CLOSE_CASE_REST_ENDPOINT"; 
-	private static String BEARER_STRING = "BEARER_STRING";
-	private static String MESSAGE_ID_STRING = "MESSAGE_ID_STRING";
-	private static String INVALID_CREDENTIALS = "Invalid Credentials, Please check your headers";
-	private static String NULL_BODY_IN_THE_RESPONSE = "..No Body in the Response";
-	private static String TIERS = "TIERS";
-	private static String XML_STRING ="XML_STRING";
-	private static String ACCEPT  = "Accept";
-	private static String APPLICATION_JSON  = "application/json";
-	private static String CONTENT_TYPE  = "Content-Type";
-	private static String APPLICATION_CONTENT_TYPE  = "application/x-www-form-urlencoded";
-		
+public class TokenServiceHelper
+{
 
-	/**
-	 * This method is used to invokeVLPService
-	 * 
-	 * @param lawfulPresenceInputVO
-	 * @param dcIndvCargo
-	 * @param dcIndividualAlienCargo
-	 * @param dcCasesCargo
-	 * @param t1004AppIndvCargo
-	 * @return LawfulPresenceDetailsOutputVO
-	 * @throws Exception
-	 */
-	public LawfulPresenceDetailsOutputVO invokeVLPService(LawfulPresenceInputVO lawfulPresenceInputVO, DcIndvCargo dcIndvCargo, DcIndividualAlienCargo dcIndividualAlienCargo, T1004AppIndvCargo t1004AppIndvCargo)
-			throws Exception {
-		
-		String token = null;
-				
-		//For the first time Token will be empty and token will not be empty when re-invoking the service.
-		if( StringUtils.isEmpty(token) )
+	private static volatile TokenServiceHelper	instance						= null;
+	private static final String					CMS								= "CMS";
+	private static final String					EQUIFAX							= "EQUIFAX";
+	private static final String					IDOT							= "IDOT";
+	private static final String					RETURNING_TOKEN_STRING			= "Returning Token:";
+	private static final String					FOR_SERVICE_TYPE_STRING			= " For Service type:";
+	private static final String					FIND_LATEST_TOKEN_RECORD_STRING	= "findLatestTokenRecord";
+	private static final String					PROPERTIES_FILE_NAME			= "TIERS";
+	public static Connection					conn							= null;
+	private static volatile String              cmsToken                        = null;
+    private static volatile Timestamp           cmsLastTokenGeneratedTime       = null;
+    private static volatile String              idotToken                       = null;
+    private static volatile Timestamp           idotLastTokenGeneratedTime      = null;
+
+	private TokenServiceHelper()
+	{
+
+	}
+
+	public static TokenServiceHelper getInstance()
+	{
+		if (instance == null)
 		{
-			//Retrieve the Token from DB
-			token = TokenServiceHelper.retrieveToken(FwConstants.CMS_SERVICE);	
-		}
-		
-		LawfulPresenceDetailsOutputVO lawfulPresenceDetailsOutputVO = null;
-		InitialVerificationResponseType initialVerificationResponseType = invokeInitialVerificationV37Operation(buildInitialVerificationRequestSetType(lawfulPresenceInputVO, dcIndvCargo, dcIndividualAlienCargo,
-				t1004AppIndvCargo), token);
-		if (initialVerificationResponseType != null && initialVerificationResponseType.getInitialVerificationResponseSet() != null) {
-			InitialVerificationResponseSetType initialVerificationResponseSetType = initialVerificationResponseType.getInitialVerificationResponseSet();
-			if (initialVerificationResponseSetType != null) {
-				List<InitialVerificationIndividualResponseType> initialVerificationIndividualResponseTypeLst = initialVerificationResponseSetType.getInitialVerificationIndividualResponse();
-				if (initialVerificationIndividualResponseTypeLst != null && initialVerificationIndividualResponseTypeLst.size() > 0) {
-					InitialVerificationIndividualResponseType initialVerificationIndividualResponseType = initialVerificationIndividualResponseTypeLst.get(0);
-					if (initialVerificationIndividualResponseType != null) {
-						InitialVerificationIndividualResponseSetType initialVerificationIndividualResponseSetType = initialVerificationIndividualResponseType.getInitialVerificationIndividualResponseSet();
-						if (initialVerificationIndividualResponseSetType != null) {
-							/*if (initialVerificationIndividualResponseSetType.getEligStatementCd().longValue() == eligibilityCd32
-									&& ((lawfulPresenceInputVO.getSevisId() != null && !lawfulPresenceInputVO.getSevisId().trim().isEmpty()) || (dcIndividualAlienCargo != null
-											&& dcIndividualAlienCargo.getSevisId() != null && !dcIndividualAlienCargo.getSevisId().trim().isEmpty()))) {
-								ResubmitResponseType resubmitResponseType = invokeReSubmitWithSEVISIDV37Operation(buildResubmitRequestType(initialVerificationIndividualResponseSetType.getCaseNumber(),
-										dcIndividualAlienCargo.getSevisId(), lawfulPresenceInputVO.getSevisId()));
-								VLPWsOutputAdapter vlpWsOutputAdapter = new VLPWsOutputAdapter();
-								lawfulPresenceDetailsOutputVO = vlpWsOutputAdapter.buildLawfulPresenceDetailsOutputVOFromResubmitResponseType(lawfulPresenceInputVO, resubmitResponseType);
-								if (initialVerificationIndividualResponseSetType.getCaseNumber() != null) {
-									CloseCaseResponseType closeCaseResponseType = invokeCloseCaseOperation(buildCloseCaseRequestType(initialVerificationIndividualResponseSetType.getCaseNumber()));
-									vlpWsOutputAdapter.buildLawfulPresenceDetailsOutputVOFromCloseCaseResponseType(lawfulPresenceDetailsOutputVO, closeCaseResponseType);
-								}
-							} else {*/
-								VLPWsOutputAdapter vlpWsOutputAdapter = new VLPWsOutputAdapter();
-								lawfulPresenceDetailsOutputVO = vlpWsOutputAdapter.buildLawfulPresenceDetailsOutputVOFromInitialVerificationResponseType(lawfulPresenceInputVO, initialVerificationResponseType);
-								if (initialVerificationIndividualResponseSetType.getCaseNumber() != null) {
-									CloseCaseResponseType closeCaseResponseType = invokeCloseCaseOperation(buildCloseCaseRequestType(initialVerificationIndividualResponseSetType.getCaseNumber()),token);
-									vlpWsOutputAdapter.buildLawfulPresenceDetailsOutputVOFromCloseCaseResponseType(lawfulPresenceDetailsOutputVO, closeCaseResponseType);
-								}
-							//}
-						}
-					}
-				}
-			}
-		}
-		return lawfulPresenceDetailsOutputVO;
-	}
-
-	/**
-	 * This method is used to invokeVLPServiceForABEAutoVerification
-	 * 
-	 * @param lawfulPresenceInputVO
-	 * @return LawfulPresenceDetailsOutputVO
-	 * @throws Exception
-	 */
-	public LawfulPresenceDetailsOutputVO invokeVLPServiceForABEAutoVerification(LawfulPresenceInputVO lawfulPresenceInputVO) throws Exception {
-		LawfulPresenceDetailsOutputVO lawfulPresenceDetailsOutputVO = null;		
-		String token = null;
-				
-		//For the first time Token will be empty and token will not be emmpty when re-invoking the service.
-		//This method will re-invoke with latest token if current Token gets expired
-		if( StringUtils.isEmpty(token) )
-		{
-			//Retrieve the Token from DB
-			token = TokenServiceHelper.retrieveToken(FwConstants.CMS_SERVICE); 
-		}
-		
-		InitialVerificationResponseType initialVerificationResponseType = invokeInitialVerificationV37Operation(buildInitialVerificationRequestSetTypeForABE(lawfulPresenceInputVO), token);
-		
-		if (initialVerificationResponseType != null && initialVerificationResponseType.getInitialVerificationResponseSet() != null) {
-			InitialVerificationResponseSetType initialVerificationResponseSetType = initialVerificationResponseType.getInitialVerificationResponseSet();
-			if (initialVerificationResponseSetType != null) {
-				List<InitialVerificationIndividualResponseType> initialVerificationIndividualResponseTypeLst = initialVerificationResponseSetType.getInitialVerificationIndividualResponse();
-				if (initialVerificationIndividualResponseTypeLst != null && initialVerificationIndividualResponseTypeLst.size() > 0) {
-					InitialVerificationIndividualResponseType initialVerificationIndividualResponseType = initialVerificationIndividualResponseTypeLst.get(0);
-					if (initialVerificationIndividualResponseType != null) {
-						InitialVerificationIndividualResponseSetType initialVerificationIndividualResponseSetType = initialVerificationIndividualResponseType.getInitialVerificationIndividualResponseSet();
-						if (initialVerificationIndividualResponseSetType != null) {
-							VLPWsOutputAdapter vlpWsOutputAdapter = new VLPWsOutputAdapter();
-							lawfulPresenceDetailsOutputVO = vlpWsOutputAdapter.buildLawfulPresenceDetailsOutputVOFromInitialVerificationResponseType(lawfulPresenceInputVO, initialVerificationResponseType);
-							if (initialVerificationIndividualResponseSetType.getCaseNumber() != null) {
-								CloseCaseResponseType closeCaseResponseType = invokeCloseCaseOperation(buildCloseCaseRequestType(initialVerificationIndividualResponseSetType.getCaseNumber()), token);
-								vlpWsOutputAdapter.buildLawfulPresenceDetailsOutputVOFromCloseCaseResponseType(lawfulPresenceDetailsOutputVO, closeCaseResponseType);
-							}
-						}
-					}
-				}
-			}
-		}
-		return lawfulPresenceDetailsOutputVO;
-	}
-
-	/**
-	 * This method is used to invokeInitialVerificationV37Operation and VLP version is V37.1 Version
-	 * 
-	 * @param initialVerificationRequestSetType
-	 * @return InitialVerificationResponseType
-	 * @throws InterfacesException
-	 */
-	public InitialVerificationResponseType invokeInitialVerificationV37Operation(InitialVerificationRequestSetType initialVerificationRequestSetType, String token) throws InterfacesException {
-		InitialVerificationResponseType initialVerificationResponseType = null;
-		
-		if (initialVerificationRequestSetType != null) {
-			// This is based on V37.1 Version
-			initialVerificationResponseType = callInitialVerificationV37RESTOperation(initialVerificationRequestSetType, token );
-		}
-		return initialVerificationResponseType;
-	}
-	
-	/**
-	 * This method is used to invokeReSubmitWithSEVISIDV37Operation
-	 * 
-	 * @param resubmitRequestType
-	 * @return ResubmitResponseType
-	 * @throws InterfacesException
-	 */
-	@Deprecated
-	public ResubmitResponseType invokeReSubmitWithSEVISIDV37Operation(ResubmitRequestType resubmitRequestType) throws InterfacesException {
-		ResubmitResponseType resubmitResponseType = null;
-		if (resubmitRequestType != null) {
-			resubmitResponseType = callReSubmitWithSEVISIDV37Operation(resubmitRequestType);
-		}
-		return resubmitResponseType;
-	}
-
-	/**
-	 * This method is used to buildInitialVerificationRequestSetTypeForABE
-	 * 
-	 * @param lawfulPresenceInputVO
-	 * @return InitialVerificationRequestSetType
-	 * @throws Exception
-	 */
-	private InitialVerificationRequestSetType buildInitialVerificationRequestSetTypeForABE(LawfulPresenceInputVO lawfulPresenceInputVO) throws Exception {
-		InitialVerificationRequestSetType initialVerificationRequestSetType = new InitialVerificationRequestSetType();
-		initialVerificationRequestSetType.setFirstName(INInterfacesHelper.checkInputNullandTrim(lawfulPresenceInputVO.getFirstName()));
-		initialVerificationRequestSetType.setMiddleName(lawfulPresenceInputVO.getMidName());
-		initialVerificationRequestSetType.setLastName(INInterfacesHelper.checkInputNullandTrim(lawfulPresenceInputVO.getLastName()));
-		initialVerificationRequestSetType.setDateOfBirth(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(INInterfacesHelper.getTimeStampFromString(lawfulPresenceInputVO.getDateOfBirth())));
-		
-		Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
-		String casePOCFullName = "caseFullName";
-		if (properties.getProperty("CASE_POC_FULL_NAME") != null) {
-			casePOCFullName = properties.getProperty("CASE_POC_FULL_NAME");
-		}
-		String casePOCPhoneNumber = "0000000000";
-		if (properties.getProperty("CASE_POC_PHONE_NUMBER") != null) {
-			casePOCPhoneNumber = properties.getProperty("CASE_POC_PHONE_NUMBER");
-		}
-		initialVerificationRequestSetType.setCasePOCFullName(casePOCFullName);
-		initialVerificationRequestSetType.setCasePOCPhoneNumber(casePOCPhoneNumber);
-		
-		if (lawfulPresenceInputVO.getDocumentType() != null && !lawfulPresenceInputVO.getDocumentType().isEmpty()) {
-			DHSIDType dhsIdType = new DHSIDType();
-			String registrationNum = lawfulPresenceInputVO.getRegistrationNumber();
-			Timestamp usEntryDt = null;
-			if (lawfulPresenceInputVO.getAlientEntrtyDt() != null) {
-				usEntryDt = new Timestamp(lawfulPresenceInputVO.getAlientEntrtyDt().getTimeInMillis());
-			}
-			if ((usEntryDt != null) && (usEntryDt.before(INInterfacesHelper.getTimeStampFromString("1996", "8", "22")))) {
-				initialVerificationRequestSetType.setFiveYearBarApplicabilityIndicator(false);
-			} else {
-				initialVerificationRequestSetType.setFiveYearBarApplicabilityIndicator(true);
-			}
-			if (VLPReferenceHelper.DOCUMENT__TYPE_I_327.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty())
-					buildI327DocumentID3Type(dhsIdType, registrationNum, null);
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_571.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty())
-					buildI571DocumentID5Type(dhsIdType, registrationNum, null);
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_OTHER.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty())
-					buildOtherCase1DocumentID1Type(dhsIdType, registrationNum, null, null);
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_551.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String receiptNumber = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					receiptNumber = lawfulPresenceInputVO.getDocumentNumber();
-				}
-				if (receiptNumber != null) {
-					if (registrationNum != null && !registrationNum.isEmpty()) {
-						buildI551DocumentID4Type(dhsIdType, registrationNum, null, receiptNumber);
-					}
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_94.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String i94Number = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					i94Number = lawfulPresenceInputVO.getDocumentNumber();
-				}
-				if (i94Number != null) {
-					buildI94DocumentID2Type(dhsIdType, null, null, i94Number);
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_766.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String receiptNumber = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					receiptNumber = lawfulPresenceInputVO.getDocumentNumber();
-				}
-				if (receiptNumber != null) {
-					if (registrationNum != null && !registrationNum.isEmpty()) {
-						buildI766DocumentID9Type(dhsIdType, registrationNum, null, receiptNumber);
-					}
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_MACHINE_READABLE_IMMIGRANT_VISA.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String passportNumber = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					passportNumber = lawfulPresenceInputVO.getDocumentNumber();
-				}
-				if (passportNumber != null) {
-					if (registrationNum != null && !registrationNum.isEmpty()) {
-						buildMacReadI551DocumentID22Type(dhsIdType, registrationNum, null, passportNumber, null, null);
-					}
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_94_IN_UNEXPIRED_FOREIGN_PASSPORT.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String i94Number = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					i94Number = lawfulPresenceInputVO.getDocumentNumber();
-				}
-				if (i94Number != null) {
-					buildI94UnexpForeignPassportDocumentID10Type(dhsIdType, i94Number, null, null, null, null, null);
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_TEMPORARY_I_551_STAMP.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty()) {
-					buildTempI551DocumentID21Type(dhsIdType, registrationNum, null, null, null);
-				}
-			}
-			initialVerificationRequestSetType.setDHSID(dhsIdType);
-		}
-		initialVerificationRequestSetType.setRequestGrantDateIndicator(true);
-		initialVerificationRequestSetType.setRequestSponsorDataIndicator(true);
-		return initialVerificationRequestSetType;
-	}
-
-	/**
-	 * This method is used to buildInitialVerificationRequestSetType
-	 * 
-	 * @param lawfulPresenceInputVO
-	 * @param dcIndvCargo
-	 * @param dcIndividualAlienCargo
-	 * @param dcCasesCargo
-	 * @param t1004AppIndvCargo
-	 * @return InitialVerificationRequestSetType
-	 * @throws Exception
-	 */
-	private InitialVerificationRequestSetType buildInitialVerificationRequestSetType(LawfulPresenceInputVO lawfulPresenceInputVO, DcIndvCargo dcIndvCargo, DcIndividualAlienCargo dcIndividualAlienCargo,
-			T1004AppIndvCargo t1004AppIndvCargo) throws Exception {
-		InitialVerificationRequestSetType initialVerificationRequestSetType = new InitialVerificationRequestSetType();
-		if (dcIndvCargo != null) {
-			initialVerificationRequestSetType.setFirstName(INInterfacesHelper.checkInputNullandTrim(dcIndvCargo.getFirstName()));
-			if (null != dcIndvCargo.getMidName()) {
-				initialVerificationRequestSetType.setMiddleName(dcIndvCargo.getMidName());
-			}
-			initialVerificationRequestSetType.setLastName(INInterfacesHelper.checkInputNullandTrim(dcIndvCargo.getLastName()));
-			if (dcIndvCargo.getDobDt() != null) {
-				initialVerificationRequestSetType.setDateOfBirth(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(dcIndvCargo.getDobDt()));
-			}
-		}
-		
-		Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
-		String casePOCFullName = "caseFullName";
-		if (properties.getProperty("CASE_POC_FULL_NAME") != null) {
-			casePOCFullName = properties.getProperty("CASE_POC_FULL_NAME");
-		}
-		String casePOCPhoneNumber = "0000000000";
-		if (properties.getProperty("CASE_POC_PHONE_NUMBER") != null) {
-			casePOCPhoneNumber = properties.getProperty("CASE_POC_PHONE_NUMBER");
-		}
-		initialVerificationRequestSetType.setCasePOCFullName(casePOCFullName);
-		initialVerificationRequestSetType.setCasePOCPhoneNumber(casePOCPhoneNumber);
-		
-		if (lawfulPresenceInputVO.getDocumentType() != null && !lawfulPresenceInputVO.getDocumentType().isEmpty()) {
-			DHSIDType dhsIdType = new DHSIDType();
-			String registrationNum = lawfulPresenceInputVO.getRegistrationNumber();
-			String sevisId = lawfulPresenceInputVO.getSevisId();
-			String alienTypCd = null;
-			Timestamp docExpDt = null;
-			String cardNumber = null;
-			String documentNumber = null;
-			String passportNum = null;
-			String i94Num = null;
-			String visaNum = null;
-			String countryOfIssuance = null;
-			Timestamp usEntryDt = null;
-
-			if (dcIndividualAlienCargo != null) {
-				alienTypCd = INInterfacesHelper.checkInputNullandTrim(dcIndividualAlienCargo.getAlienTypeCd());
-				if (dcIndividualAlienCargo.getDocExpireDt() != null) {
-					docExpDt = dcIndividualAlienCargo.getDocExpireDt();
-				}
-				cardNumber = INInterfacesHelper.checkInputNullandTrim(dcIndividualAlienCargo.getReceiptNum());
-				documentNumber = INInterfacesHelper.checkInputNullandTrim(dcIndividualAlienCargo.getI766DocumentNum());
-				passportNum = INInterfacesHelper.checkInputNullandTrim(dcIndividualAlienCargo.getPassportNum());
-				i94Num = dcIndividualAlienCargo.getI94Num();
-				visaNum = dcIndividualAlienCargo.getVisaNum();
-				countryOfIssuance = INInterfacesHelper.checkInputNullandTrim(dcIndividualAlienCargo.getCountryIssuanceCd());
-				if (dcIndividualAlienCargo.getUsEntryDt() != null) {
-					usEntryDt = dcIndividualAlienCargo.getUsEntryDt();
-				}
-			}
-			String countryOfIssuanceForVLP = null;
-			if (INInterfacesHelper.checkInputNullandTrim(countryOfIssuance) != INInterfacesHelper.EMPTY_STRING) {
-				countryOfIssuanceForVLP = VLPReferenceHelper.buildVlpCountryOfIssuanceCdReferenceMapCache().get(countryOfIssuance.toUpperCase());
-			}
-			if ((usEntryDt != null) && (usEntryDt.before(INInterfacesHelper.getTimeStampFromString("1996", "8", "22")))) {
-				initialVerificationRequestSetType.setFiveYearBarApplicabilityIndicator(false);
-			} else {
-				initialVerificationRequestSetType.setFiveYearBarApplicabilityIndicator(true);
-			}
-			if (VLPReferenceHelper.DOCUMENT__TYPE_I_327.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty()) {
-					buildI327DocumentID3Type(dhsIdType, registrationNum, docExpDt);
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_571.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty()) {
-					buildI571DocumentID5Type(dhsIdType, registrationNum, docExpDt);
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_OTHER.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty()) {
-					buildOtherCase1DocumentID1Type(dhsIdType, registrationNum, alienTypCd, docExpDt);
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_551.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String receiptNumber = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					receiptNumber = lawfulPresenceInputVO.getDocumentNumber();
-				} else if (cardNumber != null) {
-					receiptNumber = cardNumber;
-				} else if (t1004AppIndvCargo != null && t1004AppIndvCargo.getDocumentNum() != null) {
-					receiptNumber = t1004AppIndvCargo.getDocumentNum();
-				}
-				if (receiptNumber != null) {
-					if (registrationNum != null && !registrationNum.isEmpty()) {
-						buildI551DocumentID4Type(dhsIdType, registrationNum, docExpDt, receiptNumber);
-					}
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_94.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String i94Number = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					i94Number = lawfulPresenceInputVO.getDocumentNumber();
-				} else if (i94Num != null) {
-					i94Number = i94Num;
-				} else if (t1004AppIndvCargo != null && t1004AppIndvCargo.getDocumentNum() != null) {
-					i94Number = t1004AppIndvCargo.getDocumentNum();
-				}
-				if (i94Number != null) {
-					buildI94DocumentID2Type(dhsIdType, sevisId, docExpDt, i94Number);
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_766.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String receiptNumber = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					receiptNumber = lawfulPresenceInputVO.getDocumentNumber();
-				} else if (documentNumber != null) {
-					receiptNumber = documentNumber;
-				} else if (t1004AppIndvCargo != null && t1004AppIndvCargo.getDocumentNum() != null) {
-					receiptNumber = t1004AppIndvCargo.getDocumentNum();
-				}
-				if (receiptNumber != null) {
-					if (registrationNum != null && !registrationNum.isEmpty()) {
-						buildI766DocumentID9Type(dhsIdType, registrationNum, docExpDt, receiptNumber);
-					}
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_MACHINE_READABLE_IMMIGRANT_VISA.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String passportNumber = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					passportNumber = lawfulPresenceInputVO.getDocumentNumber();
-				} else if (passportNum != null) {
-					passportNumber = passportNum;
-				} else if (t1004AppIndvCargo != null && t1004AppIndvCargo.getDocumentNum() != null) {
-					passportNumber = t1004AppIndvCargo.getDocumentNum();
-				}
-				if (passportNumber != null) {
-					if (registrationNum != null && !registrationNum.isEmpty()) {
-						buildMacReadI551DocumentID22Type(dhsIdType, registrationNum, visaNum, passportNumber, countryOfIssuanceForVLP, docExpDt);
-					}
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_I_94_IN_UNEXPIRED_FOREIGN_PASSPORT.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				String i94Number = null;
-				if (lawfulPresenceInputVO.getDocumentNumber() != null) {
-					i94Number = lawfulPresenceInputVO.getDocumentNumber();
-				} else if (i94Num != null) {
-					i94Number = i94Num;
-				} else if (t1004AppIndvCargo != null && t1004AppIndvCargo.getDocumentNum() != null) {
-					i94Number = t1004AppIndvCargo.getDocumentNum();
-				}
-				String passportNumForI94Unexp = null;
-				if (passportNum != null) {
-					passportNumForI94Unexp = passportNum;
-				} else if (t1004AppIndvCargo != null && t1004AppIndvCargo.getDocumentNum() != null) {
-					passportNumForI94Unexp = t1004AppIndvCargo.getDocumentNum();
-				}
-				if (i94Number != null) {
-					buildI94UnexpForeignPassportDocumentID10Type(dhsIdType, i94Number, passportNumForI94Unexp, visaNum, sevisId, countryOfIssuanceForVLP, docExpDt);
-				}
-			} else if (VLPReferenceHelper.DOCUMENT__TYPE_TEMPORARY_I_551_STAMP.equalsIgnoreCase(lawfulPresenceInputVO.getDocumentType())) {
-				if (registrationNum != null && !registrationNum.isEmpty()) {
-					buildTempI551DocumentID21Type(dhsIdType, registrationNum, passportNum, countryOfIssuanceForVLP, docExpDt);
-				}
-			}
-			initialVerificationRequestSetType.setDHSID(dhsIdType);
-		}
-		initialVerificationRequestSetType.setRequestGrantDateIndicator(true);
-		initialVerificationRequestSetType.setRequestSponsorDataIndicator(true);
-		return initialVerificationRequestSetType;
-	}
-
-	/**
-	 * This method is used to buildOtherCase1DocumentID1Type
-	 * 
-	 * @param dhsIdType
-	 * @param registrationNum
-	 * @param alienTypCd
-	 * @param docExpDt
-	 * @throws DatatypeConfigurationException
-	 */
-	private void buildOtherCase1DocumentID1Type(DHSIDType dhsIdType, String registrationNum, String alienTypCd, Timestamp docExpDt) throws DatatypeConfigurationException {
-		OtherCase1DocumentID1Type otherCase1DocumentID1Type = new OtherCase1DocumentID1Type();
-		if (registrationNum != null && !INInterfacesHelper.checkInputNullandTrim(registrationNum).isEmpty() && registrationNum.length() >= 10) {
-			otherCase1DocumentID1Type.setAlienNumber(registrationNum.substring(1, 10));
-		}
-		if (alienTypCd != null && VLPReferenceHelper.buildVlpAlienTypeReferenceMapCache().get(alienTypCd) != null) {
-			otherCase1DocumentID1Type.setDocDescReq(VLPReferenceHelper.buildVlpAlienTypeReferenceMapCache().get(alienTypCd));
-		} else {
-			otherCase1DocumentID1Type.setDocDescReq(VLPReferenceHelper.DOCUMENT__TYPE_OTHER);
-		}
-		if (docExpDt != null) {
-			otherCase1DocumentID1Type.setDocExpirationDate(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(docExpDt));
-		}
-		dhsIdType.setOtherCase1DocumentID(otherCase1DocumentID1Type);
-	}
-
-	/**
-	 * This method is used to buildI766DocumentID9Type
-	 * 
-	 * @param dhsIdType
-	 * @param registrationNum
-	 * @param docExpDt
-	 * @throws InterfacesException
-	 * @throws DatatypeConfigurationException
-	 */
-	private void buildI766DocumentID9Type(DHSIDType dhsIdType, String registrationNum, Timestamp docExpDt, String receiptNumber) throws InterfacesException, DatatypeConfigurationException {
-		I766DocumentID9Type i766DocumentID9Type = new I766DocumentID9Type();
-		if (registrationNum != null && !INInterfacesHelper.checkInputNullandTrim(registrationNum).isEmpty() && registrationNum.length() >= 10) {
-			i766DocumentID9Type.setAlienNumber(registrationNum.substring(1, 10));
-		}
-		if (docExpDt != null) {
-			i766DocumentID9Type.setDocExpirationDate(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(docExpDt));
-		} else {
-			throw new InterfacesException(InterfacesExceptionVO.VLP_DOC_EXP_DT_NOT_FOUND);
-		}
-		i766DocumentID9Type.setReceiptNumber(receiptNumber);
-		dhsIdType.setI766DocumentID(i766DocumentID9Type);
-	}
-
-	/**
-	 * This method is used to buildI94DocumentID2Type
-	 * 
-	 * @param dhsIdType
-	 * @param sevisId
-	 * @param docExpDt
-	 * @param i94Num
-	 * @throws InterfacesException
-	 * @throws DatatypeConfigurationException
-	 */
-	private void buildI94DocumentID2Type(DHSIDType dhsIdType, String sevisId, Timestamp docExpDt, String i94Num) throws InterfacesException, DatatypeConfigurationException {
-		I94DocumentID2Type i94DocumentID2Type = new I94DocumentID2Type();
-		if (docExpDt != null) {
-			i94DocumentID2Type.setDocExpirationDate(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(docExpDt));
-		} else {
-			throw new InterfacesException(InterfacesExceptionVO.VLP_DOC_EXP_DT_NOT_FOUND);
-		}
-		i94DocumentID2Type.setI94Number(INInterfacesHelper.checkInputNullandTrim(i94Num));
-		if (sevisId != null && !INInterfacesHelper.checkInputNullandTrim(sevisId).isEmpty() && sevisId.length() >= 11) {
-			i94DocumentID2Type.setSEVISID(sevisId.substring(1, 11));
-		}
-		dhsIdType.setI94DocumentID(i94DocumentID2Type);
-	}
-
-	/**
-	 * This method is used to buildI551DocumentID4Type
-	 * 
-	 * @param dhsIdType
-	 * @param registrationNum
-	 * @param docExpDt
-	 * @param receiptNum
-	 * @throws DatatypeConfigurationException
-	 */
-	private void buildI551DocumentID4Type(DHSIDType dhsIdType, String registrationNum, Timestamp docExpDt, String receiptNum) throws DatatypeConfigurationException {
-		I551DocumentID4Type i551DocumentID4Type = new I551DocumentID4Type();
-		if (registrationNum != null && !INInterfacesHelper.checkInputNullandTrim(registrationNum).isEmpty() && registrationNum.length() >= 10) {
-			i551DocumentID4Type.setAlienNumber(registrationNum.substring(1, 10));
-		}
-		i551DocumentID4Type.setReceiptNumber(INInterfacesHelper.checkInputNullandTrim(receiptNum));
-		if (docExpDt != null) {
-			i551DocumentID4Type.setDocExpirationDate(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(docExpDt));
-		}
-		dhsIdType.setI551DocumentID(i551DocumentID4Type);
-	}
-
-	/**
-	 * This method is used to buildI571DocumentID5Type
-	 * 
-	 * @param dhsIdType
-	 * @param registrationNum
-	 * @param docExpDt
-	 * @throws DatatypeConfigurationException
-	 */
-	private void buildI571DocumentID5Type(DHSIDType dhsIdType, String registrationNum, Timestamp docExpDt) throws DatatypeConfigurationException {
-		I571DocumentID5Type i571DocumentID5Type = new I571DocumentID5Type();
-		if (registrationNum != null && !INInterfacesHelper.checkInputNullandTrim(registrationNum).isEmpty() && registrationNum.length() >= 10) {
-			i571DocumentID5Type.setAlienNumber(registrationNum.substring(1, 10));
-		}
-		dhsIdType.setI571DocumentID(i571DocumentID5Type);
-	}
-
-	/**
-	 * This method is used to buildI327DocumentID3Type
-	 * 
-	 * @param dhsIdType
-	 * @param registrationNum
-	 * @param docExpDt
-	 * @throws DatatypeConfigurationException
-	 */
-	private void buildI327DocumentID3Type(DHSIDType dhsIdType, String registrationNum, Timestamp docExpDt) throws DatatypeConfigurationException {
-		I327DocumentID3Type i327DocumentID3Type = new I327DocumentID3Type();
-		if (registrationNum != null && !INInterfacesHelper.checkInputNullandTrim(registrationNum).isEmpty() && registrationNum.length() >= 10) {
-			i327DocumentID3Type.setAlienNumber(registrationNum.substring(1, 10));
-		}
-		dhsIdType.setI327DocumentID(i327DocumentID3Type);
-
-	}
-
-	/**
-	 * This method is used to buildMacReadI551DocumentID22Type
-	 * 
-	 * @param dhsIdType
-	 * @param registrationNum
-	 * @param visaNum
-	 * @param passportNum
-	 * @param countryOfIssuanceForVLP
-	 * @param docExpDt
-	 * @throws DatatypeConfigurationException
-	 * @throws InterfacesException
-	 */
-	private void buildMacReadI551DocumentID22Type(DHSIDType dhsIdType, String registrationNum, String visaNum, String passportNum, String countryOfIssuanceForVLP, Timestamp docExpDt)
-			throws DatatypeConfigurationException, InterfacesException {
-		MacReadI551DocumentID22Type macReadI551DocumentID22Type = new MacReadI551DocumentID22Type();
-		if (registrationNum != null && !INInterfacesHelper.checkInputNullandTrim(registrationNum).isEmpty() && registrationNum.length() >= 10) {
-			macReadI551DocumentID22Type.setAlienNumber(registrationNum.substring(1, 10));
-		}
-		macReadI551DocumentID22Type.setVisaNumber(visaNum);
-		macReadI551DocumentID22Type.setPassportNumber(INInterfacesHelper.checkInputNullandTrim(passportNum));
-		if (countryOfIssuanceForVLP != null) {
-			if (countryOfIssuanceForVLP == countryOfIssuance_CIV) {
-				throw new InterfacesException(InterfacesExceptionVO.VLP_COUNTRY_OF_ISSUANCE_CIV_NOT_SUPPORTED);
-			} else {
-				macReadI551DocumentID22Type.setCountryOfIssuance(INInterfacesHelper.checkInputNullandTrim(countryOfIssuanceForVLP));
-			}
-		} else {
-			throw new InterfacesException(InterfacesExceptionVO.VLP_COUNTRY_OF_ISSUANCE_NOT_FOUND);
-		}
-		if (docExpDt != null) {
-			macReadI551DocumentID22Type.setDocExpirationDate(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(docExpDt));
-		}
-		dhsIdType.setMacReadI551DocumentID(macReadI551DocumentID22Type);
-	}
-
-	/**
-	 * This method is used to buildTempI551DocumentID21Type
-	 * 
-	 * @param dhsIdType
-	 * @param registrationNum
-	 * @param passportNum
-	 * @param countryOfIssuance
-	 * @param docExpDt
-	 * @throws DatatypeConfigurationException
-	 */
-	private void buildTempI551DocumentID21Type(DHSIDType dhsIdType, String registrationNum, String passportNum, String countryOfIssuance, Timestamp docExpDt) throws DatatypeConfigurationException {
-		TempI551DocumentID21Type tempI551DocumentID21Type = new TempI551DocumentID21Type();
-		if (registrationNum != null && !INInterfacesHelper.checkInputNullandTrim(registrationNum).isEmpty() && registrationNum.length() >= 10) {
-			tempI551DocumentID21Type.setAlienNumber(registrationNum.substring(1, 10));
-		}
-		if (passportNum != null && countryOfIssuance != null) {
-			PassportCountryType passportCountryType = new PassportCountryType();
-			passportCountryType.setPassportNumber(INInterfacesHelper.checkInputNullandTrim(passportNum));
-			passportCountryType.setCountryOfIssuance(INInterfacesHelper.checkInputNullandTrim(countryOfIssuance));
-			tempI551DocumentID21Type.setPassportCountry(passportCountryType);
-		}
-		if (docExpDt != null) {
-			tempI551DocumentID21Type.setDocExpirationDate(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(docExpDt));
-		}
-		dhsIdType.setTempI551DocumentID(tempI551DocumentID21Type);
-	}
-
-	/**
-	 * This method is used to buildI94UnexpForeignPassportDocumentID10Type
-	 * 
-	 * @param dhsIdType
-	 * @param i94Num
-	 * @param passportNum
-	 * @param visaNum
-	 * @param sevisId
-	 * @param countryOfIssuanceForVLP
-	 * @param docExpDt
-	 * @throws DatatypeConfigurationException
-	 * @throws InterfacesException
-	 */
-	private void buildI94UnexpForeignPassportDocumentID10Type(DHSIDType dhsIdType, String i94Num, String passportNum, String visaNum, String sevisId, String countryOfIssuanceForVLP, Timestamp docExpDt)
-			throws DatatypeConfigurationException, InterfacesException {
-		I94UnexpForeignPassportDocumentID10Type i94UnexpForeignPassportDocumentID10Type = new I94UnexpForeignPassportDocumentID10Type();
-		i94UnexpForeignPassportDocumentID10Type.setI94Number(INInterfacesHelper.checkInputNullandTrim(i94Num));
-		if (sevisId != null && !INInterfacesHelper.checkInputNullandTrim(sevisId).isEmpty() && sevisId.length() >= 11) {
-			i94UnexpForeignPassportDocumentID10Type.setSEVISID(sevisId.substring(1, 11));
-		}
-		i94UnexpForeignPassportDocumentID10Type.setVisaNumber(visaNum);
-		if (passportNum != null && !passportNum.equals(INInterfacesHelper.EMPTY_STRING)) {
-			i94UnexpForeignPassportDocumentID10Type.setPassportNumber(INInterfacesHelper.checkInputNullandTrim(passportNum));
-		} else {
-			throw new InterfacesException(InterfacesExceptionVO.VLP_PASSPORT_NUM_NOT_FOUND);
-		}
-		if (countryOfIssuanceForVLP != null) {
-			if (countryOfIssuanceForVLP == countryOfIssuance_CIV) {
-				throw new InterfacesException(InterfacesExceptionVO.VLP_COUNTRY_OF_ISSUANCE_CIV_NOT_SUPPORTED);
-			} else {
-				i94UnexpForeignPassportDocumentID10Type.setCountryOfIssuance(INInterfacesHelper.checkInputNullandTrim(countryOfIssuanceForVLP));
-			}
-		} else {
-			throw new InterfacesException(InterfacesExceptionVO.VLP_COUNTRY_OF_ISSUANCE_NOT_FOUND);
-		}
-		if (docExpDt != null) {
-			i94UnexpForeignPassportDocumentID10Type.setDocExpirationDate(INInterfacesHelper.getXmlGregorianCalenderFromTimeStamp(docExpDt));
-		} else {
-			throw new InterfacesException(InterfacesExceptionVO.VLP_DOC_EXP_DT_NOT_FOUND);
-		}
-		dhsIdType.setI94UnexpForeignPassportDocumentID(i94UnexpForeignPassportDocumentID10Type);
-	}	
-	
-	/**
-	 * This method is used to buildResubmitRequestType
-	 * 
-	 * @param caseNbr
-	 * @param dcIndividualAlienCargo
-	 * @param dcCasesCargo
-	 * @param sevisId
-	 * @return ResubmitRequestType
-	 * @throws DatatypeConfigurationException
-	 */
-	@Deprecated
-	private ResubmitRequestType buildResubmitRequestType(String caseNbr, String alienSevisId, String voSevisId) throws DatatypeConfigurationException {
-		ResubmitRequestType resubmitRequestType = null;
-		if (caseNbr != null) {
-			resubmitRequestType = new ResubmitRequestType();
-			resubmitRequestType.setCaseNumber(INInterfacesHelper.checkInputNullandTrim(caseNbr));
-			if (alienSevisId != null && !alienSevisId.trim().isEmpty()) {
-				resubmitRequestType.setSEVISID(alienSevisId.replace("N", ""));
-			} else if (voSevisId != null && !voSevisId.trim().isEmpty()) {
-				resubmitRequestType.setSEVISID(voSevisId.replace("N", ""));
-			}
-		}
-		return resubmitRequestType;
-	}
-
-	/**
-	 * This method is used to callInitialVerificationV37Operation
-	 * 
-	 * @param initialVerificationRequestSetType
-	 * @return InitialVerificationResponseType
-	 * @throws InterfacesException
-	 */
-	@Deprecated
-	private InitialVerificationResponseType callInitialVerificationV37Operation(InitialVerificationRequestSetType initialVerificationRequestSetType) throws InterfacesException {
-		InitialVerificationResponseType initialVerificationResponseType = null;
-		VerifyLawfulPresencePortTypeInitialVerificationV37Output verifyLawfulPresencePortTypeInitialVerificationV37Output = null;
-		InitialVerificationRequestType initialVerificationRequestType = new InitialVerificationRequestType();
-		initialVerificationRequestType.getInitialVerificationRequestSet().add(initialVerificationRequestSetType);
-		
-		final VLP_VLP37__connectors_VerifyLawfulPresencePortType_V37_WSD_PortProxy verifyLawfulPresencePortTypeV37PortProxy = new VLP_VLP37__connectors_VerifyLawfulPresencePortType_V37_WSD_PortProxy();
-		Dispatch dispatch = verifyLawfulPresencePortTypeV37PortProxy._getDescriptor().getDispatch();
-		BindingProvider bp = (BindingProvider) dispatch;
-		
-		Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
-		SSLSocketFactory sslsocketfactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
-		bp.getRequestContext().put("com.sun.xml.internal.ws.transport.https.client.SSLSocketFactory", sslsocketfactory);
-		
-		try {
-			final VerifyLawfulPresencePortTypeInitialVerificationV37Input parameters = new VerifyLawfulPresencePortTypeInitialVerificationV37Input();
-			parameters.setInitialVerificationRequest(initialVerificationRequestType);
-			String esbEndPoint = FwUDDIManager.getEndpoint("VLP37").getEsbServiceEndpoint();
-			String serviceEndPoint = FwUDDIManager.getEndpoint("VLP37").getServiceEndpoint();
-			com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.ObjectFactory fact = new com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.ObjectFactory();
-			JAXBElement<String> str = fact.createVerifyLawfulPresencePortTypeInitialVerificationV37InputUrl(serviceEndPoint);
-			parameters.setUrl(str);
-			verifyLawfulPresencePortTypeV37PortProxy._getDescriptor().setEndpoint(esbEndPoint);
-
-			String timeout = "14000";
-			if (properties.getProperty("WEB_SERIVICES_IES_TIMEOUT") != null) {
-				timeout = properties.getProperty("WEB_SERIVICES_IES_TIMEOUT");
-			}
-			ExecutorService executor = Executors.newCachedThreadPool();
-			Callable<Object> task = new Callable<Object>() {
-				public VerifyLawfulPresencePortTypeInitialVerificationV37Output call() throws InterfacesException {
-					return verifyLawfulPresencePortTypeV37PortProxy.verifyLawfulPresencePortTypeInitialVerificationV37(parameters);
-				}
-			};
-
-			Future<Object> future = executor.submit(task);
-			try {
-				verifyLawfulPresencePortTypeInitialVerificationV37Output = (VerifyLawfulPresencePortTypeInitialVerificationV37Output) future.get(Long.parseLong(timeout), TimeUnit.MILLISECONDS);
-			} catch (TimeoutException ex) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation method, catch TimeoutException ", ex);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-			} catch (InterruptedException e) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation method, catch InterruptedException ", e);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-			} catch (ExecutionException e) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation method, catch ExecutionException ", e);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-			} finally {
-				future.cancel(true);
-			}
-
-			if (verifyLawfulPresencePortTypeInitialVerificationV37Output != null) {
-				initialVerificationResponseType = verifyLawfulPresencePortTypeInitialVerificationV37Output.getInitialVerificationResponse();
-				if (initialVerificationResponseType != null) {
-					return initialVerificationResponseType;
-				} else {
-					String errorMessage = "";
-					JAXBElement<Fault> faultElement = verifyLawfulPresencePortTypeInitialVerificationV37Output.getFault();
-					if (faultElement != null && faultElement.getValue() != null && faultElement.getValue().getReasons() != null && !faultElement.getValue().getReasons().isEmpty()) {
-						List<Reasons> faultString = faultElement.getValue().getReasons();
-						for (Reasons reason : faultString) {
-							errorMessage = errorMessage + reason.getContent();
-						}
-						log(ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation, System Return with NULL response and fault String : " + errorMessage + " : for Input "
-								+ initialVerificationRequestSetType.toString());
-					}
-					log(ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation, System Return with NULL response : " + " : for Input " + initialVerificationRequestSetType.toString());
-					InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-					interfaceException.setInterfaceExceptionSummary(errorMessage);
-					throw interfaceException;
-				}
-			} else {
-				log(ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation, System Return with NULL response : " + " : for Input " + initialVerificationRequestSetType.toString());
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-			}
-		} catch (Exception ex) {
-			if (ex instanceof SOAPFaultException) {
-				SOAPFaultException soapFaultException = (SOAPFaultException) ex;
-				SOAPFault fault = soapFaultException.getFault();
-				log(ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation, IMS returned with SOAP Fault : " + fault.toString() + " : for Input Request : "
-						+ initialVerificationRequestType.getInitialVerificationRequestSet().get(0).toString(), ex);
-				InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.TECHNICAL_IMS_ERROR_MSG, ex);
-				interfaceException.setInterfaceExceptionSummary(ex.getMessage());
-				throw interfaceException;
-			}
-			log(ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37Operation, System threw Excpetion : " + ex.getMessage() + " : for Input Request : "
-					+ initialVerificationRequestType.getInitialVerificationRequestSet().get(0).toString(), ex);
-			InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-			interfaceException.setInterfaceExceptionSummary(ex.getMessage());
-			throw interfaceException;
-		}
-	}
-	
-	/**
-	 * 
-	 * @param VLP Version 37.1
-	 * @param initialVerificationRequestSetType
-	 * @param token
-	 * @param reInvokeCount
-	 * @return
-	 * @throws InterfacesException
-	 */
-	private InitialVerificationResponseType callInitialVerificationV37RESTOperation(InitialVerificationRequestSetType initialVerificationRequestSetType, String token ) throws InterfacesException {
-		InitialVerificationResponseType initialVerificationResponseType = null;
-		InitialVerificationRequestType initialVerificationRequestType = new InitialVerificationRequestType();
-		initialVerificationRequestType.getInitialVerificationRequestSet().add(initialVerificationRequestSetType);
-				
-		try {
-			
-			String initialVerificationRequestSetTypeXml = 
-				marshallInitialVerificationRequestType(initialVerificationRequestType);
-			
-			logger.Log(LogLevel.INFO,"VLPWsInputAdapter.callInitialVerificationV37RESTOperation..Initial Verif Request-->."+initialVerificationRequestSetTypeXml);
-					
-			if ( initialVerificationRequestSetTypeXml != null )
+			synchronized (TokenServiceHelper.class)
 			{
-				String responseXML = invokeInitialVerif(token, initialVerificationRequestSetTypeXml);
-				
-				if( StringUtils.isNotEmpty( responseXML ) )
+				if (instance == null)
 				{
-					if( responseXML.contains( INVALID_CREDENTIALS ) )  
-					{
-						logger.Log(LogLevel.INFO, "In VLPWsInputAdapter.callInitialVerificationV37RESTOperation :: Invalid Credentials, Please check your headers " );
-						
-						TokenServiceHelper.invokeTokenService(FwConstants.CMS_SERVICE, token); 
-						
-						InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.TOKEN_EXPIRED_ERROR_MSG);
-						throw interfaceException;
-					}
-					else
-					{
-						initialVerificationResponseType = unmarshalInitialVerifXMLString(responseXML);
-						
-						logger.Log(LogLevel.INFO,"VLPWsInputAdapter.callInitialVerificationV37RESTOperation..Initial Verif Response "+initialVerificationResponseType);
-						
-						if ( initialVerificationResponseType != null )  
-						{																						
-							if( initialVerificationResponseType.getResponseMetadata() == null ) // Success response OR business validations
+					instance = new TokenServiceHelper();
+				}
+			}
+		}
+		return instance;
+	}
+
+	/**
+	 * This method will retrieves the Token Id from the Database.
+	 * 
+	 * @param serviceType
+	 * @return
+	 * @throws FrameworkException
+	 * @throws ApplicationException
+	 */
+	public static synchronized String retrieveToken(String serviceType) throws ApplicationException, FrameworkException
+ {
+		Debug.println("Start of TokenServiceHelper.retrieveToken().. and Service Type is " + serviceType);
+		Timestamp currTimets = new Timestamp(System.currentTimeMillis());
+		if (cmsToken != null) 
+		{
+			Debug.println(" Last Token Generated Time:" + cmsLastTokenGeneratedTime);
+			if (cmsLastTokenGeneratedTime != null) 
+			{
+				long cmsRunInterval = 15;
+				if (CMS.equalsIgnoreCase(serviceType)) 
+				{
+					String batchInterval = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("CMS_BATCH_RUN_INTERVAL");
+					cmsRunInterval = Long.parseLong(batchInterval);
+				}
+				long timeDiffinMinutes = TokenServiceHelper.getTimeDiffinMinutes(currTimets.getTime(),cmsLastTokenGeneratedTime.getTime(),TimeUnit.MINUTES);
+				Debug.println("timeDiffinMinutes between Tokens: "+ timeDiffinMinutes);
+				if (timeDiffinMinutes > cmsRunInterval) 
+				{
+					Debug.println("Re-intializing Token and cmsLastTokenGeneratedTime to null...");
+					cmsToken = null;
+					cmsLastTokenGeneratedTime = null;
+				} 
+				else 
+				{
+					Debug.println(RETURNING_TOKEN_STRING + cmsToken + FOR_SERVICE_TYPE_STRING + serviceType);
+					return cmsToken;
+				}
+			}
+		} 
+		else if (idotToken != null) 
+		{
+			Debug.println(" Last Token Generated Time:" + idotLastTokenGeneratedTime);
+			if (idotLastTokenGeneratedTime != null) 
+			{
+				long idotRunInterval = 15;
+				if (IDOT.equalsIgnoreCase(serviceType)) 
+				{
+					String batchInterval = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("IDOT_BATCH_RUN_INTERVAL");
+					idotRunInterval = Long.parseLong(batchInterval);
+				}
+				long timeDiffinMinutes = TokenServiceHelper.getTimeDiffinMinutes(currTimets.getTime(),idotLastTokenGeneratedTime.getTime(),TimeUnit.MINUTES);
+				Debug.println("timeDiffinMinutes between Tokens: " + timeDiffinMinutes);
+				if (timeDiffinMinutes > idotRunInterval) 
+				{
+					Debug.println("Re-intializing Token and idotLastTokenGeneratedTime to null...");
+					idotToken = null;
+					idotLastTokenGeneratedTime = null;
+				}
+			} 
+			else 
+			{
+				Debug.println(RETURNING_TOKEN_STRING + idotToken + FOR_SERVICE_TYPE_STRING + serviceType);
+				return idotToken;
+			}
+		}
+		IesServicesAuthTokenCargo cargo = retrieveTokenCargo(serviceType);
+		if (cargo != null) 
+		{
+			if (CMS.equalsIgnoreCase(serviceType)) 
+			{
+				cmsToken = cargo.getTokenId();
+				cmsLastTokenGeneratedTime = cargo.getEffBeginDt();
+				Debug.println(RETURNING_TOKEN_STRING + cmsToken + FOR_SERVICE_TYPE_STRING + serviceType);
+				return cmsToken;
+			} 
+			else if (IDOT.equalsIgnoreCase(serviceType)) 
+			{
+				idotToken = cargo.getTokenId();
+				idotLastTokenGeneratedTime = cargo.getEffBeginDt();
+				Debug.println(RETURNING_TOKEN_STRING + idotToken + FOR_SERVICE_TYPE_STRING + serviceType);
+				return idotToken;
+			}
+		}
+		Debug.println("End of TokenServiceHelper.retrieveToken()..Returning null");
+		return null;
+	}
+
+	/**
+	 * This method will invoke the Web Service based on the service provider type and returns the token from it.
+	 * 
+	 * @param serviceType
+	 * @return
+	 * @throws FrameworkException
+	 * @throws ApplicationException
+	 * @throws Exception
+	 */
+	public static synchronized String invokeTokenService(String serviceType, String oldToken) throws Exception
+	{
+		try
+		{
+			Debug.println("Start of TokenServiceHelper.invokeTokenService().. and Service Type is " + serviceType + " and old Token is:" + oldToken);
+			if (serviceType == null)
+			{
+				return null;
+			}
+			boolean invokeTokenService = false;
+			long runInterval = 15;
+			if (CMS.equalsIgnoreCase(serviceType))
+			{
+				String batchInterval = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("CMS_BATCH_RUN_INTERVAL");
+				runInterval = Long.parseLong(batchInterval);
+			}
+			else if (IDOT.equalsIgnoreCase(serviceType))
+			{
+				String batchInterval = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("IDOT_BATCH_RUN_INTERVAL");
+				runInterval = Long.parseLong(batchInterval);
+			}
+			else if (EQUIFAX.equalsIgnoreCase(serviceType))
+			{
+				String batchInterval = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("EQUIFAX_BATCH_RUN_INTERVAL");
+				runInterval = Long.parseLong(batchInterval);
+			}
+			Debug.println("Run interval for service:" + serviceType + " is:" + runInterval);
+			IesServicesAuthTokenCargo tokenCargo = retrieveTokenCargo(serviceType);
+			if (tokenCargo == null)
+			{
+				Debug.println("Token cargos from DB is null, making invokeTokenService as true");
+				invokeTokenService = true;
+			}
+			else
+			{
+				String tokenId = tokenCargo.getTokenId();
+				if (oldToken.equalsIgnoreCase(tokenId))
+				{
+					Debug.println("oldToken and Token fetched from DB are same, making invokeTokenService as true");
+					invokeTokenService = true;
+				}
+				else 
+				{
+						Timestamp tokenCreateDt = tokenCargo.getCreateDt();
+						Timestamp currTimets = new Timestamp(System.currentTimeMillis());
+						long timeDiffinMinutes = TokenServiceHelper.getTimeDiffinMinutes(currTimets.getTime(), tokenCreateDt.getTime(), TimeUnit.MINUTES);
+						Debug.println("timeDiffinMinutes from db and old Token: " + timeDiffinMinutes);
+						if (timeDiffinMinutes <= runInterval)
+						{
+							if (FwConstants.CMS_SERVICE.equalsIgnoreCase(serviceType))
 							{
-								logger.Log(LogLevel.INFO,"VLPWsInputAdapter.callInitialVerificationV37RESTOperation..Sucess Response..");
-								
-								InitialVerificationResponseSetType responseSet = 
-									initialVerificationResponseType.getInitialVerificationResponseSet();
-								
-								if( responseSet != null )
-								{
-									List<InitialVerificationIndividualResponseType> responseList = 
-										responseSet.getInitialVerificationIndividualResponse();
-									
-									String errorMessage = "";
-									ResponseMetadataType responseMetadata;
-									
-									if( responseList != null && !responseList.isEmpty() )
-									{
-										InitialVerificationIndividualResponseType indvResponseType = (InitialVerificationIndividualResponseType)responseList.get(0);
-										
-										responseMetadata = indvResponseType.getResponseMetadata();
-										
-										if ( responseMetadata != null )
-										{
-											if( SUCCESS_RESPONSE.equalsIgnoreCase( responseMetadata.getResponseCode() ) )
-											{
-												return initialVerificationResponseType;
-											}
-											else  // Business Validations
-											{
-												errorMessage = responseMetadata.getTDSResponseDescriptionText();
-
-												logger.Log(LogLevel.ERROR,"VLPWsInputAdapter.callInitialVerificationV37RESTOperation..Initial Verif errorMessage--> Business validation Response:: "+errorMessage); 
-												InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR );
-												throw interfaceException;
-											}
-										}
-										else
-										{
-											logger.Log(LogLevel.ERROR,"VLPWsInputAdapter.callInitialVerificationV37RESTOperation..Initial Verif errorMessage--> responseMetadata is null "); 
-											InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR );
-											throw interfaceException;
-										}
-									}
-								}
+								cmsToken = tokenId;
+								Debug.println("Token fetched from DB is within Batch interval, returning DB token:" + cmsToken);
+								return cmsToken;
 							}
-							else // Schema validation response
-							{									
-								String responseText = initialVerificationResponseType.getResponseMetadata().getResponseDescriptionText();
-								
-								logger.Log(LogLevel.ERROR,"VLPWsInputAdapter.callInitialVerificationV37RESTOperation..Initial Verif errorMessage--> schema validation response:: "+responseText); 
-								InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR + " :: "+ responseText );
-								throw interfaceException;																	
-							}						
+							else if (FwConstants.IDOT_SERVICE.equalsIgnoreCase(serviceType))
+							{
+								idotToken = tokenId;
+								Debug.println("Token fetched from DB is within Batch interval, returning DB token:" + idotToken);
+								return idotToken;
+							}
 						}
+						else
+						{
+							Debug.println("Token fetched from DB is not within Batch interval, making invokeTokenService as true");
+							invokeTokenService = true;
+						}
+				}
+			}
+			Debug.println("invokeTokenService flag:" + invokeTokenService);
+			// Ideally this if Block should never execute
+			if (!invokeTokenService)
+			{
+				Debug.println("Couldn't find Token and invokeTokenService is false");
+				return null;
+			}
+			if (FwConstants.CMS_SERVICE.equalsIgnoreCase(serviceType))
+			{
+				String accessTokenUrl = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("ACCESS_TOKEN_URL");
+				String timeOut = FwPropertyLoader.getPropertyOf(FwConstants.APPLICATION_PROPERTY_FILE, "WEB_SERIVICES_IES_TIMEOUT");
+				String cmsTokenSslEnableSw = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("CMS_TOKEN_SSL_ENABLE_SW");
+
+				if (StringUtils.isEmpty(timeOut))
+				{
+					timeOut = "14000";
+				}
+
+				if (StringUtils.isEmpty(accessTokenUrl) || StringUtils.isEmpty(cmsTokenSslEnableSw))
+				{
+					return null;
+				}
+				CMSTokenServiceBO cmsTokenServiceBO;
+				if(conn == null)
+				{
+					 cmsTokenServiceBO = new CMSTokenServiceBO(accessTokenUrl, cmsTokenSslEnableSw, timeOut);
+				}
+				else
+				{
+					 cmsTokenServiceBO = new CMSTokenServiceBO(accessTokenUrl, cmsTokenSslEnableSw, timeOut,conn);
+
+				}
+				String newToken = cmsTokenServiceBO.retrieveCMSToken();
+				Debug.println("New Token:" + cmsToken + FOR_SERVICE_TYPE_STRING + serviceType);
+				// Valid token from CMS Service
+				if (newToken != null)
+				{
+					boolean flag = true;
+					if(conn == null)
+					{
+						flag = false;
 					}
+					cmsTokenServiceBO.persistCMSToken(newToken, serviceType, flag);
+					cmsToken = newToken;
+	                return cmsToken;
+				}
+			}
+			else if (FwConstants.IDOT_SERVICE.equalsIgnoreCase(serviceType))
+			{
+				String accessTokenUrl = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("IDOT_ACCESS_TOKEN_URL");
+				String timeOut = FwPropertyLoader.getPropertyOf(FwConstants.APPLICATION_PROPERTY_FILE, "WEB_SERIVICES_IES_TIMEOUT");
+				String idotTokenSslEnableSw = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("IDOT_TOKEN_SSL_ENABLE_SW");
+
+				if (StringUtils.isEmpty(timeOut))
+				{
+					timeOut = "14000";
+				}
+
+				if (StringUtils.isEmpty(accessTokenUrl) || StringUtils.isEmpty(idotTokenSslEnableSw))
+				{
+					return null;
+				}
+				IDOTTokenServiceBO idotTokenServiceBO;
+				if(conn == null)
+				{
+					idotTokenServiceBO = new IDOTTokenServiceBO(accessTokenUrl, idotTokenSslEnableSw, timeOut);
+				}
+				else
+				{
+					idotTokenServiceBO = new IDOTTokenServiceBO(accessTokenUrl, idotTokenSslEnableSw, timeOut,conn);
+
+				}
+				String newToken = idotTokenServiceBO.retrieveIDOTToken();
+				Debug.println("New Token:" + idotToken + FOR_SERVICE_TYPE_STRING + serviceType);
+				// Valid token from IDOT Service
+				if (newToken != null)
+				{
+					boolean flag = true;
+					if(conn == null)
+					{
+						flag = false;
+					}
+					idotTokenServiceBO.persistIDOTToken(newToken, serviceType, flag);
+					idotToken = newToken;
+	                return idotToken;
 				}
 			}
 			else
 			{
-				log(ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37RESTOperation, Initial Verification Type is null ");
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
+				// TODO: EQUIFAX
+				return null;
 			}
-									
-		} catch (Exception ex) {
-			log(ILog.ERROR, "In VLPWsInputAdapter.callInitialVerificationV37RESTOperation, System threw Excpetion : " + ex.getMessage() + " : for Request : "
-					+ initialVerificationRequestType.getInitialVerificationRequestSet().get(0).toString(), ex);
-			InterfacesException interfaceException = null;
-			if(null != ex.getMessage() && ex.getMessage().contains(InterfacesExceptionVO.TOKEN_EXPIRED_ERROR_MSG)){
-				interfaceException =  new InterfacesException(InterfacesExceptionVO.TOKEN_EXPIRED_ERROR_MSG, ex);
-			}else{
-				interfaceException =  new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-			}
-			interfaceException.setInterfaceExceptionSummary(ex.getMessage());
-			throw interfaceException;
 		}
-		
-		return initialVerificationResponseType;
-	}	
-	
+		catch (Exception e)
+		{
+			throw new InterfacesException("TokenServiceHelper.invokeTokenService() : " + e.getMessage(), e);
+		}
+		Debug.println("End of TokenServiceHelper.invokeTokenService()..Returning null");
+		return null;
+	}
+
 	/**
+	 * This method will retrieves the Token Id from the Database.
 	 * 
-	 * @param accessToken
-	 * @param inputXml
+	 * @param serviceType
 	 * @return
-	 * @throws InterfacesException
-	 * @throws Exception
+	 * @throws FrameworkException
+	 * @throws ApplicationException
 	 */
-	private String invokeInitialVerif(String accessToken, String inputXml ) throws InterfacesException, Exception
+	private static synchronized IesServicesAuthTokenCargo retrieveTokenCargo(String serviceType) throws ApplicationException, FrameworkException
 	{
-		String responseXml = null;
-		ClientResponse clientResponse = null;
-		
-		String vlpInitialRestEndpoint = FwPropertyLoader.getProperties(TIERS).getProperty(VLP_STEP1_REST_ENDPOINT);
-		String bearerString = FwPropertyLoader.getProperties(TIERS).getProperty(BEARER_STRING);
-		String messadeIdString = FwPropertyLoader.getProperties(TIERS).getProperty(MESSAGE_ID_STRING);
-		String xmlString = FwPropertyLoader.getProperties(TIERS).getProperty(XML_STRING);
-				
-		Future<Object> future = null;
-		
-		if( StringUtils.isEmpty( vlpInitialRestEndpoint) || StringUtils.isEmpty( bearerString ) 
-				|| StringUtils.isEmpty( messadeIdString )
-					|| StringUtils.isEmpty( xmlString ) )
+		Debug.println("Start of TokenServiceHelper.retrieveTokenCargo().. and Service Type is " + serviceType);
+		IesServicesAuthTokenCollection authColl;
+		if(conn == null)
 		{
-			logger.Log(LogLevel.ERROR,	"..VLP_STEP1_REST_URL PROPERTIES ARE NULL..");
-			
-			InterfacesException interfaceException = 
-				new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-			throw interfaceException;
+			authColl = new IesServicesAuthTokenCollection();
 		}
-		
-		String queryParam =  bearerString+ " " + accessToken ;
-		
-		queryParam = queryParam + messadeIdString +UUID.randomUUID().toString();
-		queryParam = queryParam + xmlString ;
-		
-		queryParam = queryParam + inputXml;
-		
-		final String param = queryParam;
-		
-		if( StringUtils.isEmpty( TIME_OUT ) )
+		else
 		{
-			TIME_OUT = "14000";
+			authColl = new IesServicesAuthTokenCollection(conn);
 		}
+		Object params[] = new Object[1];
+		params[0] = serviceType;
 
-		//TODO: Don't commit next 6 lines of code. this is only for local testing
-		/*ClientConfig config = new ClientConfig();
-		BasicAuthSecurityHandler basicAuthSecHandler = new BasicAuthSecurityHandler();
-		basicAuthSecHandler.setUserName("AppUser");
-		basicAuthSecHandler.setPassword("app1ic@ti0n");    
-		config.handlers(basicAuthSecHandler);
-		RestClient client = new RestClient(config);*/
-		
-		//For commit
-		RestClient client = new RestClient(); 
-		
-		final Resource clientResource = client.resource(vlpInitialRestEndpoint);
-
-		clientResource.header(ACCEPT, APPLICATION_JSON);
-		clientResource.header(CONTENT_TYPE, APPLICATION_CONTENT_TYPE);
-		
-		try
-		{   	
-			ExecutorService executor = Executors.newCachedThreadPool();
-			Callable<Object> task = new Callable<Object>()
-			{
-				public ClientResponse call() throws Exception
-				{
-					return clientResource.post(param);
-				}
-			};
-			
-			future = executor.submit(task);
-						
-			clientResponse = (ClientResponse) future.get(Long.parseLong(TIME_OUT), TimeUnit.MILLISECONDS);
-			
-		} catch (TimeoutException ex) {
-			log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.invokeInitialVerif method, catch TimeoutException ", ex);
-			throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-		} catch (InterruptedException e) {
-			log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.invokeInitialVerif method, catch InterruptedException ", e);
-			throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-		} catch (ExecutionException e) {
-			log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.invokeInitialVerif method, catch ExecutionException ", e);
-			throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-		} 
-		catch (Exception ex)
+		IesServicesAuthTokenCargo[] cargos = (IesServicesAuthTokenCargo[]) authColl.select(FIND_LATEST_TOKEN_RECORD_STRING, params);
+		// Retrieving token from DB
+		if (cargos != null && cargos.length > 0)
 		{
-			logger.Log(LogLevel.ERROR,	"Exception in VLPWsInputAdapter.invokeInitialVerif():: "+ ex.getMessage());
-			InterfacesException interfaceException = 
-				new InterfacesException(InterfacesExceptionVO.TECHNICAL_IMS_ERROR_MSG, ex.getMessage());
-			throw interfaceException;
-		}
-		finally 
-		{
-			if( future != null )
+			for (IesServicesAuthTokenCargo cargo : cargos)
 			{
-				future.cancel(true);
+				return cargo;
 			}
 		}
-		
-		try
-		{
-			String resp = clientResponse.getEntity(String.class);		
-			Gson gson = new Gson();
-			CMSJSONResponse tokenResp = gson.fromJson(resp, CMSJSONResponse.class);
-			
-			if( tokenResp.body == null )
-			{
-				logger.Log(LogLevel.ERROR,	"Exception in VLPWsInputAdapter.invokeInitialVerif()-- No Body in the Response");
-				InterfacesException interfaceException = 
-					new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR + NULL_BODY_IN_THE_RESPONSE);
-				throw interfaceException;
-			}
-			
-			responseXml = tokenResp.body.getResponse();				
-		}
-		catch (Exception ex)
-		{
-			logger.Log(LogLevel.ERROR,	"Exception in VLPWsInputAdapter.invokeInitialVerif()--Invalid Response "+ ex.getMessage());
-			InterfacesException interfaceException = 
-				new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex.getMessage());
-			throw interfaceException;
-		}
-				
-		return responseXml;
+		Debug.println("End of TokenServiceHelper.retrieveTokenCargo()..");
+		return null;
 	}
-	
-	/**
-	 * 
-	 * @param accessToken
-	 * @param inputXml
-	 * @return
-	 * @throws InterfacesException
-	 * @throws Exception
-	 */
-	private String invokeCloseCase(String accessToken, String inputXml) throws InterfacesException,Exception
+
+	private static long getTimeDiffinMinutes(long timeNow, long timeUpdate, TimeUnit timeUnit)
 	{
-		String responseXml = null;
-		ClientResponse clientResponse = null;
-		
-		String vlpCloseCaseRestEndpoint = FwPropertyLoader.getProperties(TIERS).getProperty(VLP_CLOSE_CASE_REST_ENDPOINT);
-		String bearerString = FwPropertyLoader.getProperties(TIERS).getProperty(BEARER_STRING);
-		String messadeIdString = FwPropertyLoader.getProperties(TIERS).getProperty(MESSAGE_ID_STRING);
-		String xmlString = FwPropertyLoader.getProperties(TIERS).getProperty(XML_STRING);
-				
-		Future<Object> future = null;
-		
-		if( StringUtils.isEmpty( vlpCloseCaseRestEndpoint ) 
-				|| StringUtils.isEmpty( bearerString ) || StringUtils.isEmpty( messadeIdString )
-					|| StringUtils.isEmpty( xmlString ) )
-		{
-			logger.Log(LogLevel.ERROR,	"..VLP_CLOSE_CASE_REST_URL PROPERTIES ARE NULL..");
-			
-			InterfacesException interfaceException = 
-				new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-			throw interfaceException;
-		}
-		
-		String queryParam = bearerString +" "+ accessToken;
-		queryParam = queryParam + messadeIdString + UUID.randomUUID().toString();
-		queryParam = queryParam + xmlString;
-		
-		queryParam = queryParam + inputXml;
-		final String param = queryParam;
-
-		if( StringUtils.isEmpty( TIME_OUT ) )
-		{
-			TIME_OUT = "14000";
-		}
-		
-		//TODO: Uncomment this code for local testing but DON'T COMMIT the change
-		/*ClientConfig config = new ClientConfig();
-		BasicAuthSecurityHandler basicAuthSecHandler = new BasicAuthSecurityHandler();
-		basicAuthSecHandler.setUserName("AppUser");
-		basicAuthSecHandler.setPassword("app1ic@ti0n");   
-		config.handlers(basicAuthSecHandler);
-		RestClient client = new RestClient(config);*/
-		
-		RestClient client = new RestClient();
-		final Resource clientResource = client.resource(vlpCloseCaseRestEndpoint);
-
-		clientResource.header(ACCEPT, APPLICATION_JSON);
-		clientResource.header(CONTENT_TYPE, APPLICATION_CONTENT_TYPE);
-		
-		try
-		{   
-			ExecutorService executor = Executors.newCachedThreadPool();
-			Callable<Object> task = new Callable<Object>()
-			{
-				public ClientResponse call() throws Exception
-				{
-					return clientResource.post(param);
-				}
-			};
-			
-			future = executor.submit(task);
-						
-			clientResponse = (ClientResponse) future.get(Long.parseLong(TIME_OUT), TimeUnit.MILLISECONDS);
-					
-		} catch (TimeoutException ex) {
-			log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.invokeCloseCase method, catch TimeoutException ", ex);
-			throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-		} catch (InterruptedException e) {
-			log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.invokeCloseCase method, catch InterruptedException ", e);
-			throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-		} catch (ExecutionException e) {
-			log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.invokeCloseCase method, catch ExecutionException ", e);
-			throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-		} 
-		catch (Exception ex)
-		{
-			logger.Log(LogLevel.ERROR,	"Exception in VLPWsInputAdapter.invokeCloseCase():: "+ ex.getMessage());
-			InterfacesException interfaceException = 
-				new InterfacesException(InterfacesExceptionVO.TECHNICAL_IMS_ERROR_MSG, ex.getMessage());
-			throw interfaceException;
-		}
-		finally 
-		{
-			if( future != null )
-			{
-				future.cancel(true);
-			}
-		}
-		
-		try
-		{
-			String resp = clientResponse.getEntity(String.class);	
-			Gson gson = new Gson();
-			CMSJSONResponse tokenResp = gson.fromJson(resp, CMSJSONResponse.class);
-			
-			if( tokenResp.body == null )
-			{
-				logger.Log(LogLevel.ERROR,	"Exception in VLPWsInputAdapter.invokeCloseCase()-- No Body in the Response");
-				InterfacesException interfaceException = 
-					new InterfacesException(InterfacesExceptionVO.TECHNICAL_IMS_ERROR_MSG, "No Body in the Response");
-				throw interfaceException;
-			}
-			
-			responseXml = tokenResp.body.getResponse();
-		}
-		catch (Exception ex)
-		{
-			logger.Log(LogLevel.ERROR,	"Exception in VLPWsInputAdapter.invokeCloseCase()--Invalid Response "+ ex.getMessage());
-			InterfacesException interfaceException = 
-				new InterfacesException(InterfacesExceptionVO.TECHNICAL_IMS_ERROR_MSG, ex.getMessage());
-			throw interfaceException;
-		}
-				
-		return responseXml;
-	}
-	
-	/**
-	 * 
-	 * @param initialVerificationRequestType
-	 * @return
-	 * @throws InterfacesException
-	 */
-	public String marshallInitialVerificationRequestType(InitialVerificationRequestType initialVerificationRequestType ) throws InterfacesException, IOException
-	{		
-		StringWriter writer = null;
-		String initialVerificationRequestSetTypeXml = null;		
-		try 
-		{	
-			JAXBContext jaxbContext = JAXBContext.newInstance(InitialVerificationRequestType.class);		
-			writer = new StringWriter();	
-			Marshaller marshaller = jaxbContext.createMarshaller();
-			marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
-			marshaller.marshal(initialVerificationRequestType, writer);
-			initialVerificationRequestSetTypeXml = writer.toString();
-			
-		} catch (JAXBException e) {
-			log(ILog.ERROR, "JAXBException in VLPWsInputAdapter.marshallInitialVerificationRequestType while marshalling the InitialVerificationRequestType Data");
-		} catch (Exception e) {
-			log(ILog.ERROR, "IOException in VLPWsInputAdapter.marshallInitialVerificationRequestType while marshalling the InitialVerificationRequestType Data");
-		} finally {
-			if( writer != null )
-			{
-				writer.close();
-			}
-		}  
-		
-		return initialVerificationRequestSetTypeXml;
-	}
-	
-	/**
-	 * 
-	 * @param closeCaseRequestType
-	 * @return
-	 * @throws InterfacesException
-	 */
-	public String marshallCloseCaseRequestType(CloseCaseRequestType closeCaseRequestType ) throws InterfacesException, IOException
-	{		
-		StringWriter writer = null;
-		String closeCaseRequestTypeXml = null;		
-		try 
-		{		
-			JAXBContext jaxbContext = JAXBContext.newInstance(CloseCaseRequestType.class);			
-			writer = new StringWriter();
-			Marshaller marshaller = jaxbContext.createMarshaller();
-			marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
-			marshaller.marshal(closeCaseRequestType, writer);
-			closeCaseRequestTypeXml = writer.toString();
-			
-		} catch (JAXBException e) {
-			log(ILog.ERROR, "JAXBException in VLPWsInputAdapter.marshallCloseCaseRequestType while marshalling the CloseCaseRequestType Data");
-		} catch (Exception e) {
-			log(ILog.ERROR, "IOException in VLPWsInputAdapter.marshallCloseCaseRequestType while marshalling the CloseCaseRequestType Data");
-		} finally {
-			if( writer != null )
-			{
-				writer.close();
-			}
-		}  
-		
-		return closeCaseRequestTypeXml;
-	} 
-	
-	/**
-	 * 
-	 * @param xml
-	 * @return
-	 * @throws JAXBException
-	 * @throws SAXException
-	 */
-	private InitialVerificationResponseType unmarshalInitialVerifXMLString(String xml) throws JAXBException, SAXException {
-		
-		StringReader reader = null;
-		InitialVerificationResponseType responseData = null;
-		try 
-		{
-			reader = new StringReader(xml);	
-			XMLInputFactory xif = XMLInputFactory.newInstance();
-			JAXBContext jaxbContext = JAXBContext
-					.newInstance(InitialVerificationResponseType.class);
-			xif.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
-			xif.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-			XMLStreamReader xsr = xif.createXMLStreamReader(reader);
-			Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
-			JAXBElement<InitialVerificationResponseType> response = jaxbUnmarshaller
-					.unmarshal(xsr,
-							InitialVerificationResponseType.class);
-			responseData = response.getValue();		
-			
-		} catch (JAXBException e) {
-			logger.Log(LogLevel.ERROR,
-					"JAXBException in VLPWsInputAdapter.unmarshalXMLString()-- "
-							+ e.getMessage());
-			throw e;
-		} catch (Exception e) {
-			logger.Log(LogLevel.ERROR,
-					"Exception in VLPWsInputAdapter.unmarshalXMLString-- "
-							+ e.getMessage());
-			throw new JAXBException(e.getMessage(), e);
-		} finally {
-			if( reader != null )
-			{
-				reader.close();
-			}
-		}
-		
-		return responseData;
-	}
-
-	/**
-	 * 
-	 * @param xml
-	 * @return
-	 * @throws JAXBException
-	 * @throws SAXException
-	 */
-	private CloseCaseResponseType unmarshalCloseCaseXMLString(String xml) throws JAXBException, SAXException {
-		
-		StringReader reader = null;
-		CloseCaseResponseType responseData = null;
-		try 
-		{
-			reader = new StringReader(xml);
-			XMLInputFactory xif = XMLInputFactory.newInstance();
-			JAXBContext jaxbContext = JAXBContext
-					.newInstance(CloseCaseResponseType.class);
-			xif.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
-			xif.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-			XMLStreamReader xsr = xif.createXMLStreamReader(reader);
-			Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
-			JAXBElement<CloseCaseResponseType> response = jaxbUnmarshaller
-					.unmarshal(xsr,
-							CloseCaseResponseType.class);
-			
-			responseData = response.getValue();
-				
-		} catch (JAXBException e) {
-			logger.Log(LogLevel.ERROR,
-					"JAXBException in VLPWsInputAdapter.unmarshalCloseCaseXMLString()-- "
-							+ e.getMessage());
-			throw e;
-		} catch (Exception e) {
-			logger.Log(LogLevel.ERROR,
-					"Exception in VLPWsInputAdapter.unmarshalCloseCaseXMLString()-- "
-							+ e.getMessage());
-			throw new JAXBException(e.getMessage(), e);
-		} finally {
-			if( reader != null )
-			{
-				reader.close();
-			}
-		}
-		
-		return responseData;
-	}
-	
-	/**
-	 * This method is used to callReSubmitWithSEVISIDV37Operation
-	 * 
-	 * @param resubmitRequestType
-	 * @return ResubmitResponseType
-	 * @throws InterfacesException
-	 */
-	@Deprecated
-	private ResubmitResponseType callReSubmitWithSEVISIDV37Operation(ResubmitRequestType resubmitRequestType) throws InterfacesException {
-		ResubmitResponseType resubmitResponseType = null;
-		VerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output verifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output = null;
-		
-		final VLP_VLP37__connectors_VerifyLawfulPresencePortType_V37_WSD_PortProxy verifyLawfulPresencePortTypeV37PortProxy = new VLP_VLP37__connectors_VerifyLawfulPresencePortType_V37_WSD_PortProxy();
-		Dispatch dispatch = verifyLawfulPresencePortTypeV37PortProxy._getDescriptor().getDispatch();
-		BindingProvider bp = (BindingProvider) dispatch;
-		
-		Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
-		SSLSocketFactory sslsocketfactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
-		bp.getRequestContext().put("com.sun.xml.internal.ws.transport.https.client.SSLSocketFactory", sslsocketfactory);
-		
-		try {
-			final VerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Input parameters = new VerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Input();
-			parameters.setResubmitRequest(resubmitRequestType);
-			String esbEndPoint = FwUDDIManager.getEndpoint("VLP37").getEsbServiceEndpoint();
-			String serviceEndPoint = FwUDDIManager.getEndpoint("VLP37").getServiceEndpoint();
-			com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.ObjectFactory fact = new com.glbsnet.solutions.ussltcsnl2164.vlp_vlp37_.ObjectFactory();
-			JAXBElement<String> str = fact.createVerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37InputUrl(serviceEndPoint);
-			parameters.setUrl(str);
-			verifyLawfulPresencePortTypeV37PortProxy._getDescriptor().setEndpoint(esbEndPoint);
-
-			String timeout = "14000";
-			if (properties.getProperty("WEB_SERIVICES_IES_TIMEOUT") != null) {
-				timeout = properties.getProperty("WEB_SERIVICES_IES_TIMEOUT");
-			}
-			ExecutorService executor = Executors.newCachedThreadPool();
-			Callable<Object> task = new Callable<Object>() {
-				public VerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output call() throws InterfacesException {
-					return verifyLawfulPresencePortTypeV37PortProxy.verifyLawfulPresencePortTypeReSubmitWithSEVISIDV37(parameters);
-				}
-			};
-
-			Future<Object> future = executor.submit(task);
-			try {
-				verifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output = (VerifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output) future.get(Long.parseLong(timeout), TimeUnit.MILLISECONDS);
-			} catch (TimeoutException ex) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operation method, catch TimeoutException ", ex);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-			} catch (InterruptedException e) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operation method, catch InterruptedException ", e);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-			} catch (ExecutionException e) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operation method, catch ExecutionException ", e);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-			} finally {
-				future.cancel(true);
-			}
-			if (verifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output != null) {
-				resubmitResponseType = verifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output.getResubmitResponse();
-				if (resubmitResponseType != null) {
-					return resubmitResponseType;
-				} else {
-					String errorMessage = "";
-					JAXBElement<Fault2> faultElement = verifyLawfulPresencePortTypeReSubmitWithSEVISIDV37Output.getFault();
-					if (faultElement != null && faultElement.getValue() != null && faultElement.getValue().getReasons() != null && !faultElement.getValue().getReasons().isEmpty()) {
-						List<Reasons2> faultString = faultElement.getValue().getReasons();
-						for (Reasons2 reason : faultString) {
-							errorMessage = errorMessage + reason.getContent();
-						}
-						log(ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operation, System Return with NULL response and fault String : " + errorMessage + " : for Input " + resubmitRequestType.toString());
-					}
-					log(ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operation, System Return with NULL response : " + " : for Input " + resubmitRequestType.toString());
-					InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-					interfaceException.setInterfaceExceptionSummary(errorMessage);
-					throw interfaceException;
-				}
-			} else {
-				log(ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operationn, System Return with NULL response : " + " : for Input " + resubmitRequestType.toString());
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-			}
-		} catch (Exception ex) {
-			if (ex instanceof SOAPFaultException) {
-				SOAPFaultException soapFaultException = (SOAPFaultException) ex;
-				SOAPFault fault = soapFaultException.getFault();
-				log(ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operation, IMS returned with SOAP Fault : " + fault.toString() + " : for Input Request : " + resubmitRequestType.toString(), ex);
-				InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.TECHNICAL_IMS_ERROR_MSG, ex);
-				interfaceException.setInterfaceExceptionSummary(ex.getMessage());
-				throw interfaceException;
-			}
-			log(ILog.ERROR, "In VLPWsInputAdapter.callReSubmitWithSEVISIDV37Operation, System threw Excpetion : " + ex.getMessage() + " : for Input Request : " + resubmitRequestType.toString(), ex);
-			InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-			interfaceException.setInterfaceExceptionSummary(ex.getMessage());
-			throw interfaceException;
-		}
-	}
-
-	/**
-	 * This method is used to invokeCloseCaseOperation
-	 * 
-	 * @param closeCaseRequestType
-	 * @param token
-	 * @return
-	 * @throws InterfacesException
-	 */
-	public CloseCaseResponseType invokeCloseCaseOperation(CloseCaseRequestType closeCaseRequestType, String token) throws InterfacesException {
-		CloseCaseResponseType closeCaseResponseType = null;
-		
-		int reInvokeCloseCaseCount = 0;
-		
-		if (closeCaseRequestType != null) {
-			closeCaseResponseType = callCloseCaseRESTOperation(closeCaseRequestType, token, reInvokeCloseCaseCount);
-		}
-		return closeCaseResponseType;
-	}
-
-	/**
-	 * This method is used to invokeCloseCaseOperation
-	 * 
-	 * @param closeCaseRequestType
-	 * @return CloseCaseResponseType
-	 * @throws InterfacesException
-	 */
-	@Deprecated
-	public CloseCaseResponseType invokeCloseCaseOperation(CloseCaseRequestType closeCaseRequestType) throws InterfacesException {
-		CloseCaseResponseType closeCaseResponseType = null;
-		if (closeCaseRequestType != null) {
-			closeCaseResponseType = callCloseCaseOperation(closeCaseRequestType);
-		}
-		return closeCaseResponseType;
-	}
-	
-	/**
-	 * This method is used to buildCloseCaseRequestType
-	 * 
-	 * @param caseNum
-	 * @return CloseCaseRequestType
-	 */
-	private CloseCaseRequestType buildCloseCaseRequestType(String caseNum) {
-		CloseCaseRequestType closeCaseRequestType = null;
-		if (caseNum != null) {
-			closeCaseRequestType = new CloseCaseRequestType();
-			int length = caseNum.length();
-			StringBuffer caseNum_buf = new StringBuffer();
-			caseNum_buf.append(caseNum.substring(0, length - 1));
-			caseNum_buf.append(caseNum.substring(length - 1, length).toUpperCase());
-			closeCaseRequestType.setCaseNumber(caseNum_buf.toString());
-		}
-		return closeCaseRequestType;
-	}
-	
-	/**
-	 * 
-	 * @param closeCaseRequestType
-	 * @param token
-	 * @param reInvokeCloseCaseCount
-	 * @return
-	 * @throws InterfacesException
-	 */
-	private CloseCaseResponseType callCloseCaseRESTOperation(CloseCaseRequestType closeCaseRequestType, String token, int reInvokeCloseCaseCount) throws InterfacesException 
-	{	
-		CloseCaseResponseType closeCaseResponseType = null;
-		
-		try {
-			
-			String closeCaseRequestSetTypeXml = marshallCloseCaseRequestType(closeCaseRequestType);
-			
-			logger.Log(LogLevel.INFO,"VLPWsInputAdapter.callCloseCaseRESTOperation..Close Case Request--> "+closeCaseRequestSetTypeXml);
-			
-			if ( closeCaseRequestSetTypeXml != null )
-			{
-				String responseXML = invokeCloseCase(token, closeCaseRequestSetTypeXml);
-				
-				if( StringUtils.isNotEmpty( responseXML ) )
-				{
-					if( responseXML.contains(INVALID_CREDENTIALS) )
-					{
-						logger.Log(LogLevel.INFO, "In VLPWsInputAdapter.callCloseCaseRESTOperation :: Invalid Credentials, Please check your headers " );
-						
-						if ( reInvokeCloseCaseCount <= 0 ) //re-invoking for the second time
-						{
-							logger.Log(LogLevel.INFO, "In VLPWsInputAdapter.callCloseCaseRESTOperation, re-invoking the servcie");
-							
-							//Get the new token
-							String latestToken = TokenServiceHelper.invokeTokenService(FwConstants.CMS_SERVICE, token);
-							
-							//Re-invoking the service
-							closeCaseResponseType = 
-								this.callCloseCaseRESTOperation(closeCaseRequestType, latestToken,reInvokeCloseCaseCount);
-						}
-						else // Throwing an exception since not able to invoke the service
-						{
-							log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseRESTOperation, Not able to invoke second time : " + " : for Input Request : "
-									+ closeCaseRequestType.getCaseNumber());
-							InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-							throw interfaceException;
-						}
-					}
-					else
-					{
-						closeCaseResponseType = unmarshalCloseCaseXMLString(responseXML);
-						
-						logger.Log(LogLevel.INFO,"VLPWsInputAdapter.callCloseCaseRESTOperation..Close Response --> "+responseXML);
-						
-						return closeCaseResponseType;
-					}
-				}				
-	        }
-			else
-			{
-				log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseRESTOperation, System Return with NULL response : " + " : for Input " + closeCaseRequestType.getCaseNumber());
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-			}
-									
-		} catch (Exception ex) {
-			log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation, System threw Excpetion : " + ex.getMessage() + " : for Case Number : " + closeCaseRequestType.getCaseNumber(), ex);
-			InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex.getMessage());
-			throw interfaceException;
-		}
-		
-		return closeCaseResponseType;				
-	}
-
-
-	/**
-	 * This method is used to callCloseCaseOperation
-	 * 
-	 * @param closeCaseRequestType
-	 * @return CloseCaseResponseType
-	 * @throws InterfacesException
-	 */
-	@Deprecated
-	private CloseCaseResponseType callCloseCaseOperation(CloseCaseRequestType closeCaseRequestType) throws InterfacesException {
-		CloseCaseResponseType closeCaseResponseType = null;
-		CloseCasePortTypeCloseCaseOutput closeCasePortTypeCloseCaseOutput = null;
-		
-		final VLP_CloseCase37__connectors_CloseCasePortType_CloseCase_WSD_PortProxy closeCasePortProxy = new VLP_CloseCase37__connectors_CloseCasePortType_CloseCase_WSD_PortProxy();
-		Dispatch dispatch = closeCasePortProxy._getDescriptor().getDispatch();
-		BindingProvider bp = (BindingProvider) dispatch;
-		
-		Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
-		SSLSocketFactory sslsocketfactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
-		bp.getRequestContext().put("com.sun.xml.internal.ws.transport.https.client.SSLSocketFactory", sslsocketfactory);
-	
-		try {
-			final CloseCasePortTypeCloseCaseInput parameters = new CloseCasePortTypeCloseCaseInput();
-			parameters.setCloseCaseRequest(closeCaseRequestType);
-			String esbEndPoint = FwUDDIManager.getEndpoint("CloseCase37").getEsbServiceEndpoint();
-			String serviceEndPoint = FwUDDIManager.getEndpoint("CloseCase37").getServiceEndpoint();
-			com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.ObjectFactory fact = new com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.ObjectFactory();
-			JAXBElement<String> str = fact.createCloseCasePortTypeCloseCaseInputUrl(serviceEndPoint);
-			parameters.setUrl(str);
-			closeCasePortProxy._getDescriptor().setEndpoint(esbEndPoint);
-	
-			String timeout = "14000";
-			if (properties.getProperty("WEB_SERIVICES_IES_TIMEOUT") != null) {
-				timeout = properties.getProperty("WEB_SERIVICES_IES_TIMEOUT");
-			}
-			ExecutorService executor = Executors.newCachedThreadPool();
-			Callable<Object> task = new Callable<Object>() {
-				public CloseCasePortTypeCloseCaseOutput call() throws InterfacesException {
-					return closeCasePortProxy.closeCasePortTypeCloseCase(parameters);
-				}
-			};
-	
-			Future<Object> future = executor.submit(task);
-			try {
-				closeCasePortTypeCloseCaseOutput = (CloseCasePortTypeCloseCaseOutput) future.get(Long.parseLong(timeout), TimeUnit.MILLISECONDS);
-			} catch (TimeoutException ex) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation method, catch TimeoutException ", ex);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-			} catch (InterruptedException e) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation method, catch InterruptedException ", e);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-			} catch (ExecutionException e) {
-				log(FwConstants.LOGGING_DEFAULT_CATEGORY, ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation method, catch ExecutionException ", e);
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, e);
-			} finally {
-				future.cancel(true);
-			}
-			if (closeCasePortTypeCloseCaseOutput != null) {
-				closeCaseResponseType = closeCasePortTypeCloseCaseOutput.getCloseCaseResponse();
-				if (closeCaseResponseType != null) {
-					return closeCaseResponseType;
-				} else {
-					String errorMessage = "";
-					JAXBElement<com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.Fault> faultElement = closeCasePortTypeCloseCaseOutput.getFault();
-					if (faultElement != null && faultElement.getValue() != null && faultElement.getValue().getReasons() != null && !faultElement.getValue().getReasons().isEmpty()) {
-						List<com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.Reasons> faultString = faultElement.getValue().getReasons();
-						for (com.glbsnet.solutions.ussltcsnl2164.vlp_closecase37_.Reasons reason : faultString) {
-							errorMessage = errorMessage + reason.getContent();
-						}
-						log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation, System Return with NULL response and fault String : " + errorMessage + " : for Input " + closeCaseRequestType.toString());
-					}
-					log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation, System Return with NULL response : " + " : for Input " + closeCaseRequestType.toString());
-					InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-					interfaceException.setInterfaceExceptionSummary(errorMessage);
-					throw interfaceException;
-				}
-			} else {
-				log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperatione, System Return with NULL response : " + " : for Input " + closeCaseRequestType.toString());
-				throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
-			}
-		} catch (Exception ex) {
-			if (ex instanceof SOAPFaultException) {
-				SOAPFaultException soapFaultException = (SOAPFaultException) ex;
-				SOAPFault fault = soapFaultException.getFault();
-				log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation, IMS returned with SOAP Fault : " + fault.toString() + " : for Input Case Number : " + closeCaseRequestType.getCaseNumber(), ex);
-				InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.TECHNICAL_IMS_ERROR_MSG, ex);
-				interfaceException.setInterfaceExceptionSummary(ex.getMessage());
-				throw interfaceException;
-			}
-			log(ILog.ERROR, "In VLPWsInputAdapter.callCloseCaseOperation, System threw Excpetion : " + ex.getMessage() + " : for Input Case Number : " + closeCaseRequestType.getCaseNumber(), ex);
-			InterfacesException interfaceException = new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR, ex);
-			interfaceException.setInterfaceExceptionSummary(ex.getMessage());
-			throw interfaceException;
-		}
-	}
-
-	class CMSJSONResponse
-	{
-		@SerializedName("body")
-		public Body	body;
-	
-		public Body getBody()
-		{
-			return body;
-		}
-	
-		public void setBody(Body body)
-		{
-			this.body = body;
-		}
-	
-		public class Body
-		{
-			@SerializedName("response")
-			public String	response;
-	
-			public String getResponse()
-			{
-				return response;
-			}
-	
-			public void setResponse(String response)
-			{
-				this.response = response;
-			}
-		}		
+		long diffInMillies = Math.abs(timeNow - timeUpdate);
+		return timeUnit.convert(diffInMillies, TimeUnit.MILLISECONDS);
 	}
 }
