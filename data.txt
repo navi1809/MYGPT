@@ -1,67 +1,91 @@
-To refactor the manual iteration in `assetExpectedAndAtualv2()` from `CACTest.java`, we can use **parameterized tests** and **`@MethodSource`** for dynamic test execution. This approach enhances readability, scalability, and maintainability.
+To refactor the hardcoded mock values in `iciToTest()` from `CACTest.java`, we can centralize the test data using a data provider class or a configuration file. This approach enhances flexibility, making mock data easier to modify and extend.
 
 ---
 
-### **Refactored Code for `assetExpectedAndAtualv2()`**
-#### **1. Create a Data Provider Method:**
-We extract a method to provide test data as arguments.
+### **Refactored Solution:**
+#### **1. Create a Centralized Test Data Provider:**
+Use a dedicated test utility class to provide mock values.
 
 ```java
-// Provide expected vs actual comparisons
-static Stream<Arguments> expectedVsActualProvider() {
-    return expected.entrySet().stream()
-        .map(entry -> Arguments.of(entry.getKey(), entry.getValue(), actual.get(entry.getKey())));
-}
-```
+// TestDataProvider.java
+public class TestDataProvider {
 
----
+    public static List<Long> getMockIciList() {
+        return List.of(631900000L, 751900000L);
+    }
 
-#### **2. Refactor the Test Method with Parameterized Test:**
-Use the `@ParameterizedTest` and `@MethodSource` annotations.
-
-```java
-@ParameterizedTest(name = "Compare expected and actual for key: {0}")
-@MethodSource("expectedVsActualProvider")
-@DisplayName("Data Comparison Test")
-@Order(4)
-public void compareExpectedAndActual(String key, Map<String, Object> expectedData, Map<String, Object> actualData) {
-    assertNotNull(actualData, "Actual data is missing for key: " + key);
-
-    // Compare functionalities
-    String[] functionalitiesToCompare = {"bgtran", "alert", "clog", "memberSPlit"};
-
-    for (String feature : functionalitiesToCompare) {
-        JsonElement expectedJson = gsonMapper.toJsonTree(expectedData.get(feature));
-        JsonElement actualJson = gsonMapper.toJsonTree(actualData.get(feature));
-
-        assertEquals(expectedJson, actualJson, String.format("Mismatch for %s in key: %s", feature, key));
+    public static Map<String, Object> getDefaultExpectedStructure() {
+        return new HashMap<>(Map.of(
+            "bgtran", null,
+            "alert", new LinkedHashSet<>(),
+            "clog", null,
+            "memberSPlit", null
+        ));
     }
 }
 ```
 
 ---
 
-#### **3. Add Fallback for Missing Data:**
-Use `Optional.ofNullable()` for safe retrieval.
+#### **2. Refactor the Method in `CACTest.java`:**
+Remove hardcoded values and use the centralized data provider.
 
 ```java
-private static Map<String, Object> safeGetData(String key) {
-    return Optional.ofNullable(actual.get(key)).orElse(defaultExpectedStructure());
+@BeforeEach
+public void mockCommonServices() throws Exception {
+    mockIciList = TestDataProvider.getMockIciList();
+}
+
+public List<Long> iciToTest() {
+    return TestDataProvider.getMockIciList(); // Use centralized method
 }
 ```
 
 ---
 
-### **Why This Is Better:**
-1. **Parameterized Test Execution:** Each test scenario is treated as a separate test run, simplifying debugging.
-2. **Data-Driven Testing:** Using `@MethodSource` allows dynamic data generation.
-3. **Reduced Manual Iteration:** No explicit loops; iteration is abstracted by JUnit.
-4. **Cleaner Assertions:** We now assert specific cases using clear messages.
+#### **3. Improve Mock Initialization:**
+Remove hardcoded initialization by passing data dynamically.
+
+```java
+@BeforeEach
+public void setupMockData() throws Exception {
+    when(caseManagementACService.verifyAndReturnIci(anyString()))
+        .thenReturn(iciToTest());
+
+    when(caseManagementACService.getLastRunDate())
+        .thenReturn("9999-10-30");
+
+    when(caseManagementACService.getCaseMgmtFlag())
+        .thenReturn(" ");
+}
+```
 
 ---
 
-### **Additional Enhancements:**
-- If there are additional features to compare, adjust the `functionalitiesToCompare` array.
-- Add more comparison logic as needed using similar assertions.
+#### **4. Mock ICI List Usage in Tests:**
+Leverage mock ICI list dynamically during tests.
 
-By following this approach, the `assetExpectedAndAtualv2()` becomes modular, scalable, and easy to maintain. Each scenario runs independently, providing more granular test feedback.
+```java
+@ParameterizedTest
+@MethodSource("iciTestDataProvider")
+@DisplayName("Verify ICI List Test")
+@Order(5)
+public void verifyIciListTest(Long ici) {
+    assertTrue(iciToTest().contains(ici), "ICI not found in the mock list");
+}
+
+static Stream<Arguments> iciTestDataProvider() {
+    return TestDataProvider.getMockIciList().stream()
+        .map(Arguments::of);
+}
+```
+
+---
+
+### **Why This Refactor Is Better:**
+1. **Centralized Data Management:** All mock data is now managed in `TestDataProvider.java`.
+2. **Readability:** No hardcoded test data in the main test class.
+3. **Reusability:** `TestDataProvider` can be extended easily with new mock values.
+4. **Ease of Maintenance:** Changing mock values requires only updates in the provider class.
+
+By using this refactor, the test class becomes cleaner, less prone to hardcoding errors, and more flexible for future data-driven testing scenarios.
