@@ -1,103 +1,134 @@
 package gov.nv.dwss.casemanagement;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.exc.StreamReadException;
+import com.fasterxml.jackson.databind.DatabindException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonSyntaxException;
+import com.google.gson.ToNumberPolicy;
 
-
-import gov.nv.dwss.domain.record.SorRecord;
 import gov.nv.dwss.domain.record.sor.BenefitsCaseProgramHistorySorRecord;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Configuration
-public class StubBeanInitializer {
+public class TestConfig {
 
-	// method name sould be as json filename,+ given pojo/target class you wanna load the json into
+	static Logger log = LoggerFactory.getLogger(TestConfig.class);
 
+	private static String path;
 
-	@Autowired
-	TestConfig reader;
-//	@Bean("name that you wanna use in when method as mock bean ")
-	@SuppressWarnings("unchecked")
-	@Bean("cmJobDetails")
-	public Map<String,Object> cmJobDetails() throws Exception {
-		
-		return TestConfig.getStubJsonData(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
-//		return reader.read(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
-	}
-	
-	
-	@SuppressWarnings("unchecked")
-	@Bean("globalJobDetails")
-	public Map<String,Object> globalJobDetails() throws Exception {
-		
-		return TestConfig.getStubJsonData(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
-	}
-	
-	@SuppressWarnings("unchecked")
-	@Bean("cmJobParam")
-	public List<Map<String,Object>> cmJobParam() throws Exception {
-		
-		return TestConfig.getStubJsonData(new Object() {}.getClass().getEnclosingMethod().getName(), List.class);
-	}
-	
-//	----------Table data as Bean------------
-	
-
-	@SuppressWarnings("unchecked")
-	@Bean("eligVersionMemberAndEligVersion")
-	public Map<String,List<Map<String,Object>>> eligVersionMemberAndEligVersion() throws Exception { // each object represent one row
-		
-		return TestConfig.mapStubJsonToObject(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
+	@Value("${mock.dir.name:}") // give src as default dir
+	public void setNameStatic(String mockJasonPath) {
+		path = mockJasonPath;
 	}
 
-	@Bean("input")
-	public List<Long> input() throws Exception {
-		
-		return TestConfig.mapStubJsonToObject(new Object() {}.getClass().getEnclosingMethod().getName(), List.class);
-	}
-	
-	
-	@Bean("testDataForReader_iterator")
-	public List<BenefitsCaseProgramHistorySorRecord> testDataForReader_iterator() throws Exception {		
-		List<BenefitsCaseProgramHistorySorRecord> stubJsonDataAsList = TestConfig.mapStubJsonToObjectList(new Object() {}.getClass().getEnclosingMethod().getName(), BenefitsCaseProgramHistorySorRecord[].class);
-		return stubJsonDataAsList;
-	}
-	
-//	----Writer-----Get All the Expected Data[as bean...this will be to to compare/assert]
-	
-//	---------------------ALl intermediate read----------
-
-	@Bean("agedOutFstrCare")
-	public Map<String,Map<String,String>> agedOutFstrCare() throws Exception {
-		
-		return TestConfig.mapStubJsonToObject(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
-	}
-	
-
-	@Bean("getDtls")
-	public Map<String,Map<String,Object>> getDtls() throws Exception {
-		
-		return TestConfig.mapStubJsonToObject(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
+	@Bean("testObjMapper")
+	public ObjectMapper testMapper() {
+		ObjectMapper mapper = new ObjectMapper();
+		DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // ""yyyy-MM-dd HH:mm:ss a z" // [a z] mean string timeZOne somthing
+		mapper.setDateFormat(df);
+		return mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 	}
 
-	@Bean("getPersonAgeCalculated")
-	public Map<String,Map<String,Object>> getPersonAgeCalculated() throws Exception {
-		
-		return TestConfig.mapStubJsonToObject(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
-	}
-	@Bean("expectedBgTran")
-	public Map<String,Map<String,Object>> expectedBgTran() throws Exception {
-		
-		return TestConfig.mapStubJsonToObject(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
+	@Bean("gsonMapper")
+	public Gson mapper() {
+		Gson gsonMapper = new GsonBuilder().setDateFormat("yyyy-MM-dd").
+				setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE).create();
+		return gsonMapper;
 	}
 	
-	@Bean("expected")
-	public Map<String,Map<String,Object>> expected() throws Exception {
-		
-		return TestConfig.mapStubJsonToObject(new Object() {}.getClass().getEnclosingMethod().getName(), Map.class);
+	// may give you mapping issue due to date,TS etc
+	public static <T extends Object> T getStubJsonData(String fileName, Class<T> mapToClass) throws Exception {
+		ObjectMapper mapper = new ObjectMapper();
+		mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+		DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+		mapper.setDateFormat(df);
+		String stubJson = "";
+		try {
+			stubJson = new String(Files.readAllBytes(Paths.get(path + fileName + ".json")));
+			T mockedObject = mapper.readValue(stubJson, mapToClass);
+			return mockedObject;
+		} catch (IOException e) {
+			String msg = "Error on reading mock-Json,maybe due to such no json file presenet at {} or incorrect file name " + path;
+			log.error(msg);
+			throw new IOException(msg + "\n" + e);
+		} catch (Exception e) {
+			String msg ="Mapping Error : Unable to map the json to provided class, please check the json attribute name and class member variable name";
+			log.error(msg);
+			throw new IOException(msg + "\n " + e);
+		}
+
 	}
+
+	// Gson
+	public static <T extends Object> T mapStubJsonToObject(String fileName, Class<T> mapToClass) throws Exception {
+
+		try {
+			String stubJson = new String(Files.readAllBytes(Paths.get(path + fileName + ".json")));
+
+			Gson gsonMapper = new GsonBuilder().setDateFormat("yyyy-MM-dd").
+					setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE).create();
+			T mappedObject = gsonMapper.fromJson(stubJson, mapToClass);
+			return mappedObject;
+		} catch (JsonSyntaxException e) {
+			String msg =
+					"Mapping Error : Unable to map the json to provided class, please check the json attribute name and class member variable name";
+			log.error(msg);
+			throw new JsonSyntaxException(msg + "\n " + e);
+		} catch (IOException e) {
+			String msg = "Error on reading mock-Json,maybe due to such no json file presenet at {} or incorrect file name " + path;
+			log.error(msg);
+			throw new IOException(msg + "\n" + e);
+		} catch (Exception e) {
+			throw new IOException(e);
+		}
+
+	}
+
+	public static <T> List<T> mapStubJsonToObjectList(String fileName, Class<T[]> type) throws Exception {
+
+		try {
+			String stubJson = new String(Files.readAllBytes(Paths.get(path + fileName + ".json")));
+
+			Gson gsonMapper = new GsonBuilder().setDateFormat("yyyy-MM-dd").
+					setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE).create();
+			T[] mappedArray = gsonMapper.fromJson(stubJson, type);
+			return Arrays.asList(mappedArray);
+		} catch (JsonSyntaxException e) {
+			String msg =
+					"Mapping Error : Unable to map the json to provided class, please check the json attribute name and class member variable name";
+			log.error(msg);
+			throw new JsonSyntaxException(msg + "\n " + e);
+		} catch (IOException e) {
+			String msg = "Error on reading mock-Json,maybe due to such no json file presenet at {} or incorrect file name " + path;
+			log.error(msg);
+			throw new IOException(msg + "\n" + e);
+		} catch (Exception e) {
+			throw new IOException(e);
+		}
+
+	}
+
 }
