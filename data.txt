@@ -1,145 +1,67 @@
-Here are targeted suggestions with code improvements for your Spring Batch JUnit setup:
+public class MockServiceUtil {
 
----
+    // Generic mock method for when().thenAnswer() usage
+    public static <T> void mockServiceCall(T service, String method, Object returnValue) throws Exception {
+        when(service.getClass().getMethod(method, any()).invoke(service, any()))
+            .thenReturn(returnValue);
+    }
 
-### **1. Refactor JSON Data Loading (Simplify `TestConfig.java`):**
-**Current Issue:** Redundant code in `getStubJsonData` and `mapStubJsonToObject`. 
-
-**Improvement:**
-- Create a utility method for JSON reading.
-- Use a common method for both `ObjectMapper` and `Gson`.
-
-```java
-// Refactor TestConfig.java
-private static String readJsonFile(String fileName) throws IOException {
-    return Files.readString(Paths.get(path + fileName + ".json"));
+    // Generic mock method for data processing
+    public static <T> void mockServiceProcessing(T service, String method, Answer<?> answer) throws Exception {
+        when(service.getClass().getMethod(method, any()).invoke(service, any()))
+            .thenAnswer(answer);
+    }
 }
 
-public static <T> T getStubJsonData(String fileName, Class<T> mapToClass) throws IOException {
-    String json = readJsonFile(fileName);
-    return new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-            .setDateFormat(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"))
-            .readValue(json, mapToClass);
-}
 
-public static <T> T mapStubJsonToObject(String fileName, Class<T> mapToClass) throws IOException {
-    String json = readJsonFile(fileName);
-    return new GsonBuilder()
-            .setDateFormat("yyyy-MM-dd")
-            .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
-            .create()
-            .fromJson(json, mapToClass);
-}
-```
-
----
-
-### **2. Mock Initialization Optimization (`StubBeanInitializer.java`)**
-**Current Issue:** Repeated initialization of similar mock beans.
-
-**Improvement:**
-- Extract bean creation to a generic method.
-
-```java
-private <T> T loadJsonAsBean(String fileName, Class<T> targetType) throws Exception {
-    return TestConfig.getStubJsonData(fileName, targetType);
-}
-
-@Bean("cmJobDetails")
-public Map<String, Object> cmJobDetails() throws Exception {
-    return loadJsonAsBean("cmJobDetails", Map.class);
-}
-
-@Bean("globalJobDetails")
-public Map<String, Object> globalJobDetails() throws Exception {
-    return loadJsonAsBean("globalJobDetails", Map.class);
-}
-
-@Bean("cmJobParam")
-public List<Map<String, Object>> cmJobParam() throws Exception {
-    return loadJsonAsBean("cmJobParam", List.class);
-}
-```
-
----
-
-### **3. Simplify Mock Configuration in Test Class (`CACTest.java`)**
-**Current Issue:** Extensive mocking setup in `mockWriterServices()` and `mockProcessorServices()`.
-
-**Improvement:**
-- Use a helper method to simplify mock initialization.
-
-```java
-private <T> void mockServiceCall(T service, String method, Object returnValue) throws Exception {
-    when(service.getClass().getMethod(method, any()).invoke(service, any()))
-        .thenReturn(returnValue);
-}
-
-// Example usage
 @BeforeEach
-public void setupMockServices() throws Exception {
-    mockServiceCall(batchDataService, "getJobParams", cmJobParam);
-    mockServiceCall(batchDataService, "getJobDetail", cmJobDetails);
-}
-```
-
----
-
-### **4. Use Parameterized Tests for Data Comparison**
-**Current Issue:** Manual iteration in `assetExpectedAndAtualv2()`.
-
-**Improvement:**
-- Use `@ParameterizedTest` with a `@MethodSource` for better readability and scalability.
-
-```java
-// Parameterized Test Setup
-static Stream<Arguments> expectedVsActual() {
-    return expected.entrySet().stream()
-        .map(entry -> Arguments.of(entry.getKey(), entry.getValue(), actual.get(entry.getKey())));
+public void mockWriterServices() throws Exception {
+    setupBackgroundTransactionMocks();
+    setupAlertServiceMocks();
+    setupCaseManagementMocks();
 }
 
-@ParameterizedTest(name = "Comparing expected and actual for {0}")
-@MethodSource("expectedVsActual")
-public void compareExpectedAndActual(String key, Map<String, Object> expected, Map<String, Object> actual) {
-    assertNotNull(actual, "Actual data is missing for key: " + key);
-    expected.forEach((k, v) -> assertEquals(gsonMapper.toJsonTree(v), gsonMapper.toJsonTree(actual.get(k))));
+private void setupBackgroundTransactionMocks() throws Exception {
+    MockServiceUtil.mockServiceProcessing(backgroundTransactionSorDao, "insert", invocation -> {
+        BackgroundTransactionSorRecord record = invocation.getArgument(0);
+        String key = record.getIci() + "_" + record.getProgramTypeCode();
+
+        // Update actual results
+        Map<String, Object> caseData = actual.getOrDefault(key, defaultExpectedStructure());
+        caseData.put("bgtran", record);
+        actual.put(key, caseData);
+
+        return 0; // Mocked return value
+    });
 }
-```
 
----
+private void setupAlertServiceMocks() throws Exception {
+    MockServiceUtil.mockServiceProcessing(alertService, "createAlert", invocation -> {
+        String program = invocation.getArgument(0);
+        Set<Alert> alerts = invocation.getArgument(1);
+        Alert alert = alerts.iterator().next();  // Assuming single alert for simplicity
 
-### **5. Test Data Provider for Mock Beans Initialization**
-**Current Issue:** Hardcoded mock values like `iciToTest()`.
+        String key = alert.getIci() + "_" + program;
 
-**Improvement:**
-- Use a centralized mock data provider class.
+        // Update actual results
+        Map<String, Object> caseData = actual.getOrDefault(key, defaultExpectedStructure());
+        caseData.put("alert", alerts);
+        actual.put(key, caseData);
 
-```java
-public class TestDataProvider {
-
-    public static List<Long> provideIciList() {
-        return List.of(631900000L, 751900000L);
-    }
-
-    public static Map<String, Object> defaultExpectedStructure() {
-        Map<String, Object> defaultStructure = new HashMap<>();
-        defaultStructure.put("bgtran", null);
-        defaultStructure.put("alert", new LinkedHashSet<>());
-        defaultStructure.put("clog", null);
-        defaultStructure.put("memberSPlit", null);
-        return defaultStructure;
-    }
+        return 0; // Mocked return value
+    });
 }
-```
 
----
+private void setupCaseManagementMocks() throws Exception {
+    MockServiceUtil.mockServiceCall(caseManagementACService, "updateTwnClndr", 0);
+}
 
-### Summary:
-1. **JSON Loading Refactor:** Reduce duplication using a common method.
-2. **Bean Initialization Simplification:** Use generic methods for loading beans.
-3. **Mock Setup Optimization:** Centralize mock setup logic.
-4. **Parameterized Tests:** Replace manual loops with cleaner, dynamic tests.
-5. **Central Test Data Provider:** Manage test constants and mock data centrally.
 
-These improvements will make the JUnit test setup more modular, readable, and maintainable.
+private Map<String, Object> defaultExpectedStructure() {
+    return new HashMap<>(Map.of(
+        "bgtran", null,
+        "alert", new LinkedHashSet<>(),
+        "clog", null,
+        "memberSPlit", null
+    ));
+}
