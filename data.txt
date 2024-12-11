@@ -1,573 +1,79 @@
 package gov.nv.dwss.casemanagement;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
-
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
 import java.util.stream.Collectors;
 
-import javax.annotation.Resource;
-
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.MethodOrderer.OrderAnnotation;
-import org.junit.jupiter.api.Order;
-import org.junit.jupiter.api.TestInstance;
-import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.batch.core.ExitStatus;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobInstance;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.JobParameters;
-import org.springframework.batch.test.JobLauncherTestUtils;
-import org.springframework.batch.test.context.SpringBatchTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.ApplicationContext;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.core.env.Environment;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-
-import gov.nv.dwss.batch.casemanagement.dto.Alert;
-import gov.nv.dwss.batch.casemanagement.model.CaseManagementAC;
-import gov.nv.dwss.batch.casemanagement.service.AlertService;
-import gov.nv.dwss.batch.casemanagement.service.CaseManagementACService;
-import gov.nv.dwss.batch.casemanagement.util.CaseManagementACUtil;
-import gov.nv.dwss.domain.dao.sor.BackgroundTransactionSorDao;
-import gov.nv.dwss.domain.dao.sor.BenefitsCaseProgramHistorySorDao;
-import gov.nv.dwss.domain.dao.sor.CaseIndividualHistorySorDao;
-import gov.nv.dwss.domain.dao.sor.CaseLogSorDao;
-import gov.nv.dwss.domain.dao.sor.DisabilitySorDao;
-import gov.nv.dwss.domain.dao.sor.PublicAssistanceFactAlertSorDao;
-import gov.nv.dwss.domain.record.SorRecord;
-import gov.nv.dwss.domain.record.sor.BackgroundTransactionSorRecord;
-import gov.nv.dwss.domain.record.sor.BenefitsCaseProgramHistorySorRecord;
-import gov.nv.dwss.fw.batch.common.AbstractBatchConfiguration;
-import gov.nv.dwss.fw.batch.config.DataSourceConfig;
-import gov.nv.dwss.fw.batch.context.SpringApplicationContext;
-import gov.nv.dwss.fw.batch.context.SystemInfoParam;
-import gov.nv.dwss.fw.batch.env.properties.DatabaseProp;
 import gov.nv.dwss.fw.batch.exception.BatchException;
-import gov.nv.dwss.fw.batch.launch.FWCommandLineJobOperator;
 import gov.nv.dwss.fw.batch.model.BatchFwJob;
 import gov.nv.dwss.fw.batch.service.BatchDataService;
 import gov.nv.dwss.fw.batch.service.JobParamsService;
 import gov.nv.dwss.fw.batch.util.BatchDataTransformerUtil;
 
+@Component
+public class JobDetailsAndParams {
 
-@SpringBatchTest
-
-@ExtendWith(MockitoExtension.class)
-//@DirtiesContext(classMode = ClassMode.AFTER_CLASS) // use this to spin up fresh context(application context) maybe method wise,class wise depends on the scenarios
-
-@ComponentScan({ "gov.nv.dwss.*" })
-@ContextConfiguration(classes = { DataSourceConfig.class, DatabaseProp.class, FWCommandLineJobOperator.class }) 
-@TestPropertySource("classpath:test_batch_dbConfig.properties")
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestMethodOrder(OrderAnnotation.class)
-public class CACTest extends AbstractBatchConfiguration { // just see extension is needed or no  
-
-	@Autowired
-	public ApplicationContext applicationContext; // use context if you required to validate beans
-
-	@Autowired
-	SpringApplicationContext ctx;
-
-	@Autowired
-	private JobLauncherTestUtils jobLauncher;
-
-
-	@Autowired
-	JobParamsService jobParamsService;
-	
-	@Autowired
-	Environment env; // maybe we dont this we are using to get some value ike thread ect
-	
-	
-	@Value("${jobName}")
-	String jobCode;
-
-	@Autowired
-	JobDetailsAndParams jobDetailsAndParams;
-
-	@MockBean
-	@Qualifier("batchDataService")
-	BatchDataService batchDataService;
-
-	  @MockBean
-	  @Qualifier("caseManagementACService")
-	CaseManagementACService caseManagementACService;
-
-	@Resource
-	Map<String, Object> cmJobDetails;
-
-	@Resource
-	Map<String, Object> globalJobDetails;
-
-	@Resource
-	List<Map<String, Object>> cmJobParam;
-
-	@Resource
-	List<Long> input;
-//	-----------
-	JobParameters jobParameters = new JobParameters();
-
-//    ----Table data as map-----
-	@Resource
-	Map<String, List<Map<String, Object>>> eligVersionMemberAndEligVersion;
-	
-	@Resource
-	List<SorRecord> testDataForReader_iterator;
-	
-	@Resource
-	Map<String,Map<String,String>> agedOutFstrCare;
-	
-	@Resource
-	Map<String,Map<String,Object>> getDtls;
-	
-	@Resource
-	Map<String,Map<String,Object>> getPersonAgeCalculated;
-	
-	@Resource
-	Map<String,Object> expectedBgTran;
-//	Map<String,Map<String,Object>> expectedBgTran;
-
-	@Resource
-	Map<String,Map<String,Object>> expected;
-	
-	
-	@Autowired
-	@Qualifier("gsonMapper")
-	Gson gsonMapper ;
-	
-	
-
-	// use mock
-//--------------Mock Writer objecs--------------------------
-	
-	@MockBean
-	@Qualifier("benefitsCaseProgramHistorySorDao")
-	BenefitsCaseProgramHistorySorDao benefitsCaseProgramHistorySorDao;
-
-	@MockBean
-	@Qualifier("caseIndividualHistorySorDao")
-	CaseIndividualHistorySorDao caseIndividualHistorySorDao;
-
-
-	@MockBean
-	@Qualifier("disabilitySorDao")
-	DisabilitySorDao disabilitySorDao;
-
-	@MockBean
-	@Qualifier("publicAssistanceFactAlertSorDao")
-	PublicAssistanceFactAlertSorDao publicAssistanceFactAlertSorDao;
-
-	@MockBean
-	@Qualifier("backgroundTransactionSorDao")
-	private BackgroundTransactionSorDao backgroundTransactionSorDao;
-
-	@MockBean
-	@Qualifier("caseLogSorDao")
-	private CaseLogSorDao caseLogSorDao;
+	static Logger Logger = LoggerFactory.getLogger(TestConfig.class);
 
 	
-	
-	@MockBean
-	@Qualifier("alertService")
-	AlertService alertService;
-
-	
-	Map<String,Object> actual1= new HashMap<>();
-	Map<String,Map<String,Object>> actual= new HashMap<>();
-	
-	
-	
-	@BeforeAll 
-	public void mockConfigV2() throws Exception {
-		SystemInfoParam.setJobCode(jobCode);
-		when(batchDataService.getJobParams(824l, 141l)).thenReturn(cmJobParam);// "RW_ID":824 for JOB_CD":"NM-AGCHK-MLY" & "RW_ID":141 for JOB_CD":"FW-GLOBL-DLY"
-
-		when(batchDataService.getJobDetail(anyString())).thenAnswer(invocation -> { // this will be called when actual call happen [mock.getJobDetail from
-																		// anywhere]
-			String argument = (String) invocation.getArguments()[0];
-
-			if (argument == "FW-GLOBL-DLY") // use map Here
-				return globalJobDetails;
-			else
-				return cmJobDetails;
-		});
-
-		BatchFwJob jobDetail = getJobDetail1(jobCode);
-		BatchFwJob globalJobDetail = getJobDetail1("FW-GLOBL-DLY");
-
-//        System.out.println(test);
-
-		List<String> cmdLineParams = new ArrayList<>(); // cmdLineParams is not required ..hence you can pass empty list to align with method
-		cmdLineParams.add("daily.asofdate=2024-11-01");	// -- not require here		// signature... incase if you need pass here
-		jobParameters = getJobParams(globalJobDetail, jobDetail, cmdLineParams);
-		SystemInfoParam.setAsOfDate(LocalDate.parse(jobParameters.getString("daily.asofdate")).toString());
-//		System.out.println("test config : " + jobParameters.toString());
-
-	}
-	
-	
-	 @BeforeEach
-	 public void mockWriterServices() throws Exception {
-		 
-		 
-			when(backgroundTransactionSorDao.insert(any(BackgroundTransactionSorRecord.class))).thenAnswer(invocation -> { // this will be called when actual call happen
-
-				BackgroundTransactionSorRecord bgTranRecordToBeWrittern=(BackgroundTransactionSorRecord) invocation.getArguments()[0];
-				String ici=bgTranRecordToBeWrittern.getIci()+"";
-				String program=bgTranRecordToBeWrittern.getProgramTypeCode();
-				String key=ici+"_"+program;
-				actual1.put(key, bgTranRecordToBeWrittern);//old
-				Map<String,Object> actualForCase= actual.get(key)==null?defaultExpctedStructure():actual.get(key);
-
-				actualForCase.put("bgtran", bgTranRecordToBeWrittern);
-				actual.put(key, actualForCase);// 1st time added or 2nd time aggregated
-					
-           return 0;
-            
-            });
-			
-			// same for alert
-//			  this.alertCommonServiceAdapter.createIVAlert(alert.getIci(), alert.getAlertDate(), alert.getAlertId());
-			when(alertService.createAlert(anyString(),any(Set.class))).thenAnswer(invocation -> { 
-				
-				String program = (String) invocation.getArguments()[0];
-				Set<Alert> alerts = (Set<Alert>) invocation.getArguments()[1];
-				 Alert alert = (Alert) alerts.toArray()[0];// ici will be same all alerts
-				 int ici = alert.getIci();
-				 
-				 
-				String key=ici+"_"+program;
-				Map<String,Object> actualForCase= actual.get(key)==null?defaultExpctedStructure():actual.get(key);
-				actualForCase.put("alert", alerts);
-				actual.put(key, actualForCase);// 1st time added or 2nd time aggregated
-				
-				return 0;
-			});
+//    @MockBean
+    
+//	@Autowired
+	BatchDataService mockBatchService; // you can use mock/read if needed do this in here on testclass
+    
+    @Autowired
+    JobParamsService jobParamsService; // just as helper...no db dependecny
+    
+    // autowired jsonBean for 
+    
+    /**
+    @Autowired
+    @Qualifier("cmJobDetails")
+    Map<String, Object> cmJobDetails;
+    
+    @Autowired
+    @Qualifier("globalJobDetails")
+    Map<String,Object> globalJobDetails;
+    
+    @Autowired
+    @Qualifier("cmJobParam")
+    List<Map<String,Object>> cmJobParam;
+    
+    public void initMock() {
+    	
+    }
+    @Test
+    public void mockParams() throws BatchException {
+    	when( mockBatchService.getJobDetail("FW-GLOBL-DLY")).thenReturn(globalJobDetails);
+		when( mockBatchService.getJobDetail("NM-AGCHK-MLY")).thenReturn(cmJobDetails);
+		when( mockBatchService.getJobParams(824l,141l)).thenReturn(cmJobParam);//"RW_ID":824 for JOB_CD":"NM-AGCHK-MLY" & "RW_ID":141 for JOB_CD":"FW-GLOBL-DLY"
 		
-//			this.caseManagementACService.updateTwnClndr();
-			when(caseManagementACService.updateTwnClndr()).thenReturn(0);
-			
-
-			//split etc
-			
-			//clog
-
-			
- 
-	 }	
-	 
-
-	 
-//	----------Write Mock ends here-----------------
-	 
-	@BeforeEach
-	public void mockProcessorServices() throws Exception {	 // you can split this method based reader/intermediate	
-		
-		when(caseManagementACService.verifyAndReturnIci(anyString())).thenReturn(iciToTest());
-		when(caseManagementACService.getLastRunDate()).thenReturn(new String("9999-10-30"));
-		when(caseManagementACService.getCaseMgmtFlag()).thenReturn(new String(" "));
-
-		when(caseManagementACService.getEligibleVersion(any(CaseManagementAC.class))).thenAnswer(invocation -> { // this will be called when actual call happen
-																							   // [mock.getJobDetail from anywhere]
-			CaseManagementAC args = (CaseManagementAC) invocation.getArguments()[0];
-			int ici = args.getIci();
-			String program = args.getProgram();
-			 List<Map<String, Object>> eligVer = getEligVer(ici+"",program);
-			 return eligVer;
-			
-		});
-		
-
-		when(caseManagementACService.getAgedOutFstrCare(any(CaseManagementAC.class))).thenAnswer(invocation -> { // this will be called when actual call happen
-																							   // [mock.getJobDetail from anywhere]
-			CaseManagementAC args = (CaseManagementAC) invocation.getArguments()[0];
-			int ici = args.getIci();
-			 String upi = args.getUpis();
-			String program = args.getProgram();
-			 String agedOutFstrCare = getAgedOutFstrCare(ici+"",upi,program);
-			 return agedOutFstrCare;
-			
-		});
-		when(caseManagementACService.getDtls(any(CaseManagementAC.class))).thenAnswer(invocation -> { // this will be called when actual call happen
-			// [mock.getJobDetail from anywhere]
-			CaseManagementAC args = (CaseManagementAC) invocation.getArguments()[0];
-			int ici = args.getIci();
-			String upi = args.getUpis();
-			String program = args.getProgram();
-			  Map<String, Object> dtls = getDtls(ici+"",upi,program);
-			return dtls;
-			
-		});
-		when(caseManagementACService.getPersonAgeCalculated(any(CaseManagementAC.class))).thenAnswer(invocation -> { // this will be called when actual call happen
-			// [mock.getJobDetail from anywhere]
-			CaseManagementAC args = (CaseManagementAC) invocation.getArguments()[0];
-			int ici = args.getIci();
-			String upi = args.getUpis();
-			String program = args.getProgram();
-			Map<String, Object> dtls = getPersonAgeCalculated(ici+"",upi,program);
-			return dtls;
-			
-		});
-		
-		when(caseManagementACService.getBgTranDetails(any(CaseManagementAC.class),anyString(),anyString())).thenReturn(null);// this is bacause for the first time all bgtaran will return null....see if you are using for other than creation of BG-tran[if that is there then you need to see how you can mock son that it retun null for creation and required data for those who need Bgtran]
-		when(caseManagementACService.populateBgDetails(any(CaseManagementAC.class),anyString(),anyString(),anyString())).thenCallRealMethod();// this is bacause for the first time all bgtaran will return null....see if you are using for other than creation of BG-tran[if that is there then you need to see how you can mock son that it retun null for creation and required data for those who need Bgtran]
-
-
-	
-	}
-
-	@BeforeEach
-	public void mockReaderServices() throws Exception {
-		when(caseManagementACService.getCasesForProcessingForICI(anyString(),any(Map.class))).thenAnswer(invocation -> { // this will be called when actual call happen
-			// [mock.getJobDetail from anywhere]
-			String iciList = (String) invocation.getArguments()[0];
-			Map<String, Object> map = (Map) invocation.getArguments()[1];
-			 Iterator<SorRecord> iterator = (Iterator<SorRecord>) map.get("iterator");
-			if (iterator == null) { // 
-				iterator=testDataForReader_iterator.iterator();// from db[its LIST<SOR> which BenefitsCaseProgramHistorySorRecord..ongoing program]
-				map.put("iterator", iterator);
-			}
-				return iterator.hasNext()//mocked iterator data
-						? CaseManagementACUtil.transformSorRecordToCaseManagementACRecord((BenefitsCaseProgramHistorySorRecord) iterator.next())
-								: null;
-
-		
-		});
-	}
-	
-
-
-
-	@Autowired()
-	@Qualifier("testObjMapper")
-	ObjectMapper objectMapper;
-
-
-	private BatchFwJob getJobDetail(String jobCode) throws BatchException, JsonProcessingException {
-		Map<String, Object> jobDetail = batchDataService.getJobDetail(jobCode);// mock this also...two mock is needed
-		// USE OBJECT AMMPER ANS TORED IN THE STRING
-		String writeValueAsString = objectMapper.writeValueAsString(jobDetail);
-
-		return jobDetail.isEmpty() ? null : BatchDataTransformerUtil.transformToBatchFW(jobDetail);
-	}
-
-	private BatchFwJob getJobDetail1(String jobCode) throws BatchException {
-		Map<String, Object> jobDetail = batchDataService.getJobDetail(jobCode);// mock this also...two mock is needed
-		return jobDetail.isEmpty() ? null : BatchDataTransformerUtil.transformToBatchFW(jobDetail);
-	}
-
-	private JobParameters getJobParams(BatchFwJob globalJob, BatchFwJob job, List<String> cmdLineParams) throws Exception {
-//		when( mock.getJobParams(824l,141l)).thenReturn(cmJobParam);//"RW_ID":824 for JOB_CD":"NM-AGCHK-MLY" & "RW_ID":141 for JOB_CD":"FW-GLOBL-DLY"
-
-		try {
-			Map<String, Object> cmdLineParamsMap = cmdLineParams.stream().filter(arg -> !arg.contains("--jobName")).map(arg -> arg.split("="))
-					.collect(Collectors.toMap(param -> param[0], param -> param[1]));
-//            List<Map<String, Object>> jobParamsFromDb = batchDataService.getJobParams(job.getRowid(), globalJob.getRowid()); // mock this data
-			List<Map<String, Object>> jobParamsFromDb = batchDataService.getJobParams(job.getRowid(), globalJob.getRowid()); // mock this data
-			String writeValueAsString = objectMapper.writeValueAsString(jobParamsFromDb);
-
-			return jobParamsService.generateJobParamsFromDBAndArgs(job, jobParamsFromDb, cmdLineParamsMap);
-		} catch (Exception ex) {
-			LOGGER.error("Exception occurred when getting job parameters");
-			throw ex;
-		}
-	}
-	public  List<Long> iciToTest(){
-		List<Long> iciList = new LinkedList<>();// will hold mock ici
-		iciList.add(631900000l);
-		iciList.add(751900000l);
-		return iciList;
-	}
-	String batchRunSstatus="";// declared at top
-	
-	
-	 // try to make exist status
-		@org.junit.jupiter.api.Test
-		@DisplayName("Test Context Load")
-		@Order(1) 
-		public void contextTest2() {
-			System.out.println("Test context is ok.");
-			assertTrue(applicationContext.containsBean("FWCommandLineJobOperator"));//
-		}
-		
-		@org.junit.jupiter.api.Test
-		@DisplayName("Batch Run")
-		@Order(2) 
-		public void triggerJob() throws Exception {
-			// This internally use few serviceLayer to return someData so mock that in @beforeEach
-			System.out.println("Launching the Job in test mode, please wait......");
-			JobExecution jobExecution = jobLauncher.launchJob(jobParameters);// This will start the job for the current context
-
-			JobInstance actualJobInstance = jobExecution.getJobInstance();// return the job which is running
-			ExitStatus actualJobExitStatus = jobExecution.getExitStatus();
-
-			batchRunSstatus=actualJobExitStatus.getExitCode().toString();
-			assertEquals("cseMngmntACJob", actualJobInstance.getJobName());
-			System.out.println("Batch Completed");
-		}
-
-
-		@org.junit.jupiter.api.Test
-		@DisplayName("Batch Run Status")
-		@Order(3) 
-		public void jobRunStatus() throws Exception {
-			assertEquals("COMPLETED",batchRunSstatus);
-		}
-		
-		
-		@org.junit.jupiter.api.Test
-		@DisplayName("data compare v2")
-//		@Order(5) 
-		@Order(4) 
-		public void assetExpectedAndAtualv2() throws Exception {
-
-			System.out.println("Comparing the resultset against expected v2");
-			for(Entry<String, Map<String, Object>> expectedObject:expected.entrySet()) {
-			
-				String [] functionalitiesToCompare= {"bgtran","alert","clog","memberSPlit"};
-				
-				String key = expectedObject.getKey();
-				Map<String, Object> expcetdCaeOutput = expectedObject.getValue();
-				Map<String, Object> actualCaseOutput = actual.get(key);
-
-    			 for(String eachFun:functionalitiesToCompare) {
-    				 Object expObj = expcetdCaeOutput.get(eachFun);
-    				 Object actObj = actualCaseOutput.get(eachFun);
-    				 
-    				 JsonElement expectedJsonTree = gsonMapper.toJsonTree(expObj);
-    				 JsonElement actualJsonTree = gsonMapper.toJsonTree(actObj);
-    				 
-    				 //Note: if it fails then it might be due to processing timestamp , some attribute hold current-time which would be different than mock-json...we can make that also mock
-    				 assertEquals(expectedJsonTree, actualJsonTree);
-    				 
-    			 }
-				
-			}
-			
-			
-			
-		}
-		
-//	@org.junit.jupiter.api.Test
-//	@DisplayName("data compare")
-//	@Order(4) 
-	public void assetExpectedAndAtual() throws Exception {
-
-		System.out.println("Comparing the resultset against expected");
-		//it should hold all the scenarios data[and iterate over all the expcted and actual and compare]
-		for(Entry<String,  Object> expectedObject:expectedBgTran.entrySet()) {
-			String key = expectedObject.getKey();	
-			Object expectedValue = expectedObject.getValue();
-			
-			Object object = actual1.get(key);
-			
-			JsonElement expectedJsonTree = gsonMapper.toJsonTree(expectedValue);
-			JsonElement actualJsonTree = gsonMapper.toJsonTree(object);
-			Map<String, Map<String, Object>> expected2 = expected;
-//			JsonObject jobj = gsonMapper.fromJson(actualJsonTree, getClass())
-			
-			// just handler TS/Date(creattion date or any date subject to change for each run) because these are subjected to change...you can ignire these attribute
-			assertEquals(expectedJsonTree, actualJsonTree);
-			
-			
-			// use these to traver all the ;evel[make recustive/iterative approch....]
-//			expectedJsonTree.isJsonPrimitive()[STring,primitive+wapper primitive]// just compare[match or ignore as per the choice]
-//			expectedJsonTree.isJsonArray()// it could be array of object or primitive
-//			expectedJsonTree.isJsonObject()// compare top-level the again it will be primitive+arra+object...[Tree[Generic tree]]
-			
-			//Asert-clog:
-			//asertBgTran
-			//assert Alert
-			//assertSPlit
-			//other
-			
-		}
-		
-	}
-	
-	
-	public Map<String,Object> defaultExpctedStructure(){
-		HashMap<String, Object> hashMap = new HashMap<>();
-		hashMap.put("bgtran", null);
-		hashMap.put("alert", new LinkedHashSet<>());
-		hashMap.put("clog", null);
-		hashMap.put("memberSPlit", null);
-		return hashMap;
-	}
-	
-	public Map<String,Object> getBgTran(Map<String, Map<String, Object>> source,String key){
-	
-		return source.get(key);
-	}
-
-	List<Map<String, Object>> getEligVer(String ici,String programCode){
-		String key=ici+"_"+programCode;// as key  each of the scenation/ici will have its key and data againt it
-		
-		return eligVersionMemberAndEligVersion.get(key); //// as key  each of the scenation/ici will have its key and data againt it
-	}
-	
-	String getAgedOutFstrCare(String ici,String upi,String programCode){
-		String key=ici+"_"+upi+"_"+programCode;// as key  each of the scenation/ici will have its key and data againt it
-		
-		return agedOutFstrCare.get(key).get("AGEDOUT_FSTR_CARE"); //// as key  each of the scenation/ici will have its key and data againt it
-	}
-	
-	 Map<String, Object> getDtls(String ici,String upi,String programCode){
-		String key=ici+"_"+upi+"_"+programCode;
-		return getDtls.get(key);
-		
-	}
-	 Map<String, Object> getPersonAgeCalculated(String ici,String upi,String programCode){
-		 String key=ici+"_"+upi+"_"+programCode;
-		 return getPersonAgeCalculated.get(key);
-		 
-	 }
-
-	public Map<String, Object> getValue() {
-		System.out.println("Test method as substutute");
-		return cmJobDetails;
-	}
-
-	// load mock data in map[reperent table]
-	Map<String, Object> tableX = new HashMap<>();
-	Map<String, Map<String, Object>> tableX1 = new HashMap<>();
-
-	public Map<String, Object> getTableValue(String finder) {// its should be same umber of parama as of yarget method will ..e.g service layer will
-															 // accept's diferent mathod will accept dirrefetn args and will return value[from
-															 // table...here you use hashmap]
-		System.out.println("Yes method replcaed");
-
-		Object object = tableX.get(finder);
-		Map<String, Object> map = tableX1.get(finder);
-
-		return cmJobDetails;
-	}
-
+		// OR YOU CAN DIRECLTY MOCK BatchFwJob
+    }
+    **/
+    public BatchFwJob getJobDetail(String jobCode) throws BatchException {
+        Map<String, Object> jobDetail = mockBatchService.getJobDetail(jobCode);// THIS WILL NOT RETURN DATA FROM DB BUT FROM MOCKED-POJO[AS BEAN]
+     
+        return jobDetail.isEmpty() ? null : BatchDataTransformerUtil.transformToBatchFW(jobDetail);
+    }
+    
+    public JobParameters getJobParams(BatchFwJob globalJob, BatchFwJob job, List<String> cmdLineParams) throws BatchException {
+        try {
+            Map<String, Object> cmdLineParamsMap = cmdLineParams.stream()
+                    .filter(arg -> !arg.contains("--jobName"))
+                    .map(arg -> arg.split("="))
+                    .collect(Collectors.toMap(param -> param[0], param -> param[1]));
+            List<Map<String, Object>> jobParamsFromDb = mockBatchService.getJobParams(job.getRowid(), globalJob.getRowid()); //THIS WILL NOT RETURN DATA FROM DB BUT FROM MOCKED-POJO[AS BEAN]
+            return jobParamsService.generateJobParamsFromDBAndArgs(job, jobParamsFromDb, cmdLineParamsMap);
+        } catch (Exception ex) {
+        	Logger.error("Exception occurred when getting job parameters");
+            throw ex;
+        }
+    }
 }
