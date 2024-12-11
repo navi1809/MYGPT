@@ -1,67 +1,67 @@
-public class MockServiceUtil {
+To refactor the manual iteration in `assetExpectedAndAtualv2()` from `CACTest.java`, we can use **parameterized tests** and **`@MethodSource`** for dynamic test execution. This approach enhances readability, scalability, and maintainability.
 
-    // Generic mock method for when().thenAnswer() usage
-    public static <T> void mockServiceCall(T service, String method, Object returnValue) throws Exception {
-        when(service.getClass().getMethod(method, any()).invoke(service, any()))
-            .thenReturn(returnValue);
+---
+
+### **Refactored Code for `assetExpectedAndAtualv2()`**
+#### **1. Create a Data Provider Method:**
+We extract a method to provide test data as arguments.
+
+```java
+// Provide expected vs actual comparisons
+static Stream<Arguments> expectedVsActualProvider() {
+    return expected.entrySet().stream()
+        .map(entry -> Arguments.of(entry.getKey(), entry.getValue(), actual.get(entry.getKey())));
+}
+```
+
+---
+
+#### **2. Refactor the Test Method with Parameterized Test:**
+Use the `@ParameterizedTest` and `@MethodSource` annotations.
+
+```java
+@ParameterizedTest(name = "Compare expected and actual for key: {0}")
+@MethodSource("expectedVsActualProvider")
+@DisplayName("Data Comparison Test")
+@Order(4)
+public void compareExpectedAndActual(String key, Map<String, Object> expectedData, Map<String, Object> actualData) {
+    assertNotNull(actualData, "Actual data is missing for key: " + key);
+
+    // Compare functionalities
+    String[] functionalitiesToCompare = {"bgtran", "alert", "clog", "memberSPlit"};
+
+    for (String feature : functionalitiesToCompare) {
+        JsonElement expectedJson = gsonMapper.toJsonTree(expectedData.get(feature));
+        JsonElement actualJson = gsonMapper.toJsonTree(actualData.get(feature));
+
+        assertEquals(expectedJson, actualJson, String.format("Mismatch for %s in key: %s", feature, key));
     }
-
-    // Generic mock method for data processing
-    public static <T> void mockServiceProcessing(T service, String method, Answer<?> answer) throws Exception {
-        when(service.getClass().getMethod(method, any()).invoke(service, any()))
-            .thenAnswer(answer);
-    }
 }
+```
 
+---
 
-@BeforeEach
-public void mockWriterServices() throws Exception {
-    setupBackgroundTransactionMocks();
-    setupAlertServiceMocks();
-    setupCaseManagementMocks();
+#### **3. Add Fallback for Missing Data:**
+Use `Optional.ofNullable()` for safe retrieval.
+
+```java
+private static Map<String, Object> safeGetData(String key) {
+    return Optional.ofNullable(actual.get(key)).orElse(defaultExpectedStructure());
 }
+```
 
-private void setupBackgroundTransactionMocks() throws Exception {
-    MockServiceUtil.mockServiceProcessing(backgroundTransactionSorDao, "insert", invocation -> {
-        BackgroundTransactionSorRecord record = invocation.getArgument(0);
-        String key = record.getIci() + "_" + record.getProgramTypeCode();
+---
 
-        // Update actual results
-        Map<String, Object> caseData = actual.getOrDefault(key, defaultExpectedStructure());
-        caseData.put("bgtran", record);
-        actual.put(key, caseData);
+### **Why This Is Better:**
+1. **Parameterized Test Execution:** Each test scenario is treated as a separate test run, simplifying debugging.
+2. **Data-Driven Testing:** Using `@MethodSource` allows dynamic data generation.
+3. **Reduced Manual Iteration:** No explicit loops; iteration is abstracted by JUnit.
+4. **Cleaner Assertions:** We now assert specific cases using clear messages.
 
-        return 0; // Mocked return value
-    });
-}
+---
 
-private void setupAlertServiceMocks() throws Exception {
-    MockServiceUtil.mockServiceProcessing(alertService, "createAlert", invocation -> {
-        String program = invocation.getArgument(0);
-        Set<Alert> alerts = invocation.getArgument(1);
-        Alert alert = alerts.iterator().next();  // Assuming single alert for simplicity
+### **Additional Enhancements:**
+- If there are additional features to compare, adjust the `functionalitiesToCompare` array.
+- Add more comparison logic as needed using similar assertions.
 
-        String key = alert.getIci() + "_" + program;
-
-        // Update actual results
-        Map<String, Object> caseData = actual.getOrDefault(key, defaultExpectedStructure());
-        caseData.put("alert", alerts);
-        actual.put(key, caseData);
-
-        return 0; // Mocked return value
-    });
-}
-
-private void setupCaseManagementMocks() throws Exception {
-    MockServiceUtil.mockServiceCall(caseManagementACService, "updateTwnClndr", 0);
-}
-
-
-private Map<String, Object> defaultExpectedStructure() {
-    return new HashMap<>(Map.of(
-        "bgtran", null,
-        "alert", new LinkedHashSet<>(),
-        "clog", null,
-        "memberSPlit", null
-    ));
-}
+By following this approach, the `assetExpectedAndAtualv2()` becomes modular, scalable, and easy to maintain. Each scenario runs independently, providing more granular test feedback.
