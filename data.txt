@@ -1,1 +1,353 @@
-I conducted 41 technical interviews focusing on Microservices and Full Stack development, evaluating candidates’ proficiency in Java, Spring Boot, REST APIs, Angular, React, and cloud platforms. 
+package gov.illinois.ies.business.batch.dc;
+
+import gov.illinois.framework.exceptions.FwException;
+import gov.illinois.framework.factories.FwServiceFactory;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.management.util.PMDRules;
+import gov.illinois.fw.batch.AbstractBatch;
+import gov.illinois.fw.batch.Controller.TIERSBatchController;
+import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.fw.batch.entities.FwBatchContextCargo;
+import gov.illinois.fw.batch.entities.FwBatchContextCollection;
+import gov.illinois.fw.business.exceptions.ApplicationException;
+import gov.illinois.fw.business.exceptions.FrameworkException;
+import gov.illinois.fw.business.exceptions.TIERSBatchException;
+import gov.illinois.fw.business.exceptions.TIERSRunTimeException;
+import gov.illinois.fw.business.exceptions.TIERSValidationException;
+import gov.illinois.fw.management.logger.LogLevel;
+import gov.illinois.ies.business.batch.sh.AbortJobException;
+import gov.illinois.ies.business.entities.DcAutoProcessingCargo;
+import gov.illinois.ies.business.entities.DcAutoProcessingCollection;
+import gov.illinois.ies.business.rules.st.appreg.AppRegConstants;
+import gov.illinois.ies.business.rules.st.appreg.AutoRegistrationBO;
+
+import java.sql.Connection;
+import java.sql.SQLException;
+
+public class AutoRegProcessBatch extends AbstractBatch {
+    
+    private Connection autoRegProcConn = null;
+    private int exitStatus = 0;
+    private String programName = null;
+    private TIERSBatchController batchController = null;
+    private int autoRegProcessRecordsRead = 0;
+    private int autoRegProcessRecordsInserted = 0;
+    private int autoRegProcessTotalExceptions = 0;
+    private int numAttempts = 3;
+    DcAutoProcessingCollection dcAutoProcColl = null;
+    private static ILog fwlogger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
+    
+    /**
+     * Main method for batch
+     * 
+     * @param args
+     */
+    public static void main(String[] args) {
+	AutoRegProcessBatch autoRegBatch = null;
+	int retStatus = BatchConstants.EXIT_SUCCESS;
+	try {
+	    autoRegBatch = new AutoRegProcessBatch();
+	    if (args[0] != null) {
+		jobId = args[0];
+	    }
+	    String temp = autoRegBatch.getClass().getName();
+	    autoRegBatch.programName = temp.substring(temp.lastIndexOf(".") + 1, temp.length());
+	    retStatus = autoRegBatch.processApps();
+	} catch (Exception e) {
+	    retStatus = BatchConstants.EXIT_FAILURE;
+	    autoRegBatch.writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in AutoRegProcessBatch - main()", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+		    BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+	} finally {
+	    try {
+		if (retStatus == BatchConstants.EXIT_FAILURE) {
+		    autoRegBatch.abort();
+		} else {
+		    autoRegBatch.complete();
+		}
+	    } catch (Exception e) {
+		retStatus = BatchConstants.EXIT_FAILURE;
+		autoRegBatch.writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in AutoRegProcessBatch - main() during finally block - exit status before this exception was " + retStatus, e.getMessage(), 
+			BatchConstants.REPORT_BODY, false, BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+	    }
+	    System.exit(retStatus);
+	}
+    }
+    
+    @Override
+    protected void preProcess() throws ApplicationException {
+	try {
+	    setJobId(jobId);
+	    setProgramName(programName);
+	    batchController = getTIERSBatchController();
+	    batchController.initIDSSocketPool();
+	    autoRegProcConn = getConnection();
+	    dcAutoProcColl = new DcAutoProcessingCollection(autoRegProcConn);
+	    this.numAttempts = this.getRecordAttempts(jobId);
+	} catch (TIERSBatchException e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + ": TIERSBatchException in AutoRegProcessBatch - preProcess()", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+	    throw new ApplicationException("TIERSBatchException in AutoRegProcessBatch - preProcess()", e);
+	} catch (Exception e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in AutoRegProcessBatch - preProcess()", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+	    throw new ApplicationException("Exception in AutoRegProcessBatch - preProcess()", e);
+	}
+    }
+    
+    @Override
+    protected void process() throws ApplicationException {
+	try {
+	    processDcAutoRegApps();
+	} catch (Exception e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + "Exception Occured", jobId + "--->process()" + e.getMessage(), BatchConstants.FATAL, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, LogLevel.DEBUG_INT, BatchConstants.FW_LOGGER_FILE, false, e, null, null, null);
+	    throw new ApplicationException("--->process :" + e.getMessage(), e);
+	}
+    }
+    
+    /**
+     * Method to do post process actions of batch
+     */
+    @Override
+    protected void postProcess() throws ApplicationException {
+	try {
+	    batchController.insertSummaryRecord(autoRegProcessRecordsRead, autoRegProcessRecordsInserted, autoRegProcessTotalExceptions);
+	} catch (TIERSBatchException e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + ": TIERSBatchException in AutoRegProcessBatch - postProcess()", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+	    throw new ApplicationException("TIERSBatchException in AutoRegProcessBatch - postProcess()", e);
+	} catch (Exception e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in AutoRegProcessBatch - postProcess()", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+	    throw new ApplicationException("Exception in AutoRegProcessBatch - postProcess()", e);
+	}
+    }
+    
+    /**
+     * Process of DC Auto Registration Apps
+     * 
+     * @throws ApplicationException
+     * @throws SQLException
+     */
+    private void processDcAutoRegApps() throws ApplicationException {
+	String appNum = "";
+	try {
+	    DcAutoProcessingCollection tempAcAutoProcColl = new DcAutoProcessingCollection(autoRegProcConn);
+	    DcAutoProcessingCargo dcAutoProcCargo = new DcAutoProcessingCargo();
+	    DcAutoProcessingCargo[] eligCargos = null;
+	    int colSize = 0;
+	    AutoRegistrationBO autoRegBo = null;
+	    appNum = "Begin processDcAutoRegApps method";
+	    
+	    java.sql.Timestamp currentTime = new java.sql.Timestamp(System.currentTimeMillis());
+	    dcAutoProcCargo.setCreateDt(currentTime);
+	    
+	    tempAcAutoProcColl.add(dcAutoProcCargo);
+	    eligCargos = (DcAutoProcessingCargo[]) tempAcAutoProcColl.select("findByAutoRegStatusCd");
+	    if (eligCargos == null || eligCargos.length == 0) {
+		return;
+	    }
+	    autoRegProcessRecordsRead += eligCargos.length;
+	    dcAutoProcColl.setResults(eligCargos);
+	    colSize = dcAutoProcColl.size();
+	    DcAutoProcessingCollection tempColl1 = new DcAutoProcessingCollection(autoRegProcConn);
+	    for (int i = 0; i < colSize; i++) {
+		DcAutoProcessingCargo cargo = (DcAutoProcessingCargo) dcAutoProcColl.getResults(i).clone();
+		appNum = cargo.getAppNum();
+		dcAutoProcCargo = dcAutoProcColl.getResults(i);
+		
+		autoRegBo = new AutoRegistrationBO(batchController, autoRegProcConn);
+		try {
+			Boolean isComplete = autoRegBo.autoRegCompletenessCheck(dcAutoProcCargo);
+			if(isComplete != null && !isComplete){
+				//Moving to the next record; this record has been updated to status "Fail" within autoRegCompletenessCheck().
+				continue;
+			}
+			String status = autoRegBo.autoRegistrationCheck(appNum, autoRegProcConn);
+		    
+		    if ("FC_EXP".equals(status)) {
+			String RollBackedApps = "";
+			DcAutoProcessingCollection tempColl2 = new DcAutoProcessingCollection(autoRegProcConn);
+			for (int j = i; j < colSize; j++) {
+			    dcAutoProcCargo = dcAutoProcColl.getResults(j);
+			    RollBackedApps = RollBackedApps + dcAutoProcCargo.getAppNum() + ", ";
+			    dcAutoProcCargo.setAutoBatProcInd("N");
+			    if (dcAutoProcCargo.getFcExpCount() != 0L) {
+				dcAutoProcCargo.setFcExpCount(dcAutoProcCargo.getFcExpCount() + 1);
+			    } else {
+				dcAutoProcCargo.setFcExpCount(1);
+			    }
+			    tempColl2.add(dcAutoProcCargo);
+			}
+			tempColl2.update(tempColl2);
+			i = colSize;
+			/* PMD_OVerride - R5 - Multiple catch blocks have one rollback but only one commit in the main body, which is correct. */
+			PMDRules.markApprovedStatement("R5");
+			commit();
+			autoRegProcessTotalExceptions++;
+			writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in AutoRegProcessBatch - processDcAutoRegApps()", "AutoRegistrationBO.mciFileClearanceCheck(): = ERROR = AppNum: " + appNum 
+				+ " :: Stopping the batch process for remaining " + i + " apps :: Roll backed apps: " + RollBackedApps, BatchConstants.FATAL, false, 
+				BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, null, null, null, null);
+		    } else if (autoRegBo.hasExceptionOccurred || "Failed".equals(status)) {
+			//Start: Added for ILIES-192695
+			/*if("Failed and has MPE".equals(status)){
+			   try{
+				   autoRegBo.performMpeExtention(appNum);
+			   }catch(Exception ex){
+				    PMD_Override - R6 - Exception is not being propagated because failure in MPE extension logic should not abort the job 
+				   PMDRules.markApprovedCatchBlock("R6");
+				   fwlogger.log(BatchConstants.DEFAULT_LOGGER_FILE, ILog.ERROR, jobId +": Exception in autoRegBo.performMpeExtention() for AppNum " + appNum + ": " + ex.getMessage(), ex);
+			   }
+			}*/
+			//End: Added for ILIES-192695
+		    	//making changes as per ILIES-228888
+		    	Object dcAutoProcArgs[] = { appNum };
+		    	DcAutoProcessingCargo[] dcAutoProcCargoArray = (DcAutoProcessingCargo[]) dcAutoProcColl.select("findByAppNum", dcAutoProcArgs);			    
+			    if (dcAutoProcCargoArray != null && dcAutoProcCargoArray.length > 0) {
+			    	if(dcAutoProcCargoArray[0].getAutoBatProcInd() != null && !(dcAutoProcCargoArray[0].getAutoBatProcInd().trim().equals(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED))){
+			    		// Below code is added to prevent looping of applications. After 3 attempts the Auto Reg Exception table
+			    		// is updated so that the task ic reated and record is marked as Processed/Failed.
+			    		dcAutoProcCargoArray[0].setFcExpCount(dcAutoProcCargo.getFcExpCount() + 1);
+			    		if(dcAutoProcCargoArray[0].getFcExpCount() >= this.numAttempts){
+			    			autoRegBo.updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_IA, AppRegConstants.AUTO_REG_EXCP_STATUS_EX, numAttempts);			    			
+			    		}else{
+			    			dcAutoProcCargoArray[0].setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);			    			
+			    		}
+						tempColl1.clear();
+						tempColl1.add(dcAutoProcCargoArray[0]);
+						tempColl1.update(tempColl1);
+						//ILIES-235080 : Anything incremented as an ERROR in the FW table should be a record that is not creating AT ALL in IES due to some technical issue
+						autoRegProcessTotalExceptions++;
+						writeExceptionRecord(BatchConstants.BATCH_ERROR, "Technical Exception in processDcAutoRegApps() ", "AppNum failed: " + appNum, BatchConstants.REPORT_BODY, false, 
+							BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, null, null, null, null);
+			    	} else {
+			    		//ILIES-235080: Any record that results in a task being created in IES should count as PROCESSED. Auto_Bat_Proc_Ind is set to C only when there is task created.
+			    		autoRegProcessRecordsInserted++;
+						writeExceptionRecord(BatchConstants.INFO, "Business Exceptions in processDcAutoRegApps() ", "Task created for AppNum: " + appNum, BatchConstants.REPORT_BODY, false, 
+							BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.INFO, BatchConstants.DEFAULT_LOGGER_FILE, false, null, null, null, null);
+			    	}
+			    }
+				
+		    } else {
+			    //Start: Added for ILIES-192695
+			   /* try{
+				    autoRegBo.performMpeExtention(appNum);
+			    }catch(Exception ex){
+				     PMD_Override - R6 - Exception is not being propagated because failure in MPE extension logic should not abort the job 
+				    PMDRules.markApprovedCatchBlock("R6");
+				    fwlogger.log(BatchConstants.DEFAULT_LOGGER_FILE, ILog.ERROR, jobId +": Exception in autoRegBo.performMpeExtention() for AppNum " + appNum + ": " + ex.getMessage(), ex);
+			    }*/
+			    //End: Added for ILIES-192695
+			autoRegProcessRecordsInserted++;
+		    }
+		    /* PMD_OVerride - R5 - Multiple catch blocks have one rollback but only one commit in the main body, which is correct. */
+		    PMDRules.markApprovedStatement("R5");
+		    commit();
+		} catch (FwException e) {
+		    rollback();
+		    cargo.setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+		    DcAutoProcessingCollection tempColl2 = new DcAutoProcessingCollection(autoRegProcConn);
+		    tempColl2.add(cargo);
+		    tempColl2.update(tempColl2);
+		    throw e;
+		} catch (FrameworkException e) {
+		    rollback();
+		    cargo.setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+		    DcAutoProcessingCollection tempColl2 = new DcAutoProcessingCollection(autoRegProcConn);
+		    tempColl2.add(cargo);
+		    tempColl2.update(tempColl2);
+		    throw e;
+		} catch (TIERSValidationException e) {
+		    /* PMD_Override - R6 - Exception is not being propagated because this is the driving loop and if one record fails we need to proceed with the next LUW iteration. */
+		    PMDRules.markApprovedCatchBlock("R6", "R2");
+		    rollback();
+		    cargo.setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+		    DcAutoProcessingCollection tempColl2 = new DcAutoProcessingCollection(autoRegProcConn);
+		    tempColl2.add(cargo);
+		    tempColl2.update(tempColl2);
+		    autoRegProcessTotalExceptions++;
+		    writeExceptionRecord(BatchConstants.BATCH_ERROR, "Exception in processDcAutoRegApps() ", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+			    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+		} catch (TIERSRunTimeException e) {
+			 /* PMD_Override - R6 - Exception is not being propagated because non fatal exceptions should not abort the job */
+		    PMDRules.markApprovedCatchBlock("R6", "R2");
+		    rollback();
+		    cargo.setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+		    DcAutoProcessingCollection tempColl2 = new DcAutoProcessingCollection(autoRegProcConn);
+		    tempColl2.add(cargo);
+		    tempColl2.update(tempColl2);
+		    autoRegProcessTotalExceptions++;
+		    writeExceptionRecord(BatchConstants.BATCH_ERROR, "Exception in processDcAutoRegApps() ", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+			    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+		} catch (Exception e) {
+		    /* PMD_Override - R6 - Exception is not being propagated because this is the driving loop and if one record fails we need to proceed with the next LUW iteration. */
+		    PMDRules.markApprovedCatchBlock("R6", "R2");
+		    rollback();
+		    cargo.setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+		    DcAutoProcessingCollection tempColl2 = new DcAutoProcessingCollection(autoRegProcConn);
+		    tempColl2.add(cargo);
+		    tempColl2.update(tempColl2);
+		    autoRegProcessTotalExceptions++;
+		    writeExceptionRecord(BatchConstants.BATCH_ERROR, "Exception in processDcAutoRegApps() ", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+			    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+		}
+	    }
+	    dcAutoProcColl.clear();
+	    
+	} catch (Exception e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + "Exception Occured", jobId + "--->processDcAutoRegApps()" + e.getMessage(), BatchConstants.FATAL, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+	    throw new ApplicationException("--->processDcAutoRegApps :" + e.getMessage(), e);
+	}
+    }
+    
+    /**
+     * This method is starting point to initialize all batch related sequence steps.
+     * 
+     * @return status
+     * @throws AbortJobException
+     */
+    private int processApps() throws ApplicationException {
+	
+	try {
+	    super.start();
+	    return exitStatus;
+	} catch (ApplicationException e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + ": ApplicationException in AutoRegProcessBatch - processApps()", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+	    throw e;
+	} catch (Exception e) {
+	    writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in AutoRegProcessBatch - processApps()", e.getMessage(), BatchConstants.REPORT_BODY, false, 
+		    BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+	    throw new ApplicationException("Exception in AutoRegProcessBatch - processApps()", e);
+	}
+	
+    }
+    
+	private int getRecordAttempts(String jobId){
+		FwBatchContextCargo params = new FwBatchContextCargo();
+		params.setJobId(jobId);
+		params.setKeyColumn("NUMBER_OF_ATTEMPTS");
+		FwBatchContextCargo[] fwBatchContextCargo = null;
+
+		FwBatchContextCollection contextCollection;
+		try {
+			contextCollection = new FwBatchContextCollection(getConnection());
+			contextCollection.setCargo(params);
+			fwBatchContextCargo = (FwBatchContextCargo[]) contextCollection.select("findByCommitKey");
+			if(fwBatchContextCargo.length>0){
+				return Integer.parseInt(fwBatchContextCargo[0].getJobKeyValue() != null ? fwBatchContextCargo[0].getJobKeyValue() : "3");
+			}
+		} catch (Exception e) {
+			throw new FwException(e.getMessage(), e);
+		}
+		
+		return this.numAttempts;
+	}
+    
+    @Override
+    protected void stop() throws TIERSBatchException {
+	// TODO Auto-generated method stub
+	
+    }
+}
