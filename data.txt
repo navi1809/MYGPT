@@ -1,1129 +1,914 @@
- public boolean closeTaskStatus(String appNum) throws Exception {
+public EdEligibilityCargo[] checkForPastMSP(DcCasesCargo[] dcCaseTempArray,long indvId) throws Exception {
 	
-	log(7, "Begin AutoRegistrationBO.closeTaskStatus() : appNum - " + appNum);
-	
-	DMDocumentIndexUpdater dmDocIndex = new DMDocumentIndexUpdater(connection);
-	DMDocTaskUpdateBO taskBo1 = null;
-	DmDocCargo[] dmDocCargo = null;
-	
-	try {
-	    String docId = null;
-	    DMDocTaskUpdateBO taskBo = new DMDocTaskUpdateBO(docId, connection);
-	    Object docIdforFileNet = taskBo.getDocIdFromDmDocForSubmit(appNum);
-	    if (docIdforFileNet != null) {
-		docId = (String) docIdforFileNet;
+	    EdEligibilityCollection edEligColl = new EdEligibilityCollection(connection);
+	    EdEligibilityCargo[] edEligCargoArray = null;
+	   
+	    log(7,"Start AutoRegistrationBO.checkForPastMSP() indvId:"+ indvId);
+	    try{
+		Object[] methodArgs = new Object[2];
+		List argumentsList = new ArrayList();
+		StringBuffer caseNumBuf = new StringBuffer();
+		for (DcCasesCargo cargo : dcCaseTempArray) {
+			caseNumBuf = caseNumBuf.append(",").append(cargo.getCaseNum());
+		}
+		String caseNumbers = caseNumBuf.toString();
+		if (caseNumbers.length() > 0) {
+			caseNumbers = caseNumbers.substring(1);
+		}
+		methodArgs[0] = caseNumbers;
+		methodArgs[1] = indvId;
+		
+		log(7,"AutoRegistrationBO.checkForPastMSP() :: Case Numbers that are associated to indv - "+ caseNumbers);
+		edEligCargoArray = (EdEligibilityCargo[]) edEligColl.select("findCasesHavingPastMSP", methodArgs);
+		
+	    }catch(Exception e) {
+		hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkForPastMSP() indvId: " + indvId + "\n" + e.getMessage() + "\n", e);
+		throw e;
+	    }
+	    return edEligCargoArray;
+	}
+
+    public EdEligibilityCargo[] getEligibilityForIndvCase(Object[] methodArgs) throws Exception {
+	    EdEligibilityCollection edEligColl = new EdEligibilityCollection(connection);
+	    EdEligibilityCargo[] edEligCargoArray = null;
+	    log(7,"Start AutoRegistrationBO.getEligibilityForIndvCase() case and Indv ::"+ methodArgs);
+	    System.out.println("Start AutoRegistrationBO.getEligibilityForIndvCase() case and Indv ::"+ methodArgs);
+	    try{
+		log(7,"AutoRegistrationBO.getEligibilityForIndvCase() :: Case Numbers that are associated to indv - "+ methodArgs[0]);
+		System.out.println("AutoRegistrationBO.getEligibilityForIndvCase() :: Case Numbers that are associated to indv - "+ methodArgs[0]);
+		edEligCargoArray = (EdEligibilityCargo[]) edEligColl.select("findCasesByIndvIdMSP", methodArgs);
+		
+	    }catch(Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.getEligibilityForIndvCase() methodArgs: " + methodArgs + "\n" + e.getMessage() + "\n", e);
+			hasExceptionOccurred = true;
+			throw e;
 	    }
 	    
-	    if (docId != null) {
-		log(7, "AutoRegistrationBO.closeTaskStatus():: docId-" + docId);
-		
-		taskBo1 = new DMDocTaskUpdateBO(docId, connection);
-		dmDocCargo = taskBo1.getDocSeqNum();
-		
-		long groupSeqNum = 0;
-		if (dmDocCargo != null && dmDocCargo.length > 0) {
-		    groupSeqNum = dmDocCargo[0].getGroupSeqNum();
-		}
-		
-		log(7, "AutoRegistrationBO.closeTaskStatus():: Closing the task for the groupSeqNum-" + groupSeqNum);
-		DmTaskStatusCargo[] prevCargoArr = taskBo.updateTaskStatus(groupSeqNum);
-	    }
-	    log(7, "AutoRegistrationBO.closeTaskStatus() ");
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.closeTaskStatus() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_CT, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    throw e;
-	}
-    }
-    
-    public boolean createTaskForREDEApps(String appNum, long caseNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.createTaskForREDEApps() : appNum - " + appNum + "--Case Num --" + caseNum);
-	
-	String docId = null;
-	DMDocTaskUpdateBO taskBo = new DMDocTaskUpdateBO(docId, connection);
-	DcCasesCargo caseCargo = new DcCasesCargo();
-	DcCasesCollection caseColl = new DcCasesCollection(connection);
-	DcCasesCargo[] caseArrCargo = null;
-	
-	try {
-	    Object docIdforFileNet = taskBo.getDocIdFromDmDocForSubmit(appNum);
-	    if (docIdforFileNet != null) {
-		docId = (String) docIdforFileNet;
-	    }
-	    log(7, "AutoRegistrationBO.createTaskForREDEApps() : docId - " + docId);
-	    if (docId != null) {
-		
-		long empID = 0;
-		long officeNum = 0;
-		if (caseNum != 0) {
-		    caseCargo.setCaseNum(caseNum);
-		    caseColl.setCargo(caseCargo);
-		    caseArrCargo = (DcCasesCargo[]) caseColl.select("findByCaseNum");
-		    if (caseArrCargo != null && caseArrCargo.length > 0 && caseArrCargo[0] != null) {
-			officeNum = caseArrCargo[0].getOfficeNum();
-		    }
-		}
-		
-		empID = retrieveIntakeVirtualWkrId(officeNum);
-		String assignableTag = "";
-		if (autoRegT1002Cargo != null) {
-		    if (((autoRegT1002Cargo.getMaRqstSw() != 0 && autoRegT1002Cargo.getMaRqstSw() == 'Y') || (autoRegT1002Cargo.getMcRqstSw() != 0 && autoRegT1002Cargo.getMcRqstSw() == 'Y')) && ((autoRegT1002Cargo.getFsRqstSw() == 0 || autoRegT1002Cargo.getFsRqstSw() == 'N') && (autoRegT1002Cargo.getCashRqstSw() == 0 || autoRegT1002Cargo.getCashRqstSw() == 'N'))) {
-			assignableTag = "NR";
-		    } else {
-			assignableTag = "IR";
-		    }
-		}
-		
-		DMDocumentIndexUpdater dmDocIndex = new DMDocumentIndexUpdater(connection);
-		boolean taskToBeCreated = true;
-		DMDocTaskUpdateBO taskUpdateBo = new DMDocTaskUpdateBO(docId, connection);
-		DmDocCargo[] dmDocCargo = taskUpdateBo.getDocSeqNum();
-		
-		long groupSeqNum = 0;
-		
-		if (dmDocCargo != null && dmDocCargo.length > 0) {
-		    groupSeqNum = dmDocCargo[0].getGroupSeqNum();
-		}
-		log(7, "AutoRegistrationBO.createTaskForREDEApps() : groupSeqNum - " + groupSeqNum);
-		DmTaskStatusCargo[] prevCargoArr = (DmTaskStatusCargo[]) taskBo.updateTaskStatus(groupSeqNum);
-		DmTaskStatusCargo taskCargo = null;
-		if (prevCargoArr != null && prevCargoArr.length > 0 && prevCargoArr[0] != null) {
-		    int arrLength = prevCargoArr.length;
-		    for (int i = 0; i < arrLength; i++) {
-			taskCargo = prevCargoArr[i];
-			if (officeNum == 0L) {
-			    officeNum = taskCargo.getOfficeNum();
-			    empID = retrieveIntakeVirtualWkrId(officeNum);
-			}
-			if (caseArrCargo != null && caseArrCargo.length > 0 && caseArrCargo[0] != null) {
-			    taskBo.createNewTaskStatus(DMConstants.DOCUMENT_TASK_STATUSCODE_NEW, empID, caseNum, officeNum, taskCargo, true, assignableTag, DMConstants.DOCUMENT_ACTIONTYPECODE_ASSIGNED);
-			    
-			}
-		    }
-		}
-		dmDocIndex.updateDocumentSpeicalIndicatorForAutoReg(docId, appNum);
-		updateDmDocsWithREDECaseNum(groupSeqNum, caseNum);
-	    }
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.createTaskForREDEApps() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    caseCargo = null;
-	    caseColl = null;
-	    caseArrCargo = null;
+	    return edEligCargoArray;
 	}
 	
-    }
-    
-    public boolean updateDmDocsWithREDECaseNum(long groupSeqNum, long caseNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateDmDocsWithREDECaseNum() : groupSeqNum--" + groupSeqNum);
-	
-	DmDocCargo dmDocCargo = new DmDocCargo();
-	DmDocCollection dmDocColl = new DmDocCollection(connection);
-	DmDocCargo[] dmDocCargoArray = null;
-	
-	try {
-	    
-	    dmDocCargo.setGroupSeqNum(groupSeqNum);
-	    dmDocColl.add(dmDocCargo);
-	    dmDocCargoArray = (DmDocCargo[]) dmDocColl.select("findDocumentsByGroupSeqNum");
-	    if (dmDocCargoArray != null && dmDocCargoArray.length > 0) {
-		log(7, "AutoRegistrationBO.updateDmDocsWithREDECaseNum() : DM Doc count--" + dmDocCargoArray.length);
-		log(7, "AutoRegistrationBO.updateDmDocsWithREDECaseNum() : Updating caseNum--" + caseNum);
-		dmDocColl.clear();
-		for (int i = 0; i < dmDocCargoArray.length; i++) {
-		    dmDocCargo = dmDocCargoArray[i];
-		    dmDocCargo.setCaseNum(caseNum);
-		    dmDocCargo.setUpdateDt(new java.sql.Timestamp(System.currentTimeMillis()));
-		    dmDocCargo.setUpdateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    dmDocColl.add(dmDocCargo);
+	public DcCaseProgramCargo[] getdcCasePrgForIndvCase(DcCasesCargo[] dcCaseTempArray, long indvId,String autoRegStatus) throws Exception {
+	    EdEligibilityCollection edEligColl = new EdEligibilityCollection(connection);
+	    EdEligibilityCargo[] edEligCargoArray = null;
+	    DcCaseProgramCollection dcCaseProgramColl = new DcCaseProgramCollection(connection);
+	    DcCaseProgramCargo[] dcCaseProgramCargo = null;
+	    log(7,"Start AutoRegistrationBO.getdcCasePrgForIndvCase() indvId:"+ indvId);
+	    try{
+		//Object[] methodArgs = new Object[3];
+		List argumentsList = new ArrayList();
+		StringBuffer caseNumBuf = new StringBuffer();
+		for (DcCasesCargo cargo : dcCaseTempArray) {
+			caseNumBuf = caseNumBuf.append(",").append(cargo.getCaseNum());
 		}
-		dmDocColl.update(dmDocColl);
-		log(7, "AutoRegistrationBO.updateDmDocsWithREDECaseNum() : DMDoc table updated successfully ");
-	    }
-	    
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDmDocsWithREDECaseNum() caseNum: " + caseNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    dmDocCargo = null;
-	    dmDocColl = null;
-	    dmDocCargoArray = null;
-	}
-	
-    }
-    
-    /**
-     * This method is used to put message in the Queue
-     * 
-     * @param appNum
-     * @throws Exception
-     */
-    public void sendMessageToIRDBQueue(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.sendMessageToIRDBQueue() - --" + appNum);
-	
-	Queue objSendQueue = null;
-	MQQueueConnectionFactory objFactory = null;
-	QueueConnection objQueueConn = null;
-	QueueSession objQueueSession = null;
-	QueueSender objQueueSender = null;
-	TextMessage sendMessage = null;
-	try {
-	    objFactory = new MQQueueConnectionFactory();
-	    String queueHost = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_HOST);
-	    String queuePort = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_PORT);
-	    String queueChannel = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_CHANNEL);
-	    int port = Integer.parseInt(queuePort);
-	    String queueManager = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_MANAGER);
-	    objFactory.setHostName(queueHost);
-	    objFactory.setPort(port);
-	    objFactory.setChannel(queueChannel);
-	    objFactory.setQueueManager(queueManager);
-	    objFactory.setTransportType(com.ibm.mq.jms.JMSC.MQJMS_TP_CLIENT_MQ_TCPIP);
-	    objQueueConn = objFactory.createQueueConnection();
-	    objQueueSession = objQueueConn.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
-	    objSendQueue = objQueueSession.createQueue(AppRegConstants.IRDB_SYNC_Q1);
-	    objQueueSender = objQueueSession.createSender(objSendQueue);
-	    sendMessage = objQueueSession.createTextMessage();
-	    sendMessage.setText(appNum + "#HPE");
-	    objQueueSender.send(sendMessage);
-	    log(7, "AutoRegistrationBO.sendMessageToIRDBQueue() - Placed AppNum in IRDB_SYNC_Q1 Queue--" + appNum);
-	    log(ILog.INFO, "Placed message in AUTO_REG_Q Queue");
-	    objQueueSender.close();
-	    objQueueSession.close();
-	    objQueueConn.close();
-	    
-	} catch (Exception ee) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.sendMessageToIRDBQueue() appNum: " + appNum + "\n" + ee.getMessage() + "\n", ee);
-	    hasExceptionOccurred = true;
-	    throw ee;
-	}
-    }
-    
-    public boolean sendMessageToIIRQueue() throws Exception {
-	
-	log(7, "Begin AutoRegistrationBO.sendMessageToIIRQueue() ");
-	IIRSyncBO syncBO = new IIRSyncBO(connection);
-	CvDcMciIndvCargo cvDcMciIndvCargo = new CvDcMciIndvCargo();
-	T1004AppIndvCargo t1004Cargo = null;
-	int currentCargo = -1;
-	try {
-	    
-	    if (indvMap != null || indvMap.size() != 0) {
-			for (int key : indvMap.keySet()) {
-				try{
-				    if (indvMap.get(key) == 0) {
-						for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-						    currentCargo = i;
-						    t1004Cargo = autoRegT1004CargoArray[i];
-						    if (key == (int) t1004Cargo.getIndvSeqNum()) {
-								cvDcMciIndvCargo.setDobDt(t1004Cargo.getBrthDt());
-								cvDcMciIndvCargo.setFirstName(t1004Cargo.getFstNam());
-								cvDcMciIndvCargo.setLastName(t1004Cargo.getLastNam());
-								cvDcMciIndvCargo.setMidName(t1004Cargo.getMidInit());
-								cvDcMciIndvCargo.setGenderCd(t1004Cargo.getSexInd());
-								cvDcMciIndvCargo.setIndvId(t1004Cargo.getBridgesIndvId());
-								cvDcMciIndvCargo.setSsn(t1004Cargo.getSsnNum());
-								
-								syncBO.sendMessageFromBatch(cvDcMciIndvCargo.getIndvId(), createIDSRecord(cvDcMciIndvCargo), "A", "I");
-								log(7, "AutoRegistrationBO.sendMessageToIIRQueue() - Placed message in IIRSyncQueue Queue--");
-						    }
-						    
+		String caseNumbers = caseNumBuf.toString();
+		if (caseNumbers.length() > 0) {
+			caseNumbers = caseNumbers.substring(1);
+		}
+		
+		log(7,"AutoRegistrationBO.getdcCasePrgForIndvCase() :: Case Numbers that are associated to indv - "+ caseNumbers);
+		System.out.println("AutoRegistrationBO.getdcCasePrgForIndvCase() :: Case Numbers that are associated to indv - "+ caseNumbers);
+		
+		if(AppRegConstants.AUTO_REG_PROCESS_AC.equalsIgnoreCase(autoRegStatus)){
+			
+			Object[] objArgs = new Object[3];
+		    objArgs[0] = caseNumbers;
+		    objArgs[1] = indvId;
+		    objArgs[2] = "AP";
+		    dcCaseProgramCargo = (DcCaseProgramCargo[]) dcCaseProgramColl.select("findByIndvAndCaseMSPPendingOnApprovedCase", objArgs);
+		    if(dcCaseProgramCargo != null && dcCaseProgramCargo.length >0 ){
+			for(DcCaseProgramCargo dcCargo :dcCaseProgramCargo){
+				 dcCargo.setProgRescindCd("EA");
+				 if("MC".equalsIgnoreCase(dcCargo.getProgCd())){
+						DcCaseProgramCargo[] dcCaseProgramCargos = getMspStartDt(dcCargo.getCaseNum(),"PE");
+						if(dcCaseProgramCargos != null && dcCaseProgramCargos.length > 0 && dcCaseProgramCargos[0].getRequestDt() != null)
+						{
+							dcCargo.setProgStatusDt(dcCaseProgramCargos[0].getRequestDt());
 						}
-				    }
-				}catch (Exception e) {
-				    // PMD_Override - R6 - Exception is not being propagated because if a Q message is not properly placed it
-				    // will be retried later on, and this is not reason to stop processing the current LUW.
-				    PMDRules.markApprovedCatchBlock("R6");
-				    // hasExceptionOccurred = true;
-				    exceptionBO.writeExceptionRecord(BatchConstants.INFO, "AR-ATREG-HLY:  AutoRegistrationBO - sendMessageToIIRQueue()", "Exception occured while updating IIR in updateIndv: " + (autoRegT1004CargoArray[currentCargo] != null ? autoRegT1004CargoArray[currentCargo].toString() : "-1") + " :: " + e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);	   
-				}			    
-			}
-	    }	
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.sendMessageToIIRQueue(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    syncBO = null;
-	    cvDcMciIndvCargo = null;
-	    t1004Cargo = null;
-	}
-	
-    }
-    
-    public String[] createIDSRecord(CvDcMciIndvCargo cargo) throws Exception{
-    	/*
-		 * As part of new IIR approach we have to pass history_Seq_num. Since history_seq_number is part of primary key, we need to fire this query 
-		 * to get the inserted history_seq_num from the database and send it to the IIR.
-		 */
-    	Object[] params = new Object[1];
-		params[0] = cargo;
-		CvDcMciIndvCollection mciIndvCollection = new CvDcMciIndvCollection(connection);
-		mciIndvCollection.setCargo(cargo);
-		CvDcMciIndvCargo[] historySeqCvDcMciIndvCargo = null;
-		try {
-			historySeqCvDcMciIndvCargo = (CvDcMciIndvCargo[]) mciIndvCollection.select("findByIndvId", params);
-		} catch (ApplicationException e) {
-			 log(ILog.ERROR, "AutoRegistrationBO.createIDSRecord Application exception while trying to find run the query for getting the history sequence number");
-			e.printStackTrace();
-			throw e;
-		} catch (FrameworkException e) {
-			 log(ILog.ERROR, "AutoRegistrationBO.createIDSRecord Framework Exception  while trying to find run the query for getting the history sequence number");
-			e.printStackTrace();
-			throw e;
-		}	
-		
-		String[] result = new String[8];
-		result[0] = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(cargo.getDobDt());
-		result[1] = cargo.getFirstName();
-		result[2] = cargo.getGenderCd() + "";
-		if(historySeqCvDcMciIndvCargo!=null && historySeqCvDcMciIndvCargo[0].getHistorySeq()>0){
-			result[3] = formatLongForIDS(historySeqCvDcMciIndvCargo[0].getHistorySeq(), 20);
-		}else{
-			result[3] = formatLongForIDS(0, 20);
-		}
-		result[4] = formatLongForIDS(cargo.getIndvId(), 20);
-		result[5] = cargo.getLastName();
-		result[6] = cargo.getMidName();
-		result[7] = formatLongForIDS(cargo.getSsn(), 20);
-		
-		return result;
-    }
-    
-    private String formatLongForIDS(long var, int length) {
-	String record2 = "";
-	int dataLen = length - (var + "").length();
-	for (int i = 0; i < dataLen; i++) {
-	    record2 = record2 + "0";
-	}
-	record2 = record2 + var;
-	return record2;
-    }
+					}
 
-    public boolean sendMessageFromBatch(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.sendMessageFromBatch() ");
-	Queue objSendQueue = null;
-	MQQueueConnectionFactory objFactory = null;
-	QueueConnection objQueueConn = null;
-	QueueSession objQueueSession = null;
-	QueueSender objQueueSender = null;
-	TextMessage sendMessage = null;
-	try {
-	    objFactory = new MQQueueConnectionFactory();
-	    String queueHost = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_HOST);
-	    String queuePort = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_PORT);
-	    String queueChannel = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_CHANNEL);
-	    int port = Integer.parseInt(queuePort);
-	    String queueManager = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_MANAGER);
-	    objFactory.setHostName(queueHost);
-	    objFactory.setPort(port);
-	    objFactory.setChannel(queueChannel);
-	    objFactory.setQueueManager(queueManager);
-	    objFactory.setTransportType(com.ibm.mq.jms.JMSC.MQJMS_TP_CLIENT_MQ_TCPIP);
-	    log(ILog.ERROR, "AutoRegistrationBO.sendMessageFromBatch intialize");
-	    objQueueConn = objFactory.createQueueConnection();
-	    objQueueSession = objQueueConn.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
-	    objSendQueue = objQueueSession.createQueue(AppRegConstants.AUTO_REG_QUEUE);
-	    objQueueSender = objQueueSession.createSender(objSendQueue);
-	    sendMessage = objQueueSession.createTextMessage();
-	    sendMessage.setText(appNum);
-	    log(ILog.ERROR, "Begin AutoRegistrationBO.sendMessageFromBatch() - Placed AppNum in AUTO_REG_Q Queue--");
-	    objQueueSender.send(sendMessage);
-	    log(ILog.ERROR, "End AutoRegistrationBO.sendMessageFromBatch() - Placed AppNum in AUTO_REG_Q Queue--");
-	    objQueueSender.close();
-	    objQueueSession.close();
-	    objQueueConn.close();
-	    return true;
-	} catch (Exception ee) {
-	    hasExceptionOccurred = true;
-		log(ILog.ERROR, "Error while sending message to queue AutoRegistrationBO.sendMessageFromBatch() appNum: " + appNum + "\n" + ee.getMessage() + "\n", ee);
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_MQ, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    throw ee;
-	}
-    }
-
-    public void sendMessage(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.sendMessage() - " + appNum);
-	log(ILog.INFO, "Begin AutoRegistrationBO.sendMessage()");
-	try {
-	    if (appNum != null || appNum.trim() != "") {
-		FwMessageManager messageManagr = (FwMessageManager) FwServiceFactory.getInstance().create(IMessage.class);
-		messageManagr.sendForget("AutoRegQueue", appNum, "AutoRegQ");
-	    }else{
-	    	log(ILog.ERROR, "Couldn't Place message in AUTO_REG_Q Queue for APP_NUM" + appNum);
-	    }
-	    log(7, "AutoRegistrationBO.sendMessage() - Placed AppNum in AUTO_REG_Q Queue--" + appNum);
-    
-	} catch (Exception ee) {
-	    hasExceptionOccurred = true;
-		log(ILog.ERROR, "Error while sending message to queue AutoRegistrationBO.sendMessage() appNum: " + appNum + "\n" + ee.getMessage() + "\n", ee);
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_MQ, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    if (TIERSConstants.BATCH.equals(ConnectionManager.getConnectionManager().getChannelInformation())) {
-		throw new TIERSBatchException(ee);
-	    } else {
-		return;
-	    }
-	}
-    }
-    
-    /**
-     * This method generate correspondance trigger.
-     * 
-     * @param caseNumber
-     */
-    
-    private void generateCorrespondance(String appNum, String docID, String miscParameters, Connection Conn) throws Exception {
-	log(7, "Begin AutoRegistrationBO.generateCorrespondance() - " + appNum + "--docID--" + docID);
-	try {
-	    int returnVal = 0;
-	    Timestamp today = FwCalendar.getInstance().getDate().getTimestamp();
-	    if (icoBatch == null) {
-		icoBatch = (ICoBatch) CoServiceFactory.getInstance().create(ICoBatch.class);
-	    }
-	    String langcode = DIConstants.DI_NOTICE_LANG_ENGLISH;
-	    if (null != autoRegT1001Cargo.getLangCd() && autoRegT1001Cargo.getLangCd().trim().length() > 0 && autoRegT1001Cargo.getLangCd().equalsIgnoreCase("S")) {
-		langcode = "SP";
-	    }
-	    COCorrespondence coReqObj = new COCorrespondence();
-	    coReqObj.setCaseAppNumber(appNum);
-	    coReqObj.setDocId(docID);
-	    coReqObj.setCaseAppFlag(DIConstants.APP_NUM_A);
-	    coReqObj.setLangCd(langcode);
-	    coReqObj.setPrintMode(DIConstants.DI_NOTICE_PRINT_MODE_B);
-	    coReqObj.setDraftSwitch(DIConstants.DRAFT_SW_N);
-	    coReqObj.setMiscParameters(miscParameters);
-	    coReqObj.setGenerateDate(today);
-	    log(7, "The autoRegShAppCargo is >>" + autoRegShAppCargo);
-	    log(ILog.INFO, "The autoRegShAppCargo is >>" + autoRegShAppCargo);
-	    if (autoRegShAppCargo != null) {
-		log(7, "The appt id is >>" + autoRegShAppCargo.getApptId());
-		log(7, "The app num is >>" + autoRegShAppCargo.getAppNum());
-		log(7, "The case num is >>" + autoRegShAppCargo.getCaseNum());
-		log(7, "The appt count is >>" + autoRegShAppCargo.getApptCount());
-	    }
-	    // ILIES-186902
-	    if (autoRegShAppCargo != null && "FXX412".equalsIgnoreCase(docID)) {
-		log(7, "Inside if for FXX412 >>" + autoRegShAppCargo.getApptId());
-		log(ILog.INFO, "Inside if for FXX412 >>" + autoRegShAppCargo.getApptId());
-		coReqObj.setApptId(autoRegShAppCargo.getApptId());
-	    }
-	    
-	    returnVal = icoBatch.initiateCorrespondence(coReqObj, Conn);
-	    if (returnVal != 0)
-		throw new FrameworkException("Error While Triggering Correspondence and RETURN CODE is " + returnVal);
-	    log(7, "End AutoRegistrationBO.generateCorrespondance()");
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.generateCorrespondance() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-    }
-    
-    private void cpeMMISTrigger(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.cpeMMISTrigger() - " + appNum);
-	ArCpeEligDetailCargo[] cpeCargos = null;
-	ArCpeEligDetailCargo cpeCargo = null;
-	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-	InTriggerTableCargo[] triggerCargos = null;
-	ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
-	INTriggerBO trigBO = new INTriggerBO(connection);
-	try {
-	    // get all Individuals in CPE
-	    cpeCargos = appSummaryBo.findCaseCPE(appNum);
-	    SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-	    Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
-	    if (cpeCargos != null && cpeCargos.length > 0) {
-		for (int i = 0; i < cpeCargos.length; i++) {
-		    cpeCargo = (ArCpeEligDetailCargo) cpeCargos[i];
-		    if (cpeCargo.getMangpCd() != null && cpeCargo.getMangpCd().length() > 0  && (!"PN".equalsIgnoreCase(cpeCargo.getMangpCd()) && !"PM".equalsIgnoreCase(cpeCargo.getMangpCd()))) {
-			String newMANGP = "";
-			if ("PH".equals(cpeCargo.getMangpCd())) {
-			    newMANGP = "PA";
-			} else if ("PL".equals(cpeCargo.getMangpCd())) {
-			    newMANGP = "PB";
 			}
-			log(7, "AutoRegistrationBO.cpeMMISTrigger() :: cpeCargo.getIndvId() - " + cpeCargo.getIndvId());
-			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-			inTrig.setTriggerCd("FI001");
-			inTrig.setMangpCd(newMANGP);
-			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			inTrig.setInterfaceNameCd("MANG");
-			inTrig.setProcessFlag('N');
-			inTrig.setFirstTimeInd(trigBO.getFirstTimeIndByAppNum(appNum, "FI001"));
-			Timestamp beginDate = cpeCargo.getPeBeginDt();
-			if (ALSOPUtil.truncate(beginDate).after(today) || today.equals(ALSOPUtil.truncate(beginDate))) { // check if app date is >= today
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: begin date - " + beginDate);
-			    inTrig.setBeginDt(ALSOPUtil.truncate(beginDate)); // begin date is cpeCargo.getPeBeginDt()
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: end date - " + beginDate);
-			    inTrig.setEndDt(ALSOPUtil.truncate(beginDate)); // end date is also cpeCargo.getPeBeginDt()
-			}
-			// FOR PAST DATES
-			if (ALSOPUtil.truncate(beginDate).before(today)) { // check if app date is < today
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: begin date - " + cpeCargo.getPeBeginDt());
-			    inTrig.setBeginDt(ALSOPUtil.truncate(cpeCargo.getPeBeginDt())); // begin date is cpeCargo.getPeBeginDt()
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: end date - " + cpeCargo.getPeBeginDt());
-			    inTrig.setEndDt(ALSOPUtil.truncate(today)); // end date is today
-			}
-			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-			inTrig.setAppNum(appNum);
-			inTrig.setIndvId(cpeCargo.getIndvId());
-			triggerList.add(inTrig);
-			
+			return dcCaseProgramCargo;
 		    }
-		    
-		    if (cpeCargo.getMangpCd() != null && cpeCargo.getMangpCd().length() > 0) {
-			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-			inTrig.setTriggerCd("FI001");
-			inTrig.setMangpCd(cpeCargo.getMangpCd());
-			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			inTrig.setInterfaceNameCd("MANG");
-			inTrig.setProcessFlag('N');
-			
-			if(!"PN".equalsIgnoreCase(cpeCargo.getMangpCd()) && !"PM".equalsIgnoreCase(cpeCargo.getMangpCd())){
-				if (ALSOPUtil.truncate(cpeCargo.getPeBeginDt()).after(today) || today.equals(ALSOPUtil.truncate(cpeCargo.getPeBeginDt()))) { // check if app date is >= today
-				    inTrig.setBeginDt(ALSOPUtil.truncate(FwCalendar.getInstance().nextDay(cpeCargo.getPeBeginDt()))); // 2nd trigger begin date is appRcvDt + 1
+		    objArgs = new Object[3];
+		    objArgs[0] = caseNumbers;
+		    objArgs[1] = indvId;
+		    objArgs[2] = "AP";
+		    edEligCargoArray = getEligibilityForIndvCase(objArgs);
+		    if(edEligCargoArray != null && edEligCargoArray.length > 0 ){
+			dcCaseProgramCargo = new DcCaseProgramCargo[edEligCargoArray.length];
+			for(int i=0 ;i< edEligCargoArray.length ; i++){
+			    dcCaseProgramCargo[i] = new DcCaseProgramCargo();
+			    dcCaseProgramCargo[i].setCaseNum(edEligCargoArray[i].getCaseNum());
+			    dcCaseProgramCargo[i].setProgCd(edEligCargoArray[i].getProgramCd());
+			    dcCaseProgramCargo[i].setProgStatusCd(edEligCargoArray[i].getCgStatusCd());
+			    dcCaseProgramCargo[i].setProgActionCd(edEligCargoArray[i].getTypeOfAssistanceCd());//to get the Type of Assistance 
+			    dcCaseProgramCargo[i].setProgRescindCd(edEligCargoArray[i].getEdgName());//Part Status Cd
+			    dcCaseProgramCargo[i].setProgStatusDt(edEligCargoArray[i].getEligibilityBegDt());
+			    if("MC".equalsIgnoreCase(edEligCargoArray[i].getProgramCd())){
+					DcCaseProgramCargo[] dcCaseProgramCargos = getMspStartDt(edEligCargoArray[i].getCaseNum(),"AP");
+					if(dcCaseProgramCargos != null && dcCaseProgramCargos.length > 0 && dcCaseProgramCargos[0].getRequestDt() != null)
+					{
+						dcCaseProgramCargo[i].setProgStatusDt(dcCaseProgramCargos[0].getRequestDt());
+					}
 				}
-				// FOR PAST DATE
-				if (ALSOPUtil.truncate(cpeCargo.getPeBeginDt()).before(today)) { // check if app date is < today
-				    inTrig.setBeginDt(ALSOPUtil.truncate(FwCalendar.getInstance().nextDay(today))); // 2nd trigger begin date is today + 1
-				}
-			}else{
-				inTrig.setBeginDt(ALSOPUtil.truncate(cpeCargo.getPeBeginDt()));
 			}
-			inTrig.setEndDt(null);
-			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-			inTrig.setAppNum(appNum);
-			inTrig.setIndvId(cpeCargo.getIndvId());
-			inTrig.setFirstTimeInd(trigBO.getFirstTimeIndByAppNum(appNum, "FI001"));
-			triggerList.add(inTrig);
-		    }
-		}
-		if (triggerList.size() > 0) {
-		    triggerCargos = new InTriggerTableCargo[triggerList.size()];
-		    triggerList.toArray(triggerCargos);
-		    createTrigger(triggerCargos);
-		    generateCorrespondance(appNum, DIConstants.DOC_ID_FXX422, "", this.con);
-		    
-		}
-	    }
-	} catch (INTriggerException e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.cpeMMISTrigger() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    cpeCargos = null;
-	    cpeCargo = null;
-	}
-    }
-    
-    private void mpeMMISTrigger(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.mpeMMISTrigger() - " + appNum);
-	ArMpeEligDetailCargo[] mpeCargos = null;
-	ArMpeEligDetailCargo mpeIndvCargo = null;
-	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-	InTriggerTableCargo[] triggerCargos = null;
-	ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
-	try {
-	    mpeCargos = appSummaryBo.findIndvsInMPE(appNum);
-	    if (mpeCargos != null && mpeCargos.length > 0) {
-		for (int i = 0; i < mpeCargos.length; i++) {
-		    mpeIndvCargo = (ArMpeEligDetailCargo) mpeCargos[i];
-		    if (mpeIndvCargo != null && mpeIndvCargo.getMangpCd() != null && mpeIndvCargo.getMangpCd().length() > 0) {
-			
-			log(7, "AutoRegistrationBO.mpeMMISTrigger() :: mpeIndvCargo.getIndvId() - " + mpeIndvCargo.getIndvId());
-			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-			inTrig.setTriggerCd("FI003");
-			inTrig.setMangpCd(mpeIndvCargo.getMangpCd());
-			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			inTrig.setInterfaceNameCd("MANG");
-			inTrig.setProcessFlag('N');
-			inTrig.setFirstTimeInd('Y');
-			SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-			Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
-			inTrig.setBeginDt(today);
-			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-			inTrig.setAppNum(appNum);
-			inTrig.setIndvId(mpeIndvCargo.getIndvId());
-			triggerList.add(inTrig);
 			
 		    }
 		}
-		if (triggerList.size() > 0) {
-		    triggerCargos = new InTriggerTableCargo[triggerList.size()];
-		    triggerList.toArray(triggerCargos);
-		    createTrigger(triggerCargos);
-		}
-	    }
-	} catch (INTriggerException e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.mpeMMISTrigger() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-	
-    }
-    
-    private void fppeMMISTrigger(String appNum) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.fppeMMISTrigger() - " + appNum);
-    	ArFppeEligDetailCargo[] fppeCargos = null;
-    	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-    	InTriggerTableCargo[] triggerCargos = null;
-    	ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
-    	try {
-    		fppeCargos = appSummaryBo.findIndvsInFPPE(appNum);
-    	    if (fppeCargos != null && fppeCargos.length > 0) {
-	    		for(ArFppeEligDetailCargo fppeIndvCargo : fppeCargos) {
-	    		    if (fppeIndvCargo != null && fppeIndvCargo.getMangpCd() != null && fppeIndvCargo.getMangpCd().length() > 0) {
-		    			log(7, "AutoRegistrationBO.fppeMMISTrigger() :: fppeIndvCargo.getIndvId() - " + fppeIndvCargo.getIndvId());
-		    			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-		    			inTrig.setTriggerCd("FI008");
-		    			inTrig.setMangpCd(fppeIndvCargo.getMangpCd());
-		    			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    			inTrig.setInterfaceNameCd("MANG");
-		    			inTrig.setProcessFlag('N');
-		    			inTrig.setFirstTimeInd('Y');
-		    			SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-		    			Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
-		    			inTrig.setBeginDt(today);
-		    			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-		    			inTrig.setAppNum(appNum);
-		    			inTrig.setIndvId(fppeIndvCargo.getIndvId());
-		    			triggerList.add(inTrig);
-	    		    }
-	    		}
-	    		if (triggerList.size() > 0) {
-	    		    triggerCargos = new InTriggerTableCargo[triggerList.size()];
-	    		    triggerList.toArray(triggerCargos);
-	    		    createTrigger(triggerCargos);
-	    		}
-    	    }
-    	}catch (INTriggerException e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.fppeMMISTrigger() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-    	    hasExceptionOccurred = true;
-    	    throw e;
-    	}
-    }
-    
-    private void hpeMMISTrigger(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.hpeMMISTrigger() - " + appNum);
-	ArHpeEligDetailIndvCargo[] arHpeIndvCargo = null;
-	ArHpeEligDetailIndvCargo hpeIndvCargo = null;
-	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-	InTriggerTableCargo[] triggerCargos = null;
-	ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
-	try {
-	    arHpeIndvCargo = appSummaryBo.getAllHPEIndvs(appNum);
-	    if (arHpeIndvCargo != null && arHpeIndvCargo.length > 0) {
-		for (int i = 0; i < arHpeIndvCargo.length; i++) {
-		    hpeIndvCargo = (ArHpeEligDetailIndvCargo) arHpeIndvCargo[i];
-		    if (hpeIndvCargo != null && hpeIndvCargo.getHpeEligSw() != 0 && hpeIndvCargo.getHpeEligSw() == 'Y' && hpeIndvCargo.getHpeEligGrpCd() != null && hpeIndvCargo.getHpeEligGrpCd() != "NA" && hpeIndvCargo.getHpeEligGrpCd().length() > 0) {
-			
-			log(7, "AutoRegistrationBO.hpeMMISTrigger() :: hpeIndvCargo.getIndvId() - " + hpeIndvCargo.getIndvId());
-			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-			inTrig.setTriggerCd("FI002");
-			inTrig.setMangpCd(hpeIndvCargo.getHpeEligGrpCd());
-			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			inTrig.setInterfaceNameCd("MANG");
-			inTrig.setProcessFlag('N');
-			inTrig.setFirstTimeInd('Y');
-			SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-			Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
-			inTrig.setBeginDt(today);
-			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-			inTrig.setAppNum(appNum);
-			inTrig.setIndvId(hpeIndvCargo.getIndvId());
-			triggerList.add(inTrig);
-		    }
-		}
-		// ILIES-194046
-		if (triggerList.size() > 0) {
-		    triggerCargos = new InTriggerTableCargo[triggerList.size()];
-		    triggerList.toArray(triggerCargos);
-		    createTrigger(triggerCargos);
-		}
-	    }
-	} catch (INTriggerException e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.hpeMMISTrigger() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-    }
-    
-    // ILIES-189813
-    public void createTrigger(InTriggerTableCargo[] aTrigCargos) throws INTriggerException {
-	log(7, "Begin AutoRegistrationBO.createTrigger() ");
-	try {
-	    InTriggerTableCollection triggerBatchCollection = new InTriggerTableCollection(connection);
-	    triggerBatchCollection.setResults(aTrigCargos);
-	    triggerBatchCollection.insert(triggerBatchCollection);
-	} catch (Exception excep) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.createTrigger(): " + "\n" + excep.getMessage() + "\n", excep);
-	    hasExceptionOccurred = true;
-	    String msg = excep.getMessage();
-	    
-	    if ((msg != null) && !(msg.trim().equals(""))) {
-		log(ILog.ERROR, "INTriggerBO:Debug: createTrigger Exception when triggered from :" + msg);
-		throw new INTriggerException(msg);
-	    } else {
-		log(ILog.ERROR, "INTriggerBO:Debug: createTrigger Exception Failure while Insert and Exception Message is Blank");
-		throw new INTriggerException("Failure while Insert and Exception Message is Blank");
-	    }
-	}
-    }
-    
-    // ILIES-199185
-    public void reopenHPETask(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.reopenHPETask() ");
-	log(7, "Begin AutoRegistrationBO.reopenHPETask() ::: appNum::" + appNum);
-	long grpSeqNum = 0;
-	// String hpeApp = appNum+"_HPE";
-	DMDocTaskUpdateBO taskBo = new DMDocTaskUpdateBO(appNum, connection);
-	DmDocGroupCargo cargo = new DmDocGroupCargo();
-	DmDocGroupCollection coll = new DmDocGroupCollection(connection);
-	cargo.setDocGroupId(appNum);
-	coll.setCargo(cargo);
-	try {
-	    DmDocGroupCargo[] cargos = (DmDocGroupCargo[]) coll.select("findByGroupID");
-	    
-	    if (cargos != null && cargos.length > 0) {
-		log(7, "Begin AutoRegistrationBO.reopenHPETask() ::: DmDoc Result::" + cargos.length);
-		grpSeqNum = cargos[0].getGroupSeqNum();
-		log(7, "Begin AutoRegistrationBO.reopenHPETask() ::: grpSeqNum::" + grpSeqNum);
-	    }
-	    if (grpSeqNum > 0) {
-		DmTaskStatusCargo taskCargo = new DmTaskStatusCargo();
-		taskCargo.setGroupSeqNum(grpSeqNum);
-		DmTaskStatusCollection taskColl = new DmTaskStatusCollection(connection);
-		taskColl.setCargo(taskCargo);
-		DmTaskStatusCargo[] taskCargos = (DmTaskStatusCargo[]) taskColl.select("findLatestByGroupSeqNumber");
-		
-		if (taskCargos != null && taskCargos.length > 0) {
-		    DmTaskStatusCargo dmTaskCargo = taskCargos[0];
-		    log(7, "Begin AutoRegistrationBO.reopenHPETask() ::: latest task status::" + dmTaskCargo.getTaskStatusCd());
-		    taskBo.createNewTaskStatus(DMConstants.DOCUMENT_TASK_STATUSCODE_NEW, dmTaskCargo.getEmpId(), dmTaskCargo.getCaseNum(), dmTaskCargo.getOfficeNum(), dmTaskCargo, true, DMConstants.DOCUMENT_TAG_NO_INTVW_INIT_DATA_COLL, dmTaskCargo.getActionTypeCd());
-		}
-		
-	    }
-	    log(7, "End AutoRegistrationBO.reopenHPETask() ");
-	} catch (Exception e) {
-	    hasExceptionOccurred = true;
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.reopenHPETask() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	}
-	
-    }
-    
-    private boolean isStateResidence(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.isStateResidence() ");
-	boolean inState = false;
-	Object[] params = new Object[1];
-	T1007AppInCurdCollection t1007AppInCurdCollecton = new T1007AppInCurdCollection(connection);
-	T1007AppInCurdCargo[] t1007AppInCurdCargoArray;
-	params[0] = appNum;
-	try {
-	    t1007AppInCurdCargoArray = (T1007AppInCurdCargo[]) t1007AppInCurdCollecton.select("findByAppNum", params);
-	    if (t1007AppInCurdCargoArray != null && t1007AppInCurdCargoArray.length > 0) {
-		if (t1007AppInCurdCargoArray[0].getResWiSw() == 'N') {
-		    log(7, "AutoRegistrationBO.isStateResidence() :: inState = false ");
-		    inState = false;
-		    /*createEDMTask(appNum);
-		    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_IR, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-		    */
-		} else {
-		    log(7, "AutoRegistrationBO.isStateResidence() :: inState = true ");
-		    inState = true;
-		}
-	    } else {
-		log(7, "AutoRegistrationBO.isStateResidence() :: No record found in T1007AppInCurd - inState = true ");
-		inState = true;
-	    }
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.isStateResidence() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    createEDMTask(appNum);
-	    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_IR, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_PROCESS_IR, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    throw e;
-	}
-	log(7, "End AutoRegistrationBO.isStateResidence() ");
-	return inState;
-    }
-    
-    private void insertIntoBrgConflictKeyId(long statusSeqNum, String keyId) throws ApplicationException {
-	
-	try {
-	    SsBrgConflictKeyMapCollection conflictKeyMapCollection = new SsBrgConflictKeyMapCollection(connection);
-	    SsBrgConflictKeyMapCargo conflictKeyMapCargo = null;
-	    conflictKeyMapCargo = new SsBrgConflictKeyMapCargo();
-	    conflictKeyMapCargo.setSsBrgConflictStatusSeqNum(statusSeqNum);
-	    conflictKeyMapCargo.setKeyTypeInd("IS"); // Find Bugs asking for Locale which is not required
-	    conflictKeyMapCargo.setKeyValue(keyId);
-	    conflictKeyMapCollection.setCargo(conflictKeyMapCargo);
-	    conflictKeyMapCollection.insert();
-	} catch (TIERSRunTimeException e) {
-		log(ILog.ERROR, "Exception [TIERSRunTimeException] in AutoRegistrationBO.insertIntoBrgConflictKeyId(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw new ApplicationException("TIERSRunTimeException update/insert ss_brg_conflict status", e);
-	} catch (TIERSValidationException e) {
-		log(ILog.ERROR, "Exception [TIERSValidationException] in AutoRegistrationBO.insertIntoBrgConflictKeyId(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw new ApplicationException("TIERSValidationException update/insert ss_brg_conflict status", e);
-	} catch (ApplicationException e) {
-		log(ILog.ERROR, "Exception [ApplicationException] in AutoRegistrationBO.insertIntoBrgConflictKeyId(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} catch (FrameworkException e) {
-		log(ILog.ERROR, "Exception [FrameworkException] in AutoRegistrationBO.insertIntoBrgConflictKeyId(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw new ApplicationException("FrameworkException update/insert ss_brg_conflict status", e);
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.insertIntoBrgConflictKeyId(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw new ApplicationException("Exception update/insert ss_brg_conflict status", e);
-	}
-    }
-    
-    private boolean combinedHpeMaApp(String hpeAppNum) throws Exception {
-	boolean combinedApp = false;
-	T1002AppDtlCollection coll = new T1002AppDtlCollection(connection);
-	Object[] param = { hpeAppNum };
-	T1002AppDtlCargo[] cargos;
-	try {
-	    cargos = (T1002AppDtlCargo[]) coll.select("findAppDtlByAppNum", param);
-	    if (cargos != null && cargos.length > 0) {
-		if (cargos[0].getMaRqstSw() == 'Y') {
-		    combinedApp = true;
-		}
-	    }
-	} catch (ApplicationException e) {
-		log(ILog.ERROR, "Exception [ApplicationException] in AutoRegistrationBO.combinedHpeMaApp() hpeAppNum: " + hpeAppNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} catch (FrameworkException e) {
-		log(ILog.ERROR, "Exception [FrameworkException] in AutoRegistrationBO.combinedHpeMaApp() hpeAppNum: " + hpeAppNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-	
-	return combinedApp;
-    }
-    public boolean checkBatProcInd(String appNum) throws Exception{
-	DcAutoProcessingCollection dcAutoProcColl = new DcAutoProcessingCollection(connection);
-	DcAutoProcessingCargo[] dcAutoProcCargoArray = null;
-	Object dcAutoProcArgs[] = { appNum };
-	dcAutoProcCargoArray = (DcAutoProcessingCargo[]) dcAutoProcColl.select("findByAppNum", dcAutoProcArgs);
-	if(dcAutoProcCargoArray != null && dcAutoProcCargoArray.length > 0 && dcAutoProcCargoArray[0].getAutoBatProcInd() != null && !dcAutoProcCargoArray[0].getAutoBatProcInd().equals("N")){
-	    return false;
-	} else {
-	    return true;
-	}
-    }
-    
-    public boolean checkActivePERecord(long indvId) throws Exception{
-    	ArCpeEligDetailCargo arCpeEligCargo = null;
-    	ArCpeEligDetailCollection arCpeEligColl = null;
-    	AppIncomeCustomCargo[] cpeEligArray = null;
-    	DcCpeEligDetailCargo dcCpeEligCargo = null;
-    	DcCpeEligDetailCollection dcCpeEligColl = null;
-    	AppIncomeCustomCargo[] dcCpeEligArray = null;
-        arCpeEligCargo = new ArCpeEligDetailCargo();
-	    arCpeEligColl = new ArCpeEligDetailCollection(connection);
-	    Calendar cal = Calendar.getInstance();
-		cal.add(Calendar.YEAR, -1);
-		java.util.Date Year = cal.getTime();
-	    
-	    log(7, "AutoRegistrationBO.updateArCpeEligDetailTable() :: Checking arCpeElig table");
-	    arCpeEligCargo.setIndvId(indvId);
-	    arCpeEligColl.add(arCpeEligCargo);
-	    cpeEligArray = (AppIncomeCustomCargo[]) arCpeEligColl.select("findDataByIndvID");
-	    if (cpeEligArray != null && cpeEligArray.length > 0) {
-			AppIncomeCustomCargo cpeEligCargo = null;
-			for (int j = 0; j < cpeEligArray.length; j++) {
-			    cpeEligCargo = cpeEligArray[j];
-			    java.util.Date appRecvdDt = new java.util.Date(cpeEligCargo.getAppRecvdDt().getTime());
-			    if (cpeEligCargo.getDenialReasonCd().equals("C1") && Year.compareTo(appRecvdDt) < 0) {
-				    return true;
+		else if(AppRegConstants.AUTO_REG_PROCESS_PC.equalsIgnoreCase(autoRegStatus)){
+		    Object[] methodArgs = new Object[3];
+		    methodArgs[0] = caseNumbers;
+		    methodArgs[1] = indvId;
+		    methodArgs[2] = "PE";
+		    dcCaseProgramCargo = (DcCaseProgramCargo[]) dcCaseProgramColl.select("findByIndvAndCase", methodArgs);
+		    if(dcCaseProgramCargo != null && dcCaseProgramCargo.length >0 ){
+			for(DcCaseProgramCargo dcCargo :dcCaseProgramCargo){
+				dcCargo.setProgRescindCd("EA");
+				if("MC".equalsIgnoreCase(dcCargo.getProgCd())){
+					DcCaseProgramCargo[] dcCaseProgramCargos = getMspStartDt(dcCargo.getCaseNum(),"PE");
+					if(dcCaseProgramCargos != null && dcCaseProgramCargos.length > 0 && dcCaseProgramCargos[0].getRequestDt() != null)
+					{
+						dcCargo.setProgStatusDt(dcCaseProgramCargos[0].getRequestDt());
+					}
+				}
 			    }
-			}
-	    }
-	    else {
-			log(7, "AutoRegistrationBO.updateArCpeEligDetailTable() :: Checking dcCpeElig table");
-			dcCpeEligCargo = new DcCpeEligDetailCargo();
-			dcCpeEligColl = new DcCpeEligDetailCollection(connection);
-			dcCpeEligCargo.setIndvId(indvId);
-			dcCpeEligColl.add(dcCpeEligCargo);
-			dcCpeEligArray = (AppIncomeCustomCargo[]) dcCpeEligColl.select("findDataByIndvID");
-			if (dcCpeEligArray != null && dcCpeEligArray.length > 0) {
-			    AppIncomeCustomCargo cpeEligCargo = null;
-			    for (int j = 0; j < dcCpeEligArray.length; j++) {
-					cpeEligCargo = dcCpeEligArray[j];
-					java.util.Date appRecvdDt = new java.util.Date(cpeEligCargo.getAppRecvdDt().getTime());
-					if (cpeEligCargo.getDenialReasonCd().equals("C1") && Year.compareTo(appRecvdDt) < 0) {
-					    return true;
-					}
-			     }
-			}
-	    }
-        return false;
-     }
-    //ILIES-282116 Changes made by Uma Rani for Auto-Reg batch DOB Check start
-	 public boolean dateOfBirthCheck(String appNum) throws Exception {
-	    	
-	    	log(7, "Begin AutoRegistrationBO.DOBCheck: " + appNum);	
-	    	try {
-	    	    if (autoRegT1001Cargo == null || autoRegT1002Cargo == null || autoRegT1004CargoArray == null ) {
-	    	    	return false;
-	    	    }   
-	    	   for (int i = 0; i < autoRegT1004CargoArray.length; i++) {	
-	    				T1004AppIndvCargo t1004AppIndvCargo = autoRegT1004CargoArray[i];
-	    				Timestamp ts=null;
-	    				ts = getTimeStampFromString(AppRegConstants.HIGH_DATE_MMDDYYYY);
-	    				if(t1004AppIndvCargo.getBrthDt() == null  || (ts.equals(t1004AppIndvCargo.getBrthDt())))
-	    				{
-	    					return false;
-	    				}
-	    		}
-	    	    return true;
-	    	    
-	    	} catch (Exception e) {
-				log(ILog.ERROR, "Exception in AutoRegistrationBO.dateOfBirthCheck() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    	    hasExceptionOccurred = true;
-	    	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_PROCESS_ND, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    	    throw e;
-	    	}
-	  }
-	 private static Timestamp getTimeStampFromString(String dateString) throws ParseException {
-
-			java.sql.Timestamp timeStampDate = null;
-			if(!"".equals(dateString)) {
-				SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-				java.util.Date formattedDate = null;
-				
-				formattedDate = sdf.parse(dateString);
-		
-				timeStampDate = new Timestamp(formattedDate.getTime());
-			}
-
-			return timeStampDate;
-
+		    }
 		}
-	//ILIES-282116 Changes made by Uma Rani for Auto-Reg batch DOB Check End
-    
-	// SSA - LIS MSP changes : ILIES-291947
-	public boolean existingActiveCaseCheckMSP(String autoRegStatus, String appNum,	long indvId, boolean lisMspApp, DcCasesCargo[] dcCaseTempArray, long caseInPast , long caseClosed90Days,
-			long caseDenied60Days, Timestamp closureDate) throws Exception {
-		EdEligibilityCollection edEligColl = new EdEligibilityCollection(connection);
-		EdVerificationChecklistCollection verColl = new EdVerificationChecklistCollection(connection);
-		EdEligibilityCargo[] edEligCargoArray = null;
-		 DcCaseProgramCargo[] dcCasePgmCargoArray = null;
-		lisMSPAppDuplicate = false;
-		EdVerificationChecklistCargo verCargo = new EdVerificationChecklistCargo();
-		EdVerificationChecklistCargo[] verCargoArray = null;
-		boolean mspActiveCaseCheck = true;
-		boolean createMSPTask = false ;
-		String docId = "";
-		mspDocId = null ;
-		newSSALISMSPApp = false;
-		log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Start existingActiveCaseCheckMSP()");
-		System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Start existingActiveCaseCheckMSP()");
+		
+	    }catch(Exception e) {
+		hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.getdcCasePrgForIndvCase() indvId: " + indvId + "\n" + e.getMessage() + "\n", e);
+		throw e;
+	    }
+	    
+	    return dcCaseProgramCargo;
+	}
+	
+	public boolean checkPendingMSPCase(DcCasesCargo dcCaseTempArray, long indvId){
+	    	List argumentsList = new ArrayList();
+		DcCaseProgramCollection dcCaseProgramColl = new DcCaseProgramCollection(connection);
+		DcCaseProgramCargo[] dcCaseProgramCargo = null;
+		log(7,"Start AutoRegistrationBO.getdcCasePrgForIndvCase() indvId:"+ indvId);
+		//String caseNumbers = caseNumBuf.toString(); 
+		String caseNumbers = String.valueOf(dcCaseTempArray.getCaseNum());
+		/*if (caseNumbers.length() > 0) {
+			caseNumbers = caseNumbers.substring(1);
+		}*/
+		log(7,"AutoRegistrationBO.checkPendingMSPCase() :: Case Numbers that are associated to indv - "+ caseNumbers);
+		System.out.println("AutoRegistrationBO.checkPendingMSPCase() :: Case Numbers that are associated to indv - "+ caseNumbers);
+		Object[] methodArgs = new Object[3];
 		try {
-			//  System will mark the SSA-LIS application as a duplicate, a HTML will generate in the ECR and a ï¿½Changes from duplicate applicationï¿½ task will generate for
-			// the caseworker.
-			log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Checking if indvId associated to any case for AppNum-"+ appNum);
-			System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Checking if indvId associated to any case for AppNum-"+ appNum);
-			 if (AppRegConstants.AUTO_REG_PROCESS_PC.equalsIgnoreCase(autoRegStatus)|| AppRegConstants.AUTO_REG_PROCESS_AC.equalsIgnoreCase(autoRegStatus)) {
-				// Check if indv associated to any case
-				log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: The indv id that is assoicated to any case is - "+ indvId);
-				System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: The indv id that is assoicated to any case is - "+ indvId);
-				if(null != dcCaseTempArray  && dcCaseTempArray.length > 0) {
-					// MUltiple cases
-					 
-				    	dcCasePgmCargoArray = getdcCasePrgForIndvCase(dcCaseTempArray,indvId,autoRegStatus);
-					if (dcCasePgmCargoArray != null && dcCasePgmCargoArray.length > 0) {
-						// if multiple cases are associated to one
-						// individual
-						long caseNum = selectCaseMSPAdd(indvId,dcCasePgmCargoArray);
-						
-						System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() ::Case Num that is assoicated to indv is " + caseNum);
-						log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() ::Case Num that is assoicated to indv is " + caseNum);
-						if (caseNum > 0) {
-						    if (lisMSPAppDuplicate) {
-							if(mspPgmStatrtDt != null){
-							    mspPgmStatrtDt =  DateUtility.getFirstDayOfMonth(mspPgmStatrtDt);
-							    if(DateUtility.getFirstDayOfMonth(autoRegT1001Cargo.getAppRcvDt()).before(mspPgmStatrtDt)){
-								    autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_XA;
-								    createEDMTask(appNum);
-								    mspActiveCaseCheck = false ;
-								    updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-								}else{
-									dmWebserviceVO.setSourceTypeCode("LIS");
-									dmWebserviceVO.setCaseNum(caseNum);
-									log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Changes for Duplicate Application for Case - "+ caseNum);
-									System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Changes for Duplicate Application for Case - "+ caseNum);
-									mspDocId = "MSPSS" + appNum ;
-									createEDMTask(String.valueOf(caseNum));
-										
-									lisMSPAppDuplicate(appNum, null, caseNum,autoRegStatus);///
-									updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-									mspActiveCaseCheck = false ;
-								}
-							}else {
-								// Add Program - MSP
-								dmWebserviceVO.setSourceTypeCode("MM");
-								dmWebserviceVO.setCaseNum(caseNum);
-								log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case - "+ caseNum);
-								mspDocId = "MSPSS" + appNum ;
-								createEDMTask(String.valueOf(caseNum));
-								System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() ::Create Task Program Add-MSP  for Case - "+ caseNum);
-								associationPgmAdd(appNum, null, caseNum);
-								updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-								mspActiveCaseCheck = false ;
-							}
-							 
-							
-							} else {
-								// Add Program - MSP
-								dmWebserviceVO.setSourceTypeCode("MM");
-								dmWebserviceVO.setCaseNum(caseNum);
-    								log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case - "+ caseNum);
-    								mspDocId = "MSPSS" + appNum ;
-    								createEDMTask(String.valueOf(caseNum));
-    								System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() ::Create Task Program Add-MSP  for Case - "+ caseNum);
-    								associationPgmAdd(appNum, null, caseNum);
-    								updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-    								mspActiveCaseCheck = false ;
-							}
-						}
-					} //Check if case was receiving MSP in Past
-					else if(AppRegConstants.AUTO_REG_PROCESS_AC.equalsIgnoreCase(autoRegStatus)){
-					    edEligCargoArray = checkForPastMSP(dcCaseTempArray,indvId);
-					    if (edEligCargoArray != null && edEligCargoArray.length > 0){
-						if (edEligCargoArray[0] != null   ){
-						 // Add Program - MSP
-							dmWebserviceVO.setSourceTypeCode("MM");
-							dmWebserviceVO.setCaseNum(edEligCargoArray[0].getCaseNum());
-							log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case in Past - "+ caseInPast);
-							System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case in Past - "+ caseInPast);
-							mspDocId = "MSPSS" + appNum ;
-							createEDMTask(String.valueOf(edEligCargoArray[0].getCaseNum()));
-							associationPgmAdd(appNum, null, edEligCargoArray[0].getCaseNum());
-							updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-							mspActiveCaseCheck = false ;
-						}
-						
-					    }
-					    
-					}
-					
+		    methodArgs[0] = caseNumbers;
+		    methodArgs[1] = indvId;
+		    methodArgs[2] = "PE";
+		    
+		    dcCaseProgramCargo = (DcCaseProgramCargo[]) dcCaseProgramColl.select("findByIndvAndCase", methodArgs);
+		    
+		    if(dcCaseProgramCargo != null && dcCaseProgramCargo.length >0 ){
+			for(DcCaseProgramCargo dcCargo :dcCaseProgramCargo){
+				dcCargo.setProgRescindCd("EA");
+				if("MC".equalsIgnoreCase(dcCargo.getProgCd())){
+					return true;
 				}
-			}else if (AppRegConstants.AUTO_REG_PROCESS_PA.equalsIgnoreCase(autoRegStatus)) {
-				if ( lisMspApp ) {
-				    if(mspPgmStatrtDt != null){
-					    mspPgmStatrtDt =  DateUtility.getFirstDayOfMonth(mspPgmStatrtDt);
-					    if(DateUtility.getFirstDayOfMonth(autoRegT1001Cargo.getAppRcvDt()).before(mspPgmStatrtDt)){
-						    autoRegStatus =AppRegConstants.AUTO_REG_PROCESS_XA;
-						    createEDMTask(appNum);
-						    mspActiveCaseCheck = false ;
-						    updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-						}else{
-						    lisMSPAppDuplicate = true;
-						 // Create task -Change from Duplicate Application
-							dmWebserviceVO.setSourceTypeCode("LIS");
-							log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task 'Changes for Duplicate Application' for AppNum - "+ appNum);
-							createEDMTask(appNum);
-							System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task 'Changes for Duplicate Application' for AppNum - "+ appNum);
-							lisMSPAppDuplicate(appNum, associatedAppNumStr, associatedCaseNumLong,autoRegStatus);			
-							updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-							mspActiveCaseCheck= false;
-						}
-					}else {//No Interview- Initiate Data collection
-					    System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: No Assoication found for MSP app "+ appNum);
-					    log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: No Assoication found for MSP app "+ appNum);
-					    mspActiveCaseCheck = true;
-					    autoReg_SSA_LIS_MSP_Sw =  "Y";
-					    newSSALISMSPApp = true;
-					}
-					
-					
-				} else {//No Interview- Initiate Data collection
-				    System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: No Assoication found for MSP app "+ appNum);
-				    log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: No Assoication found for MSP app "+ appNum);
-				    mspActiveCaseCheck = true;
-				    autoReg_SSA_LIS_MSP_Sw =  "Y";
-				    newSSALISMSPApp = true;
+			    }
+		    }
+		    
+		} catch (ApplicationException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		    } catch (FrameworkException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		    }
+		return false;
+	}
+	
+	private DcCaseProgramCargo[] getMspStartDt(long caseNum,String status)
+	{
+
+		DcCaseProgramCargo dcCargo = new DcCaseProgramCargo();
+		DcCaseProgramCollection dcProgColl = new DcCaseProgramCollection(connection);
+		DcCaseProgramCargo[] dcProgramArray = null;
+		Object[] objLst = new Object[2];		
+		objLst[0] = caseNum;
+		objLst[1] = status;
+    
+		try{
+			dcProgramArray = (DcCaseProgramCargo[]) dcProgColl.select("findEarliestRequestDtForCaseNum",objLst);			
+		}catch(Exception e){
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.getMspStartDt caseNum: " + caseNum + "\n" + e.getMessage() + "\n", e);
+			e.printStackTrace();
+		}
+	return dcProgramArray;
+	
+	}
+
+	public EdEligibilityCargo[] getEligibilityForIndvCase(DcCasesCargo[] dcCaseTempArray, long indvId) throws Exception {
+	    EdEligibilityCollection edEligColl = new EdEligibilityCollection(connection);
+	    EdEligibilityCargo[] edEligCargoArray = null;
+	    log(7,"Start AutoRegistrationBO.getEligibilityForIndvCase() indvId:"+ indvId);
+	    try{
+		Object[] methodArgs = new Object[2];
+		List argumentsList = new ArrayList();
+		StringBuffer caseNumBuf = new StringBuffer();
+		for (DcCasesCargo cargo : dcCaseTempArray) {
+			caseNumBuf = caseNumBuf.append(",").append(cargo.getCaseNum());
+		}
+		String caseNumbers = caseNumBuf.toString();
+		if (caseNumbers.length() > 0) {
+			caseNumbers = caseNumbers.substring(1);
+		}
+		methodArgs[0] = caseNumbers;
+		methodArgs[1] = indvId;
+		log(7,"AutoRegistrationBO.getEligibilityForIndvCase() :: Case Numbers that are associated to indv - "+ caseNumbers);
+		System.out.println("AutoRegistrationBO.getEligibilityForIndvCase() :: Case Numbers that are associated to indv - "+ caseNumbers);
+		edEligCargoArray = (EdEligibilityCargo[]) edEligColl.select("findCasesByIndvIdMSP", methodArgs);
+	    }catch(Exception e) {
+		hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.getEligibilityForIndvCase() indvId: " + indvId + "\n" + e.getMessage() + "\n", e);
+		throw e;
+	    }
+	    
+	    return edEligCargoArray;
+	}
+
+	public boolean checkDocsForCase(EdVerificationChecklistCargo[] verCargoArray,Timestamp closureDate) throws ApplicationException, FrameworkException {
+	    log(7,"AutoRegistrationBO.checkDocsForCase() :: Check if any doc submitted after closure date- "+ closureDate);
+	    boolean docPresent = false;
+	    DmDocCollection coll = new DmDocCollection(connection);
+	    DmDocCargo extCargo = new DmDocCargo();
+	    try {
+        	    extCargo.setCaseNum(verCargoArray[0].getCaseNum());
+        	  //  coll.clear();
+        	    //coll.setCargo(extCargo);
+        	    Object[] parmArgs = new Object[2];
+        	    parmArgs[0] = extCargo;
+        	    parmArgs[1] = new long[0];
+        	    DmDocExtendCargo[] dmDocCargos = (DmDocExtendCargo[]) coll.select("findAllByCaseNumberECR", parmArgs);
+        		
+        	    //DmDocExtendCargo[] dmDocCargos = (DmDocExtendCargo[])coll.select("findByCaseNumberAll");
+		if(dmDocCargos != null && dmDocCargos.length >0){
+		    for(DmDocExtendCargo cargo : dmDocCargos){
+				if(closureDate.compareTo(cargo.getReceivedDt()) <0){//TO DO
+				    System.out.println("AutoRegistrationBO.checkDocsForCase() :: Doc submitted on date - "+ cargo.getReceivedDt());
+				    log(7,"AutoRegistrationBO.checkDocsForCase() :: Doc submitted on date - "+ cargo.getReceivedDt());
+				    docPresent = true;
+				    break;
 				}
 			}
-			/*else if(autoRegStatus.isEmpty() && caseInPast > 0 ){
-				// Add Program - MSP
-				dmWebserviceVO.setSourceTypeCode("MM");
-				dmWebserviceVO.setCaseNum(caseInPast);
-				log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case in Past - "+ caseInPast);
-				System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case in Past - "+ caseInPast);
-				mspDocId = "MSPSS" + appNum ;
-				createEDMTask(String.valueOf(caseInPast));
-				associationPgmAdd(appNum, associatedAppNumStr, caseInPast);
-				updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-				mspActiveCaseCheck = false ;
-			}*/
-			 else if (AppRegConstants.AUTO_REG_PROCESS_RE.equalsIgnoreCase(autoRegStatus) || AppRegConstants.AUTO_REG_PROCESS_DA.equalsIgnoreCase(autoRegStatus)) {
-			     Object checklistParams[] = new Object[3];
-			     if (AppRegConstants.AUTO_REG_PROCESS_RE.equalsIgnoreCase(autoRegStatus)) {
-				 	checklistParams[0] = caseClosed90Days; 
-					checklistParams[1] = closureDate ;
-					checklistParams[2] = "TN";
+		}
+	    } catch (ApplicationException e) {
+		hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception [ApplicationException] in AutoRegistrationBO.checkDocsForCase(): " + "\n" + e.getMessage() + "\n", e);
+		throw e;
+	    } catch (FrameworkException e) {
+		hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception [FrameworkException] in AutoRegistrationBO.checkDocsForCase(): " + "\n" + e.getMessage() + "\n", e);
+		throw e;
+	    }
+	    
+	    return docPresent;
+	}
+	
+	public void associationPgmAdd(String appNum,String assoicatedappNum ,long caseNum ) throws Exception{
+	    try {
+		log(7,"AutoRegistrationBO.associationPgmAdd() :: Start logic for programAdd appNum  - "+ appNum);
+		log(7,"AutoRegistrationBO.associationPgmAdd() :: Assoicated application Num  - "+ assoicatedappNum);
+		log(7,"AutoRegistrationBO.associationPgmAdd() :: Assoicated case Num  - "+ caseNum);
+		System.out.println("AutoRegistrationBO.associationPgmAdd() :: Assoicated application Num  - "+ assoicatedappNum);
+		System.out.println("AutoRegistrationBO.associationPgmAdd() :: Assoicated case Num  - "+ caseNum);
+		
+		ArApplicationForAidCargo aidCargo = insertArApplicationForAid(appNum, assoicatedappNum, caseNum, ARConstants.ASSOCIATION_TYPE_PROGRAM_ADD);
+		System.out.println("AutoRegistrationBO.associationPgmAdd() :: After inserting into ArApplicationForAidCargo . "+aidCargo);
+                log(7,"AutoRegistrationBO.associationPgmAdd() :: After inserting into ArApplicationForAidCargo . "+aidCargo);
+		long groupSeqNum = getGroupSeqNum(appNum);
+		log(7,"AutoRegistrationBO.associationPgmAdd() :: Before insertArApplicationAssociation  with groupSeqNum: "+groupSeqNum);
+		System.out.println("AutoRegistrationBO.associationPgmAdd() :: Before insertArApplicationAssociation  with groupSeqNum: "+groupSeqNum);
+		
+		insertArApplicationAssociation(appNum, assoicatedappNum, caseNum,ARConstants.ASSOCIATION_TYPE_PROGRAM_ADD,String.valueOf(groupSeqNum) );//groupSeqNum
+		updateFFMInbound(appNum,caseNum);
+		log(7,"AutoRegistrationBO.associationPgmAdd() :: After insertArApplicationAssociation   ");
+		boolean displayAddtionalIndvs = false;
+		if (assoicatedappNum != null && !assoicatedappNum.equals("")) {
+		    log(7,"AutoRegistrationBO.associationPgmAdd() :: Before syncArData for assoicatedappNum  - "+assoicatedappNum);
+		    System.out.println("AutoRegistrationBO.associationPgmAdd() :: Before syncArData for assoicatedappNum  - "+assoicatedappNum);
+		    syncArData(appNum, assoicatedappNum,ARConstants.ASSOCIATION_TYPE_PROGRAM_ADD,false,null);
+		} else if (caseNum != 0) {
+		    log(7,"AutoRegistrationBO.associationPgmAdd() :: Before syncArData for caseNum  - "+caseNum);
+		    System.out.println("AutoRegistrationBO.associationPgmAdd() :: Before syncArData for caseNum  - "+caseNum);
+		    displayAddtionalIndvs = syncDcData(appNum, caseNum,false,null);
+		}
+	    } catch (Exception e) {
+		hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.associationPgmAdd() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		throw e;
+	    }
+	}
+
+	public void lisMSPAppDuplicate(String appNum,String assoicatedappNum ,long caseNum , String autoRegStatus ) throws Exception{
+	    try {
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: Start logic for duplicate appNum  - "+ appNum);
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: Assoicated application Num  - "+ assoicatedappNum);
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: Assoicated case Num  - "+ caseNum);
+		System.out.println("AutoRegistrationBO.lisMSPAppDuplicate() :: Assoicated application Num  - "+ assoicatedappNum);
+		System.out.println("AutoRegistrationBO.lisMSPAppDuplicate() :: Assoicated case Num  - "+ caseNum);
+		ArApplicationForAidCargo aidCargo = insertArApplicationForAid(appNum, assoicatedappNum, caseNum, ARConstants.ASSOCIATION_TYPE_DUPLICATE_APPLICATION);
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: After inserting into ArApplicationForAidCargo . ");
+			
+		long groupSeqNum = getGroupSeqNum(appNum);
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: Before insertArApplicationAssociation with groupSeqNum: "+groupSeqNum);
+		System.out.println("AutoRegistrationBO.lisMSPAppDuplicate() :: Before insertArApplicationAssociation with groupSeqNum: "+groupSeqNum);
+			
+		insertArApplicationAssociation(appNum, assoicatedappNum, caseNum,ARConstants.ASSOCIATION_TYPE_DUPLICATE_APPLICATION,String.valueOf(groupSeqNum) );//groupSeqNum
+		updateFFMInbound(appNum,caseNum);
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: After insertArApplicationAssociation  - ");
+			
+		boolean displayAddtionalIndvs = false;
+		if (assoicatedappNum != null && !assoicatedappNum.equals("")) {
+		    log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: Before syncArData for assoicatedappNum  - "+assoicatedappNum);
+		    System.out.println("AutoRegistrationBO.lisMSPAppDuplicate() :: Before syncArData for assoicatedappNum  - "+ assoicatedappNum);
+		    syncArData(appNum, assoicatedappNum,ARConstants.ASSOCIATION_TYPE_DUPLICATE_APPLICATION,true ,autoRegStatus);
+		} else if (caseNum != 0) {
+		    log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: Before syncArData for caseNum  - "+caseNum);
+		    System.out.println("AutoRegistrationBO.lisMSPAppDuplicate() :: Before syncArData for caseNum  - - "+ caseNum);
+		    displayAddtionalIndvs = syncDcData(appNum, caseNum,true,autoRegStatus);
+		}
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: Start logic for DOC_ID_FXX463 Trigger  for appNum  - "+ appNum);
+		System.out.println("AutoRegistrationBO.lisMSPAppDuplicate() :: Start logic for DOC_ID_FXX463 Trigger  for appNum  - "+ appNum);
+		generateCorrespondance(appNum,DIConstants.DOC_ID_FXX463, "", this.con);
+		log(7,"AutoRegistrationBO.lisMSPAppDuplicate() :: After DOC_ID_FXX463 Trigger  for appNum  - "+ appNum);
+	    } catch (Exception e) {
+			hasExceptionOccurred = true;
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.lisMSPAppDuplicate() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+			throw e;
+	    }
+	}
+	
+	public long selectCaseMSPAdd(long indvId,EdEligibilityCargo[] edEligCargoArray) {
+		HashMap casePgmMap = new HashMap();
+		Set<Long> caselst = new HashSet<Long>();
+		String prgms = "";
+		StringBuffer prgmBuff = null;
+		long alertCaseNum = 0;
+		long snapCaseNum = 0;
+		long tanfCaseNum = 0;
+		long maCaseNum = 0;
+		long mspCaseNum = 0;
+		long meCaseNum = 0;
+		long fpCaseNum = 0;
+		HashMap casePgmMap1 = new HashMap();
+		log(7,"AutoRegistrationBO.selectCaseMSPAdd() :: For multipe case association find the case for indv  - "+ indvId);
+		// gov.illinois.ies.business.services.iq.IVRCallCenterNewServiceEJBBean.getIndividualIdNEW(IndividualLookupRequestVO)
+		for (EdEligibilityCargo cargo : edEligCargoArray) {
+		    casePgmMap1.put(cargo.getCaseNum(),cargo.getProgramCd());
+			if (casePgmMap.containsKey(cargo.getCaseNum())) {
+				prgmBuff = new StringBuffer();
+				prgms = casePgmMap.get(cargo.getCaseNum()).toString();
+				prgmBuff.append(prgms);
+				if (!prgms.contains(cargo.getProgramCd())) {
+					prgmBuff.append(",");
+					prgmBuff.append(cargo.getProgramCd());
+				}
+				casePgmMap.put(cargo.getCaseNum(), prgmBuff.toString());
+			} else {
+				caselst.add(cargo.getCaseNum());
+				casePgmMap.put(cargo.getCaseNum(), cargo.getProgramCd());
+			}
+		}
+		log(7,"AutoRegistrationBO.selectCaseMSPAdd() :: Program Case map: "+ casePgmMap);
+		System.out.println("AutoRegistrationBO.selectCaseMSPAdd() :: Program Case map: "+ casePgmMap);
+		if (caselst != null && caselst.size() > 0 && casePgmMap != null
+				&& casePgmMap.size() > 0) {
+			for (Long caseList : caselst) {
+				Long caseNumber = caseList;
+				String value = casePgmMap.get(caseNumber).toString();
+				long caseNum = (Long) caseNumber;
+				ArrayList pgmList = new ArrayList(Arrays.asList(value.split(",")));
+				
+				if (pgmList.contains("MC")) {// If MSP Program is present
+					mspCaseNum = caseNumber;
+					lisMSPAppDuplicate = true;
+					break;
+				} else if (pgmList.contains("MA")) {
+					maCaseNum = caseNumber;
+				}else if (pgmList.contains("ME")) {
+					meCaseNum = caseNumber;
+				} else if (pgmList.contains("FP")) {
+					fpCaseNum = caseNumber;
+				}  else if (pgmList.contains("TF")) {
+					tanfCaseNum = caseNumber;
+				} else if (pgmList.contains("FS")) {
+					snapCaseNum = caseNumber;
+				}
+			}
+			if (mspCaseNum > 0) {
+				alertCaseNum = mspCaseNum;
+			} else if (maCaseNum > 0) {
+				alertCaseNum = maCaseNum;
+			} else if (meCaseNum > 0) {
+				alertCaseNum = meCaseNum;
+			} else if (fpCaseNum > 0) {
+				alertCaseNum = fpCaseNum;
+			} else if (tanfCaseNum > 0) {
+				alertCaseNum = tanfCaseNum;
+			}else if (snapCaseNum > 0) {
+				alertCaseNum = snapCaseNum;
+			}
+		}
+		return alertCaseNum;
+	}
+	
+	
+	public long selectCaseMSPAdd(long indvId,DcCaseProgramCargo[] dcCasePgmCargoArray) {
+		HashMap casePgmMap = new HashMap();
+		HashMap pgmStartDtMap = new HashMap();
+		Set<Long> caselst = new HashSet<Long>();
+		String prgms = "";
+		StringBuffer prgmBuff = null;
+		long alertCaseNum = 0;
+		long snapCaseNum = 0;
+		long tanfCaseNum = 0;
+		long maCaseNum = 0;
+		long mspCaseNum = 0;
+		long meCaseNum = 0;
+		long fpCaseNum = 0;
+		HashMap casePgmMap1 = new HashMap();
+		mspPgmStatrtDt = new Timestamp(cal.getTimeInMillis());
+		log(7,"AutoRegistrationBO.selectCaseMSPAdd() :: For multipe case association find the case for indv  - "+ indvId);
+		// gov.illinois.ies.business.services.iq.IVRCallCenterNewServiceEJBBean.getIndividualIdNEW(IndividualLookupRequestVO)
+		for (DcCaseProgramCargo cargo : dcCasePgmCargoArray) {
+		    if("EA".equalsIgnoreCase(cargo.getProgRescindCd())){
+			casePgmMap1.put(cargo.getCaseNum(),cargo.getProgCd());
+			if (casePgmMap.containsKey(cargo.getCaseNum())) {
+				prgmBuff = new StringBuffer();
+				prgms = casePgmMap.get(cargo.getCaseNum()).toString();
+				prgmBuff.append(prgms);
+				if (!prgms.contains(cargo.getProgCd())) {
+					prgmBuff.append(",");
+					prgmBuff.append(cargo.getProgCd());
+				}
+				casePgmMap.put(cargo.getCaseNum(), prgmBuff.toString());
+			} else {
+				caselst.add(cargo.getCaseNum());
+				casePgmMap.put(cargo.getCaseNum(), cargo.getProgCd());
+			}
+			if("MC".equalsIgnoreCase(cargo.getProgCd())){
+				pgmStartDtMap.put(cargo.getCaseNum(), cargo.getProgStatusDt());
+			}
+			
+		    }else if (caselst.isEmpty() ){
+			if("OA".equalsIgnoreCase(cargo.getProgRescindCd()) && (!"TP0N".equalsIgnoreCase(cargo.getProgActionCd()) || !"TP0S".equalsIgnoreCase(cargo.getProgActionCd()) )){
+				casePgmMap1.put(cargo.getCaseNum(),cargo.getProgCd());
+				if (casePgmMap.containsKey(cargo.getCaseNum())) {
+					prgmBuff = new StringBuffer();
+					prgms = casePgmMap.get(cargo.getCaseNum()).toString();
+					prgmBuff.append(prgms);
+					if (!prgms.contains(cargo.getProgCd())) {
+						prgmBuff.append(",");
+						prgmBuff.append(cargo.getProgCd());
+					}
+					casePgmMap.put(cargo.getCaseNum(), prgmBuff.toString());
 				} else {
-				    checklistParams[0] = caseDenied60Days; 
-				    checklistParams[1] = closureDate ;
-				    checklistParams[2] = "DN";
+					caselst.add(cargo.getCaseNum());
+					casePgmMap.put(cargo.getCaseNum(), cargo.getProgCd());
 				}
-				verCargoArray = (EdVerificationChecklistCargo[]) verColl.select("findByCaseNumForMSP",checklistParams);
-				if (verCargoArray != null && verCargoArray.length > 0) {
-					// Check if new doc submitted after closure
-				    log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Check if any doc were submitted on the case - "+ verCargoArray[0].getCaseNum());
-				    System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Check if any doc were submitted on the case - "+ verCargoArray[0].getCaseNum());
-				    boolean isNewDocPresent = checkDocsForCase(verCargoArray,closureDate);
-				    log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: A Doc was submitted after case closure  - "+ isNewDocPresent);
-				    System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: A Doc was submitted after case closure  - "+ isNewDocPresent);
-				    if(isNewDocPresent){
-					// Add Program - MSP
-					dmWebserviceVO.setSourceTypeCode("MM");
-					dmWebserviceVO.setCaseNum(verCargoArray[0].getCaseNum());
-					mspDocId = "MSPSS" + appNum ;
-					createEDMTask(String.valueOf(verCargoArray[0].getCaseNum()));// This task should be on the case
-					System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case  - "+ verCargoArray[0].getCaseNum());
-					log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create Task Program Add-MSP  for Case  - "+ verCargoArray[0].getCaseNum());
-					associationPgmAdd(appNum, associatedAppNumStr, verCargoArray[0].getCaseNum());
-					updateAutoRegTriggerTable(appNum,AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,autoRegStatus,AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);					
-					mspActiveCaseCheck = false ;
-					autoReg_SSA_LIS_MSP_Sw =  "Y";
-				    }else{
-					mspActiveCaseCheck= true;
-					newSSALISMSPApp = true;
-				    }
-					
-				}else{
-					//Task No Interview- Initiate Data collection task is created
-				    System.out.println("AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create No Interview- Initiate Data collection  for appNum  - "+ appNum);
-				    log(7,"AutoRegistrationBO.existingActiveCaseCheckMSP() :: Create No Interview- Initiate Data collection  for appNum  - "+ appNum);
-				    mspActiveCaseCheck= true;
-					newSSALISMSPApp = true;
+				if("MC".equalsIgnoreCase(cargo.getProgCd())){
+					pgmStartDtMap.put(cargo.getCaseNum(), cargo.getProgStatusDt());
+				}
+			    }
+		    }
+		    
+		}
+		log(7,"AutoRegistrationBO.selectCaseMSPAdd() :: Program Case map: "+ casePgmMap);
+		System.out.println("AutoRegistrationBO.selectCaseMSPAdd() :: Program Case map: "+ casePgmMap);
+		if (caselst != null && caselst.size() > 0 && casePgmMap != null
+				&& casePgmMap.size() > 0) {
+			for (Long caseList : caselst) {
+				Long caseNumber = caseList;
+				String value = casePgmMap.get(caseNumber).toString();
+				long caseNum = (Long) caseNumber;
+				ArrayList pgmList = new ArrayList(Arrays.asList(value.split(",")));
+				
+				if (pgmList.contains("MC")) {// If MSP Program is present
+					mspCaseNum = caseNumber;
+					lisMSPAppDuplicate = true;
+					break;
+				} else if (pgmList.contains("MA")) {
+					maCaseNum = caseNumber;
+				}else if (pgmList.contains("ME")) {
+					meCaseNum = caseNumber;
+				} else if (pgmList.contains("FP")) {
+					fpCaseNum = caseNumber;
+				}  else if (pgmList.contains("TF")) {
+					tanfCaseNum = caseNumber;
+				} else if (pgmList.contains("FS")) {
+					snapCaseNum = caseNumber;
 				}
 			}
-		} catch (Exception e) {
+			if (mspCaseNum > 0) {
+				alertCaseNum = mspCaseNum;
+			} else if (maCaseNum > 0) {
+				alertCaseNum = maCaseNum;
+			} else if (meCaseNum > 0) {
+				alertCaseNum = meCaseNum;
+			} else if (fpCaseNum > 0) {
+				alertCaseNum = fpCaseNum;
+			} else if (tanfCaseNum > 0) {
+				alertCaseNum = tanfCaseNum;
+			}else if (snapCaseNum > 0) {
+				alertCaseNum = snapCaseNum;
+			}
+		}
+		
+		if(lisMSPAppDuplicate && !pgmStartDtMap.isEmpty() && pgmStartDtMap.containsKey(alertCaseNum) ){
+		    mspPgmStatrtDt = (Timestamp) pgmStartDtMap.get(alertCaseNum);
+		}
+		return alertCaseNum;
+	}
+	
+	
+	public ArAppProgramIndvCargo[] getArAppProgramIndvAllCargos(String indvId) {
+		ArAppProgramIndvCargo arAppProgIndvCargo = new ArAppProgramIndvCargo();
+		ArAppProgramIndvCollection arAppProgramIndvColl = new ArAppProgramIndvCollection(connection);
+		ArAppProgramIndvCargo[] arAppProgramIndvCargoArray = null;
+		Object[] objLst = new Object[1];		
+		objLst[0] = indvId;// indvList
+    
+		try{
+			arAppProgramIndvCargoArray = (ArAppProgramIndvCargo[]) arAppProgramIndvColl.select("findByIndvsMSP",objLst);			
+		}catch(Exception e){
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.getArAppProgramIndvAllCargos() indvId: " + indvId + "\n" + e.getMessage() + "\n", e);
+			e.printStackTrace();
+		}
+	return arAppProgramIndvCargoArray;
+	}
+	
+	public long getGroupSeqNum(String appNum) throws Exception{
+		String docId = null;
+		log(7,"AutoRegistrationBO.getGroupSeqNum() :: Start logic for finding the groupseqNum for appNum  - "+ appNum);
+		DMDocTaskUpdateBO taskBo = new DMDocTaskUpdateBO(docId, connection);
+		Object docIdforFileNet = taskBo.getDocIdFromDmDocForSubmit(appNum);
+		long groupSeqNum = 0;
+		//try {
+			if (docIdforFileNet != null) {
+			docId = (String) docIdforFileNet;
+			log(7,"AutoRegistrationBO.getGroupSeqNum() :: docId - "+ docId);
+			}
+			if (docId != null) {
+				taskBo = new DMDocTaskUpdateBO(docId, connection);
+				DmDocCargo[] dmDocCargo = taskBo.getDocSeqNum();
+				if (dmDocCargo != null && dmDocCargo.length > 0) {
+					groupSeqNum = dmDocCargo[0].getGroupSeqNum();
+				}
+			}
+			return groupSeqNum;
+		/*/}/*catch{
+			hasExceptionOccurred = true;
+			throw e;
+		}*/
+	}
+	
+	public ArApplicationForAidCargo insertArApplicationForAid(String sourceAppNum, String associatedAppNum, long associatedCaseNum, String associationType) throws Exception {
+	    log(7,"AutoRegistrationBO.insertArApplicationForAid :: Start logic for inserting ArApplicationForAidCargo for appNum  - "+ sourceAppNum);
+	    System.out.println("AutoRegistrationBO.insertArApplicationForAid :: Start logic for inserting ArApplicationForAidCargo for appNum  - "+ sourceAppNum);
+	    ArApplicationForAidCollection arApplicationForAidColl = new ArApplicationForAidCollection(connection);
+		ArApplicationForAidCargo arApplicationForAidCargo = new ArApplicationForAidCargo();
+		arApplicationForAidCargo.setAppNum(sourceAppNum);
+		arApplicationForAidColl.setCargo(arApplicationForAidCargo);
+		ArApplicationForAidCargo[] arCargoArr  = (ArApplicationForAidCargo[]) arApplicationForAidColl.select("findByAppNum");
+		arApplicationForAidColl.clear();
+		if (arCargoArr != null && arCargoArr.length > 0) {
+			arApplicationForAidCargo = arCargoArr[0];
+		}
+		if(ARConstants.ASSOCIATION_TYPE_PROGRAM_ADD.equals(associationType)){
+		    arApplicationForAidCargo.setApplicationStatusCd("CA");  
+		}else{
+		    arApplicationForAidCargo.setApplicationStatusCd("DE");
+		}
+		arApplicationForAidCargo.setScheduledSw('N');
+		arApplicationForAidCargo.setPriorSnapSw('N');
+		arApplicationForAidCargo.setPriorSnapSw('N');
+		arApplicationForAidCargo.setAppMpeSw('N');
+		arApplicationForAidCargo.setAuthRepSw('N');
+		arApplicationForAidCargo.setAuthRepInd('N');
+		arApplicationForAidCargo.setAppForaidSw('Y');
+		arApplicationForAidCargo.setAssociationSw('Y');
+		arApplicationForAidCargo.setCaseNum(0);
+		arApplicationForAidCargo.setCreateUserId(ARConstants.APPLICATION_ASSOCIATION);
+		arApplicationForAidCargo.setCreateDt(BiUtils.getToday());
+		arApplicationForAidCargo.setApplicationSubDt(BiUtils.getToday());
+		arApplicationForAidCargo.setAssociatedCaseNum(associatedCaseNum);
+		arApplicationForAidCargo.setAssociatedAppNum(associatedAppNum);
+		arApplicationForAidCargo.setAssociationType(associationType);
+
+		T1001AppRqstCollection t1001AppRqstColl = new T1001AppRqstCollection(connection);
+		T1001AppRqstCargo t1001AppRqstCargo = new T1001AppRqstCargo();
+		t1001AppRqstCargo.setAppNum(sourceAppNum);
+		t1001AppRqstColl.setCargo(t1001AppRqstCargo);
+		T1001AppRqstCargo[] t1001AppRqstCargoArr = (T1001AppRqstCargo[]) t1001AppRqstColl.select("findByAppNum");
+		if (t1001AppRqstCargoArr != null && t1001AppRqstCargoArr.length > 0) {
+			T1001AppRqstCargo t1001Cargo = t1001AppRqstCargoArr[0];
+			
+			//setAppType(t1001Cargo.getAppTyp());
+			arApplicationForAidCargo.setApplicationStatusDt(t1001Cargo.getAppRcvDt());
+			arApplicationForAidCargo.setAppModeCd(t1001Cargo.getAppMode());
+			arApplicationForAidCargo.setAppNum(t1001Cargo.getAppNum());
+			arApplicationForAidCargo.setAppRecvdDt(t1001Cargo.getAppRcvDt());
+			arApplicationForAidCargo.setAppTypeCd(t1001Cargo.getAppMode());
+			arApplicationForAidCargo.setEmpId(retrieveIntakeVirtualWkrId(t1001Cargo.getOfcNum()));
+			arApplicationForAidCargo.setExpeditedSw(t1001Cargo.getExpeditedFapSw());
+			if (t1001Cargo.getOfcNum()==0) {
+				arApplicationForAidCargo.setOfficeNum(10);
+			} else {
+			arApplicationForAidCargo.setOfficeNum(t1001Cargo.getOfcNum());
+			}
+			arApplicationForAidCargo.setProviderNumber(t1001Cargo.getProviderId());
+			arApplicationForAidCargo.setLanguageCd(t1001Cargo.getLangCd() != null && !t1001Cargo.getLangCd().trim().equals("") ? t1001Cargo.getLangCd() : "0" );
+		}
+
+		T1002AppDtlCollection t1002AppDtlColl = new T1002AppDtlCollection(connection);
+		T1002AppDtlCargo[] t1002AppDtlCargoArr = (T1002AppDtlCargo[]) t1002AppDtlColl.select("findAppDtlByAppNum", new Object[] { sourceAppNum });
+		if (t1002AppDtlCargoArr != null && t1002AppDtlCargoArr.length > 0) {
+			T1002AppDtlCargo t1002Cargo = t1002AppDtlCargoArr[0];
+
+			arApplicationForAidCargo.setApplicantHomelessSw(t1002Cargo.getHlessSw());
+			arApplicationForAidCargo.setPhnNumTyp(t1002Cargo.getPhnNumTyp().charAt(0));
+			arApplicationForAidCargo.setPhNum(t1002Cargo.getHshlPhnNum().trim());
+			/*PMD_Override - R10 - Casting from long to short for this particular element will not cause to lose data */
+			PMDRules.markApprovedStatement("R10");
+			arApplicationForAidCargo.setPrefCntcInd((short) t1002Cargo.getPrefCntcInd());
+			arApplicationForAidCargo.setPrefCntcTmTxt(t1002Cargo.getPrefCntcTmTxt());
+			arApplicationForAidCargo.setMsgPhnNum(t1002Cargo.getMsgPhnNum().trim());
+			arApplicationForAidCargo.setEmail(t1002Cargo.getHshlEmailAdr().trim());
+			arApplicationForAidCargo.setWorkPhNum(t1002Cargo.getHshlWorkPhnNum());
+			arApplicationForAidCargo.setOtherPhNum(t1002Cargo.getHshlCellPhnNum());
+			arApplicationForAidCargo.setVulnerableSw(t1002Cargo.getVulnerableSw());
+		    System.out.print("VunlnerableSW in insertArApplicationForAid autoRegBO "+arApplicationForAidCargo.getVulnerableSw() +"Vul sw= " + t1002Cargo.getVulnerableSw());
+
+			arApplicationForAidCargo.setWorkPhNumExt(t1002Cargo.getWorkPhnExtnNum() != null && !t1002Cargo.getWorkPhnExtnNum().trim().equals("") ? Long.parseLong(t1002Cargo.getWorkPhnExtnNum().trim()) : 0);
+		}
+
+		T2040AppAuthRepCollection t2040AppAuthRepColl = new T2040AppAuthRepCollection(connection);
+		T2040AppAuthRepCargo t2040AppAuthRepCargo = new T2040AppAuthRepCargo();
+		t2040AppAuthRepCargo.setAppNum(sourceAppNum);
+		t2040AppAuthRepColl.setCargo(t2040AppAuthRepCargo);
+		T2040AppAuthRepCargo[] t2040AppAuthRepCargoArr = (T2040AppAuthRepCargo[]) t2040AppAuthRepColl.select("findAuthRepInfoByByAppNum");
+		if (t2040AppAuthRepCargoArr != null && t2040AppAuthRepCargoArr.length > 0) {
+			T2040AppAuthRepCargo t2040Cargo = t2040AppAuthRepCargoArr[0];
+
+			if (t2040Cargo.getAuthRepCd() != null && !t2040Cargo.getAuthRepCd().trim().equals("") && !t2040Cargo.getAuthRepCd().trim().equals("0")) {
+				arApplicationForAidCargo.setAuthRepSw('Y');
+				arApplicationForAidCargo.setAuthRepInd('Y');
+			}
+		}
+
+		T1006AppInPermdCollection t1006AppInPermdColl = new T1006AppInPermdCollection(connection);
+		T1006AppInPermdCargo t1006AppInPermdCargo = new T1006AppInPermdCargo();
+		t1006AppInPermdCargo.setAppNum(sourceAppNum);
+		t1006AppInPermdColl.add(t1006AppInPermdCargo);
+		T1006AppInPermdCargo[] t1006AppInPermdCargoArr = (T1006AppInPermdCargo[]) t1006AppInPermdColl.select("findByAppNumInboundFFMApps");
+		if (t1006AppInPermdCargoArr != null && t1006AppInPermdCargoArr.length > 0) {
+			T1006AppInPermdCargo t1006Cargo = t1006AppInPermdCargoArr[0];
+
+			arApplicationForAidCargo.setSpokenLanguageTypeCd(t1006Cargo.getLangCd());
+		}
+
+		arApplicationForAidColl.setCargo(arApplicationForAidCargo);
+		arApplicationForAidColl.update(arApplicationForAidColl);
+		log(7,"AutoRegistrationBO.insertArApplicationForAid :: End ArApplicationForAidCargo insert for appNum  - "+ sourceAppNum);
+		return arApplicationForAidCargo;
+	}
+	
+	public void insertArApplicationAssociation(String sourceAppNum, String associatedAppNum, long associatedCaseNum, String typeCd, String groupSeqNum) throws Exception {
+	    log(7,"AutoRegistrationBO.insertArApplicationAssociation :: Start ArApplicationForAidCargo insert for Source appNum  - "+ sourceAppNum);
+	    ArApplicationAssociationCollection arApplicationAssociationColl = new ArApplicationAssociationCollection(connection);
+		ArApplicationAssociationCargo arApplicationAssociationCargo = new ArApplicationAssociationCargo();
+
+		arApplicationAssociationCargo.setSourceAppNum(sourceAppNum);
+		if (associatedAppNum != null && !associatedAppNum.equals("")) {
+			arApplicationAssociationCargo.setAssociatedAppNum(associatedAppNum);
+		} else if (associatedCaseNum != 0) {
+			arApplicationAssociationCargo.setAssociatedCaseNum(associatedCaseNum);
+		}
+		arApplicationAssociationCargo.setType(typeCd);
+		arApplicationAssociationCargo.setGroupSeqNum(Long.valueOf(groupSeqNum));
+		arApplicationAssociationCargo.setCreateUserId(ARConstants.APPLICATION_ASSOCIATION);
+		arApplicationAssociationCargo.setCreateDt(BiUtils.getToday());
+		arApplicationAssociationCargo.setAssociationDt(BiUtils.getToday());
+
+		arApplicationAssociationColl.setCargo(arApplicationAssociationCargo);
+		arApplicationAssociationColl.insert(arApplicationAssociationColl);
+	}
+	
+	public void syncArData(String sourceAppNum, String associateAppNum, String associationType,boolean isduplicateAppAssociation ,String autoRegStatus) throws Exception {
+		// Sync addresses from AR to AR
+	    log(7,"AutoRegistrationBO.syncArData() :: Start syncArData insert for Associated appNum  - "+ associateAppNum);
+	    System.out.println("AutoRegistrationBO.syncArData() :: Start syncArData insert for Associated appNum  - "+ associateAppNum);
+		ArAppAddrCollection arAppAddrColl = new ArAppAddrCollection(connection);
+		ArAppAddrCargo arAppAddrCargo = new ArAppAddrCargo();
+		log(7,"AutoRegistrationBO.syncArData() :: Get Address for the   appNum- "+ sourceAppNum);
+		getAddressForApp(sourceAppNum);
+		System.out.println("AutoRegistrationBO.syncArData() :: Start syncArData insert into AR_APP_ADDRESS tables  for appnum  - "+ sourceAppNum);
+	    	updateArAppAddrTable(sourceAppNum);
+		
+		// Sync indvs from AR to AR
+		ArAppIndvCollection arAppIndvColl = new ArAppIndvCollection(connection);
+		ArAppIndvCargo arAppIndvCargo = new ArAppIndvCargo();
+		
+		//deleteRecord(sourceAppNum);
+		arAppIndvColl = new ArAppIndvCollection(connection);
+		log(7,"AutoRegistrationBO.syncArData() :: Insert into ArAppIndv "+ sourceAppNum);
+		System.out.println("AutoRegistrationBO.syncArData() :: Insert into ArAppIndv "+ sourceAppNum);
+		updateArAppIndvCargoForMSP( sourceAppNum);
+		
+		
+		if(associationType != null && associationType.equals("DA")){
+			ArAppProgramCollection arAppProgColl = new ArAppProgramCollection(connection);
+			ArAppProgramCargo arAppProgCargo = new ArAppProgramCargo();
+			log(7,"AutoRegistrationBO.syncArData() :: Insert into ArAppProgram "+ sourceAppNum);
+			System.out.println("AutoRegistrationBO.syncArData() :: Insert into ArAppProgram "+ sourceAppNum);
+			arAppProgCargo = getArAppProgramCargoCopyFrom( sourceAppNum,isduplicateAppAssociation,autoRegStatus);
+			arAppProgColl.add(arAppProgCargo);
+			
+			arAppProgColl.insert(arAppProgColl);
+			log(7,"AutoRegistrationBO.syncArData() :: Insert into ArAppProgramIndv "+ sourceAppNum);
+			System.out.println("AutoRegistrationBO.syncArData() :: Insert into ArAppProgramIndv "+ sourceAppNum);
+			updateArAppProgramIndvTable(sourceAppNum);
+		}
+		System.out.println("AutoRegistrationBO.syncArData() ::  syncArData insert for Associated appNum  - "+ associateAppNum);
+	}
+
+	public boolean syncDcData(String sourceAppNum, long associateCaseNum,boolean isduplicateAppAssociation,String autoRegStatus) throws Exception {
+		// Sync addresses from DC to AR
+	    log(7,"AutoRegistrationBO.syncArData() :: Start syncArData insert for Associated CaseNum  - "+ associateCaseNum);
+	    
+	    HashMap<Integer, String> ssaValidationSwMap = new HashMap();
+	    T1006AppInPermdCollection t1006AppInPermdColl = null;
+	    T1006AppInPermdCargo t1006AppInPermdCargo = null;
+	    T1006AppInPermdCargo[] t1006AppInPermdCargoArray = null;
+
+	    boolean displayAddtionalIndvs = false;
+	    HashMap<Integer, String> legacyIndvMap = new HashMap();
+	    AppIndividualBO appIndividualBO = new AppIndividualBO(connection);
+	    T1004AppIndvCargo t1004Cargo = new T1004AppIndvCargo();
+	    try{	    
+	    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+	    	int key = (int) autoRegT1004CargoArray[i].getIndvSeqNum();
+	    	if (indvMap.containsKey(key)) {
+	    		    if (indvMap.get(key) != 0) {
+	    			autoRegT1004CargoArray[i].setBridgesIndvId((Long) indvMap.get(key));
+	    			t1004Cargo = autoRegT1004CargoArray[i];
+	    			updateT1004AppIndvTable(t1004Cargo);
+	    		    } else {
+	    			autoRegT1004CargoArray[i].setBridgesIndvId(generateIndvId());
+	    			String legacyIndvId = appIndividualBO.generateRIN(0L);
+	    			legacyIndvMap.put(key, legacyIndvId);
+	    			t1004Cargo = autoRegT1004CargoArray[i];
+	    			updateT1004AppIndvTable(t1004Cargo);
+	    		    }
+	    	}
+	    }
+
+	      t1006AppInPermdColl = new T1006AppInPermdCollection(connection);
+	      t1006AppInPermdCargo = new T1006AppInPermdCargo();
+	      t1006AppInPermdCargo.setAppNum(sourceAppNum);
+	      t1006AppInPermdColl.add(t1006AppInPermdCargo);
+	      t1006AppInPermdCargoArray = (T1006AppInPermdCargo[]) t1006AppInPermdColl.select("findByAppNumInboundFFMApps");
+
+	      for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+	    		// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+	    		PMDRules.markApprovedStatement("R10");
+	    		ssaValidationSwMap.put((int) autoRegT1004CargoArray[i].getIndvSeqNum(), "N");
+	      }
+
+    	      if (!updateDcIndvTable(ssaValidationSwMap, legacyIndvMap, t1006AppInPermdCargoArray)) {
+    	    		if (this.con != null) {
+    	    		    this.con.rollback();
+    	    		}
+    	    		return false;
+    	       }
+	       log(7,"AutoRegistrationBO.syncArData() :: Start syncArData insert into AR_APP_INDV tables  for appnum  - "+ sourceAppNum);
+    	       updateArAppIndvTable(sourceAppNum);
+    	       log(7,"AutoRegistrationBO.syncArData() :: Start syncArData insert into AR_APP_PROGRAM tables  for appnum  - "+ sourceAppNum);
+    	       System.out.println("AutoRegistrationBO.syncArData() :: Start syncArData insert into AR_APP_PROGRAM tables  for appnum  - "+ sourceAppNum);
+    	       updateArAppProgramTableMSP(sourceAppNum,isduplicateAppAssociation,autoRegStatus);
+    	       System.out.println("AutoRegistrationBO.syncArData() :: Start syncArData insert into AR_APP_ADDRESS tables  for appnum  - "+ sourceAppNum);
+    	       getAddressForApp(sourceAppNum);
+    	      // updateArAppAddrTable(sourceAppNum);
+    	       updateArAppProgramIndvTable(sourceAppNum);
+    	       updateMoEmployeeAppsTable();
+    	       System.out.println("AutoRegistrationBO.syncArData() :: Start syncArData insert into AR_APP_ADDRESS tables  for appnum  - "+ sourceAppNum);
+    	       updateArAppAddrTable(sourceAppNum);
+		
+		DcCaseAddressesCollection dcCaseAddressesColl = new DcCaseAddressesCollection(connection);
+		DcCaseAddressesCargo dcCaseAddressesCargo = new DcCaseAddressesCargo();
+		dcCaseAddressesCargo.setCaseNum(associateCaseNum);
+		dcCaseAddressesColl.setCargo(dcCaseAddressesCargo);
+		DcCaseAddressesCargo[] dcCaseAddressesCargoArr = (DcCaseAddressesCargo[]) dcCaseAddressesColl.select("findCurrentHomeAddressesByAddressType");
+
+		ArAppAddrCollection arAppAddrColl = new ArAppAddrCollection(connection);
+		ArAppAddrCargo arAppAddrCargo = null;
+		for (int i = 0; i < dcCaseAddressesCargoArr.length; i++) {
+			arAppAddrCargo = getArAppAddrCargoFromDcCaseAddressesCargo(dcCaseAddressesCargoArr[i], sourceAppNum);
+			arAppAddrColl.add(arAppAddrCargo);
+		}
+		//arAppAddrColl.insert(arAppAddrColl); As AR_APP_ADDR table will only have data wrt the MSP App and no case individuals should be inserted.
+
+		// Sync indvs from DC to AR
+		DcCaseIndividualCollection dcCaseIndividualColl = new DcCaseIndividualCollection(connection);
+		DcCaseIndividualCargo dcCaseIndividualCargo = new DcCaseIndividualCargo();
+		dcCaseIndividualCargo.setCaseNum(associateCaseNum);
+		dcCaseIndividualColl.setCargo(dcCaseIndividualCargo);
+		DcCaseIndividualCargo[] dcCaseIndividualCargoArr = (DcCaseIndividualCargo[]) dcCaseIndividualColl.select("findByCaseNumber");
+
+		ArAppIndvCollection arAppIndvColl = new ArAppIndvCollection(connection);
+		ArAppIndvCargo arAppIndvCargo = null;
+		//deleteRecord(sourceAppNum);
+		T1004AppIndvCollection t1004AppColl = new T1004AppIndvCollection(connection);
+		T1004AppIndvCargo[] tAppIndvs = (T1004AppIndvCargo[]) t1004AppColl.select("findByAppNum", new Object[] {sourceAppNum});
+		Map<Long,T1004AppIndvCargo> result = verifyIfIndvsExist(sourceAppNum, tAppIndvs);
+		
+		if(tAppIndvs != null && tAppIndvs.length > 0 && tAppIndvs.length > dcCaseIndividualCargoArr.length){
+			displayAddtionalIndvs = true;
+		}
+		for (int i = 0; i < dcCaseIndividualCargoArr.length; i++) {
+			arAppIndvCargo = getArAppAddrCargoFromDcCaseIndividualCargo(dcCaseIndividualCargoArr[i], sourceAppNum);
+			arAppIndvColl.add(arAppIndvCargo);
+			if(result.containsKey(arAppIndvCargo.getIndvId())){
+				//updateT1004AppIndv(result.get(arAppIndvCargo.getIndvId()));//As the update method is called earlier 
+			} else{
+				displayAddtionalIndvs = true;
+			}
+		}
+		//arAppIndvColl.insert(arAppIndvColl); //As AR_APP_INDV table will only have data wrt the MSP App and no case individuals should be inserted.
+	    }catch (Exception e) {
 		    if (this.con != null) {
 			this.con.rollback();
 		    }
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.existingActiveCaseCheckMSP() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-			hasExceptionOccurred = true;
-			throw e;
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.syncDcData() sourceAppNum: " + sourceAppNum + " associateCaseNum: " + associateCaseNum + "\n" + e.getMessage() + "\n", e);
+		    hasExceptionOccurred = true;
+		    
+		    throw e;
 		}
-		return mspActiveCaseCheck;
+		return displayAddtionalIndvs;
 	}
 	
+	private void getAddressForApp(String appNum) throws Exception {
+	    HashMap paramHashMap = null;
+	    ApplicationBO appBo = new ApplicationBO(connection);
+	    T1002AppDtlCargo t1002Cargo = new T1002AppDtlCargo();
+	    ArAppAddrCargo paramArAppAddrCargo = new ArAppAddrCargo();
+	    ArAppAddrCargo arAppAddrTempCargo = null;
+	    String countyCd = null;
+	    System.out.println("AutoRegistrationBO.getAddressForApp() :: Start syncArData  for appnum  - "+ appNum);
+	    t1002Cargo = autoRegT1002Cargo;
+	    paramArAppAddrCargo.setAddrStNm(t1002Cargo.getHshlStAdr());
+	    paramArAppAddrCargo.setAddrLine(t1002Cargo.getHshlL2Adr());
+	    paramArAppAddrCargo.setAddrCity(t1002Cargo.getHshlCityAdr());
+	    paramArAppAddrCargo.setAddrStateCd(t1002Cargo.getHshlStaAdr());
+	    paramArAppAddrCargo.setAddrZip5(t1002Cargo.getHshlZipAdr());
+	    try{
+	    if ("IL".equals(paramArAppAddrCargo.getAddrStateCd())) {
+	    	log(7, "AutoRegistrationBO.getAddressForApp() :: Calling ValidateAddress interface for Physical Address-" + appNum);
+	    	System.out.println("AutoRegistrationBO.getAddressForApp() :: Calling ValidateAddress interface for Physical Address- "+ appNum);
+	    	
+	    	    arAppAddrTempCargo = (ArAppAddrCargo) appBo.validateAddressIq8MSP(paramArAppAddrCargo, paramHashMap);
+	    }
+
+	    if(arAppAddrTempCargo != null){
+	    	arAppAddrTempCargo.setValidationSw('Y');
+	    	arAppAddrTempCargo.setAddrTypeCd("PA");
+	    	countyCd = arAppAddrTempCargo.getAddrCountyCd();
+	    		    	
+	    }
+	    if (arAppAddrTempCargo != null && arAppAddrTempCargo.getAddrStTypeCd() != null && !arAppAddrTempCargo.getAddrStTypeCd().trim().equals("")) {
+	    	RefTableData streetType = new RefTableData();
+	    	streetType = ReferenceTableManager.getValueForDescription("STREETTYPE", arAppAddrTempCargo.getAddrStTypeCd());
+	    	if (streetType != null) {
+	        arAppAddrTempCargo.setAddrStTypeCd(streetType.getRefrTableCode());
+	    	}
+	    }
+	    		    
+	    arAppAddrCargo = arAppAddrTempCargo;
+	    
+	} catch (Exception e) {
+	    if (this.con != null) {
+		this.con.rollback();
+	    }
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.getAddressForApp() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    hasExceptionOccurred = true;
+	    //updateAutoRegExcpTable(appNum, autoRegExpCode, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+	    
+	    if (this.con != null) {
+		this.con.commit();
+	    }
+	    
+	    throw e;
+	} finally {
+	    t1002Cargo = null;
+	    paramArAppAddrCargo = null;
+	    arAppAddrTempCargo = null;
+	}
+	    
+	}
