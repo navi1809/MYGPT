@@ -1,1052 +1,1309 @@
-package gov.illinois.ies.data.oracle.application;
-import gov.illinois.fw.business.entities.IValueObject;
+package gov.illinois.ies.business.rules.st.appreg;
+
+import gov.illinois.framework.exceptions.FwException;
+import gov.illinois.framework.factories.FwServiceFactory;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.management.util.FwCalendar;
+import gov.illinois.framework.management.util.FwConstants;
+import gov.illinois.framework.management.util.FwDate;
+import gov.illinois.framework.management.util.FwProperty;
+import gov.illinois.framework.management.util.FwPropertyLoader;
+import gov.illinois.framework.management.util.PMDRules;
+import gov.illinois.framework.messaging.FwMessageManager;
+import gov.illinois.framework.messaging.IMessage;
+import gov.illinois.fw.batch.IESExceptionBO;
+import gov.illinois.fw.batch.Controller.TIERSBatchController;
+import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.fw.business.exceptions.ApplicationException;
+import gov.illinois.fw.business.exceptions.FrameworkException;
+import gov.illinois.fw.business.exceptions.TIERSBatchException;
 import gov.illinois.fw.business.exceptions.TIERSRunTimeException;
-import gov.illinois.fw.management.logger.Debug;
+import gov.illinois.fw.business.exceptions.TIERSValidationException;
+import gov.illinois.fw.business.helperclasses.TIERSConstants;
+import gov.illinois.fw.business.rules.AbstractBO;
+import gov.illinois.fw.management.logger.ILogger;
 import gov.illinois.fw.management.logger.LogLevel;
 import gov.illinois.fw.management.logger.Logger;
+import gov.illinois.fw.management.referencetables.RefTableData;
+import gov.illinois.fw.management.referencetables.ReferenceTableManager;
+import gov.illinois.fw.management.util.StringUtils;
 import gov.illinois.fw.persistence.connection.ConnectionManager;
+import gov.illinois.ies.business.broker.SelfServiceBrokerConstants;
+import gov.illinois.ies.business.entities.ArAutoRegExcpCargo;
+import gov.illinois.ies.business.entities.ArAutoRegExcpCollection;
+import gov.illinois.ies.business.entities.DcAutoProcessingCargo;
+import gov.illinois.ies.business.entities.DcAutoProcessingCollection;
+import gov.illinois.ies.business.entities.application.ArAppAddrCargo;
+import gov.illinois.ies.business.entities.application.ArAppAddrCollection;
+import gov.illinois.ies.business.entities.application.ArAppIndvCargo;
+import gov.illinois.ies.business.entities.application.ArAppIndvCollection;
+import gov.illinois.ies.business.entities.application.ArAppProgramCargo;
+import gov.illinois.ies.business.entities.application.ArAppProgramCollection;
+import gov.illinois.ies.business.entities.application.ArAppProgramIndvCargo;
+import gov.illinois.ies.business.entities.application.ArAppProgramIndvCollection;
+import gov.illinois.ies.business.entities.application.ArApplicationAssociationCargo;
+import gov.illinois.ies.business.entities.application.ArApplicationAssociationCollection;
 import gov.illinois.ies.business.entities.application.ArApplicationForAidCargo;
-import gov.illinois.ies.utils.SQLQueryUtil;
+import gov.illinois.ies.business.entities.application.ArApplicationForAidCollection;
+import gov.illinois.ies.business.entities.application.ArApplicationRepCargo;
+import gov.illinois.ies.business.entities.application.ArApplicationRepCollection;
+import gov.illinois.ies.business.entities.application.ArCpeEligDetailCargo;
+import gov.illinois.ies.business.entities.application.ArCpeEligDetailCollection;
+import gov.illinois.ies.business.entities.application.ArCpeIncomeDetailCargo;
+import gov.illinois.ies.business.entities.application.ArCpeIncomeDetailCollection;
+import gov.illinois.ies.business.entities.application.ArExpScreenRespCargo;
+import gov.illinois.ies.business.entities.application.ArExpScreenRespCollection;
+import gov.illinois.ies.business.entities.application.ArFppeEligDetailCargo;
+import gov.illinois.ies.business.entities.application.ArFppeEligDetailCollection;
+import gov.illinois.ies.business.entities.application.ArHpeAssociationCargo;
+import gov.illinois.ies.business.entities.application.ArHpeAssociationCollection;
+import gov.illinois.ies.business.entities.application.ArHpeEligDetailCargo;
+import gov.illinois.ies.business.entities.application.ArHpeEligDetailCollection;
+import gov.illinois.ies.business.entities.application.ArHpeEligDetailIndvCargo;
+import gov.illinois.ies.business.entities.application.ArHpeEligDetailIndvCollection;
+import gov.illinois.ies.business.entities.application.ArMpeEligDetailCargo;
+import gov.illinois.ies.business.entities.application.ArMpeEligDetailCollection;
+import gov.illinois.ies.business.entities.application.VArApplicationIndvCargo;
+import gov.illinois.ies.business.entities.appointment.ShAppointmentProgramsCargo;
+import gov.illinois.ies.business.entities.appointment.ShAppointmentProgramsCollection;
+import gov.illinois.ies.business.entities.appointment.ShAppointmentsCargo;
+import gov.illinois.ies.business.entities.appointment.ShAppointmentsCollection;
+import gov.illinois.ies.business.entities.appointment.ShDefaultOfficeSchedCargo;
+import gov.illinois.ies.business.entities.appointment.ShDefaultOfficeSchedCollection;
+import gov.illinois.ies.business.entities.appointment.ShDefaultOfficeSchedDayCargo;
+import gov.illinois.ies.business.entities.appointment.ShDefaultOfficeSchedDayCollection;
+import gov.illinois.ies.business.entities.cases.DcCaseAddressesCargo;
+import gov.illinois.ies.business.entities.cases.DcCaseAddressesCollection;
+import gov.illinois.ies.business.entities.cases.DcCaseIndividualCargo;
+import gov.illinois.ies.business.entities.cases.DcCaseIndividualCollection;
+import gov.illinois.ies.business.entities.cases.DcCaseProgramCargo;
+import gov.illinois.ies.business.entities.cases.DcCaseProgramCollection;
+import gov.illinois.ies.business.entities.cases.DcCaseProgramIndvCargo;
+import gov.illinois.ies.business.entities.cases.DcCaseProgramIndvCollection;
+import gov.illinois.ies.business.entities.cases.DcCasesCargo;
+import gov.illinois.ies.business.entities.cases.DcCasesCollection;
+import gov.illinois.ies.business.entities.cases.DcCpeEligDetailCargo;
+import gov.illinois.ies.business.entities.cases.DcCpeEligDetailCollection;
+import gov.illinois.ies.business.entities.correspondence.COCorrespondence;
+import gov.illinois.ies.business.entities.electronicdocument.DmDocCargo;
+import gov.illinois.ies.business.entities.electronicdocument.DmDocCollection;
+import gov.illinois.ies.business.entities.electronicdocument.DmDocExtendCargo;
+import gov.illinois.ies.business.entities.electronicdocument.DmDocGroupCargo;
+import gov.illinois.ies.business.entities.electronicdocument.DmDocGroupCollection;
+import gov.illinois.ies.business.entities.electronicdocument.DmTaskStatusCargo;
+import gov.illinois.ies.business.entities.electronicdocument.DmTaskStatusCollection;
+import gov.illinois.ies.business.entities.eligibility.EdEligibilityCargo;
+import gov.illinois.ies.business.entities.eligibility.EdEligibilityCollection;
+import gov.illinois.ies.business.entities.eligibility.EdVerificationChecklistCargo;
+import gov.illinois.ies.business.entities.eligibility.EdVerificationChecklistCollection;
+import gov.illinois.ies.business.entities.employee.MoEmployeeAppsCargo;
+import gov.illinois.ies.business.entities.employee.MoEmployeeAppsCollection;
+import gov.illinois.ies.business.entities.employee.MoEmployeesCargo;
+import gov.illinois.ies.business.entities.employee.MoEmployeesCollection;
+import gov.illinois.ies.business.entities.individual.DcIndvCargo;
+import gov.illinois.ies.business.entities.individual.DcIndvCollection;
+import gov.illinois.ies.business.entities.individual.DcIndvEthnicityCargo;
+import gov.illinois.ies.business.entities.individual.DcIndvEthnicityCollection;
+import gov.illinois.ies.business.entities.individual.DcIndvLanguageCargo;
+import gov.illinois.ies.business.entities.individual.DcIndvLanguageCollection;
+import gov.illinois.ies.business.entities.individual.DcIndvProfileCargo;
+import gov.illinois.ies.business.entities.individual.DcIndvProfileCollection;
+import gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCargo;
+import gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCollection;
+import gov.illinois.ies.business.entities.individual.DcPregnanciesCargo;
+import gov.illinois.ies.business.entities.individual.DcPregnanciesCollection;
+import gov.illinois.ies.business.entities.interfaces.InFfmInboundAppsCargo;
+import gov.illinois.ies.business.entities.interfaces.InFfmInboundAppsCollection;
+import gov.illinois.ies.business.entities.interfaces.InSsaMspLisDocLinkCargo;
+import gov.illinois.ies.business.entities.interfaces.InSsaMspLisDocLinkCollection;
+import gov.illinois.ies.business.entities.interfaces.InTriggerTableCargo;
+import gov.illinois.ies.business.entities.interfaces.InTriggerTableCollection;
+import gov.illinois.ies.business.entities.interfaces.SsAbeInterfacesSummaryCargo;
+import gov.illinois.ies.business.entities.interfaces.SsAbeInterfacesSummaryCollection;
+import gov.illinois.ies.business.entities.interfaces.SsInterfacesSummaryCargo;
+import gov.illinois.ies.business.entities.interfaces.SsInterfacesSummaryCollection;
+import gov.illinois.ies.business.entities.mci.CvDcMciIndvCargo;
+import gov.illinois.ies.business.entities.mci.CvDcMciIndvCollection;
+import gov.illinois.ies.business.entities.office.MoOfficesCargo;
+import gov.illinois.ies.business.entities.office.MoOfficesCollection;
+import gov.illinois.ies.business.entities.rmc.RmMedicareClaimCargo;
+import gov.illinois.ies.business.entities.rmc.RmMedicareClaimCollection;
+import gov.illinois.ies.business.entities.selfservice.AppIncomeCustomCargo;
+import gov.illinois.ies.business.entities.selfservice.SsBrgConflictKeyMapCargo;
+import gov.illinois.ies.business.entities.selfservice.SsBrgConflictKeyMapCollection;
+import gov.illinois.ies.business.entities.selfservice.SsBrgConflictStatusCargo;
+import gov.illinois.ies.business.entities.selfservice.SsBrgConflictStatusCollection;
+import gov.illinois.ies.business.entities.selfservice.T1001AppRqstCargo;
+import gov.illinois.ies.business.entities.selfservice.T1001AppRqstCollection;
+import gov.illinois.ies.business.entities.selfservice.T1001SSAppMpeCargo;
+import gov.illinois.ies.business.entities.selfservice.T1001SsAppMpeCollection;
+import gov.illinois.ies.business.entities.selfservice.T1002AppDtlCargo;
+import gov.illinois.ies.business.entities.selfservice.T1002AppDtlCollection;
+import gov.illinois.ies.business.entities.selfservice.T1003AppPrirSrvCargo;
+import gov.illinois.ies.business.entities.selfservice.T1003AppPrirSrvCollection;
+import gov.illinois.ies.business.entities.selfservice.T1004AppIndvCargo;
+import gov.illinois.ies.business.entities.selfservice.T1004AppIndvCollection;
+import gov.illinois.ies.business.entities.selfservice.T1006AppInPermdCargo;
+import gov.illinois.ies.business.entities.selfservice.T1006AppInPermdCollection;
+import gov.illinois.ies.business.entities.selfservice.T1007AppInCurdCargo;
+import gov.illinois.ies.business.entities.selfservice.T1007AppInCurdCollection;
+import gov.illinois.ies.business.entities.selfservice.T1008AppInBnftrCargo;
+import gov.illinois.ies.business.entities.selfservice.T1008AppInBnftrCollection;
+import gov.illinois.ies.business.entities.selfservice.T1021AppInEmplCargo;
+import gov.illinois.ies.business.entities.selfservice.T1021AppInEmplCollection;
+import gov.illinois.ies.business.entities.selfservice.T1022AppInWagedCargo;
+import gov.illinois.ies.business.entities.selfservice.T1022AppInWagedCollection;
+import gov.illinois.ies.business.entities.selfservice.T1023AppInSelfeCargo;
+import gov.illinois.ies.business.entities.selfservice.T1023AppInSelfeCollection;
+import gov.illinois.ies.business.entities.selfservice.T1024AppInUeiCargo;
+import gov.illinois.ies.business.entities.selfservice.T1024AppInUeiCollection;
+import gov.illinois.ies.business.entities.selfservice.T1028AppInMedcrCargo;
+import gov.illinois.ies.business.entities.selfservice.T1028AppInMedcrCollection;
+import gov.illinois.ies.business.entities.selfservice.T1031AppMailAdrCargo;
+import gov.illinois.ies.business.entities.selfservice.T1031AppMailAdrCollection;
+import gov.illinois.ies.business.entities.selfservice.T1053AppProgramCargo;
+import gov.illinois.ies.business.entities.selfservice.T1053AppProgramCollection;
+import gov.illinois.ies.business.entities.selfservice.T1055AppInPrflCargo;
+import gov.illinois.ies.business.entities.selfservice.T1055AppInPrflCollection;
+import gov.illinois.ies.business.entities.selfservice.T1060_APP_IN_HPECargo;
+import gov.illinois.ies.business.entities.selfservice.T1060_APP_IN_HPECollection;
+import gov.illinois.ies.business.entities.selfservice.T1068_APP_MSPCargo;
+import gov.illinois.ies.business.entities.selfservice.T1068_APP_MSPCollection;
+import gov.illinois.ies.business.entities.selfservice.T2040AppAuthRepCargo;
+import gov.illinois.ies.business.entities.selfservice.T2040AppAuthRepCollection;
+import gov.illinois.ies.business.entities.selfservice.T3004AppProgramSplIndCargo;
+import gov.illinois.ies.business.entities.selfservice.T3004AppProgramSplIndCollection;
+import gov.illinois.ies.business.rules.al.ALSOPUtil;
+import gov.illinois.ies.business.rules.ar.AppIndividualBO;
+import gov.illinois.ies.business.rules.ar.AppSummaryBO;
+import gov.illinois.ies.business.rules.ar.ApplicationBO;
+import gov.illinois.ies.business.rules.ar.ArFileClearanceBO;
+import gov.illinois.ies.business.rules.ar.ArHospitalPEBO;
+import gov.illinois.ies.business.rules.ar.ArREDEBO;
+import gov.illinois.ies.business.rules.ar.IIRSyncBO;
+import gov.illinois.ies.business.rules.ar.util.ARConstants;
+import gov.illinois.ies.business.rules.bi.BiUtils;
+import gov.illinois.ies.business.rules.co.CoServiceFactory;
+import gov.illinois.ies.business.rules.co.ICoBatch;
+import gov.illinois.ies.business.rules.di.DIConstants;
+import gov.illinois.ies.business.rules.dm.DMDocTaskUpdateBO;
+import gov.illinois.ies.business.rules.dm.DMDocumentIndexUpdater;
+import gov.illinois.ies.business.rules.dm.DMElectronicDocumentSSVO;
+import gov.illinois.ies.business.rules.dm.DMElectronicDocumentWSBO;
+import gov.illinois.ies.business.rules.dm.util.DMConstants;
+import gov.illinois.ies.business.rules.dm.util.DMFactory;
+import gov.illinois.ies.business.rules.dm.util.DMWebserviceClient;
+import gov.illinois.ies.business.rules.driver.DcDriverBO;
+import gov.illinois.ies.business.rules.ed.DateComparisons;
+import gov.illinois.ies.business.rules.in.INTriggerBO;
+import gov.illinois.ies.business.rules.in.INTriggerException;
+import gov.illinois.ies.business.rules.in.INUtility;
+import gov.illinois.ies.business.rules.sh.AppointmentsBO;
+import gov.illinois.ies.business.services.util.AppointmentSlotRange;
+import gov.illinois.ies.business.services.util.AvailableAppointmentTime;
+import gov.illinois.ies.data.oracle.eligibility.DateUtility;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.Date;
 import java.sql.Timestamp;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.StringTokenizer;
 
-import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.lang.StringUtils;
-/**
- *The class <code>ArApplicationForAidDAO</code> provide access to AR_APPLICATION_FOR_AID
- * table for retrieval of data. The class contains methods (finders)
-import gov.illinois.ies.business.entities.cases.DcCasesCargo;
-import gov.illinois.ies.business.entities.individual.DcIndvCargo;
- /**
- *The class <code>ArApplicationForAidDAO</code> provide access to AR_APPLICATION_FOR_AID
- * table for retrieval of data. The class contains methods (finders)
- * to retrieve data from the table using various search criteria.
- * @author Deloitte
- * @version %Revision%
- */
+import javax.jms.Queue;
+import javax.jms.QueueConnection;
+import javax.jms.QueueSender;
+import javax.jms.QueueSession;
+import javax.jms.Session;
+import javax.jms.TextMessage;
 
-public class ArApplicationForAidDAO extends ArApplicationForAidGenDAO{
+import com.ibm.mq.jms.MQQueueConnectionFactory;
 
-	private static final Logger logger=Logger.getInstance();
-	
-	private static final String SELECT_SQL_LGCSE_FILTER ="SELECT APP_NUM, OFFICE_NUM, APP_RECVD_DT FROM AR_APPLICATION_FOR_AID";
-	private static final String SELECT_SQL_FFMOB_FILTER ="SELECT APP_NUM, CASE_NUM,ASSOCIATED_CASE_NUM FROM AR_APPLICATION_FOR_AID";
-	
-	/**
-	 * Constructor for ArApplicationForAidDAO.
-	 */
-	public ArApplicationForAidDAO() {
+public class AutoRegistrationBO extends AbstractBO {
+    public static final String Intake = "Intake";
+    public static final String JOBTITLE = "JOBTITLE";
+    public static final String VIRTUALWORKER = "Virtual Worker";
+    public static final String findByOfficeFirstNmJobTitle = "findByOfficeFirstNmJobTitle";
+    public static final String MPE_FPPE_END_DATE = "2999-12-31 0:0:0.0"; //Added for ILIES-278552
+    private DMElectronicDocumentSSVO dmWebserviceVO = null;
+    ShAppointmentsCargo autoRegShAppCargo = null;
+    private String hpe_pid = null;
+    private String hpe_html_pid = null;
+    private String autoReg_SSA_MSP_Sw = null;
+    private String mSPAppStatus = null;
+    private ICoBatch icoBatch = null;
+    boolean appSNAPCategory = false;
+    boolean appCashCategory = false;
+    boolean appCPECategory = false;
+    boolean appHPECategory = false;
+    boolean appMPECategory = false;
+    boolean appFPPECategory = false;
+    boolean appFPCategory = false;
+    boolean appMACategory = false;
+    boolean appMSPCategory = false;
+    boolean appSSAMSPCategory = false;
+    boolean appMaHpeAssociation = false;
+    boolean expeditedSnapWithPhone = false;
+    boolean keepProcessing = true;
+    protected Connection con = null;
+    boolean mpeAppExists = false; //Added for ILIES-192695
+    boolean appFppExists = false;
+    boolean lisMSPAppDuplicate = false;
+    boolean appSSALISMSPCategory = false;
+    String associatedAppNumStr = null;
+    long associatedCaseNumLong = 0L;
+    private static final String[] lisCaseHierarchy = {"MC","MA","TF","FS"};
+    private String autoReg_SSA_LIS_MSP_Sw = null;
+    String mspAddrValidationFail = null;
+    String mspDocId = null;
+    boolean newSSALISMSPApp = false;
+    
+    
+    //ERJA new fields for sex, gender indigenous status
+    public static final Map<String, String> SEX_AT_BIRTH_MAP = new HashMap<String, String>();
+    public static final Map<String, String> GENDER_IDENTITY_MAP = new HashMap<String, String>();
+    public static final Map<String, String> SEXUAL_ORIENTATION_MAP = new HashMap<String, String>();
+    
+    static {
+    	SEX_AT_BIRTH_MAP.put("A", "NL");
+    	SEX_AT_BIRTH_MAP.put("F", "FM");
+    	SEX_AT_BIRTH_MAP.put("M", "ML");
+    	SEX_AT_BIRTH_MAP.put("N", "NS");
+    	SEX_AT_BIRTH_MAP.put("P", "PN");
+    	
+    	GENDER_IDENTITY_MAP.put("A", "NL");
+    	GENDER_IDENTITY_MAP.put("F", "FM");
+    	GENDER_IDENTITY_MAP.put("M", "ML");
+    	GENDER_IDENTITY_MAP.put("N", "NS");
+    	GENDER_IDENTITY_MAP.put("P", "PN");
+    	GENDER_IDENTITY_MAP.put("TF", "TF");
+    	GENDER_IDENTITY_MAP.put("TM", "TM");
+    	
+    	SEXUAL_ORIENTATION_MAP.put("A", "NL");
+    	SEXUAL_ORIENTATION_MAP.put("B", "BS");
+    	SEXUAL_ORIENTATION_MAP.put("L", "LG");
+    	SEXUAL_ORIENTATION_MAP.put("N", "NS");
+    	SEXUAL_ORIENTATION_MAP.put("P", "PN");
+    	SEXUAL_ORIENTATION_MAP.put("S", "ST");    	
+    }
+    //ERJA new fields for sex, gender indigenous status
+    /**
+     * default constructor
+     */
+    public AutoRegistrationBO() {
+	super();
+    }
+    
+    /**
+     * @param con
+     *            Connection
+     */
+    public AutoRegistrationBO(Connection con) {
+	super(con);
+    }
+    
+    public AutoRegistrationBO(TIERSBatchController batchController, Connection con) {
+	super(con);
+	this.batchController = batchController;
+	this.exceptionBO = new IESExceptionBO(this.batchController);
+	this.con = con;
+    }
+    
+    public void setCon(Connection con) {
+	this.con = con;
+    }
+    
+    char autoRegScheduledSw = ' ';
+    
+    DcCasesCargo[] dcCaseTempArray = null;
+    T1004AppIndvCargo[] autoRegT1004CargoArray = null;
+    T1002AppDtlCargo autoRegT1002Cargo = null;
+    T1001AppRqstCargo autoRegT1001Cargo = null;
+    T1060_APP_IN_HPECargo[] autoRegT1060HPECargoArray = null;
+    
+    HashMap<Integer, Long> indvMap = new HashMap();
+    HashMap<Long, Double> indvIncomeMap = new HashMap();
+    double autoRegAppIncome = 0.0;
+    AppIncomeCustomCargo[] autoRegCpeEligArray = null;
+    AppIncomeCustomCargo[] autoRegDcCpeEligArray = null;
+    AppIncomeCustomCargo[] autoRegHpeEligArray = null;
+    
+    boolean indvMCIcheck = true;
+    
+    T1001SSAppMpeCargo autoRegT1001SSAppMpeCargo = null;
+    ArAppAddrCargo arAppAddrCargo = null;
+    ArAppAddrCargo arAppMailAddrCargo = null;
+    ArApplicationRepCargo[] arAppAuthRepCargo = null;
+    ArAppAddrCargo[] arAppAuthRepAddrCargo = null;
+    Calendar cal = Calendar.getInstance();
+    java.sql.Timestamp currentTime = new java.sql.Timestamp(cal.getTimeInMillis());
+    
+    Timestamp  mspPgmStatrtDt = new Timestamp(cal.getTimeInMillis());
+    
+    private TIERSBatchController batchController = null;
+    public boolean hasExceptionOccurred = false;
+    IESExceptionBO exceptionBO = null;
+    
+    public AutoRegistrationBO(TIERSBatchController batchController) {
+	this.batchController = batchController;
+	this.exceptionBO = new IESExceptionBO(this.batchController);
+    }
+    
+    public AutoRegistrationBO(Timestamp currentDateIn) {
+	currentTime = currentDateIn;
+    }
+    
+    public boolean autoRegCompletenessCheck(String appNum) throws Exception {
+	log(7, "AutoRegistrationBO.autoRegCompletenessCheck() started appNum:" + appNum);
+	try {
+	    if(checkBatProcInd(appNum)){
+		if (completenessCheck(appNum)) {
+		    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+		} else {
+		    createEDMTask(appNum);
+		    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+		    return false;
+		}
+	    }else{
+	    	log(ILog.ERROR, "AutoRegistrationBO.autoRegCompletenessCheck() Failed auto bat proc Ind:" + appNum);
+	    }
+	} catch (Exception e) {
+	    hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegCompletenessCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+
+	    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+	    throw new TIERSBatchException(e);
 	}
-	/**
-	 *Constructor for ArApplicationForAidDAO.
-	 * @param conn Connection*/
-	public ArApplicationForAidDAO(Connection conn) {
-		super(conn);
-	}
-	/**
-	 *Method findByAppNum retrieves ArApplicationForAid records from database
-	 * for a given application number.
-	 * @param maxRows int
-	 * @param appNum String
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByAppNum(int maxRows, String appNum)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
+	return true;
+    }
+    
+    public Boolean autoRegCompletenessCheck(DcAutoProcessingCargo dcAutoProcessingCargo) throws Exception {
+    	log(7, "AutoRegistrationBO.autoRegCompletenessCheck() started appNum:" + dcAutoProcessingCargo.getAppNum());
+    	Boolean result = true;
+    	mspDocId = null;
+    	if(dcAutoProcessingCargo.getCompletenessSw() == 'Y'){
+    		return result;
+    	}
+    	try{
+    		dcAutoProcessingCargo.setCompletenessSw('Y'); //Completeness check complete
+    		result = completenessCheck(dcAutoProcessingCargo.getAppNum());
+    		if(result) {
+    			updateAutoRegTriggerTable(dcAutoProcessingCargo, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+    		} else {
+    		    createEDMTask(dcAutoProcessingCargo.getAppNum());
+		    updateAutoRegTriggerTable(dcAutoProcessingCargo, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+    		}
+    	}catch (Exception e) {
+    		// PMD_Override - R6 - Exception is not being propagated because the return value indicates if we should continue with the next record
+    		PMDRules.markApprovedCatchBlock("R6");
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegCompletenessCheck()  appNum: " + dcAutoProcessingCargo.getAppNum() + "\n" + e.getMessage() + "\n", e);
+
+    	    dcAutoProcessingCargo.setCompletenessSw('N'); //Completeness check still needed
+    	    updateAutoRegTriggerTable(dcAutoProcessingCargo, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+    	    result = null;
+    	    hasExceptionOccurred = true;
+    	}
+    	return result;
+    }
+    
+    public void preComplenessCheck(String appNum) throws Exception{
 		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String clause = " WHERE ( APP_NUM = ?  ) WITH UR";
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			statement.setString(1, appNum);
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//			while (rs.next() && cnt++ < maxRows) {
-			//			BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
+			DcAutoProcessingCollection dcAutoProcColl = new DcAutoProcessingCollection(connection);
+			DcAutoProcessingCargo[] dcAutoProcCargoArray = null;
+			Object dcAutoProcArgs[] = { appNum };
+			dcAutoProcCargoArray = (DcAutoProcessingCargo[]) dcAutoProcColl.select("findByAppNum", dcAutoProcArgs);
+			DcAutoProcessingCargo dcAutoProcCargo = dcAutoProcCargoArray != null && dcAutoProcCargoArray.length > 0 ? dcAutoProcCargoArray[0] : new DcAutoProcessingCargo();
+			dcAutoProcCargo.setAutoRegStatusInd(AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS);
+			dcAutoProcCargo.setAutoRegExceptCd(AppRegConstants.AUTO_REG_EMPTY);
+			dcAutoProcCargo.setAutoRegStatusDt(currentTime);
+			dcAutoProcCargo.setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+			dcAutoProcCargo.setCompletenessSw('N'); //Completeness check pending
 			
-			return cargos;
+			if(dcAutoProcCargoArray == null || dcAutoProcCargoArray.length == 0) {
+				dcAutoProcCargo.setAppNum(appNum);
+				dcAutoProcColl.setCargo(dcAutoProcCargo);					
+				dcAutoProcColl.insert(dcAutoProcColl);
+				log(7, "AutoRegistrationBO.preComplenessCheck() :: Data inserted Successfully");
+			}else if(dcAutoProcCargoArray != null && dcAutoProcCargoArray.length > 0 && dcAutoProcCargoArray[0].getAutoBatProcInd() != null && !dcAutoProcCargoArray[0].getAutoBatProcInd().equals("N")){
+				log(ILog.ERROR, "AutoRegistrationBO.preComplenessCheck() Failed auto bat proc Ind:" + appNum);
+			}else{
+				dcAutoProcColl.setCargo(dcAutoProcCargo);
+				dcAutoProcColl.update(dcAutoProcColl);
+				log(7, "AutoRegistrationBO.preComplenessCheck() :: Data updated Successfully");
+			}
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.preComplenessCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		    throw new TIERSBatchException(e);
 		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
+    }
+    
+    public boolean createEDMTaskForFailedApps(String appNum, String excpCD) throws Exception {
+	log(7, "AutoRegistrationBO.createEDMTaskForFailedApps() started ");
+	boolean autoRegCheck = false;
+	try {
+	    getDataForAutoRegProcess(appNum, autoRegCheck);
+	    createEDMTask(appNum, true);
+	    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, "AF", AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+	} catch (Exception e) {
+	    hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.preComplenessCheck()  appNum: " + appNum + " excpCD: " + excpCD + "\n" + e.getMessage() + "\n", e);
+	    
+	    throw e;
 	}
-	
-	/**
-	 *Method findByAppNum retrieves ArApplicationForAid records from database
-	 * for a given application number in ArApplicationForAidCargo.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByAppNum(int maxRows, ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String clause = " WHERE APP_NUM = ?  WITH UR";
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			statement.setString(1, cargo.getAppNum());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//			while (rs.next() && cnt++ < maxRows) {
-			//			BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			
-			return cargos;
+	return true;
+    }
+    
+    public String autoRegistrationCheck(String appNum, Connection conn) throws Exception {
+	log(7, "AutoRegistrationBO.autoRegistrationCheck()started ");
+	System.out.println("Test ****AutoRegistrationBO.autoRegistrationCheck()started ");
+	this.con = conn;
+	boolean autoRegCheck = true;
+	boolean edmTaskFaied = false;
+	newSSALISMSPApp = false ;
+	mspDocId = null;
+	try {
+	    
+	    if (!getDataForAutoRegProcess(appNum, autoRegCheck)) {
+		return "Failed";
+	    }
+	    //ILIES-282116 Changes made by Uma Rani for Auto-Reg batch DOB Check start
+	    if (!dateOfBirthCheck(appNum)) {
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_ND, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
 		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
+	   
+	    //ILIES-282116 Changes made by Uma Rani for Auto-Reg batch DOB Check end
+	    if (!mciFileClearanceCheck(appNum)) { 
+		createEDMTask(appNum);
+		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_FC, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+		return "Failed";
+	    }
+	    // MA Prior months Program Check (This includes also FPAs)
+	    if (!MAPriorProgCheck(appNum)) {
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_CR, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
 		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-
-	/**
-	 *Method findByAppNum retrieves ArApplicationForAid records from database
-	 * for a given application number in ArApplicationForAidCargo.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByAppNumWithoutUr(int maxRows, ArApplicationForAidCargo cargo) throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String clause = " WHERE APP_NUM = ? ";
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			statement.setString(1, cargo.getAppNum());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			
-			return cargos;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-
-	/**
-	 * Created by Munther for Performance team
-	 * Method to retrieves ArApplicationForAid records from database
-	 * for a given application number in ArApplicationForAidCargo.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findAppTelephoneByAppNum(int maxRows, ArApplicationForAidCargo cargo)
-			throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			statement = conn.prepareStatement("SELECT APP_NUM ,OTHER_PH_NUM ,PH_NUM FROM AR_APPLICATION_FOR_AID WHERE APP_NUM = ? WITH UR");
-			statement.setString(1, cargo.getAppNum());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				cb.setAppNum(rs.getString("APP_NUM"));
-				cb.setOtherPhNum(rs.getString("OTHER_PH_NUM"));
-				cb.setPhNum(rs.getString("PH_NUM"));
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			
-			return cargos;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-				if (statement != null) {
-					statement.close();
-				}
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-
-	
-	/**
-	 *
-	 * Method request by Ashok R Pulagum
-	 * Method findByRetrievePrimaryKey retrieves AR_APPLICATION_FOR_AID_1SQ.NEXTVAL from DUAL to assign it to Individual
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return ArApplicationForAidCargo[]
-	 * @throws TIERSRunTimeException
-	 *
-	 */
-	public ArApplicationForAidCargo[] findByRetrievePrimaryKey(int maxRows, ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			conn = getConnection();
-			statement =
-				conn.prepareStatement("SELECT '1'||LPAD(brg_owner.AR_APPLICATION_FOR_AID_1SQ.NEXTVAL,8,'0') FROM DUAL with ur");
-			rs = statement.executeQuery();
-			int cnt = 0;
-
-			while (cnt++ < maxRows && rs.next()) {
-				ArApplicationForAidCargo row = new ArApplicationForAidCargo();
-				row.setCaseNum(rs.getLong(1));
-				v.add(row);
-			}
-			ArApplicationForAidCargo colrows[] = new ArApplicationForAidCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		}
-		catch (Exception e) {
-			//e.printStackTrace();
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null)
-					rs.close();
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null)
-					statement.close();
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose())
-					conn.close();
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-
-
-
-	/**
-	 *Method findByAppNumFileClearence1 retrieves ArApplicationForAid records from database
-	 * for a given application number which has a record in AR_APP_PROGRAM.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByAppNumFileClearence1(
-			int maxRows,
-			ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		PreparedStatement statement1 = null;
-		PreparedStatement statement2 = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String SELECT_SQL1 =
-				"select C.APP_NUM AS APP_NUM from ar_app_program c  WHERE  C.app_num = ? WITH UR";
-			String SELECT_SQL2 =
-				"select a.app_num from  ar_app_indv A, dc_indv B where A.INDV_ID = B.INDV_ID AND B.file_clearance_sw <> 'Y'     AND A.app_num = ? WITH UR";
-			statement1 = conn.prepareStatement(SELECT_SQL1);
-			statement1.setString(1, cargo.getAppNum());
-			rs = statement1.executeQuery();
-			int cnt = 0;
-			//			while (rs.next() && cnt++ < maxRows) {
-			//			BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				cb.setAppNum(rs.getString("APP_NUM"));
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			boolean flag = false;
-			if (cargos != null && cargos.length > 0) {
-				Debug.println(">>>>>>>>>>>>>>>>>>record found with Program " );
-				flag = true;
-			}
-			else {
-				Debug.println(">>>>>>>>>>>>>>>>>>record NOT found with Program " );
-				cargos = new ArApplicationForAidCargo[1];
-			}
-			if (flag) {
-				v = new ArrayList();
-				statement2 = conn.prepareStatement(SELECT_SQL2);
-				statement2.setString(1, cargo.getAppNum());
-				rs = statement2.executeQuery();
-				cnt = 0;
-				//				while (rs.next() && cnt++ < maxRows) {
-				//				BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-				while (cnt++ < maxRows && rs.next()) {
-					cb = new ArApplicationForAidCargo();
-					cb.setAppNum(rs.getString("APP_NUM"));
-					v.add(cb);
-				}
-				cargos = new ArApplicationForAidCargo[v.size()];
-				v.toArray(cargos);
-			}
-			
-			return cargos;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement1 != null){
-					statement1.close();
-				}
-				if (statement2 != null){
-					statement2.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	/**
-	 *Method findByCaseNum retrieves ArApplicationForAid records from database
-	 * for a given case number in ArApplicationForAidCargo.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByCaseNum(
-			int maxRows,
-			ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String clause = " WHERE CASE_NUM IS NOT NULL AND CASE_NUM = ? WITH UR";
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			statement.setLong(1, cargo.getCaseNum());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			
-			return cargos;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	/**
-	 *Method findByCaseNumAndAssoc retrieves ArApplicationForAid records from database
-	 * for a given case number in ArApplicationForAidCargo.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByCaseNumAndAssoc(
-			int maxRows,
-			ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			StringBuffer sql = new StringBuffer("select CPE.APP_NUM AS APP_NUM From AR_CPE_ELIG_DETAIL CPE ");
-			sql.append(" INNER JOIN DC_CASE_INDIVIDUAL DCI ON CPE.INDV_ID = DCI.INDV_ID ");	
-			sql.append(" where DCI.CASE_NUM = ? AND DCI.ACTIVE_IN_CASE_SW = 'Y'  AND DCI.EFF_END_DT IS NULL AND CPE.PE_END_DT is NULL WITH UR ");
-			statement = conn.prepareStatement(sql.toString());
-			statement.setLong(1, cargo.getCaseNum());
-			rs = statement.executeQuery();
-			while(rs.next()) {
-				ArApplicationForAidCargo row = new ArApplicationForAidCargo();
-				row.setAppNum(rs.getString("APP_NUM"));
-				v.add(row);
-			}
-			ArApplicationForAidCargo colrows[] = new ArApplicationForAidCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	
-	/**
-	 *Method findByCaseNumAndAppStatus retrieves ArApplicationForAid records from database
-	 * for a given case number and application status code in ArApplicationForAidCargo.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByCaseNumAndAppStatus(
-			int maxRows,
-			ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String clause = " WHERE (CASE_NUM = ? AND APPLICATION_STATUS_CD = ?  ) WITH UR";
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			statement.setLong(1, cargo.getCaseNum());
-			statement.setString(2, cargo.getApplicationStatusCd());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//			while (rs.next() && cnt++ < maxRows) {
-			//			BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			
-			return cargos;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	/**
-	 *Method findByCaseAndStatus retrieves ArApplicationForAid records from database
-	 * for a given case number and all application status codes.
-	 * @param maxRows int
-	 * @param caseNum long
-	 * @param appStatus String[]
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByCaseAndStatus(
-			int maxRows,
-			long caseNum,
-			String[] appStatus)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			StringBuffer clause =null;
-			clause=new StringBuffer(" WHERE (CASE_NUM = ? AND APPLICATION_STATUS_CD IN(");
-			for (int i = 0;
-			i < appStatus.length;
-			i++) {
-				clause.append("'"+appStatus[i]+"'");
-				if (!((i + 1) == appStatus.length)){
-					clause.append(",");
-				}
-				else{
-					clause.append(")");
-					break;
-				}
-			}
-			clause.append("  )");
-			clause.append(" WITH UR ");
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause.toString());
-			statement.setLong(1, caseNum);
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//			while (rs.next() && cnt++ < maxRows) {
-			//			BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			
-			return cargos;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	/**
-	 *Method findByAppsToBeExtracted retrieves ArApplicationForAid records
-	 * from database for a given application status code
-	 * and application recieved date is less than given date.
-	 * @param maxRows
-	 * @param recvdBegDt
-	 * @param recvdEndDt
-	 * @param aAPStatusCd
-	 * @param aACStatusCd
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByAppsToBeExtracted(
-			int maxRows,
-			Timestamp recvdBegDt,
-			Timestamp recvdEndDt,
-			String aAPStatusCd,
-			// Def 187074 -- Denial Trigger -- 10/01/04  --  Shan Chockalingam
-			// String aDEStatusCd,
-			String aACStatusCd)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		ArrayList v = new ArrayList();
-		try {
-
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String clause =
-				// Def 187074 -- Denial Trigger -- 10/01/04  --  Shan Chockalingam
-				// " WHERE (APPLICATION_STATUS_CD=? OR APPLICATION_STATUS_CD=? OR ( APPLICATION_STATUS_CD=? AND  APPLICATION_STATUS_DT >= ?))  AND APP_RECVD_DT <= ? ";
-				" WHERE (APPLICATION_STATUS_CD=? OR APPLICATION_STATUS_CD=? )  AND APP_RECVD_DT <= ? WITH UR";
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			statement.setString(1, aAPStatusCd);
-			statement.setString(2, aACStatusCd);
-
-			/* Def 187074 -- Denial Trigger -- 10/01/04  --  Start -- Shan Chockalingam
-			statement.setString(3, aDEStatusCd);
-			statement. setTimestamp (4, recvdBegDt);
-			statement.setTimestamp(5, recvdEndDt);
-			 */
-			statement.setTimestamp(3, recvdEndDt);
-			//  Def 187074 -- Denial Trigger -- 10/01/04  -- End --  Shan Chockalingam
-
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//Prefetch Coding(Tiers00040467) -- modified on 09/25/2002
-			//while (rs.next() && cnt++ < maxRows) {
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
-			
-			return cargos;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				//if (rs != null)
-				//Prefetch Coding(Tiers00040467) -- modified on 09/25/2002
-				if (rs != null && getClose()) {
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null)
-					//statement.close();
-					//Prefetch Coding(Tiers00040467) -- modified on 09/25/2002
+	    log(7, "AutoRegistrationBO.autoRegistrationCheck() : getting data from AUTOREGPROCESS reference table for Active Case check");
+	    RefTableData rtd = ReferenceTableManager.getValueForDescription("AUTOREGPROCESS", "ACTIVE_CASE_SW");
+	    log(7, "AutoRegistrationBO.autoRegistrationCheck() : AUTOREGPROCESS Reference Table data :" + rtd);
+	    String autoRegSw = "";
+	    if (rtd != null) {
+		autoRegSw = rtd.getRefrTableCode();
+	    }
+	    log(7, "AutoRegistrationBO.autoRegistrationCheck() : AUTOREGPROCESS Reference Table ACTIVE_CASE_SW :" + autoRegSw);
+	    if (autoRegSw != null && "Y".equalsIgnoreCase(autoRegSw)) {
+		log(7, "Before starting  AutoRegistrationBO.existingActiveCaseCheck() for IndvMap  : "+ indvMap);
+		System.out.println("Before starting  AutoRegistrationBO.existingActiveCaseCheck() for IndvMap  : "+ indvMap);
+	    		boolean caseCheck = existingActiveCaseCheck(appNum, indvMap);
+	    		System.out.println("Begin AutoRegistrationBO.autoRegPEUpdate() : performMpeExtention :  appNum:: " + appNum + " mpeAppExists:: " + mpeAppExists
+				+ " appFppExists::" + appFppExists+" CaseCheckBoolean::" +caseCheck +"indvMap::"+indvMap);
+	    		log(7, "Begin AutoRegistrationBO.autoRegPEUpdate() : performMpeExtention :  appNum:: " + appNum + " mpeAppExists:: " + mpeAppExists
+						+ " appFppExists::" + appFppExists+" CaseCheckBoolean::" +caseCheck +"indvMap::"+indvMap);
+	    		if (autoRegT1002Cargo != null && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() == 'Y') && (mpeAppExists || appFppExists))
 				{
-					closeStatement("findByAppsToBeExtracted", statement,maxRows,v.size());
+					performMpeExtention(appNum,indvMap);
+				}
+				if (caseCheck == true && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y"))
+				{
+					if (this.con != null)
+					{
+						this.con.commit();
+					}
+					return "Success";
+				}
+				if (caseCheck == false)
+				{
+					if (this.con != null)
+					{
+						this.con.commit();
+					}
+					return "Failed";
+					/*
+					 * if(!mpeAppExists){
+					 * return "Failed";
+					 * }else{
+					 * return "Failed and has MPE"; //Added for ILIES-192695
+					 * }
+					 */
+
+				}
+	    }
+	    
+	    if (!validApplicationCheck(appNum, indvMap)) {
+		return "Failed";
+	    }
+	   /* log(7, "AutoRegistrationBO.autoRegistrationCheck() :: calling isStateResidence() ");
+	    if (!isStateResidence(appNum)) {
+		log(7, "AutoRegistrationBO.autoRegistrationCheck() :: inside if(!isStateResidence) ");
+		//return "Failed";
+	    }*/
+	    
+	    if (!interfaceCheck(appNum)) {
+		return "Failed";
+	    }
+	    
+	    if (!checkArAuthRepAddress(appNum)) {
+		return "Failed";
+	    }
+	    
+	    if (!autoRegDataUpdate(appNum, conn)) { //Step to populate AR tables, if fails a task is created.
+		createEDMTask(appNum);
+		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+		return "Failed";
+	    }
+	    
+	  
+	    
+	    //Application includes SNAP or cash then only check scheduling
+	    if (autoRegT1002Cargo.getFsRqstSw() == 'Y' || autoRegT1002Cargo.getCashRqstSw() == 'Y') {
+		    if (!isAppointmentAutoScheduled(appNum)) {
+				autoRegScheduledSw = 'N';
+			} else {
+				autoRegScheduledSw = 'Y';
+		    }
+	    }
+	    
+	    if (!autoRegUpdate(appNum, conn)) {
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
+		}
+	    
+	    if (!autoRegPEUpdate(appNum, conn)) { //Step to populate MPE/FPPE tables, if fails a task is created.
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
+		}
+	    
+	    if (autoRegScheduledSw == 'Y') {
+			if (appSSAMSPCategory) {
+			    if (mSPAppStatus != null && "DP".equalsIgnoreCase(mSPAppStatus)) {
+				generateCorrespondance(appNum, DIConstants.DOC_ID_FXX463, "", this.con);
+			    } else {
+				generateCorrespondance(appNum, DIConstants.DOC_ID_FXX445, "", this.con);
+			    }
+			}
+	    }
+	    if(appSSALISMSPCategory == true){
+		newSSALISMSPApp = true ;
+	    }
+		try {
+		    createEDMTask(appNum);
+		    updateTaskForCaseProcess(appNum);
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		    edmTaskFaied = true;
+		    throw e;
+		}
+		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_SUCCESS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+	    if (this.con != null) {
+		this.con.commit();
+	    }
+	    
+	    return "Success";
+	    
+	} catch (FwException e) {
+		log(ILog.ERROR, "Exception [FwException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (FrameworkException e) {
+		log(ILog.ERROR, "Exception [FrameworkException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (TIERSValidationException e) {
+		log(ILog.ERROR, "Exception [TIERSValidationException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (TIERSRunTimeException e) {
+		log(ILog.ERROR, "Exception [TIERSRunTimeException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (Exception e) {
+	    // PMD_Override - R6 - Exception is not being propagated because the return value indicates
+	    // the system how to behave depending on reason of failure, i.e. FC_EXP is FATAL.
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+
+	    PMDRules.markApprovedCatchBlock("R6");
+	    if (this.con != null) {
+		this.con.rollback();
+	    }
+	    if (!keepProcessing) {
+		return "FC_EXP";
+	    } else {
+		return "Failed";
+	    }
+	    
+	} finally {
+	    if (edmTaskFaied) {
+		updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_CT, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+	    }
+	}
+    }
+    
+	// Start: Added for ILIES-192695
+	public void performMpeExtention(String appNum, HashMap<Integer, Long> indvMap) throws Exception {
+		try {
+			if(!appMPECategory && !appFPPECategory){
+				T1004AppIndvCollection t1004AppIndvColl = new T1004AppIndvCollection(connection);
+				T1004AppIndvCargo[] t1004AppIndvCargoArray = (T1004AppIndvCargo[]) t1004AppIndvColl.select("findByAppNumMaMeHbProgram", new Object[] { appNum });
+				if(t1004AppIndvCargoArray != null && t1004AppIndvCargoArray.length > 0){
+					for(T1004AppIndvCargo t1004AppIndvCargo: t1004AppIndvCargoArray){
+						checkMpeExtEligibility(appNum, t1004AppIndvCargo,indvMap);
+					}
 				}
 			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
+			if (this.con != null) {
+				this.con.commit();
 			}
-			try {
-				if (conn != null && getClose())
-					conn.close();
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.performMpeExtention()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	
+			if (this.con != null) {
+				this.con.rollback();
 			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
+			throw e;
 		}
 	}
 
-	/**
-	 *Method findByAppReceivedDt retrieves ArApplicationForAid records from database
-	 * for a given case number and application recieved date less than given date.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return IValueObject[]
-	 * @throws TIERSRunTimeException
-	 */
-	public IValueObject[] findByAppReceivedDt(
-			int maxRows,
-			ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		try {
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			ArApplicationForAidCargo cb = null;
-			String clause =
-				" WHERE ( CASE_NUM = ? AND APP_RECVD_DT <= ?  ) ORDER BY APP_RECVD_DT DESC WITH UR";
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			statement.setLong(1, cargo.getCaseNum());
-			statement.setTimestamp(2, cargo.getAppRecvdDt());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//				while (rs.next() && cnt++ < maxRows) {
-			//				BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				cb = new ArApplicationForAidCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
+	private void checkMpeExtEligibility(String appNum, T1004AppIndvCargo t1004AppIndvCargo, HashMap<Integer,Long> indvMap) throws Exception {
+		try
+		{
+			if (mpeAppExists && indvMap.size() > 0)
+			{
+				ArMpeEligDetailCargo arMpeEligDtlCargo = new ArMpeEligDetailCargo();
+				ArMpeEligDetailCollection arMpeEligDtlColl = new ArMpeEligDetailCollection(connection);
+				Integer indvSeqNum = Integer.valueOf((t1004AppIndvCargo.getIndvSeqNum()+""));
+				Long indvId = indvMap.get(indvSeqNum);
+				if (indvId == 0)
+				{
+					return;
+				}
+				arMpeEligDtlCargo.setIndvId(indvId);
+				arMpeEligDtlColl.setCargo(arMpeEligDtlCargo);
+				ArMpeEligDetailCargo[] arMpeEligDtlCargoArray = (ArMpeEligDetailCargo[]) arMpeEligDtlColl.select("findByActiveIndv");
+				if (arMpeEligDtlCargoArray != null && arMpeEligDtlCargoArray.length > 0)
+				{
+					arMpeEligDtlCargo = arMpeEligDtlCargoArray[0];
+					Timestamp mpeBeginDate = getTimestampDateOnly(arMpeEligDtlCargo.getMpeBeginDt());
+					Timestamp mpeEndDate = getTimestampDateOnly(arMpeEligDtlCargo.getMpeEndDt());
+					/*
+					 * CreateDt field in T1004AppIndvCargo is used to store APP_RCV_DT column from T1001_APP_RQST table
+					 * in findByAppNumMaMeHbProgram finder method logic in T1004AppIndvDAO
+					 */
+					Timestamp appRcvdDate = getTimestampDateOnly(t1004AppIndvCargo.getCreateDt());
+					if (t1004AppIndvCargo.getMaRqstSw() == 'Y'
+							&& arMpeEligDtlCargo.getIndvId() == indvId
+							&& arMpeEligDtlCargo.getMpeExtensionSw() != 'Y'
+							&& arMpeEligDtlCargo.getMpeDenialSw() != 'Y'
+							&& ((mpeBeginDate.before(appRcvdDate) || mpeBeginDate.equals(appRcvdDate)) && (mpeEndDate.after(appRcvdDate) || mpeEndDate
+									.equals(appRcvdDate))))
+					{
+						updateArMpeEligDtl(arMpeEligDtlCargo);
+						insertMpeExtTrigger(arMpeEligDtlCargo);
+					}
+				}
+
 			}
-			ArApplicationForAidCargo[] cargos = new ArApplicationForAidCargo[v.size()];
-			v.toArray(cargos);
+			if (appFppExists && indvMap.size() > 0)
+			{
+				ArFppeEligDetailCargo arFppeEligDtlCargo = new ArFppeEligDetailCargo();
+				ArFppeEligDetailCollection arFppeEligDtlColl = new ArFppeEligDetailCollection(connection);
+				Integer indvSeqNum = Integer.valueOf((t1004AppIndvCargo.getIndvSeqNum()+""));
+				Long indvId = indvMap.get(indvSeqNum);
+				if (indvId == 0)
+				{
+					return;
+				}
+				arFppeEligDtlCargo.setIndvId(indvId);
+				arFppeEligDtlColl.setCargo(arFppeEligDtlCargo);
+				ArFppeEligDetailCargo[] arFppeEligDtlCargoArray = (ArFppeEligDetailCargo[]) arFppeEligDtlColl.select("findByActiveIndv");
+				if (arFppeEligDtlCargoArray != null && arFppeEligDtlCargoArray.length > 0)
+				{
+					arFppeEligDtlCargo = arFppeEligDtlCargoArray[0];
+					Timestamp fppeBeginDate = getTimestampDateOnly(arFppeEligDtlCargo.getFppeBeginDt());
+					Timestamp fppeEndDate = getTimestampDateOnly(arFppeEligDtlCargo.getFppeEndDt());
+					/*
+					 * CreateDt field in T1004AppIndvCargo is used to store APP_RCV_DT column from T1001_APP_RQST table
+					 * in findByAppNumMaMeHbProgram finder method logic in T1004AppIndvDAO
+					 */
+					Timestamp appRcvdDate = getTimestampDateOnly(t1004AppIndvCargo.getCreateDt());
+					if ((t1004AppIndvCargo.getMaRqstSw() == 'Y' || t1004AppIndvCargo.getFppRqstSw() == 'Y')
+							&& arFppeEligDtlCargo.getIndvId() == indvId
+							&& arFppeEligDtlCargo.getFppeExtensionSw() != 'Y'
+							&& arFppeEligDtlCargo.getFppeDenialSw() != 'Y'
+							&& ((fppeBeginDate.before(appRcvdDate) || fppeBeginDate.equals(appRcvdDate)) && (fppeEndDate.after(appRcvdDate) || fppeEndDate
+									.equals(appRcvdDate))))
+					{
+						updateArFppeEligDtl(arFppeEligDtlCargo);
+						// insertMpeExtTrigger(arFppeEligDtlCargo);
+						insertFppExtTrigger(arFppeEligDtlCargo);
+					}
+				}
+
+			}
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.checkMpeExtEligibility()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
+	
+	public Timestamp getTimestampDateOnly(Timestamp ts) {
+		Timestamp retTS = null;
+		if(ts != null){
+			Calendar dateCalendar = Calendar.getInstance();
+			dateCalendar.setTime(ts);
+			dateCalendar.set(Calendar.HOUR_OF_DAY, 0);
+			dateCalendar.set(Calendar.MINUTE, 0);
+			dateCalendar.set(Calendar.SECOND, 0);
+			dateCalendar.set(Calendar.MILLISECOND, 0);
+			retTS = new Timestamp(dateCalendar.getTime().getTime());
+		}
+		return retTS;
+	}
+
+	private void updateArMpeEligDtl(ArMpeEligDetailCargo arMpeEligDtlCargo) throws Exception {
+		try {
+			ArMpeEligDetailCollection arMpeEligDtlColl = new ArMpeEligDetailCollection(connection);
 			
-			return cargos;
-		}
-		catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
+			//Start of ILIES-278552
+			//Change the MPE extension date to 12/31/2999, instead of the original 90-day extension
+			java.sql.Timestamp mpeEndDt = java.sql.Timestamp.valueOf(MPE_FPPE_END_DATE);
+			arMpeEligDtlCargo.setMpeEndDt(mpeEndDt);
+			//End of ILIES-278552
+			
+			arMpeEligDtlCargo.setMpeExtensionSw('Y');
+			arMpeEligDtlColl.clear();
+			arMpeEligDtlColl.setCargo(arMpeEligDtlCargo);
+			arMpeEligDtlColl.update(arMpeEligDtlColl);
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArMpeEligDtl(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
 		}
 	}
-	/**
-	 *Method findByArchivalData retrieves ArApplicationForAid records from database
-	 * for a given update date .
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return ArApplicationForAidCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public ArApplicationForAidCargo[] findByArchivalData(
-			int maxRows,
-			ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		Debug.println("findByArchiveData" + " maxRows= " + maxRows + " cargo=" + cargo);
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
+	
+	private void updateArFppeEligDtl(ArFppeEligDetailCargo arFppeEligDtlCargo) throws Exception {
 		try {
-			conn = getConnection();
-			String clause =
-				" WHERE (UPDATE_DT IS NOT NULL AND UPDATE_DT < ? ) OR (UPDATE_DT IS NULL  AND CREATE_DT < ?) AND ARCHIVE_DT IS NULL WITH UR";
-			statement = conn.prepareStatement(SELECT_SQL + clause);
-			statement.setTimestamp(1, cargo.getUpdateDt());
-			statement.setTimestamp(2, cargo.getUpdateDt());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//				while (rs.next() && cnt++ < maxRows) {
-			//				BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				ArApplicationForAidCargo row = new ArApplicationForAidCargo();
-				getRowFromResultSet(row, rs);
-				v.add(row);
-			}
+			ArFppeEligDetailCollection arFppeEligDtlColl = new ArFppeEligDetailCollection(connection);
+			
+			//Start of ILIES-278552
+			//Change the FPPE extension date to 12/31/2999, instead of the original 90-day extension
+			java.sql.Timestamp fppeEndDt = java.sql.Timestamp.valueOf(MPE_FPPE_END_DATE);
+			arFppeEligDtlCargo.setFppeEndDt(fppeEndDt);
+			//End of ILIES-278552
+			
+			arFppeEligDtlCargo.setFppeExtensionSw('Y');
+			arFppeEligDtlColl.clear();
+			arFppeEligDtlColl.setCargo(arFppeEligDtlCargo);
+			arFppeEligDtlColl.update(arFppeEligDtlColl);
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArFppeEligDtl(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
 
-			ArApplicationForAidCargo colrows[] = new ArApplicationForAidCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		}
-		catch (Exception e) {
-			Debug.println(e);
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	/**
-	 *Method findByPurgeData retrieves ArApplicationForAid records from database
-	 * for a given archive date.
-	 * @param maxRows int
-	 * @param cargo ArApplicationForAidCargo
-	 * @return ArApplicationForAidCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public ArApplicationForAidCargo[] findByPurgeData(
-			int maxRows,
-			ArApplicationForAidCargo cargo)
-	throws TIERSRunTimeException {
-		Debug.println(
-				" findByArchivalData " + " maxRows= " + maxRows + " cargo=" + cargo);
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
+	private void insertMpeExtTrigger(ArMpeEligDetailCargo arMpeEligDtlCargo) throws Exception {
+		log(7, "Begin AutoRegistrationBO.insertMpeExtTrigger() - ");
+		InTriggerTableCargo[] triggerCargos = null;
+		ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
 		try {
-			conn = getConnection();
-			statement = conn.prepareStatement(SELECT_SQL + " ARCHIVE_DT <=? WITH UR");
-			statement.setTimestamp(1, cargo.getArchiveDt());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			//				while (rs.next() && cnt++ < maxRows) {
-			//				BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				ArApplicationForAidCargo row = new ArApplicationForAidCargo();
-				getRowFromResultSet(row, rs);
-				v.add(row);
+			if (arMpeEligDtlCargo != null && arMpeEligDtlCargo.getMangpCd() != null && arMpeEligDtlCargo.getMangpCd().length() > 0) {
+				log(7, "AutoRegistrationBO.insertMpeExtTrigger() :: arMpeEligDtlCargo.getIndvId() - " + arMpeEligDtlCargo.getIndvId());
+				InTriggerTableCargo inTrig = new InTriggerTableCargo();
+				inTrig.setTriggerCd("FI003");
+				inTrig.setMangpCd(arMpeEligDtlCargo.getMangpCd());
+				inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+				inTrig.setInterfaceNameCd("MANG");
+				inTrig.setProcessFlag('N');
+				inTrig.setFirstTimeInd('N');
+				SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+				Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
+				inTrig.setBeginDt(today);
+				inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
+				inTrig.setAppNum(arMpeEligDtlCargo.getAppNum());
+				inTrig.setIndvId(arMpeEligDtlCargo.getIndvId());
+				triggerList.add(inTrig);
 			}
-			//RI Changes Begin
-			statement.close();
-			rs.close();
-			statement = conn.prepareStatement(SELECT_SQL_A + " ARCHIVE_DT <=? WITH UR");
-			statement.setTimestamp(1, cargo.getArchiveDt());
-			rs = statement.executeQuery();
-			cnt = 0;
-			//				while (rs.next() && cnt++ < maxRows) {
-			//				BRGUS00102765 – jampanip – As Per QA Review Prefetch logic Changes
-			while (cnt++ < maxRows && rs.next()) {
-				ArApplicationForAidCargo row = new ArApplicationForAidCargo();
-				getAuditRowFromResultSet(row, rs);
-				v.add(row);
-			}
-			statement.close();
-			rs.close();
-			//RI Changes End
-			ArApplicationForAidCargo colrows[] = new ArApplicationForAidCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		}
-		catch (Exception e) {
-			Debug.println(e);
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null){
-					rs.close();
+			if (triggerList.size() > 0) {
+				triggerCargos = new InTriggerTableCargo[triggerList.size()];
+				triggerList.toArray(triggerCargos);
+				try {
+					InTriggerTableCollection triggerBatchCollection = new InTriggerTableCollection(connection);
+					triggerBatchCollection.setResults(triggerCargos);
+					triggerBatchCollection.insert(triggerBatchCollection);
+				} catch (Exception excep) {
+					String msg = excep.getMessage();
+					if ((msg != null) && !(msg.trim().equals(""))) {
+						log(ILog.ERROR, "AutoRegistrationBO.insertMpeExtTrigger(): Exception while creating trigger: " + msg + "\n" + excep.getMessage() + "\n", excep);
+						throw new INTriggerException(msg);
+					} else {
+						log(ILog.ERROR, "AutoRegistrationBO.insertMpeExtTrigger(): Exception while creating trigger and Exception Message is Blank");
+						throw new INTriggerException("Failure while Insert and Exception Message is Blank");
+					}
 				}
 			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null){
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
+		} catch (INTriggerException e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.insertMpeExtTrigger(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
 		}
 	}
+	
+	private void insertMpeExtTrigger(ArFppeEligDetailCargo arFppeEligDtlCargo) throws Exception {
+		ArMpeEligDetailCargo arMpeEligDtlCargo = new ArMpeEligDetailCargo();
+		//Reusing MPE object to reduce redundancy
+		arMpeEligDtlCargo.setMangpCd(arFppeEligDtlCargo.getMangpCd());
+		arMpeEligDtlCargo.setAppNum(arFppeEligDtlCargo.getAppNum());
+		arMpeEligDtlCargo.setIndvId(arFppeEligDtlCargo.getIndvId());
+		insertMpeExtTrigger(arMpeEligDtlCargo);
+	}
+	// End: Added for ILIES-192695
+	
+	//ILIES-278164 - insert fppe extension trigger
+	private void insertFppExtTrigger(ArFppeEligDetailCargo arFppeEligDtlCargo) throws Exception {
+		log(7, "Begin AutoRegistrationBO.insertFppExtTrigger() - ");
+		InTriggerTableCargo[] triggerCargos = null;
+		ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
+		try {
+			if (arFppeEligDtlCargo != null && arFppeEligDtlCargo.getMangpCd() != null && arFppeEligDtlCargo.getMangpCd().length() > 0) {
+				log(7, "AutoRegistrationBO.insertFppExtTrigger() :: ArFppeEligDetailCargo.getIndvId() - " + arFppeEligDtlCargo.getIndvId());
+				InTriggerTableCargo inTrig = new InTriggerTableCargo();
+				inTrig.setTriggerCd("FI008");
+				inTrig.setMangpCd(arFppeEligDtlCargo.getMangpCd());
+				inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+				inTrig.setInterfaceNameCd("MANG");
+				inTrig.setProcessFlag('N');
+				inTrig.setFirstTimeInd('N');
+				SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+				Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
+				inTrig.setBeginDt(today);
+				inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
+				inTrig.setAppNum(arFppeEligDtlCargo.getAppNum());
+				inTrig.setIndvId(arFppeEligDtlCargo.getIndvId());
+				triggerList.add(inTrig);
+			}
+			if (triggerList.size() > 0) {
+				triggerCargos = new InTriggerTableCargo[triggerList.size()];
+				triggerList.toArray(triggerCargos);
+				try {
+					InTriggerTableCollection triggerBatchCollection = new InTriggerTableCollection(connection);
+					triggerBatchCollection.setResults(triggerCargos);
+					triggerBatchCollection.insert(triggerBatchCollection);
+				} catch (Exception excep) {
+					String msg = excep.getMessage();
+					if ((msg != null) && !(msg.trim().equals(""))) {
+						log(ILog.ERROR, "AutoRegistrationBO.insertFppExtTrigger(): Exception while creating trigger: " + msg + "\n", excep);
+						throw new INTriggerException(msg);
+					} else {
+						log(ILog.ERROR, "AutoRegistrationBO.insertFppExtTrigger(): Exception while creating trigger and Exception Message is Blank");
+						throw new INTriggerException("Failure while Insert and Exception Message is Blank");
+					}
+				}
+			}
+		} catch (INTriggerException e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.insertFppExtTrigger(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
+    
+    public boolean completenessCheck(String appNum) throws Exception {
+	log(7, "AutoRegistrationBO.completenessCheck() started ");
+	T1001AppRqstCollection t1001Coll = new T1001AppRqstCollection(connection);
+	T1003AppPrirSrvCollection t1003SrvColl = new T1003AppPrirSrvCollection(connection);
+	T1004AppIndvCollection t1004Coll = new T1004AppIndvCollection(connection);
+	T1060_APP_IN_HPECollection t1060_APP_IN_HPEColl = new T1060_APP_IN_HPECollection(connection);
+	
+	log(ILog.DEBUG, "Initialising EDMWebserviceVO..." + appNum);
+	dmWebserviceVO = new DMElectronicDocumentSSVO();
+	Map speciallInd = new HashMap();
+	
+	try {
+	    Object appNumArgs[] = { appNum };
+	    Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
+
+	    T1001AppRqstCargo t1001Cargo = new T1001AppRqstCargo();
+	    t1001Cargo.setAppNum(appNum);
+	    t1001Coll.setCargo(t1001Cargo);
+	    T1001AppRqstCargo[] t1001CargoArray = (T1001AppRqstCargo[]) t1001Coll.select("findByAppNum");
+	    if (t1001CargoArray == null || t1001CargoArray.length == 0) {
+	    	log(7, "AutoRegistrationBO.completenessCheck() :: t1001Cargo data not found: Failing the app --" + appNum);
+	    	throw new Exception();
+	    }
+	    
+	    t1001Cargo = t1001CargoArray[0];
+	    
+	    if (t1001Cargo == null)
+		return false;
+	    
+	    DMElectronicDocumentWSBO dmBO = new DMElectronicDocumentWSBO(connection);
+		String langCd = t1001Cargo.getLangCd(); //Langauge SPD
+		if(StringUtils.isNotEmpty(langCd) && !("0".equalsIgnoreCase(langCd))){
+		String langSI = dmBO.getLangSPD(langCd);
+			List<String> languageSplInd = new ArrayList<String>();
+			languageSplInd.add(langSI);
+			speciallInd.put(langSI, languageSplInd);
+		}
+	    
+	    T1002AppDtlCollection t1002Coll = new T1002AppDtlCollection(connection);
+	    T1002AppDtlCargo t1002Cargo = new T1002AppDtlCargo();
+	    T1002AppDtlCargo[] t1002CargoArray = (T1002AppDtlCargo[]) t1002Coll.select("findAppDtlByAppNum", appNumArgs);
+	    if (t1002CargoArray == null || t1002CargoArray.length == 0) {
+	    	log(7, "AutoRegistrationBO.completenessCheck() :: t1002Cargo data not found: Failing the app --" + appNum);
+	    	throw new Exception();
+	    }
+	    
+	    t1002Cargo = t1002CargoArray[0];
+	    T1004AppIndvCargo t1004Cargo = new T1004AppIndvCargo();
+	    T1004AppIndvCargo[] t1004CargoArray = (T1004AppIndvCargo[]) t1004Coll.select("findByAppNum", appNumArgs);
+	    if (t1004CargoArray == null || t1004CargoArray.length == 0) {
+	    	log(7, "AutoRegistrationBO.completenessCheck() :: t1004Cargo data not found: Failing the app --" + appNum);
+	    	throw new Exception();
+	    }
+	    
+	    log(7, "AutoRegistrationBO.completenessCheck() :: dmWebserviceVO ");
+	    dmWebserviceVO.setAppNum(appNum);
+	    if (t1001Cargo.getSopDueDt() != null) {
+		dmWebserviceVO.setDueDate(t1001Cargo.getSopDueDt().toString());
+	    } else {
+		dmWebserviceVO.setDueDate(currentTime.toString());
+	    }
+	    String pid = null;
+	    String htmlPid = null;
+	    pid = t1001Cargo.getPId();
+	    htmlPid = t1001Cargo.getHtmlPId();
+	    if (pid != null && !pid.trim().equals("")) {
+		dmWebserviceVO.setDocumentId(pid);
+	    } else {
+		dmWebserviceVO.setDocumentId(appNum);
+	    }
+	    if (htmlPid != null && !htmlPid.trim().equals("")) {
+		dmWebserviceVO.setHtmlPid(htmlPid);
+	    }
+	    
+	    dmWebserviceVO.setReceivedDate(t1001Cargo.getAppRcvDt().toString());
+	    dmWebserviceVO.setScanDate(dmWebserviceVO.getReceivedDate());
+	    dmWebserviceVO.setDestinationOfficeNum(new Long(t1001Cargo.getOfcNum()));
+	    dmWebserviceVO.setScannedOfficeNum(new Long(t1001Cargo.getOfcNum()));
+	    if (t1004CargoArray != null && t1004CargoArray.length > 0) {
+		for (int k = 0; k < t1004CargoArray.length; k++) {
+		    T1004AppIndvCargo cargo = t1004CargoArray[k];
+		    if (cargo != null && cargo.getPrimPrsnSw() == 'Y') {
+			dmWebserviceVO.setClientFirstName(cargo.getFstNam());
+			dmWebserviceVO.setClientLastName(cargo.getLastNam());
+			dmWebserviceVO.setClientMidName(cargo.getMidInit());
+		    }
+		}
+	    }
+	    
+	    log(7, "AutoRegistrationBO.completenessCheck() :: App Mode " + t1001Cargo.getAppMode());
+	    // For SSA Source
+	    if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MSP)) { 
+		log(7, "AutoRegistrationBO.completenessCheck() :: SSA App " + t1001Cargo.getAppNum());
+		appSSAMSPCategory = true;
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.AUTO_REG_MSP);
+		
+		// code for Task creation
+		ArrayList cashSplInd = new ArrayList();
+		cashSplInd.add("MSP");
+		if (cashSplInd != null) {
+		    speciallInd.put("MSP", cashSplInd);
+		}
+		
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		if (t1001Cargo.getCntyNum() == 0)
+		    return false;
+	    }//For SSA - LIS MSP changes : ILIES-291947
+	    else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(DMConstants.SELFSERVICE_LIS)) {
+		log(7, "AutoRegistrationBO.completenessCheck() :: SSA LIS App "+ t1001Cargo.getAppNum());
+		appSSALISMSPCategory = true;
+		dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE_LIS);
+		// code for Task creation
+		ArrayList lisSplInd = new ArrayList();
+		lisSplInd.add("MSP");
+		if (lisSplInd != null) {
+			speciallInd.put("MSP", lisSplInd);
+		}
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		/*log(7, "Before addressValidation completenessCheck() :: SSA LIS App "+ t1001Cargo.getAppNum());
+		if (!countyCdUpdateMSP(appNum,t1001Cargo)) {
+			return false;
+		    }*/
+		/*if (t1001Cargo.getCntyNum() == 0)
+			return false;	*/	
+	} 
+			// For FFM Source
+	else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MA)) {
+			log(7, "AutoRegistrationBO.completenessCheck() :: FFM App "+ t1001Cargo.getAppNum());
+		appMACategory = true;
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
+		if (t1001Cargo.getSopDueDt() == null) {
+		    if (t1001Cargo.getAppRcvDt() != null) {
+			INUtility inUtil = new INUtility();
+			dmWebserviceVO.setDueDate((inUtil.addDays(t1001Cargo.getAppRcvDt(), 14)).toString());
+		    }
+		}
+		
+		T3004AppProgramSplIndCollection t3004Coll = new T3004AppProgramSplIndCollection(connection);
+		T3004AppProgramSplIndCargo cargo = null;
+		T3004AppProgramSplIndCargo[] t3004CargoArray = (T3004AppProgramSplIndCargo[]) t3004Coll.select("findByAppNum", appNumArgs);
+		if (t3004CargoArray != null || t3004CargoArray.length > 0) {
+		    cargo = t3004CargoArray[0];
+		    ArrayList maSplInd = new ArrayList();
+		    maSplInd.add(cargo.getSplIndCd());
+		    if (maSplInd != null) {
+			speciallInd.put(AppRegConstants.AUTO_REG_MA, maSplInd);
+		    }
+		}
+		
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		dmWebserviceVO.setEntityTypeIndicator(DMConstants.DMNO);
+		dmWebserviceVO.setDocumentTitle(DMConstants.SELFSERVICE);
+		
+		log(7, "AutoRegistrationBO.completenessCheck() :: FFM App CntyNum -" + t1001Cargo.getCntyNum());
+		if (t1001Cargo.getCntyNum() == 0)
+		    return false;
+		
+		boolean addrCheck = checkAddress(t1002Cargo, appNum);
+		if (!addrCheck)
+		    return false;
+		
+		boolean prgReqCheck = programRequest(t1004CargoArray);
+		if (!prgReqCheck)
+		    return false;
+		
+		boolean dataCheck = dataCheckforFFMApps(t1004CargoArray);
+		if (!dataCheck) {
+		    return false;
+		}
+		boolean appAuthRep = appAuthRepCheck(appNum);
+		if (!appAuthRep) {
+		    return false;
+		}
+		
+	    } else if (t1001Cargo.getAppMode() != null && (t1001Cargo.getAppMode().equals(AppRegConstants.SS_APP_MODE) || t1001Cargo.getAppMode().equals(AppRegConstants.HP_APP_MODE))) {
+		log(7, "AutoRegistrationBO.completenessCheck() :: ABE App " + t1001Cargo.getAppNum());
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
+		
+		if (t1002Cargo == null)
+		    return false;
+		
+		T1001SsAppMpeCollection t1001SsAppMpeColl = new T1001SsAppMpeCollection(connection);
+		T1001SSAppMpeCargo[] t1001SsAppMpeArray = (T1001SSAppMpeCargo[]) t1001SsAppMpeColl.select("findAppDtlByAppNum", appNumArgs);
+		
+		T1060_APP_IN_HPECargo[] t1060HPECargoArray = (T1060_APP_IN_HPECargo[]) t1060_APP_IN_HPEColl.select("findByAppNum", appNumArgs);
+		
+		if (t1002Cargo.getFsRqstSw() == 'Y' || t1002Cargo.getCashRqstSw() == 'Y' || t1002Cargo.getMaRqstSw() == 'Y' || t1002Cargo.getMcRqstSw() == 'Y' || t1002Cargo.getFppRqstSw() == 'Y') {
+		    
+		    
+		    if (t1002Cargo.getFsRqstSw() == 'Y') {
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : FS Rqst");
+			appSNAPCategory = true;
+			
+			// for Task creation
+			ArrayList fapSplInd = new ArrayList();
+			if (t1001Cargo.getExpeditedFapSw() == 'Y') {
+			    fapSplInd.add("EX");
+			} else {
+			    fapSplInd.add("NE");
+			}
+			if (fapSplInd != null) {
+			    speciallInd.put("FS", fapSplInd);
+			}
+		    }
+		    
+		    if (t1002Cargo.getMaRqstSw() == 'Y') {
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : MA Rqst");
+			
+			T1060_APP_IN_HPECargo t1060HPECargo = null;
+			if (t1060HPECargoArray != null && t1060HPECargoArray.length > 0)
+			    t1060HPECargo = t1060HPECargoArray[0];
+			
+			if (t1060HPECargo != null) {
+			    appHPECategory = true;
+			}
+			
+			for (int i = 0; i < t1004CargoArray.length; i++) {
+			    t1004Cargo = t1004CargoArray[i];
+			    
+			    boolean age = false;
+			    java.sql.Timestamp indvdbrthDt = t1004Cargo.getBrthDt();
+			    age = ageCheck(indvdbrthDt);
+			    if (age && t1004Cargo.getMaRqstSw() == 'Y') {
+				appCPECategory = true;
+				break;
+			    }
+			}
+			
+			ArrayList maSplInd = new ArrayList();
+			maSplInd.add(AppRegConstants.AUTO_REG_MA);
+			if (maSplInd != null) {
+			    speciallInd.put(AppRegConstants.AUTO_REG_MA, maSplInd);
+			}
+		    }
+		    //Family Planning Application check.
+		    if (t1002Cargo.getFppRqstSw() == 'Y') {
+				log(7,"AutoRegistrationBO.completenessCheck() :: ABE App : MA Rqst");
+				appFPCategory = true;
+
+				//CPE/HPe should not run for FPS only (Unit testing)
+
+				ArrayList fpSplInd = new ArrayList();
+				fpSplInd.add(AppRegConstants.AUTO_REG_FPA);
+				if (fpSplInd != null) {
+					speciallInd.put(AppRegConstants.AUTO_REG_FPA,fpSplInd);
+				}
+			}
+		    
+		    if (t1002Cargo.getMcRqstSw() == 'Y') {
+				appMSPCategory = true;
+				log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : MSP Rqst");
+				// ILIES-289161
+				// code for Task creation
+				ArrayList mcSplInd = new ArrayList();
+				mcSplInd.add("MSP");
+				if (mcSplInd != null) {
+				    speciallInd.put("MC", mcSplInd);
+				}
+		    }
+		    if (t1002Cargo.getCashRqstSw() == 'Y') {
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : Cash Rqst");
+			appCashCategory = true;
+			
+			// code for Task creation
+			ArrayList cashSplInd = new ArrayList();
+			cashSplInd.add("TF");
+			if (cashSplInd != null) {
+			    speciallInd.put("TF", cashSplInd);
+			}
+		    }
+		} else if(t1001SsAppMpeArray != null && t1001SsAppMpeArray.length > 0){
+		    //Clde for MPE Check
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : MPE Rqst ");
+			appMPECategory = true; //Keeping this as TRUE would allow other validations to run
+			appFPPECategory = t1001SsAppMpeArray[0].getAppType() != null && DMConstants.FP_PRESUMPTIVE_ELIGIBILITY.equalsIgnoreCase(t1001SsAppMpeArray[0].getAppType());
+			// code for Task Creation
+			dmWebserviceVO.setSourceTypeCode(appFPPECategory ? DMConstants.FP_PRESUMPTIVE_ELIGIBILITY : DMConstants.MEDICAID_PRESUMPTIVE_ELIGIBILITY);
+			ArrayList mPESplInd = new ArrayList();
+			mPESplInd.add(ARConstants.PM);
+			speciallInd.put(ARConstants.PM, mPESplInd);
+			dmWebserviceVO.setSplIndicator(speciallInd);
+			
+			Map sopCriteria = new HashMap();
+			Timestamp applicationDate = t1001Cargo.getAppRcvDt();
+			sopCriteria.put(SelfServiceBrokerConstants.APPLICATION_DATE, applicationDate);
+			Timestamp sopDueDate = computeSopDueDate(sopCriteria);
+			
+			if (sopDueDate != null) {
+			    dmWebserviceVO.setDueDate(sopDueDate.toString());
+			}
+		}
+		// for HPE
+		if (t1060HPECargoArray != null && t1060HPECargoArray.length > 0) {
+		    log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : HPE Rqst ");
+		    appHPECategory = true;
+		    
+		    if (t1002Cargo.getMaRqstSw() == 'Y') {
+			hpe_pid = t1001Cargo.getHpePId();
+			if (hpe_pid == null || hpe_pid.trim().equals("")) {
+			    hpe_pid = appNum + "_HPE";
+			}
+			
+			hpe_html_pid = t1001Cargo.getHpeHtmlPId();
+			if (hpe_html_pid == null || hpe_html_pid.trim().equals("")) {
+			    hpe_html_pid = appNum + "_HPE";
+			}
+		    }
+		    
+		    // code for Task Creation
+		    ArrayList hpeSplInd = new ArrayList();
+		    hpeSplInd.add("HPE");
+		    speciallInd.put("HPE", hpeSplInd);
+		}
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		if (t1001Cargo.getCntyNum() == 0)
+		    return false;
+		
+		boolean addrCheck = false;
+		boolean prgReqCheck = false;
+		
+		if (appSNAPCategory) {
+		    addrCheck = checkAddress(t1002Cargo, appNum);
+		    if (!addrCheck)
+			return false;
+		    
+		    prgReqCheck = programRequest(t1004CargoArray);
+		    if (!prgReqCheck)
+			return false;
+		    
+		    T1003AppPrirSrvCargo t1003SrvCargo = new T1003AppPrirSrvCargo();
+		    T1003AppPrirSrvCargo[] t1003SrvCargoArray = (T1003AppPrirSrvCargo[]) t1003SrvColl.select("findPrirSrvByAppNum", appNumArgs);
+		    if (t1003SrvCargoArray == null || t1003SrvCargoArray.length == 0)
+			return false;
+		    else
+			t1003SrvCargo = t1003SrvCargoArray[0];
+		    
+		    boolean checkExpScrn = checkExpScreening(t1003SrvCargo);
+		    if (!checkExpScrn)
+			return false;
+		    
+		}
+		//Address check (Cash/Medical/FPA)
+		if (appCashCategory || appMACategory || appMSPCategory || appFPCategory) {
+		    if (addrCheck == false) {
+			addrCheck = checkAddress(t1002Cargo, appNum);
+			if (!addrCheck)
+			    return false;
+		    }
+		    if (prgReqCheck == false && !appHPECategory) {
+		    	prgReqCheck = programRequest(t1004CargoArray);
+			if (!prgReqCheck)
+			    return false;
+		    }
+		}
+		if (appMPECategory || appFPPECategory) {
+		    if (addrCheck == false) {
+			addrCheck = checkAddress(t1002Cargo, appNum);
+			if (!addrCheck)
+			    return false;
+		    }
+		    boolean mPECheck = checkMediPresEligibility(t1001SsAppMpeArray[0]);
+		    if (!mPECheck)
+			return false;
+		}
+		
+		if (appHPECategory) {
+		    if (addrCheck == false) {
+			addrCheck = checkAddress(t1002Cargo, appNum);
+			if (!addrCheck)
+			    return false;
+		    }
+		    boolean hPECheck = checkHospPresEligibility(t1060HPECargoArray[0]);
+		    if (!hPECheck)
+			return false;
+		}
+		
+		boolean appAuthRep = appAuthRepCheck(appNum);
+		if (!appAuthRep) {
+		    return false;
+		}
+	    }
+	    log(7, "AutoRegistrationBO.completenessCheck() :: Completed " + appNum);
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.completenessCheck() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_IA, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+	    throw e;
+	} finally {
+	    t1001Coll = null;
+	    t1003SrvColl = null;
+	    t1004Coll = null;
+	    t1060_APP_IN_HPEColl = null;
+	}
+	return true;
+    }
