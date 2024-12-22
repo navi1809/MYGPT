@@ -1,1217 +1,1241 @@
-public boolean appAuthRepCheck(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.appAuthRepCheck() ");
-	T2040AppAuthRepCargo t2040AppAuthRepCargo = new T2040AppAuthRepCargo();
-	T2040AppAuthRepCollection t2040AppAuthRepCollection = new T2040AppAuthRepCollection(connection);
-	T2040AppAuthRepCargo[] t2040AppAuthRepCargoArray = null;
-	try {
-	    t2040AppAuthRepCargo.setAppNum(appNum);
-	    t2040AppAuthRepCollection.setCargo(t2040AppAuthRepCargo);
-	    t2040AppAuthRepCargoArray = (T2040AppAuthRepCargo[]) t2040AppAuthRepCollection.select("findAuthRepInfoByByAppNum");
-	    if (t2040AppAuthRepCargoArray != null && t2040AppAuthRepCargoArray.length > 0) {
-		for (int i = 0; i < t2040AppAuthRepCargoArray.length; i++) {
-		    t2040AppAuthRepCargo = t2040AppAuthRepCargoArray[i];
-		    log(7, "AutoRegistrationBO.appAuthRepCheck() :: t2040AppAuthRepCargo.getAuthRepCd()--" + t2040AppAuthRepCargo.getAuthRepCd());
-		    if (t2040AppAuthRepCargo.getAuthRepCd() != null && !t2040AppAuthRepCargo.getAuthRepCd().trim().equals("") && !t2040AppAuthRepCargo.getAuthRepCd().trim().equals("0")) {
-			if (t2040AppAuthRepCargo.getFilingRepFirstName() == null || t2040AppAuthRepCargo.getFilingRepFirstName().trim().equals("") || t2040AppAuthRepCargo.getFilingRepLastName() == null || t2040AppAuthRepCargo.getFilingRepLastName().trim().equals("") || ((t2040AppAuthRepCargo.getL1Adr() == null || t2040AppAuthRepCargo.getL1Adr().trim().equals("")) && (t2040AppAuthRepCargo.getL2Adr() == null || t2040AppAuthRepCargo.getL2Adr().trim().equals("")))
-				|| t2040AppAuthRepCargo.getCityAdr() == null || t2040AppAuthRepCargo.getCityAdr().trim().equals("") || t2040AppAuthRepCargo.getStaAdr() == null || t2040AppAuthRepCargo.getStaAdr().trim().equals("") || t2040AppAuthRepCargo.getZipAdr() == null || t2040AppAuthRepCargo.getZipAdr().trim().equals("")) {
-			    
-			    log(7, "AutoRegistrationBO.appAuthRepCheck() :: Application failed in AuthRepCheck --" + appNum);
+//ILIES-231565: Check if SSN already exists in CV_DC_MCI_INDV table
+    private boolean checkSSNFileClearance(T1004AppIndvCargo t1004AppIndvCargo) throws Exception{
+    	CvDcMciIndvCargo cvDcMciIndvCargo = null;
+    	CvDcMciIndvCollection cvDcMciIndvColl = new CvDcMciIndvCollection(connection);
+    	try{
+    		if(t1004AppIndvCargo.getSsnNum() != 0){
+				cvDcMciIndvColl.clear();
+				cvDcMciIndvCargo = new CvDcMciIndvCargo();
+				cvDcMciIndvCargo.setSsn(t1004AppIndvCargo.getSsnNum());
+				cvDcMciIndvColl.setCargo(cvDcMciIndvCargo);
+				CvDcMciIndvCargo[] results = (CvDcMciIndvCargo[])cvDcMciIndvColl.select("findBySsnForSdx");
+				if(results != null && results.length > 0){
+					return true;
+				}
+			}
+    		return false;
+    	}catch(Exception e){
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.checkSSNFileClearance():" + "\n" + e.getMessage() + "\n", e);
+    		throw e;
+    	}    	
+    }
+    
+	public boolean existingActiveCaseCheck(String appNum, Map indvMap) throws Exception {
+		log(7, "Begin AutoRegistrationBO.existingActiveCaseCheck() ");
+
+		DcCaseIndividualCargo dcCaseIndvCargo = new DcCaseIndividualCargo();
+		DcCaseIndividualCollection dcCaseIndvColl = new DcCaseIndividualCollection(connection);
+		DcCasesCargo dcCaseCargo = new DcCasesCargo();
+		EdEligibilityCollection edEligColl = new EdEligibilityCollection(connection);
+		DcCaseIndividualCargo[] dcCaseIndvCargoArray = null;
+		DcCasesCargo[] dcCaseCargoArray = null;
+		DcCasesCargo[] dcCaseTempArray = null;
+		ArApplicationForAidCargo[] arAppForAidCargoArray = null;
+		EdEligibilityCargo[] edEligCargoArray = null;
+		ArAppIndvCollection arAppIndvColl = new ArAppIndvCollection(connection);
+		ArAppIndvCargo arAppIndvCargo = new ArAppIndvCargo();
+		ArApplicationForAidCargo arApplicationForAidCargo = new ArApplicationForAidCargo();
+		ArApplicationForAidCollection arApplicationForAidColl = new ArApplicationForAidCollection(connection);
+		ArApplicationForAidCargo[] arApplicationForAidCargoArray = null;
+		DcCaseProgramIndvCargo dcCaseProgramIndvCargo = new DcCaseProgramIndvCargo();
+		DcCaseProgramIndvCollection dcCaseProgramIndvColl = new DcCaseProgramIndvCollection(connection);
+		DcCaseProgramIndvCargo[] dcCaseProgramIndvCargoArray = null;
+		ArAppProgramIndvCargo arAppProgramIndvCargo = new ArAppProgramIndvCargo();
+		ArAppProgramIndvCollection arAppProgramIndvColl = new ArAppProgramIndvCollection(connection);
+		ArAppProgramIndvCargo[] arAppProgramIndvCargoArray = null;
+		ArAppProgramIndvCargo arAppProgIndvCargo = new ArAppProgramIndvCargo();
+		ArAppProgramIndvCollection arAppPgmIndvColl = new ArAppProgramIndvCollection(connection);
+		ArAppProgramIndvCargo[] arAppPgmIndvCargoArray = null;
+		long caseClosed90Days = 0;
+		long caseDenied60Days = 0;
+		boolean lisMSPApp = false;
+		Timestamp closureDate = null;
+
+		boolean indvCaseCheck = true;
+		String autoRegStatus = "";
+		long caseInPast = 0;
+		associatedAppNumStr = null;
+		mspPgmStatrtDt = new Timestamp(cal.getTimeInMillis());
+		try {
+			if (indvMap == null || indvMap.size() == 0)
+				return false;
+
+			// Start - REDE Check sfdsf
+			if (autoRegT1001Cargo.getAppMode() != null && autoRegT1001Cargo.getAppMode().equals(AppRegConstants.SS_APP_MODE)) {
+				if (appHPECategory && autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMaRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y') {
+					log(7, " AutoRegistrationBO.existingActiveCaseCheck() : Only HPE Application. Not applicable for REDE ");
+
+				} else {
+					log(7, " AutoRegistrationBO.existingActiveCaseCheck() : REDE Check :: Checking for Existing indv ");
+					Long appExtIndvId = 0L;
+					for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+						if (autoRegT1004CargoArray[i].getPrimPrsnSw() == 'Y' && indvMap.containsKey((int) autoRegT1004CargoArray[i].getIndvSeqNum())
+								&& ((Long) indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()) != 0L)) {
+							// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+							PMDRules.markApprovedStatement("R10");
+							appExtIndvId = (Long) indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum());
+							break;
+						}
+					}
+					log(7, " AutoRegistrationBO.existingActiveCaseCheck() : REDE Check :: Existing indv ID " + appExtIndvId);
+					if (appExtIndvId != 0) {
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() : REDE Check Started ");
+						try {
+							if (!appREDECheck(appNum, indvMap)) {
+								return false;
+							}
+						} catch (Exception e) {
+							log(ILog.ERROR, "Exception in AutoRegistrationBO.existingActiveCaseCheck():: appREDECheck---: appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+							autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_AC;
+
+							throw e;
+
+						}
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() : REDE Check End ");
+					}
+				}
+			}
+
+			// End - REDE Check
+			int size = indvMap.size();
+			for (Object key : indvMap.keySet()) {
+			    long indvId = (Long) indvMap.get(key);
+				if (indvId == 0) {
+					continue;
+				}
+				//SSA - LIS MSP changes : ILIES-291947
+				log(7," AutoRegistrationBO.existingActiveCaseCheck() :Is SSA-LIS MSP apps:"+appSSALISMSPCategory);
+				System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() :Is SSA-LIS MSP apps:"+appSSALISMSPCategory);
+				if (appSSALISMSPCategory)
+				{
+					boolean isPrimary = false;
+					if (autoRegT1004CargoArray != null && autoRegT1004CargoArray.length > 0)
+					{
+						for (T1004AppIndvCargo cargo : autoRegT1004CargoArray)
+						{
+							char mcReqSw = cargo.getMcRqstSw();
+							int indvSeqNum = (int) cargo.getIndvSeqNum();
+							int keySeqNum = (Integer) key;
+							if ('Y' == mcReqSw && keySeqNum == indvSeqNum)
+							{
+								isPrimary = true;
+								log(7, " AutoRegistrationBO.existingActiveCaseCheck() :Primary Indv who is requesting for SSA-LIS MSP : " + indvId);
+								System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() : Primary Indv who is requesting for SSA-LIS MSP :: " + indvId);
+								break;
+							}
+						}
+					}
+					if (isPrimary)
+					{
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() :Start SSA-LIS MSP apps:" + indvId);
+						System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() :Start SSA-LIS MSP apps:" + indvId);
+
+						// To check individual not in Pending/Registered Application
+						arAppIndvCargo.setIndvId(indvId);
+						arAppIndvColl.add(arAppIndvCargo);
+						arAppForAidCargoArray = (ArApplicationForAidCargo[]) arAppIndvColl.select("findArAppsByIndvId");
+						if (arAppForAidCargoArray != null && arAppForAidCargoArray.length > 0)
+						{
+							Set<String> appNumSet = new HashSet<String>();
+							if (arAppForAidCargoArray[0].getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AP)
+									|| arAppForAidCargoArray[0].getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AC))
+							{
+								for (ArApplicationForAidCargo aidCargo : arAppForAidCargoArray)
+								{
+									if (aidCargo.getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AP)
+											|| aidCargo.getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AC))
+									{
+										appNumSet.add(aidCargo.getAppNum());
+									}
+								}
+								arAppPgmIndvCargoArray = getArAppProgramIndvAllCargos(String.valueOf(indvId));
+								if (arAppPgmIndvCargoArray != null && arAppPgmIndvCargoArray.length > 0)
+								{
+									// indvCaseCheck = false;
+									autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_PA;
+									for (ArAppProgramIndvCargo cargo : arAppPgmIndvCargoArray)
+									{
+										if ("MC".equalsIgnoreCase(cargo.getProgramCd()) && appNumSet.contains(cargo.getAppNum()))
+										{
+											lisMSPApp = true;
+											associatedAppNumStr = cargo.getAppNum();
+											ArAppProgramCargo[] arAppProgramCargos = getmspPrgmStDt(cargo.getAppNum());
+											if (arAppProgramCargos != null && arAppProgramCargos.length > 0 && arAppProgramCargos[0].getRequestDt() != null)
+											{
+												mspPgmStatrtDt = arAppProgramCargos[0].getRequestDt();
+												break;
+											}
+											log(7, " AutoRegistrationBO.existingActiveCaseCheck() :Existing MSP application found for indv : " + indvId);
+											System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() :Existing MSP application found for indv : " + indvId);
+										}
+									}
+								}
+							}
+						}
+						List argumentsList = new ArrayList();
+						List pendingArgumentsList = new ArrayList();
+						// To check individual not on pending case
+						dcCaseIndvCargo.setIndvId(indvId);
+						dcCaseIndvColl.add(dcCaseIndvCargo);
+						dcCaseCargoArray = (DcCasesCargo[]) dcCaseIndvColl.select("findActiveCaseIndvId");
+						if (dcCaseCargoArray != null && dcCaseCargoArray.length > 0)
+						{
+							for (int i = 0; i < dcCaseCargoArray.length; i++)
+							{
+								//Hirerachy changes
+								if (dcCaseCargoArray[i].getCaseStatusCd().equals(AppRegConstants.AUTO_REG_AP))
+								{
+									argumentsList.add(dcCaseCargoArray[i].getCaseNum());
+ 
+									// New-Check if we have approved MSP Case
+ 
+									Object[] methodArgs = new Object[1];
+ 
+									methodArgs[0] = argumentsList;
+									log(7, " AutoRegistrationBO.existingActiveCaseCheck() :Check case details for case " + argumentsList);
+									System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() :Check case details for case " + argumentsList);
+									edEligCargoArray = (EdEligibilityCargo[]) edEligColl.select("findActiveOngoingCaseLIS", methodArgs);// use in query to get
+																																		// ongoing benefits
+									if (edEligCargoArray != null && edEligCargoArray.length > 0)
+									{
+										for (int j = 0; j < edEligCargoArray.length; j++)
+										{
+											if ("MC".equalsIgnoreCase(edEligCargoArray[j].getProgramCd()))
+											{// First check if we have any Active MSP Case
+												autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_AC;
+												indvCaseCheck = false;
+												break;
+											}
+										}
+ 
+									}
+ 
+								}
+ 
+								if (indvCaseCheck && dcCaseCargoArray[i].getCaseStatusCd().equals(AppRegConstants.AUTO_REG_PE))
+								{
+									pendingArgumentsList.add(dcCaseCargoArray[i].getCaseNum());
+									// start-Check if we have any Pending MSP Case
+									if (checkPendingMSPCase(dcCaseCargoArray[i], indvId))
+									{
+										indvCaseCheck = false;
+										log(7, " AutoRegistrationBO.existingActiveCaseCheck() : LIS MSP indv assoicated to a penindg case with MSP:"
+												+ dcCaseCargoArray[i].getCaseNum());
+										System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() :LIS MSP indv assoicated to a penindg case with MSP:"
+												+ indvId);
+										autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_PC;
+									}
+ 
+								}
+ 
+							}
+							if(indvCaseCheck)
+							{
+								// If Approved MSP Cases is not found then check if we have Approved Cases without MSP
+								if (indvCaseCheck && !argumentsList.isEmpty() && argumentsList.size() > 0 && !lisMSPApp)
+								{
+									Object[] methodArgs = new Object[1];
+									// List argumentsList = new ArrayList();
+									// argumentsList.add(dcCaseCargoArray[i].getCaseNum());
+									methodArgs[0] = argumentsList;
+									log(7, " AutoRegistrationBO.existingActiveCaseCheck() :Check case details for case " + argumentsList);
+									System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() :Check case details for case " + argumentsList);
+									edEligCargoArray = (EdEligibilityCargo[]) edEligColl.select("findActiveOngoingCaseLIS", methodArgs);// use in query to get
+																																		// ongoing benefits
+									if (edEligCargoArray != null && edEligCargoArray.length > 0)
+									{
+										for (int j = 0; j < edEligCargoArray.length; j++)
+										{
+											autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_AC;
+											indvCaseCheck = false;
+											break;
+ 
+										}
+									}
+								}
+ 
+								// If Pending MSP Cases is not found then check if we have Pending Cases without MSP
+								if (indvCaseCheck &&  !lisMSPApp &&  !pendingArgumentsList.isEmpty() && pendingArgumentsList.size() > 0)
+								{
+									indvCaseCheck = false;
+									log(7, " AutoRegistrationBO.existingActiveCaseCheck() : LIS MSP indv assoicated to a penindg case with MSP:"
+											+ pendingArgumentsList);
+									System.out
+											.println(" AutoRegistrationBO.existingActiveCaseCheck() :LIS MSP indv assoicated to a penindg case with MSP:" + indvId);
+									autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_PC;
+								}
+ 
+							}
+							if (indvCaseCheck)
+							{
+								// Check -- Case that has been closed for
+								// less than 3 months
+								for (int j = 0; j < dcCaseCargoArray.length; j++)
+								{
+									dcCaseCargo = dcCaseCargoArray[j];
+									if (dcCaseCargo.getCaseStatusCd().equals(AppRegConstants.AUTO_REG_TN))
+									{
+										caseInPast = dcCaseCargo.getCaseNum();
+										indvCaseCheck = false;
+										Calendar caseDate = Calendar.getInstance();
+										caseDate.setTime(new java.util.Date(dcCaseCargo.getCaseClosedDt().getTime()));
+										Calendar today = Calendar.getInstance();
+										today.add(Calendar.MONTH, -3);
+										if (today.compareTo(caseDate) < 0)
+										{
+											indvCaseCheck = false;
+											autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_RE;
+											log(7,
+													" AutoRegistrationBO.existingActiveCaseCheck() : LIS MSP indv assoicated to a closed case :"
+															+ dcCaseCargo.getCaseNum());
+											System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() : LIS MSP indv assoicated to a closed case :"
+													+ dcCaseCargo.getCaseNum());
+											caseClosed90Days = dcCaseCargo.getCaseNum();
+											closureDate = dcCaseCargo.getCaseClosedDt();
+										}
+									}
+									else if (dcCaseCargo.getCaseStatusCd().equals(AppRegConstants.AUTO_REG_DN))
+									{
+										// Check -- Case that has been
+										// denied within 2 months
+										caseInPast = dcCaseCargo.getCaseNum();
+										indvCaseCheck = false;
+										Calendar caseDeniedDate = Calendar.getInstance();
+										caseDeniedDate.setTime(new java.util.Date(dcCaseCargo.getCaseClosedDt().getTime()));
+										Calendar today1 = Calendar.getInstance();
+										today1.add(Calendar.MONTH, -2);
+										if (today1.compareTo(caseDeniedDate) < 0)
+										{
+											indvCaseCheck = false;
+											autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_DA;
+											caseDenied60Days = dcCaseCargo.getCaseNum();
+											closureDate = dcCaseCargo.getCaseClosedDt();
+										}
+									}
+								} // end of for loop
+							}
+						}
+						else if (AppRegConstants.AUTO_REG_PROCESS_PA.equals(autoRegStatus))
+						{
+							indvCaseCheck = false;
+						}
+						if (indvCaseCheck == false)
+						{
+							if (autoRegT1002Cargo.getMcRqstSw() == 'Y')
+							{
+								log(7, " AutoRegistrationBO.existingActiveCaseCheck() : Existing Application case check for MSP  for indv Begin : " + indvId);
+								boolean mspCheck = existingActiveCaseCheckMSP(autoRegStatus, appNum, indvId, lisMSPApp, dcCaseCargoArray, caseInPast,
+										caseClosed90Days, caseDenied60Days, closureDate);
+								log(7, " AutoRegistrationBO.existingActiveCaseCheck() : Existing Application case check for MSP results : " + mspCheck);
+								System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() : Existing Application case check for MSP results : " + mspCheck);
+								return mspCheck;
+							}
+						}
+					}
+					else
+					{
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() :Spouse Indv who is not requesting for SSA-LIS MSP : " + indvId);
+						System.out.println(" AutoRegistrationBO.existingActiveCaseCheck() : Spouse Indv who is not requesting for SSA-LIS MSP :: " + indvId);
+					}
+				}
+				else{
+				// To check individual not in Pending/Registered Application
+				arAppIndvCargo.setIndvId(indvId);
+				arAppIndvColl.add(arAppIndvCargo);
+				arAppForAidCargoArray = (ArApplicationForAidCargo[]) arAppIndvColl.select("findArAppsByIndvId");
+
+				if (arAppForAidCargoArray != null && arAppForAidCargoArray.length > 0) {
+					if (arAppForAidCargoArray[0].getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AP) || arAppForAidCargoArray[0].getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AC)) {
+						indvCaseCheck = false;
+						autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_PA;
+						// Start: Added for ILIES-192695
+						for (ArApplicationForAidCargo arAppCargo: arAppForAidCargoArray) {
+							if (arAppCargo.getAppMpeSw() == 'Y') {
+								mpeAppExists = true;
+								associatedAppNumStr = arAppCargo.getAppNum();
+								//break;
+							}
+							if (arAppCargo.getAppFppeSw() == 'Y') {
+								appFppExists = true;
+								//break;
+							}
+						}
+						// End: Added for ILIES-192695
+					}
+				}
+				if (indvCaseCheck) {
+					// To check individual not on pending case
+					dcCaseIndvCargo.setIndvId(indvId);
+					dcCaseIndvColl.add(dcCaseIndvCargo);
+					dcCaseCargoArray = (DcCasesCargo[]) dcCaseIndvColl.select("findActiveCaseIndvId");
+					if (dcCaseCargoArray != null && dcCaseCargoArray.length > 0) {
+						for (int i = 0; i < dcCaseCargoArray.length; i++) {
+							if (dcCaseCargoArray[i].getCaseStatusCd().equals(AppRegConstants.AUTO_REG_PE)) {
+								indvCaseCheck = false;
+								autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_PC;
+							} else {
+
+								Object[] methodArgs = new Object[1];
+								List argumentsList = new ArrayList();
+								argumentsList.add(dcCaseCargoArray[i].getCaseNum());
+
+								methodArgs[0] = argumentsList;
+								edEligCargoArray = (EdEligibilityCargo[]) edEligColl.select("findByCaseNumForAutoRegBatch", methodArgs);
+								if (edEligCargoArray != null && edEligCargoArray.length > 0) {
+									for (int j = 0; j < edEligCargoArray.length; j++) {
+										if (edEligCargoArray[j].getCurrentEligInd() == 'A' && edEligCargoArray[j].getCgStatusCd().equals(AppRegConstants.AUTO_REG_AP)) {
+											autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_AC;
+											indvCaseCheck = false;
+											break;
+										}
+									}
+								}
+								if (indvCaseCheck) {
+									// Check -- Case that has been closed for less than 3 months
+									for (int j = 0; j < dcCaseCargoArray.length; j++) {
+										dcCaseCargo = dcCaseCargoArray[j];
+										if (dcCaseCargo.getCaseStatusCd().equals(AppRegConstants.AUTO_REG_TN)) {
+											Calendar caseDate = Calendar.getInstance();
+											caseDate.setTime(new java.util.Date(dcCaseCargo.getCaseClosedDt().getTime()));
+											Calendar today = Calendar.getInstance();
+											today.add(Calendar.MONTH, -3);
+											if (today.compareTo(caseDate) < 0) {
+												indvCaseCheck = false;
+												autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_RE;
+												caseClosed90Days = dcCaseCargo.getCaseNum();
+											}
+
+										} else if (dcCaseCargo.getCaseStatusCd().equals(AppRegConstants.AUTO_REG_DN)) {
+											// Check -- Case that has been
+											// denied within 2 months
+											Calendar caseDeniedDate = Calendar.getInstance();
+											caseDeniedDate.setTime(new java.util.Date(dcCaseCargo.getCaseClosedDt().getTime()));
+											Calendar today1 = Calendar.getInstance();
+											today1.add(Calendar.MONTH, -2);
+											if (today1.compareTo(caseDeniedDate) < 0) {
+												indvCaseCheck = false;
+												autoRegStatus = AppRegConstants.AUTO_REG_PROCESS_DA;
+												caseDenied60Days = dcCaseCargo.getCaseNum();
+											}
+
+										}
+									} // end of for loop
+								}
+							}
+						}
+					}
+				}
+
+				if (indvCaseCheck == false) {
+					// For MSP apps
+					if (appSSAMSPCategory == true && autoRegT1002Cargo.getMcRqstSw() == 'Y') {
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() : MSP apps");
+						for (Object nextKey : indvMap.keySet()) {
+							long nextIndvId = (Long) indvMap.get(nextKey);
+							if (indvId == nextIndvId) {
+								continue;
+							}
+
+							if (nextIndvId == 0) {
+								createEDMTask(appNum);
+								updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+								return false;
+							} else {
+								dcCaseIndvColl.clear();
+								dcCaseIndvCargo = new DcCaseIndividualCargo();
+								dcCaseIndvCargo.setIndvId(nextIndvId);
+								dcCaseIndvColl.add(dcCaseIndvCargo);
+								dcCaseTempArray = (DcCasesCargo[]) dcCaseIndvColl.select("findActiveCaseIndvId");
+								if (dcCaseTempArray != null && dcCaseTempArray.length > 0 && dcCaseCargoArray != null && dcCaseCargoArray.length > 0) {
+									for (int i = 0; i < dcCaseCargoArray.length; i++) {
+										for (int j = 0; j < dcCaseTempArray.length; j++) {
+											if (dcCaseCargoArray[i].getCaseNum() == dcCaseTempArray[j].getCaseNum()) {
+												autoReg_SSA_MSP_Sw = "Y";
+											} else {
+												autoReg_SSA_MSP_Sw = "N";
+												createEDMTask(appNum);
+												updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+												return false;
+											}
+										}
+									}
+									if (autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y") && autoRegT1004CargoArray != null && autoRegT1004CargoArray.length > 0) {
+										/*for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+											int key1 = (int) autoRegT1004CargoArray[i].getIndvSeqNum();
+											if (indvMap.containsKey(key1)) {
+												autoRegT1004CargoArray[i].setBridgesIndvId((Long) indvMap.get(key1));
+												updateT1004AppIndvTable(autoRegT1004CargoArray[i]);
+											}
+										}*/
+
+										createEDMTask(appNum);
+										updateTaskForCaseProcess(appNum);
+										updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_SUCCESS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+										return true;
+									}
+								}
+							}
+						}
+					} else if (appHPECategory) {
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() : HPE apps");
+						ArrayList<Long> extIndvList = new ArrayList<Long>();
+						ArHospitalPEBO hpeBO = new ArHospitalPEBO(connection);
+						Timestamp certDate = null;
+						boolean associationCheck = false;
+						for (Object key1 : indvMap.keySet()) {
+							if ((Long) indvMap.get(key1) == 0) {
+								continue;
+							} else {
+								extIndvList.add((Long) indvMap.get(key1));
+							}
+						}
+
+						if (extIndvList.size() == 0) {
+							createEDMTask(appNum);
+							updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+							return false;
+						}
+
+						dcCaseIndvColl.clear();
+						dcCaseIndvCargo.setIndvId(extIndvList.get(0));
+						dcCaseIndvColl.add(dcCaseIndvCargo);
+						dcCaseCargoArray = (DcCasesCargo[]) dcCaseIndvColl.select("findCaseByIndvIdSofrByStatusCd");
+						if (dcCaseCargoArray != null && dcCaseCargoArray.length > 0) {
+							for (int i = 0; i < dcCaseCargoArray.length; i++) {
+								dcCaseIndvColl.clear();
+								dcCaseIndvCargoArray = null;
+								dcCaseIndvCargo = new DcCaseIndividualCargo();
+								dcCaseIndvCargo.setCaseNum(dcCaseCargoArray[i].getCaseNum());
+								dcCaseIndvColl.add(dcCaseIndvCargo);
+								dcCaseIndvCargoArray = (DcCaseIndividualCargo[]) dcCaseIndvColl.select("findByCaseAllIndvCurrRec");
+								if (dcCaseIndvCargoArray != null && dcCaseIndvCargoArray.length > 0) {
+									int caseMatchCount = 0;
+									for (int j = 0; j < dcCaseIndvCargoArray.length; j++) {
+										for (int extIndvCount = 0; extIndvCount < extIndvList.size(); extIndvCount++) {
+											if (dcCaseIndvCargoArray[j].getIndvId() == extIndvList.get(extIndvCount)) {
+												caseMatchCount++;
+											}
+										}
+									}
+
+									if (caseMatchCount == extIndvList.size()) {
+										dcCaseProgramIndvColl.clear();
+										dcCaseProgramIndvCargo.setCaseNum(dcCaseCargoArray[i].getCaseNum());
+										dcCaseProgramIndvCargo.setProgCd(AppRegConstants.AUTO_REG_MA);
+										dcCaseProgramIndvColl.add(dcCaseProgramIndvCargo);
+										dcCaseProgramIndvCargoArray = (DcCaseProgramIndvCargo[]) dcCaseProgramIndvColl.select("findByCaseProgramCdAidSw");
+										if (dcCaseProgramIndvCargoArray != null && dcCaseProgramIndvCargoArray.length > 0) {
+											int extMAIndvCount = 0;
+											for (int j = 0; j < dcCaseProgramIndvCargoArray.length; j++) {
+												for (int extIndvCount = 0; extIndvCount < extIndvList.size(); extIndvCount++) {
+													if (dcCaseProgramIndvCargoArray[j].getIndvId() == extIndvList.get(extIndvCount)) {
+														extMAIndvCount++;
+													}
+												}
+											}
+											if (extMAIndvCount == extIndvList.size()) {
+												arApplicationForAidColl.clear();
+												arApplicationForAidCargo.setCaseNum(dcCaseCargoArray[i].getCaseNum());
+												arApplicationForAidColl.add(arApplicationForAidCargo);
+												arApplicationForAidCargoArray = (ArApplicationForAidCargo[]) arApplicationForAidColl.select("findByCaseNum");
+												String hpeAppNum = "";
+												if (arApplicationForAidCargoArray != null && arApplicationForAidCargoArray.length > 0) {
+													hpeAppNum = arApplicationForAidCargoArray[0].getAppNum();
+												}
+												certDate = hpeBO.isMedCertified(dcCaseCargoArray[i].getCaseNum());
+												if (certDate != null) { // Case Certified check
+													if (extIndvList.size() != indvMap.size()) {
+														createEDMTask(appNum);
+														updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+														return false;
+													}
+													updateHpeEligDetailsIndvTable(hpeAppNum, extIndvList);
+												}
+												createEDMTask(appNum);
+												updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+												return false;
+												//ILIES-223560 hpeAppAssociation("HPE", appNum, hpeAppNum, dcCaseCargoArray[i].getCaseNum(), certDate, dcCaseCargoArray[i].getAppRecvdDt(), 'N');
+												//associationCheck = true;
+											}
+										}
+									}
+								}
+							}
+						} else {
+							arAppIndvCargo.setIndvId(extIndvList.get(0));
+							arAppIndvColl.clear();
+							arAppIndvColl.add(arAppIndvCargo);
+							arAppForAidCargoArray = (ArApplicationForAidCargo[]) arAppIndvColl.select("findArAppsByIndvId");
+							if (arAppForAidCargoArray != null && arAppForAidCargoArray.length > 0) {
+								for (int i = 0; i < arAppForAidCargoArray.length; i++) {
+									Object appNumArgs[] = { arAppForAidCargoArray[i].getAppNum() };
+									ArAppIndvCargo[] arAppIndvCargoArray = (ArAppIndvCargo[]) arAppIndvColl.select("findByAppNum", appNumArgs);
+									int appMatchCount = 0;
+									if (arAppIndvCargoArray != null && arAppIndvCargoArray.length > 0) {
+										for (int j = 0; j < arAppIndvCargoArray.length; j++) {
+											for (int extIndvCount = 0; extIndvCount < extIndvList.size(); extIndvCount++) {
+												if (arAppIndvCargoArray[j].getIndvId() == extIndvList.get(extIndvCount)) {
+													appMatchCount++;
+												}
+											}
+										}
+									}
+									if (appMatchCount == extIndvList.size()) {
+										arAppProgramIndvCargo.setAppNum(arAppForAidCargoArray[i].getAppNum());
+										arAppProgramIndvCargo.setProgramCd("MA");
+										arAppProgramIndvCargo.clone();
+										arAppProgramIndvColl.add(arAppProgramIndvCargo);
+										arAppProgramIndvCargoArray = (ArAppProgramIndvCargo[]) arAppProgramIndvColl.select("findByAppNumPrgCD");
+										int extMaIndvCount = 0;
+										if (arAppProgramIndvCargoArray != null && arAppProgramIndvCargoArray.length > 0) {
+											for (int j = 0; j < arAppProgramIndvCargoArray.length; j++) {
+												for (int extIndvCount = 0; extIndvCount < extIndvList.size(); extIndvCount++) {
+													if (arAppProgramIndvCargoArray[j].getIndvId() == extIndvList.get(extIndvCount)) {
+														extMaIndvCount++;
+													}
+												}
+											}
+										}
+
+										if (extMaIndvCount == extIndvList.size()) {
+											createEDMTask(appNum);
+											updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+											return false;
+											//ILIES-223560 hpeAppAssociation("HPE", appNum, arAppForAidCargoArray[i].getAppNum(), arAppForAidCargoArray[i].getCaseNum(), certDate, arAppForAidCargoArray[i].getAppRecvdDt(), 'N');
+											//associationCheck = true;
+										}
+									}
+								}
+							}
+						}
+
+						if (associationCheck == false) {
+							createEDMTask(appNum);
+							updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+							return false;
+						}
+						return true;
+					} else if (autoRegT1002Cargo.getMaRqstSw() == 'Y') {
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() : MA apps");
+						ArrayList<Long> extIndvList = new ArrayList<Long>();
+						Timestamp certDate = null;
+						long indvId1 = 0L;
+						for (Object key1 : indvMap.keySet()) {
+							if ((Long) indvMap.get(key1) == 0) {
+								continue;
+							} else {
+								extIndvList.add((Long) indvMap.get(key1));
+							}
+						}
+						/*if (extIndvList.size() > 0) {
+							for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+								int key1 = (int) autoRegT1004CargoArray[i].getIndvSeqNum();
+								if (indvMap.containsKey(key1)) {
+									autoRegT1004CargoArray[i].setBridgesIndvId((Long) indvMap.get(key1));
+									updateT1004AppIndvTable(autoRegT1004CargoArray[i]);
+								}
+							}
+						}*/
+						if (extIndvList.size() == 0) {
+							createEDMTask(appNum);
+							updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+							return false;
+						}
+
+						Object[] args = new Object[1];
+						args[0] = extIndvList;
+
+						ArHpeAssociationCargo cargo = new ArHpeAssociationCargo();
+						ArHpeAssociationCollection coll = new ArHpeAssociationCollection(connection);
+						ArHpeAssociationCargo[] arHpeAssociationCargoArray = null;
+						log(7, " AutoRegistrationBO.existingActiveCaseCheck() : MA apps :: calling findHpeAssociationDetails method");
+						arHpeAssociationCargoArray = (ArHpeAssociationCargo[]) coll.select("findHpeAssociationDetails", args);
+						if (arHpeAssociationCargoArray != null && arHpeAssociationCargoArray.length == 1) {
+							/*ILIES-223560 log(7, " AutoRegistrationBO.existingActiveCaseCheck() : MA apps :: arHpeAssociationCargoArray.length " + arHpeAssociationCargoArray.length);
+						    arApplicationForAidCargo = new ArApplicationForAidCargo();
+						    arApplicationForAidCargo.setAppNum(arHpeAssociationCargoArray[0].getHpeAppNum());
+						    arApplicationForAidColl.clear();
+						    arAppForAidCargoArray = null;
+						    arApplicationForAidColl.add(arApplicationForAidCargo);
+						    arAppForAidCargoArray = (ArApplicationForAidCargo[]) arApplicationForAidColl.select("findByAppNum");
+						    if (arAppForAidCargoArray != null && arAppForAidCargoArray.length > 0) {
+								if (arAppForAidCargoArray[0].getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AP)) {
+								    hpeAppAssociation("MA", appNum, arHpeAssociationCargoArray[0].getHpeAppNum(), 0, certDate, autoRegT1001Cargo.getAppRcvDt(), 'N');
+								    updateHpeEligDetailsIndvTableForMAApps(arHpeAssociationCargoArray[0].getHpeAppNum());
+								    updateArHpeEligDetailForMAApps(arHpeAssociationCargoArray[0].getHpeAppNum());
+								    return true;
+								} else if (arAppForAidCargoArray[0].getApplicationStatusCd().equals(AppRegConstants.AUTO_REG_AC)) {
+								    hpeAppAssociation("MA", appNum, arHpeAssociationCargoArray[0].getHpeAppNum(), 0, certDate, autoRegT1001Cargo.getAppRcvDt(), 'Y');
+								    updateHpeEligDetailsIndvTableForMAApps(arHpeAssociationCargoArray[0].getHpeAppNum());
+								    updateArHpeEligDetailForMAApps(arHpeAssociationCargoArray[0].getHpeAppNum());
+								    appMaHpeAssociation = true;
+								    reopenHPETask(arHpeAssociationCargoArray[0].getHpeAppNum());
+								    createEDMTask(appNum);
+								    updateTaskForCaseProcess(appNum);
+								    AppInboxBO appInbox = new AppInboxBO(connection);
+								    appInbox.disposeApp(appNum);
+								    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_SUCCESS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+								    return false;
+								}
+						    }
+						} else {*/
+							createEDMTask(appNum);
+							updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+							return false;
+						}else if (arHpeAssociationCargoArray != null && arHpeAssociationCargoArray.length == 0 && indvCaseCheck == false){
+							createEDMTask(appNum);
+							updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+							return false;
+						}
+					} else {
+						createEDMTask(appNum);
+						updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegStatus, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+						return false;
+					}
+				}
+			}
+			}
+			return true;
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.existingActiveCaseCheck() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+			if (this.con != null) {
+				this.con.rollback();
+			}
+			if (e.getMessage() != null && e.getMessage().contains("10016")) {
+			    exceptionBO.writeExceptionRecord(BatchConstants.INFO, "AR-ATREG-HLY:  AutoRegistrationBO - existingActiveCaseCheck()", "Exception processing app num: " + appNum + " :: " + e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.LOG_FILE, ILog.INFO, BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+			    dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE_LIS);
+			    createEDMTask(appNum);
+			    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_AD, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
 			    return false;
+			}
+			updateAutoRegExcpTable(appNum, autoRegStatus, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+
+			if (this.con != null) {
+				this.con.commit();
+			}
+			throw e;
+		} finally {
+			dcCaseIndvCargo = null;
+			dcCaseIndvColl = null;
+			dcCaseCargo = null;
+			edEligColl = null;
+			dcCaseIndvCargoArray = null;
+			dcCaseCargoArray = null;
+			arAppForAidCargoArray = null;
+			edEligCargoArray = null;
+
+			arApplicationForAidCargo = null;
+			arApplicationForAidColl = null;
+			arApplicationForAidCargoArray = null;
+
+			dcCaseProgramIndvCargo = null;
+			dcCaseProgramIndvColl = null;
+			dcCaseProgramIndvCargoArray = null;
+			arAppProgramIndvCargo = null;
+			arAppProgramIndvColl = null;
+		}
+	}
+    
+    private ArAppProgramCargo[] getmspPrgmStDt(String appNum)
+	{
+		ArAppProgramCargo arAppProgCargo = new ArAppProgramCargo();
+		ArAppProgramCollection arAppProgramColl = new ArAppProgramCollection(connection);
+		ArAppProgramCargo[] arAppProgramCargoArray = null;
+		Object[] objLst = new Object[1];		
+		objLst[0] = appNum;
+    
+		try{
+			arAppProgramCargoArray = (ArAppProgramCargo[]) arAppProgramColl.select("findEarliestRequestDtForAppNum",objLst);			
+		}catch(Exception e){
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.getmspPrgmStDt() indvId: " + appNum + "\n" + e.getMessage() + "\n", e);
+			e.printStackTrace();
+		}
+	return arAppProgramCargoArray;
+	}
+
+	public int caseIndvCount(long caseNum) throws Exception {
+	log(7, "Begin AutoRegistrationBO.caseIndvCount() ");
+	DcCaseIndividualCargo dcCaseIndvCargo = new DcCaseIndividualCargo();
+	DcCaseIndividualCollection dcCaseIndvColl = new DcCaseIndividualCollection(connection);
+	DcCaseIndividualCargo[] dcCaseIndvCargoArray = null;
+	try {
+	    int caseIndvMatchingCount = 0;
+	    dcCaseIndvCargo = new DcCaseIndividualCargo();
+	    dcCaseIndvCargo.setCaseNum(caseNum);
+	    dcCaseIndvColl.clear();
+	    dcCaseIndvColl.add(dcCaseIndvCargo);
+	    dcCaseIndvCargoArray = (DcCaseIndividualCargo[]) dcCaseIndvColl.select("findByCaseNumber");
+	    if (dcCaseIndvCargoArray != null && dcCaseIndvCargoArray.length > 0) {
+		
+		for (Object key : indvMap.keySet()) {
+		    for (int i = 0; i < dcCaseIndvCargoArray.length; i++) {
+			if ((Long) indvMap.get(key) == dcCaseIndvCargoArray[i].getIndvId()) {
+			    caseIndvMatchingCount++;
+			    break;
 			}
 		    }
 		}
+		
 	    }
-	    log(7, "AutoRegistrationBO.appAuthRepCheck() :: Application AuthRepCheck successfull --" + appNum);
+	    return caseIndvMatchingCount;
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.appAuthRepCheck() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.caseIndvCount() caseNum: " + caseNum + "\n" + e.getMessage() + "\n", e);
 	    throw e;
 	} finally {
-	    t2040AppAuthRepCargo = null;
-	    t2040AppAuthRepCollection = null;
-	    t2040AppAuthRepCargoArray = null;
+	    dcCaseIndvCargo = null;
+	    dcCaseIndvColl = null;
+	    dcCaseIndvCargoArray = null;
 	}
-	return true;
+	
     }
     
-    public boolean ageCheck(java.sql.Timestamp indvdbrthDt) throws Exception {
+    public boolean appREDECheck(String appNum, Map appIndvMap) throws TIERSValidationException, Exception {
+	log(7, "Begin AutoRegistrationBO.appREDECheck() ");
+	VArApplicationIndvCargo[] appCargos = null;
+	String redePotentialMatch = "N";
+	String[] apDtlPrgrmArray = { "N", "N", "N", "N", "N" };
+	StringBuffer errorMessages = new StringBuffer("");
+	//HashMap<Long, Long> indivMap = new HashMap();
+	//boolean caseREDECheck = false;
+	//long caseNum = 0L;
+	
+	T1004AppIndvCollection T1004Coll = new T1004AppIndvCollection(connection);
+	//T1001AppRqstCollection T1001Coll = new T1001AppRqstCollection(connection);
+	//T1002AppDtlCargo appDtlCargo = new T1002AppDtlCargo();
 	try {
-	    Calendar dob = Calendar.getInstance();
-	    dob.setTime(new java.util.Date(indvdbrthDt.getTime()));
-	    Calendar today = Calendar.getInstance();
-	    int age = today.get(Calendar.YEAR) - dob.get(Calendar.YEAR);
-	    if (today.get(Calendar.MONTH) < dob.get(Calendar.MONTH)) {
-		age--;
-	    } else if (today.get(Calendar.MONTH) == dob.get(Calendar.MONTH) && today.get(Calendar.DAY_OF_MONTH) < dob.get(Calendar.DAY_OF_MONTH)) {
-		age--;
-	    }
-	    if (age >= 19)
-		return false;
 	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.ageCheck(): " + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	}
-	return true;
-    }
-    
-    
-    
-    
-    public int ageCal(java.sql.Timestamp indvdbrthDt) throws Exception {
-    	int age = 0;
-    	try {
-    	    Calendar dob = Calendar.getInstance();
-    	    dob.setTime(new java.util.Date(indvdbrthDt.getTime()));
-    	    Calendar today = Calendar.getInstance();
-    	     age = today.get(Calendar.YEAR) - dob.get(Calendar.YEAR);
-    	    if (today.get(Calendar.MONTH) < dob.get(Calendar.MONTH)) {
-    		age--;
-    	    } else if (today.get(Calendar.MONTH) == dob.get(Calendar.MONTH) && today.get(Calendar.DAY_OF_MONTH) < dob.get(Calendar.DAY_OF_MONTH)) {
-    		age--;
-    	    }
-    	 	return age;
-    	    
-    	} catch (Exception e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.ageCal(): " + "\n" + e.getMessage() + "\n", e);
-    	    throw e;
-    	}
-    	
-     }
-    
-    
-    /**
-     * The <code>computeDueDate</code> computes the SopDueDate.
-     * 
-     * @param sopCriteria
-     *            - sopCriteria
-     * @return Timestamp - SopDueDate
-     */
-    public Timestamp computeSopDueDate(Map sopCriteria) {
-	Timestamp applicationDate = (Timestamp) sopCriteria.get("APPLICATION_DATE");
-	Timestamp cloneAppDate = (Timestamp) applicationDate.clone();
-	
-	int addDays = 24;
-	cloneAppDate = ALSOPUtil.addDays(cloneAppDate, addDays);
-	
-	java.util.Date date = new Date(cloneAppDate.getTime());
-	Calendar cal = Calendar.getInstance();
-	cal.setTime(date);
-	cal.set(Calendar.HOUR_OF_DAY, 0);
-	cal.set(Calendar.MINUTE, 0);
-	cal.set(Calendar.SECOND, 0);
-	cal.set(Calendar.MILLISECOND, 0);
-	
-	date = cal.getTime();
-	
-	cloneAppDate = new Timestamp(date.getTime());
-	return cloneAppDate;
-    }
-    
-    public boolean checkAddress(T1002AppDtlCargo T1002Cargo, String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.checkAddress() ");
-	
-	try {
-	    if (T1002Cargo == null)
-		return false;
-	    if (T1002Cargo.getHlessSw() != 'Y') {
-		if (T1002Cargo.getHshlCityAdr() == null || T1002Cargo.getHshlCityAdr().trim().equals(""))
-		    return false;
-		else if (T1002Cargo.getHshlStaAdr() == null || T1002Cargo.getHshlStaAdr().trim().equals(""))
-		    return false;
-		else if (T1002Cargo.getHshlZipAdr() == null || T1002Cargo.getHshlZipAdr().trim().equals(""))
-		    return false;
-		else if (T1002Cargo.getHshlStAdr() == null || T1002Cargo.getHshlStAdr().trim().equals(""))
-		    return false;
-		else if (T1002Cargo.getAddrTypeInd() == null || T1002Cargo.getAddrTypeInd().trim().equals(""))
-		    return false;
-	    } else {
-		T1031AppMailAdrCollection T1031Coll = new T1031AppMailAdrCollection(connection);
-		T1031AppMailAdrCargo T1031Cargo = new T1031AppMailAdrCargo();
-		Object T1031Args[] = { appNum };
-		T1031AppMailAdrCargo[] T1031CargoArray = (T1031AppMailAdrCargo[]) T1031Coll.select("findMailingAddrByAppNum", T1031Args);
+	    int size = autoRegT1004CargoArray.length;
+	    if (size > 0) {
+		//Set<Long> indvIds = new HashSet<Long>();
+		//ArHospitalPEBO hpeBO = new ArHospitalPEBO(connection);
+		//DcIndvCargo indvCargos[] = new DcIndvCargo[size];
+		ArrayList<Long> indvList = new ArrayList<Long>();
 		
-		if (T1031CargoArray == null || T1031CargoArray.length == 0)
-		    return false;
-		else
-		    T1031Cargo = T1031CargoArray[0];
+		ArrayList programList = new ArrayList();
+		Map<Long, ArrayList<String>> caseProgMap = new HashMap<Long, ArrayList<String>>();
 		
-		if (T1031Cargo == null)
-		    return false;
-		
-		if (T1031Cargo.getCityAdr() == null || T1031Cargo.getCityAdr().trim().equals(""))
-		    return false;
-		else if (T1031Cargo.getStaAdr() == null || T1031Cargo.getStaAdr().trim().equals(""))
-		    return false;
-		else if (T1031Cargo.getZipAdr() == null || T1031Cargo.getZipAdr().trim().equals(""))
-		    return false;
-		else if ((T1031Cargo.getStAdr() == null || T1031Cargo.getStAdr().trim().equals("")) && (T1031Cargo.getL2Adr() == null || T1031Cargo.getL2Adr().trim().equals("")))
-		    return false;
-		else if (T1031Cargo.getAddrTypeInd() == null || T1031Cargo.getAddrTypeInd().trim().equals(""))
-		    return false;
-	    }
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkAddress() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	}
-	return true;
-    }
-    
-    public boolean programRequest(T1004AppIndvCargo[] t1004CargoArray) throws Exception {
-	log(7, "Begin AutoRegistrationBO.programRequest() ");
-	try {
-	    if (t1004CargoArray == null || t1004CargoArray.length == 0)
-		return false;
-	    
-	    T1004AppIndvCargo t1004Cargo = null;
-	    boolean progReq = false;
-	    
-	    for (int i = 0; i < t1004CargoArray.length; i++) {
-		t1004Cargo = t1004CargoArray[i];
-		if (t1004Cargo == null)
-		    return false;
-		
-		if (t1004Cargo.getFsRqstSw() == 'Y' || t1004Cargo.getBcRqstSw() == 'Y' || t1004Cargo.getMaRqstSw() == 'Y' || t1004Cargo.getMcRqstSw() == 'Y' || t1004Cargo.getFppRqstSw() == 'Y') {
-		    progReq = true;
-		    break;
-		}
-	    }
-	    if (progReq == false)
-		return false;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.programRequest(): " + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	}
-	return true;
-    }
-    
-    public boolean dataCheckforFFMApps(T1004AppIndvCargo[] t1004CargoArray) throws Exception {
-	log(7, "Begin AutoRegistrationBO.dataCheckforFFMApps() ");
-	
-	T1006AppInPermdCollection t1006AppInPermdColl = new T1006AppInPermdCollection(connection);
-	T1006AppInPermdCargo t1006AppInPermdCargo = new T1006AppInPermdCargo();
-	T1006AppInPermdCargo[] t1006AppInPermdCargoArray = null;
-	
-	try {
-	    
-	    if (t1004CargoArray == null || t1004CargoArray.length == 0)
-		return false;
-	    int indvCount = t1004CargoArray.length;
-	    
-	    String appNum = t1004CargoArray[0].getAppNum();
-	    
-	    t1006AppInPermdCargo.setAppNum(appNum);
-	    t1006AppInPermdColl.add(t1006AppInPermdCargo);
-	    t1006AppInPermdCargoArray = (T1006AppInPermdCargo[]) t1006AppInPermdColl.select("findByAppNumInboundFFMApps");
-	    if (t1006AppInPermdCargoArray == null || t1006AppInPermdCargoArray.length == 0 || t1006AppInPermdCargoArray.length != indvCount) {
-		return false;
-	    }
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.dataCheckforFFMApps(): " + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	} finally {
-	    t1006AppInPermdColl = null;
-	    t1006AppInPermdCargo = null;
-	    t1006AppInPermdCargoArray = null;
-	}
-	return true;
-    }
-    
-    public boolean checkExpScreening(T1003AppPrirSrvCargo T1003SrvCargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.checkExpScreening() ");
-	
-	try {
-	    String date = "9999-12-31 00:00:00.0";
-	    SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.s");
-	    java.util.Date defaultDate = formatter.parse(date);
-	    double moGrIncmAmt = 0.0;
-		double childSprtAmt = 0.0;
-		double cntblIncm = 0.0;
-	    
-		if(T1003SrvCargo.getMoGrIncmAmt() > 0.0){
-			moGrIncmAmt = T1003SrvCargo.getMoGrIncmAmt();
-		}
-		if(T1003SrvCargo.getChildSprtAmt() > 0.0){
-			childSprtAmt = T1003SrvCargo.getChildSprtAmt();
-		}
-		if(moGrIncmAmt > childSprtAmt){
-			cntblIncm = moGrIncmAmt - childSprtAmt;
-		}
-	    /*if (T1003SrvCargo.getLqdAsetAmt() == 0.0 && T1003SrvCargo.getMoGrIncmAmt() == 0.0 && T1003SrvCargo.getMigFarmWrkrSw() != 'Y') {*/
-		if (T1003SrvCargo.getLqdAsetAmt() == 0.0 && cntblIncm == 0.0 && T1003SrvCargo.getMigFarmWrkrSw() != 'Y') {
-		return true;
-	    } else if (T1003SrvCargo.getLqdAsetAmt() >= 100.0 || cntblIncm >= 150.0) {
-		if (T1003SrvCargo.getMigFarmWrkrSw() == 'Y') {
-		    if (T1003SrvCargo.getIncmStopSw() == 'Y') {
-			if (T1003SrvCargo.getDtFinalPayChk().getTime() == defaultDate.getTime())
-			    return false;
-		    } else
-			return false;
-		    
-		    if (T1003SrvCargo.getIncmSameGrwrSw() == 'Y') {
-			if (T1003SrvCargo.getAmtSameGrwr() == 0.0)
-			    return false;
+		int extIndvCount = 0;
+		for (Object key1 : appIndvMap.keySet()) {
+		    //Integer kayVal = (Integer) key1;
+		    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not lose precision from int to long.
+		    PMDRules.markApprovedStatement("R10");
+		    //indivMap.put((long) kayVal, (Long) appIndvMap.get(key1));
+		    if ((Long) appIndvMap.get(key1) == 0L) {
+			return true;
 		    } else {
-			return false;
+			indvList.add((Long) appIndvMap.get(key1));
+			extIndvCount++;
 		    }
-		    
-		    if (T1003SrvCargo.getIncmCrntMnthSw() == 'Y') {
-			if (T1003SrvCargo.getDtIncmCrntMnth().getTime() == defaultDate.getTime() || T1003SrvCargo.getAmtCrntMnth() == 0.0 || T1003SrvCargo.getAmtTrvlAdvc() == 0.0)
-			    return false;
-		    } else {
-			return false;
-		    }
-		    
-		    if (T1003SrvCargo.getAppNum() == null || T1003SrvCargo.getAppNum().trim().equals(""))
-			return false;
 		}
-	    }
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkExpScreening(): " + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	}
-	return true;
-    }
-    
-    public boolean checkMediPresEligibility(T1001SSAppMpeCargo T1001SSAppMpeCargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.ccheckMediPresEligibility() ");
-	
-	try {
-	    
-	    if (T1001SSAppMpeCargo == null)
-		return false;
-	    
-	    if (T1001SSAppMpeCargo.getPrvdId() == 0)
-		return false;
-	    else if (T1001SSAppMpeCargo.getAppBeginDt() == null)
-		return false;
-	    else if (T1001SSAppMpeCargo.getAppEndDt() == null)
-		return false;
-	    else if (T1001SSAppMpeCargo.getHshlMbrQty() == 0)
-		return false;
-	    else if (T1001SSAppMpeCargo.getPosPrefTestInd() != 'Y' && !appFPPECategory)
-		return false;
-	    else if (T1001SSAppMpeCargo.getFetusCt() == 0 && !appFPPECategory)
-		return false;
-	    else if (T1001SSAppMpeCargo.getExptDlvrDt() == null && !appFPPECategory)
-		return false;
-	    else if (T1001SSAppMpeCargo.getAppNum() == null || T1001SSAppMpeCargo.getAppNum().trim().equals(""))
-		return false;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkMediPresEligibility(): " + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	}
-	return true;
-    }
-    
-    public boolean checkHospPresEligibility(T1060_APP_IN_HPECargo T1060HPECargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.checkHospPresEligibility() ");
-	
-	try {
-	    
-	    if (T1060HPECargo == null)
-		return false;
-	    
-	    if (T1060HPECargo.getAdrCityName() == null || T1060HPECargo.getAdrCityName().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getAdrStateCd() == null || T1060HPECargo.getAdrStateCd().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getAdrZipCd() == 0)
-		return false;
-	    else if (T1060HPECargo.getPregnancySw() == 'Y') {
-		if (T1060HPECargo.getDeliveryDt() == null)
-		    return false;
-	    } else if (T1060HPECargo.getHouseholdSize() == 0)
-		return false;
-	    else if (T1060HPECargo.getHpeApplicantSw() == 0)
-		return false;
-	    else if (T1060HPECargo.getHpeBeginDt() == null)
-		return false;
-	    else if (T1060HPECargo.getHpeEligGrpCd() == null || T1060HPECargo.getHpeEligGrpCd().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getHpeEligSw() == 0)
-		return false;
-	    else if (T1060HPECargo.getHpeEmplName() == null || T1060HPECargo.getHpeEmplName().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getHpeHospName() == null || T1060HPECargo.getHpeHospName().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getHpeHsplNmbr() == 0)
-		return false;
-	    else if (T1060HPECargo.getHpeProvId() == null || T1060HPECargo.getHpeProvId().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getIlResSw() != 'Y')
-		return false;
-	    else if (T1060HPECargo.getIndvSeqNum() == 0)
-		return false;
-	    else if (T1060HPECargo.getUsCtznSw() == 'N' && T1060HPECargo.getLawfulPresSw() == 'N')
-		return false;
-	    else if (T1060HPECargo.getMedicareSw() == 0)
-		return false;
-	    else if (T1060HPECargo.getNatAmerSw() == 0)
-		return false;
-	    else if (T1060HPECargo.getPregnancySw() == 0)
-		return false;
-	    else if (T1060HPECargo.getStreetAddr() == null || T1060HPECargo.getStreetAddr().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getTelNum() == null || T1060HPECargo.getTelNum().trim().equals(""))
-		return false;
-	    else if (T1060HPECargo.getUsCtznSw() == 0)
-		return false;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkHospPresEligibility(): " + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	}
-	return true;
-    }
-    
-    public boolean updateAutoRegTriggerTable(String appNum, char appStatus, String appExc, String batchInd) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateAutoRegTriggerTable() ");
-	log(7, "AutoRegistrationBO.updateAutoRegTriggerTable()--appNum " + appNum + "--appStatus--" + appStatus + "--appExc--" + appExc);
-	DcAutoProcessingCollection dcAutoProcColl = new DcAutoProcessingCollection(connection);
-	DcAutoProcessingCargo dcAutoProcCargo = new DcAutoProcessingCargo();
-	DcAutoProcessingCargo[] dcAutoProcCargoArray = null;
-	
-	try {
-	    
-	    Object dcAutoProcArgs[] = { appNum };
-	    dcAutoProcCargoArray = (DcAutoProcessingCargo[]) dcAutoProcColl.select("findByAppNum", dcAutoProcArgs);
-	    
-	    if (dcAutoProcCargoArray == null || dcAutoProcCargoArray.length == 0) {
-		
-		dcAutoProcCargo.setAppNum(appNum);
-		dcAutoProcCargo.setAutoRegStatusInd(appStatus);
-		dcAutoProcCargo.setAutoRegExceptCd(appExc);
-		dcAutoProcCargo.setAutoRegStatusDt(currentTime);
-		dcAutoProcCargo.setAutoBatProcInd(batchInd);
-		
-		if (appStatus == 'S' && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y") && !appMaHpeAssociation) {
-		    dcAutoProcCargo.setAutoPopStatusInd('R');
-		    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
-		    dcAutoProcCargo.setSsaMspSw('Y');
-		    dcAutoProcCargo.setSsaMspCaseNum(dcCaseTempArray[0].getCaseNum());
-		} else if (appStatus == 'S' && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() == 'Y') 
-				&& autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y' && !appMaHpeAssociation) {
-		    if (appHPECategory) {
-			boolean onlyHPEApp = true;
-			for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-			    if (autoRegT1004CargoArray[i].getMaRqstSw() == 'Y') {
-				onlyHPEApp = false;
+		log(7, "AutoRegistrationBO.appREDECheck() :- extIndvCount -" + extIndvCount);
+		if (indvList != null && indvList.size() > 0) {
+		    ArREDEBO redebo = new ArREDEBO(connection);
+		    appCargos = redebo.searchForCases(indvList);
+		    if (appCargos != null && appCargos.length > 0) {
+			for (int k = 0; k < appCargos.length; k++) {
+			    if (caseProgMap.containsKey(appCargos[k].getCaseNum())) {
+				programList = caseProgMap.get(appCargos[k].getCaseNum());
+				programList.add(appCargos[k].getProgCd());
+				caseProgMap.put(appCargos[k].getCaseNum(), programList);
+			    } else {
+				programList = new ArrayList();
+				programList.add(appCargos[k].getProgCd());
+				caseProgMap.put(appCargos[k].getCaseNum(), programList);
 			    }
 			}
-			if (onlyHPEApp == false) {
-			    dcAutoProcCargo.setAutoPopStatusInd('R');
-			    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
-			}
-		    } else {
-			dcAutoProcCargo.setAutoPopStatusInd('R');
-			dcAutoProcCargo.setAutoPopStatusDt(currentTime);
 		    }
-		}
-		
-		dcAutoProcColl.setCargo(dcAutoProcCargo);
-		
-		dcAutoProcColl.insert(dcAutoProcColl);
-		log(7, "AutoRegistrationBO.updateAutoRegTriggerTable() :: Data inserted Successfully");
-		return true;
-	    } else {
-		dcAutoProcCargo = dcAutoProcCargoArray[0];
-		
-		dcAutoProcCargo.setAutoRegStatusInd(appStatus);
-		dcAutoProcCargo.setAutoRegExceptCd(appExc);
-		dcAutoProcCargo.setAutoRegStatusDt(currentTime);
-		dcAutoProcCargo.setAutoBatProcInd(batchInd);
-		dcAutoProcColl.setCargo(dcAutoProcCargo);
-		
-		if (appStatus == 'S' && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y") && !appMaHpeAssociation) {
-		    dcAutoProcCargo.setAutoPopStatusInd('R');
-		    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
-		    dcAutoProcCargo.setSsaMspSw('Y');
-		    dcAutoProcCargo.setSsaMspCaseNum(dcCaseTempArray[0].getCaseNum());
-		} else if (appStatus == 'S' && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() == 'Y')  
-				&& autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y' && !appMaHpeAssociation) {
-		    if (appHPECategory) {
-			boolean onlyHPEApp = true;
-			for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-			    if (autoRegT1004CargoArray[i].getMaRqstSw() == 'Y') {
-				onlyHPEApp = false;
+		    log(7, "AutoRegistrationBO.appREDECheck() :- caseProgMap -" + caseProgMap);		    
+		    
+		    if (autoRegT1002Cargo.getFsRqstSw() == 'Y') {
+			apDtlPrgrmArray[0] = "Y";
+		    }
+		    if (autoRegT1002Cargo.getMaRqstSw() == 'Y') {
+			apDtlPrgrmArray[1] = "Y";
+		    }
+		    if (autoRegT1002Cargo.getMcRqstSw() == 'Y') {
+			apDtlPrgrmArray[2] = "Y";
+		    }
+		    if (autoRegT1002Cargo.getCashRqstSw() == 'Y') {
+			apDtlPrgrmArray[3] = "Y";
+		    }
+		    int counter = 0;
+		    for (int y = 0; y < apDtlPrgrmArray.length; y++) {
+			if (apDtlPrgrmArray[y].equalsIgnoreCase("Y")) {
+			    counter++;
+			}
+		    }
+		    log(7, "AutoRegistrationBO.appREDECheck() :- Prog counter -" + counter);
+		    
+		    if (caseProgMap != null && !caseProgMap.isEmpty()) {
+			Iterator iterator = caseProgMap.entrySet().iterator();
+			while (iterator.hasNext()) {
+			    Map.Entry mapEntry = (Map.Entry) iterator.next();
+			    ArrayList progList = (ArrayList) mapEntry.getValue();
+			    if (counter > 0 && counter <= progList.size()) {
+				if (apDtlPrgrmArray[0].equalsIgnoreCase("Y") && progList.contains("FS")) {
+				    for (int l = 0; l < appCargos.length; l++) {
+					if (((Long) mapEntry.getKey() == appCargos[l].getCaseNum()) && appCargos[l].getProgCd().equalsIgnoreCase("FS") && (extIndvCount == caseIndvCount(appCargos[l].getCaseNum()))) {
+					    VArApplicationIndvCargo vArApplicationIndvCargo = appCargos[l];
+					    Timestamp redeDueDate = vArApplicationIndvCargo.getAppRecvdDt();
+					    Calendar calendar = Calendar.getInstance();
+					    calendar.setTime(redeDueDate);
+					    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+					    PMDRules.markApprovedStatement("R10");
+					    calendar.add(calendar.DATE, (int) -45);
+					    Timestamp priorDueDate = new Timestamp(calendar.getTime().getTime());
+					    Timestamp appRcvdDate = autoRegT1001Cargo.getAppRcvDt();
+					    if (appRcvdDate.after(priorDueDate)) {
+						redePotentialMatch = "Y";
+						//caseNum = appCargos[l].getCaseNum();
+					    }
+					}
+				    }
+				}
+				if (apDtlPrgrmArray[1].equalsIgnoreCase("Y") && progList.contains("MA")) {
+				    for (int l = 0; l < appCargos.length; l++) {
+					if (((Long) mapEntry.getKey() == appCargos[l].getCaseNum()) && appCargos[l].getProgCd().equalsIgnoreCase("MA") && (extIndvCount == caseIndvCount(appCargos[l].getCaseNum()))) {
+					    VArApplicationIndvCargo vArApplicationIndvCargo = appCargos[l];
+					    Timestamp redeDueDate = vArApplicationIndvCargo.getAppRecvdDt();
+					    Calendar calendar = Calendar.getInstance();
+					    calendar.setTime(redeDueDate);
+					    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+					    PMDRules.markApprovedStatement("R10");
+					    calendar.add(calendar.DATE, (int) -45);
+					    Timestamp priorDueDate = new Timestamp(calendar.getTime().getTime());
+					    Timestamp appRcvdDate = autoRegT1001Cargo.getAppRcvDt();
+					    if (appRcvdDate.after(priorDueDate)) {
+						redePotentialMatch = "Y";
+						//caseNum = appCargos[l].getCaseNum();
+					    }
+					}
+				    }
+				}
+				if (apDtlPrgrmArray[2].equalsIgnoreCase("Y") && progList.contains("MC")) {
+				    for (int l = 0; l < appCargos.length; l++) {
+					if (((Long) mapEntry.getKey() == appCargos[l].getCaseNum()) && appCargos[l].getProgCd().equalsIgnoreCase("MC") && (extIndvCount == caseIndvCount(appCargos[l].getCaseNum()))) {
+					    VArApplicationIndvCargo vArApplicationIndvCargo = appCargos[l];
+					    Timestamp redeDueDate = vArApplicationIndvCargo.getAppRecvdDt();
+					    Calendar calendar = Calendar.getInstance();
+					    calendar.setTime(redeDueDate);
+					    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+					    PMDRules.markApprovedStatement("R10");
+					    calendar.add(calendar.DATE, (int) -45);
+					    Timestamp priorDueDate = new Timestamp(calendar.getTime().getTime());
+					    Timestamp appRcvdDate = autoRegT1001Cargo.getAppRcvDt();
+					    if (appRcvdDate.after(priorDueDate)) {
+						redePotentialMatch = "Y";
+						//caseNum = appCargos[l].getCaseNum();
+					    }
+					}
+				    }
+				}
+				if (apDtlPrgrmArray[3].equalsIgnoreCase("Y") && progList.contains("TF")) {
+				    for (int l = 0; l < appCargos.length; l++) {
+					if (((Long) mapEntry.getKey() == appCargos[l].getCaseNum()) && appCargos[l].getProgCd().equalsIgnoreCase("TF") && (extIndvCount == caseIndvCount(appCargos[l].getCaseNum()))) {
+					    VArApplicationIndvCargo vArApplicationIndvCargo = appCargos[l];
+					    Timestamp redeDueDate = vArApplicationIndvCargo.getAppRecvdDt();
+					    Calendar calendar = Calendar.getInstance();
+					    calendar.setTime(redeDueDate);
+					    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+					    PMDRules.markApprovedStatement("R10");
+					    calendar.add(calendar.DATE, (int) -45);
+					    Timestamp priorDueDate = new Timestamp(calendar.getTime().getTime());
+					    Timestamp appRcvdDate = autoRegT1001Cargo.getAppRcvDt();
+					    if (appRcvdDate.after(priorDueDate)) {
+						redePotentialMatch = "Y";
+						//caseNum = appCargos[l].getCaseNum();
+					    }
+					}
+				    }
+				}
 			    }
 			}
-			if (onlyHPEApp == false) {
-			    dcAutoProcCargo.setAutoPopStatusInd('R');
-			    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
-			}
-		    } else {
-			dcAutoProcCargo.setAutoPopStatusInd('R');
-			dcAutoProcCargo.setAutoPopStatusDt(currentTime);
 		    }
 		}
-		
-		dcAutoProcColl.update(dcAutoProcColl);
-		log(7, "AutoRegistrationBO.updateAutoRegTriggerTable() :: Data updated Successfully");
-		return true;
 	    }
 	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateAutoRegTriggerTable(): " + "\n" + e.getMessage() + "\n", e);
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_IA, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    
-	    throw e;
-	} finally {
-	    dcAutoProcColl = null;
-	    dcAutoProcCargo = null;
-	    dcAutoProcCargoArray = null;
-	}
-    }
-    
-    public boolean updateAutoRegTriggerTable(DcAutoProcessingCargo dcAutoProcCargo, char appStatus, String appExc, String batchInd) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.updateAutoRegTriggerTable() ");
-    	String appNum = dcAutoProcCargo.getAppNum();
-    	log(7, "AutoRegistrationBO.updateAutoRegTriggerTable()--appNum " + appNum + "--appStatus--" + appStatus + "--appExc--" + appExc);
-    	DcAutoProcessingCollection dcAutoProcColl = new DcAutoProcessingCollection(connection);
-   	
-    	try {
-    		dcAutoProcCargo.setAutoRegStatusInd(appStatus);
-    		dcAutoProcCargo.setAutoRegExceptCd(appExc);
-    		dcAutoProcCargo.setAutoRegStatusDt(currentTime);
-    		dcAutoProcCargo.setAutoBatProcInd(batchInd);
-    		dcAutoProcColl.setCargo(dcAutoProcCargo);
-    		
-    		if (appStatus == 'S' && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y") && !appMaHpeAssociation) {
-    		    dcAutoProcCargo.setAutoPopStatusInd('R');
-    		    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
-    		    dcAutoProcCargo.setSsaMspSw('Y');
-    		    dcAutoProcCargo.setSsaMspCaseNum(dcCaseTempArray[0].getCaseNum());
-    		} else if (appStatus == 'S' && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() != 'Y') 
-    				&& autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y' && !appMaHpeAssociation) {
-    		    if (appHPECategory) {
-    			boolean onlyHPEApp = true;
-    			for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-    			    if (autoRegT1004CargoArray[i].getMaRqstSw() == 'Y') {
-    				onlyHPEApp = false;
-    			    }
-    			}
-    			if (onlyHPEApp == false) {
-    			    dcAutoProcCargo.setAutoPopStatusInd('R');
-    			    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
-    			}
-    		    } else {
-    			dcAutoProcCargo.setAutoPopStatusInd('R');
-    			dcAutoProcCargo.setAutoPopStatusDt(currentTime);
-    		    }
-    		}
-    		
-    		dcAutoProcColl.update(dcAutoProcColl);
-    		log(7, "AutoRegistrationBO.updateAutoRegTriggerTable() :: Data updated Successfully");
-    		return true;
-    	} catch (Exception e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateAutoRegTriggerTable(): " + "\n" + e.getMessage() + "\n", e);
-    	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_IA, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-    	    throw e;
-    	} finally {
-    	    dcAutoProcColl = null;
-    	    dcAutoProcCargo = null;
-    	}
-    }
-    
-    public boolean updateAutoRegExcpTable(String appNum, String appExcpCd, String statusCd) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateAutoRegExcpTable() ");
-	ArAutoRegExcpCollection arAutoRegExcpColl = null;
-	ArAutoRegExcpCargo arAutoRegExcpCargo = new ArAutoRegExcpCargo();
-	ArAutoRegExcpCargo[] arAutoRegExcpArray = null;
-	
-	try {
-	    arAutoRegExcpColl = new ArAutoRegExcpCollection(connection);
-	    
-	    Object arAutoRegExcp[] = { appNum };
-	    arAutoRegExcpArray = (ArAutoRegExcpCargo[]) arAutoRegExcpColl.select("findByAppNum", arAutoRegExcp);
-	    
-	    if (arAutoRegExcpArray == null || arAutoRegExcpArray.length == 0) {
-		arAutoRegExcpCargo.setAppNum(appNum);
-		if (appExcpCd != null && appExcpCd.trim() != "") {
-		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
-		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_CR)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CR_DESC); 			    
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_CT)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CT_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_MQ)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_MQ_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_FC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_FC_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DA)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DA_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_RE)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_RE_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AC_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PC_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PA)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PA_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PE)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PE_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AD)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AD_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_SH)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_SH_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DB)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DB_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IS)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IS_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IR)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IR_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IC_DESC);
-		    
+	    log(7, "AutoRegistrationBO.appREDECheck() :- redePotentialMatch -" + redePotentialMatch);
+	    if (redePotentialMatch.equalsIgnoreCase("Y")) {
+		
+		log(7, "AutoRegistrationBO.appREDECheck() :- redePotentialMatch is Y");
+		/*long empID = 0;
+		String trackNum = null;
+		trackNum = autoRegT1001Cargo.getSsAppNum();
+		if (trackNum == null) {
+		    trackNum = "0";
 		}
-		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
-		arAutoRegExcpCargo.setAutoRegCreateDt(currentTime);
-		arAutoRegExcpCargo.setAutoRegExceptCount(1);
+		empID = retrieveIntakeVirtualWkrId(autoRegT1001Cargo.getOfcNum());
+		ArREDEBO arREDEBO = new ArREDEBO(connection);*/
 		
-		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
-		arAutoRegExcpColl.insert(arAutoRegExcpColl);
-		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data inserted Successfully " + appNum);
-	    } else {
-		
-		arAutoRegExcpCargo = arAutoRegExcpArray[0];
-		if (appExcpCd != null && appExcpCd.trim() != "") {
-		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
-		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_CR)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CR_DESC);  
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_CT)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CT_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_MQ)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_MQ_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_FC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_FC_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DA)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DA_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_RE)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_RE_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AC_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PC_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PA)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PA_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PE)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PE_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AD)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AD_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_SH)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_SH_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DB)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DB_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IS)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IS_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IR)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IR_DESC);
-		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IC)
-			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IC_DESC);
+		// Updating Existing Indv ids in T1004
+		//remove as part of Program Add ER 228036
+		/*for (Object key : appIndvMap.keySet()) {
+		    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+			if (((Integer) key) == autoRegT1004CargoArray[i].getIndvSeqNum() && (Long) appIndvMap.get(key) != 0L) {
+			    autoRegT1004CargoArray[i].setBridgesIndvId((Long) appIndvMap.get(key));
+			    T1004Coll.add(autoRegT1004CargoArray[i]);
+			    break;
+			}
+		    }
 		}
-		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
-		arAutoRegExcpCargo.setAutoRegUpdateDt(currentTime);
-		arAutoRegExcpCargo.setAutoRegExceptCount(arAutoRegExcpCargo.getAutoRegExceptCount() + 1);
+		T1004Coll.update(T1004Coll);*/
 		
-		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
-		arAutoRegExcpColl.update(arAutoRegExcpColl);
-		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data updated Successfully " + appNum);
+		//ILIES-239765 : Application should fail with Active Case if any individual has potential REDE
+		createEDMTask(appNum);
+		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL,  AppRegConstants.AUTO_REG_PROCESS_AC, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+		return false;
+		
 	    }
+	    
 	    return true;
+	} catch (Exception ex) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.appREDECheck() appNum: " + appNum + "\n" + ex.getMessage() + "\n", ex);
+	    throw ex;
+	}
+    }
+    
+    public boolean hpeAppAssociation(String progType, String ssAppnum, String hpeNum, long caseNum, Timestamp certDate, java.sql.Timestamp rcvDt, char dcReady) throws TIERSValidationException, Exception {
+	
+	log(7, "Begin AutoRegistrationBO.hpeAppAssociation() ");
+	ArHpeAssociationCargo cargo = new ArHpeAssociationCargo();
+	ArHpeAssociationCollection coll = new ArHpeAssociationCollection(connection);
+	ArHpeAssociationCargo[] cargoArray = null;
+	
+	try {
 	    
-	} catch (Exception e) {
-	    hasExceptionOccurred = true;
-		log(ILog.ERROR, "Exception while inserting data into AutoRegistrationBO.updateAutoRegExcpTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    throw e;
+	    FwCalendar calendar = FwCalendar.getInstance();
+	    FwDate date = calendar.getDate();
+	    java.sql.Timestamp timeStamp = date.getTimestamp();
+	    if (progType.equals("MA")) {
+		Object appNumArgs[] = { hpeNum };
+		cargoArray = (ArHpeAssociationCargo[]) coll.select("findByHpeAppNum", appNumArgs);
+		if (cargoArray == null || cargoArray.length == 0) {
+		    return false;
+		} else {
+		    cargo = cargoArray[0];
+		}
+		coll.clear();
+	    }
+	    
+	    if (progType.equals("HPE")) {
+		cargo.setHpeAppNum(ssAppnum);
+		cargo.setMaAppNum(hpeNum);
+		if (autoRegT1060HPECargoArray != null && autoRegT1060HPECargoArray.length > 0) {
+		    cargo.setHpeBegDt(autoRegT1060HPECargoArray[0].getHpeBeginDt());
+		}
+	    } else {
+		cargo.setMaAppNum(ssAppnum);
+	    }
+	    cargo.setMaAppRcvDt(rcvDt);
+	    if (dcReady == 'Y') {
+		cargo.setDcReady(dcReady);
+	    }
+	    
+	    if (caseNum != 0) {
+		
+		if (certDate != null) {
+		    cargo.setHpeTriggerStatusCd("CP");
+		    cargo.setHpeTriggerDt(timeStamp);
+		    cargo.setHpeEndDt(certDate);
+		    cargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		    cargo.setCreateDt(timeStamp);
+		    
+		} else {
+		    cargo.setHpeTriggerStatusCd("AC");
+		    cargo.setHpeEndDt(getMaxDate());
+		    cargo.setHpeTriggerDt(timeStamp);
+		    cargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		    cargo.setCreateDt(timeStamp);
+		    
+		}
+	    } else {// app cannot be certified
+		cargo.setHpeTriggerStatusCd("AC");
+		cargo.setHpeEndDt(getMaxDate());
+		cargo.setHpeTriggerDt(timeStamp);
+		cargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		cargo.setCreateDt(timeStamp);
+	    }
+	    if (progType.equals("HPE")) {
+		log(7, "AutoRegistrationBO.hpeAppAssociation() :: Inserting HPE applications");
+		coll.setCargo(cargo);
+		coll.insert(coll);
+	    } else {
+		log(7, "AutoRegistrationBO.hpeAppAssociation() :: Updating HPE applications");
+		coll.setCargo(cargo);
+		coll.update(coll);
+	    }
+	    
+	    return true;
+	} catch (Exception ex) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.hpeAppAssociation() ssAppnum: " + ssAppnum + "  caseNum: " + caseNum + "\n" + ex.getMessage() + "\n", ex);
+	    throw ex;
 	} finally {
-	    arAutoRegExcpColl = null;
-	    arAutoRegExcpCargo = null;
-	    arAutoRegExcpArray = null;
+	    cargo = null;
+	    coll = null;
+	    cargoArray = null;
 	}
     }
-    
-    public boolean updateAutoRegExcpTable(String appNum, String appExcpCd, String statusCd, int excpCount) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.updateAutoRegExcpTable() ");
-    	ArAutoRegExcpCollection arAutoRegExcpColl = null;
-    	ArAutoRegExcpCargo arAutoRegExcpCargo = new ArAutoRegExcpCargo();
-    	ArAutoRegExcpCargo[] arAutoRegExcpArray = null;
-    	
-    	try {
-    	    arAutoRegExcpColl = new ArAutoRegExcpCollection(connection);
-    	    
-    	    Object arAutoRegExcp[] = { appNum };
-    	    arAutoRegExcpArray = (ArAutoRegExcpCargo[]) arAutoRegExcpColl.select("findByAppNum", arAutoRegExcp);
-    	    
-    	    if (arAutoRegExcpArray == null || arAutoRegExcpArray.length == 0) {
-    		arAutoRegExcpCargo.setAppNum(appNum);
-    		if (appExcpCd != null && appExcpCd.trim() != "") {
-    		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
-    		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
-    			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);
-    		}
-    		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
-    		arAutoRegExcpCargo.setAutoRegCreateDt(currentTime);
-    		arAutoRegExcpCargo.setAutoRegExceptCount(excpCount);
-    		
-    		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
-    		arAutoRegExcpColl.insert(arAutoRegExcpColl);
-    		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data inserted Successfully " + appNum);
-    	    } else {
-    		
-    		arAutoRegExcpCargo = arAutoRegExcpArray[0];
-    		if (appExcpCd != null && appExcpCd.trim() != "") {
-    		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
-    		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
-    			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);    		    
-    		}
-    		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
-    		arAutoRegExcpCargo.setAutoRegUpdateDt(currentTime);
-    		arAutoRegExcpCargo.setAutoRegExceptCount(excpCount);
-    		
-    		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
-    		arAutoRegExcpColl.update(arAutoRegExcpColl);
-    		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data updated Successfully " + appNum);
-    	    }
-    	    return true;
-    	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception while inserting data into AutoRegistrationBO.updateAutoRegExcpTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	} finally {
-	    arAutoRegExcpColl = null;
-	    arAutoRegExcpCargo = null;
-	    arAutoRegExcpArray = null;
-	}
-    }
-    
-    public boolean getDataForAutoRegProcess(String appNum, boolean autoRegCheck) throws Exception {
-	log(7, "AutoRegistrationBO.getDataForAutoRegProcess() started ");
-	currentTime = new java.sql.Timestamp(System.currentTimeMillis());
+
+    public boolean updateHpeEligDetailsIndvTableForMAApps(String appNum) throws TIERSValidationException, Exception {
 	
-	T1001AppRqstCollection t1001Coll = new T1001AppRqstCollection(connection);
-	T1001AppRqstCargo t1001Cargo = new T1001AppRqstCargo();
-	T1001AppRqstCargo[] t1001CargoArray = null;
-	
-	T1002AppDtlCollection t1002Coll = new T1002AppDtlCollection(connection);
-	T1002AppDtlCargo t1002Cargo = new T1002AppDtlCargo();
-	T1002AppDtlCargo[] t1002CargoArray = null;
-	
-	T1004AppIndvCargo t1004Cargo = new T1004AppIndvCargo();
-	T1004AppIndvCargo[] t1004CargoArray = null;
-	
-	T1003AppPrirSrvCollection t1003SrvColl = new T1003AppPrirSrvCollection(connection);
-	T1004AppIndvCollection t1004Coll = new T1004AppIndvCollection(connection);
-	T1060_APP_IN_HPECollection t1060_APP_IN_HPEColl = new T1060_APP_IN_HPECollection(connection);
-	T1060_APP_IN_HPECargo[] t1060HPECargoArray = null;
-	
-	log(ILog.DEBUG, "Initialising EDMWebserviceVO..." + appNum);
-	dmWebserviceVO = new DMElectronicDocumentSSVO();
-	Map speciallInd = new HashMap();
-	
+	log(7, "Begin AutoRegistrationBO.updateHpeEligDetailsIndvTableForMAApps() ");
+	ArHpeEligDetailIndvCargo arHpeEligDetailIndvCargo = null;
+	ArHpeEligDetailIndvCollection arHpeEligDetailIndvColl = new ArHpeEligDetailIndvCollection(connection);
+	ArHpeEligDetailIndvCargo[] arHpeEligDetailIndvCargoArray = null;
 	try {
 	    
 	    Object appNumArgs[] = { appNum };
-	    
-	    t1001Cargo.setAppNum(appNum);
-	    t1001Coll.setCargo(t1001Cargo);
-	    t1001CargoArray = (T1001AppRqstCargo[]) t1001Coll.select("findByAppNum");
-	    if (t1001CargoArray == null || t1001CargoArray.length == 0)
-		return false;
-	    else
-		t1001Cargo = t1001CargoArray[0];
-	    if (t1001Cargo == null)
-		return false;
-	    t1002CargoArray = (T1002AppDtlCargo[]) t1002Coll.select("findAppDtlByAppNum", appNumArgs);
-	    if (t1002CargoArray == null || t1002CargoArray.length == 0)
-		return false;
-	    else
-		t1002Cargo = t1002CargoArray[0];
-	    
-	    t1004CargoArray = (T1004AppIndvCargo[]) t1004Coll.select("findByAppNum", appNumArgs);
-	    t1060HPECargoArray = (T1060_APP_IN_HPECargo[]) t1060_APP_IN_HPEColl.select("findByAppNum", appNumArgs);
-	    
-	    DMElectronicDocumentWSBO dmBO = new DMElectronicDocumentWSBO(connection); //Langauge SPD
-		String langCd = t1001Cargo.getLangCd();
-		if(StringUtils.isNotEmpty(langCd) && !("0".equalsIgnoreCase(langCd))){
-		String langSI = dmBO.getLangSPD(langCd);
-			List<String> languageSplInd = new ArrayList<String>();
-			languageSplInd.add(langSI);
-			speciallInd.put(langSI, languageSplInd);
-		}
-	    
-	    dmWebserviceVO.setAppNum(appNum);
-	    if (t1001Cargo.getSopDueDt() != null) {
-		dmWebserviceVO.setDueDate(t1001Cargo.getSopDueDt().toString());
-	    } else {
-		dmWebserviceVO.setDueDate(currentTime.toString());
-	    }
-	    
-	    String pid = null;
-	    String htmlPid = null;
-	    pid = t1001Cargo.getPId();
-	    if (pid != null && !pid.trim().equals("")) {
-		dmWebserviceVO.setDocumentId(pid);
-	    } else {
-		dmWebserviceVO.setDocumentId(appNum);
-	    }
-	    htmlPid = t1001Cargo.getHtmlPId();
-	    if (htmlPid != null && !htmlPid.trim().equals("")) {
-		dmWebserviceVO.setHtmlPid(htmlPid);
-	    }
-	    dmWebserviceVO.setReceivedDate(t1001Cargo.getAppRcvDt().toString());
-	    dmWebserviceVO.setScanDate(dmWebserviceVO.getReceivedDate());
-	    
-	    dmWebserviceVO.setDestinationOfficeNum(new Long(t1001Cargo.getOfcNum()));
-	    dmWebserviceVO.setScannedOfficeNum(new Long(t1001Cargo.getOfcNum()));
-	    if (t1004CargoArray != null && t1004CargoArray.length > 0) {
-		for (int k = 0; k < t1004CargoArray.length; k++) {
-		    T1004AppIndvCargo cargo = t1004CargoArray[k];
-		    if (cargo != null && cargo.getPrimPrsnSw() == 'Y') {
-			dmWebserviceVO.setClientFirstName(cargo.getFstNam());
-			dmWebserviceVO.setClientLastName(cargo.getLastNam());
-			dmWebserviceVO.setClientMidName(cargo.getMidInit());
-		    }
-		}
-	    }
-	    
-	    // For SSA Source
-	    if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MSP)) {
-		appSSAMSPCategory = true;
-		dmWebserviceVO.setSourceTypeCode(AppRegConstants.AUTO_REG_MSP);
-		
-		// code for Task creation
-		ArrayList cashSplInd = new ArrayList();
-		cashSplInd.add("MSP");
-		if (cashSplInd != null) {
-		    speciallInd.put("MSP", cashSplInd);
-		}
-		
-		dmWebserviceVO.setSplIndicator(speciallInd);
-		
-	    } // For FFM Source
-	    else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MA)) {
-		appMACategory = true;
-		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
-		
-		// Code for Task creation
-		if (t1001Cargo.getSopDueDt() == null) {
+	    arHpeEligDetailIndvCargoArray = (ArHpeEligDetailIndvCargo[]) arHpeEligDetailIndvColl.select("findByAppNum", appNumArgs);
+	    arHpeEligDetailIndvColl.clear();
+	    if (arHpeEligDetailIndvCargoArray != null && arHpeEligDetailIndvCargoArray.length > 0) {
+		for (int i = 0; i < arHpeEligDetailIndvCargoArray.length; i++) {
+		    arHpeEligDetailIndvCargo = new ArHpeEligDetailIndvCargo();
+		    arHpeEligDetailIndvCargo = arHpeEligDetailIndvCargoArray[i];
+		    arHpeEligDetailIndvCargo.setHpeEndDt(getMaxDate());
 		    
-		    if (t1001Cargo.getAppRcvDt() != null) {
-			INUtility inUtil = new INUtility();
-			dmWebserviceVO.setDueDate((inUtil.addDays(t1001Cargo.getAppRcvDt(), 14)).toString());
-		    }
+		    arHpeEligDetailIndvColl.add(arHpeEligDetailIndvCargo);
 		}
 		
-		T3004AppProgramSplIndCollection t3004Coll = new T3004AppProgramSplIndCollection(connection);
-		T3004AppProgramSplIndCargo cargo = null;
-		T3004AppProgramSplIndCargo[] t3004CargoArray = (T3004AppProgramSplIndCargo[]) t3004Coll.select("findByAppNum", appNumArgs);
-		if (t3004CargoArray != null || t3004CargoArray.length > 0) {
-		    cargo = t3004CargoArray[0];
-		    ArrayList maSplInd = new ArrayList();
-		    maSplInd.add(cargo.getSplIndCd());
-		    if (maSplInd != null) {
-			speciallInd.put(AppRegConstants.AUTO_REG_MA, maSplInd);
-		    }
-		}
+		arHpeEligDetailIndvColl.update(arHpeEligDetailIndvColl);
 		
-		dmWebserviceVO.setSplIndicator(speciallInd);
-		dmWebserviceVO.setEntityTypeIndicator(DMConstants.DMNO);
-		dmWebserviceVO.setDocumentTitle(DMConstants.SELFSERVICE);
-		
-			}// SSA - LIS MSP changes : ILIES-291947
-			else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(DMConstants.SELFSERVICE_LIS)) {
-				appSSALISMSPCategory = true;
-				dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE_LIS);
-				// code for Task creation
-				ArrayList mcSplInd = new ArrayList();
-				 mcSplInd.add("MSP");
-				if (mcSplInd != null) {
-					speciallInd.put("MC", mcSplInd);
-				}
-				dmWebserviceVO.setSplIndicator(speciallInd);
-			}
-			// For ABE Source
-			else if (t1001Cargo.getAppMode() != null&& (t1001Cargo.getAppMode().equals(AppRegConstants.SS_APP_MODE) || t1001Cargo.getAppMode().equals(AppRegConstants.HP_APP_MODE))) {
-		
-		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
-		
-		if (t1002Cargo == null)
-		    return false;
-		
-		if (t1002Cargo.getFsRqstSw() == 'Y' || t1002Cargo.getCashRqstSw() == 'Y' || t1002Cargo.getMaRqstSw() == 'Y' || t1002Cargo.getMcRqstSw() == 'Y' || t1002Cargo.getFppRqstSw() == 'Y') {
-		    
-		    if (t1002Cargo.getFsRqstSw() == 'Y') {
-			appSNAPCategory = true;
-			
-			// for Task creation
-			ArrayList fapSplInd = new ArrayList();
-			if (t1001Cargo.getExpeditedFapSw() == 'Y') {
-			    fapSplInd.add("EX");
-			} else {
-			    fapSplInd.add("NE");
-			}
-			if (fapSplInd != null) {
-			    speciallInd.put("FS", fapSplInd);
-			}
-		    }
-		    
-		    if (t1002Cargo.getMaRqstSw() == 'Y') {
-			
-			appMACategory = true;
-			
-			T1060_APP_IN_HPECargo t1060HPECargo = null;
-			if (t1060HPECargoArray != null && t1060HPECargoArray.length > 0)
-			    t1060HPECargo = t1060HPECargoArray[0];
-			
-			if (t1060HPECargo != null) {
-			    appHPECategory = true;
-			}
-			
-			for (int i = 0; i < t1004CargoArray.length; i++) {
-			    t1004Cargo = t1004CargoArray[i];
-			    
-			    boolean age = false;
-			    java.sql.Timestamp indvdbrthDt = t1004Cargo.getBrthDt();
-			    age = ageCheck(indvdbrthDt);
-			    if (appHPECategory) {
-				boolean hpeIndv = false;
-				for (int j = 0; j < t1060HPECargoArray.length; j++) {
-				    if (t1060HPECargoArray[j].getIndvSeqNum() == t1004Cargo.getIndvSeqNum()) {
-					hpeIndv = true;
-				    }
-				}
-				
-				if (!hpeIndv && t1004Cargo.getMaRqstSw() == 'Y' && age) {
-				    appCPECategory = true;
-				    break;
-				}
-			    } else if (age && t1004Cargo.getMaRqstSw() == 'Y') {
-				appCPECategory = true;
-				break;
-			    }
-			}
-			ArrayList maSplInd = new ArrayList();
-			maSplInd.add(AppRegConstants.AUTO_REG_MA);
-			if (maSplInd != null) {
-			    speciallInd.put(AppRegConstants.AUTO_REG_MA, maSplInd);
-			}
-		    }
-		    
-		    //Family Planning Application getting data process.
-			if (t1002Cargo.getFppRqstSw() == 'Y') {
-				appFPCategory = true;
-				
-				//CPE/HPE is not needed for FP only application
-		
-				ArrayList fpaSplInd = new ArrayList();
-				fpaSplInd.add(AppRegConstants.AUTO_REG_FPA);
-				//FP has been introduced to the system to identify Family Planning applications 
-				if (fpaSplInd != null) {
-					speciallInd.put(AppRegConstants.AUTO_REG_FPA,fpaSplInd);
-				}
-			}
-
-			if (t1002Cargo.getMcRqstSw() == 'Y') {
-				appMSPCategory = true;
-				// ILIES-289161
-				// code for Task creation
-				ArrayList mcSplInd = new ArrayList();
-				mcSplInd.add("MSP");
-				if (mcSplInd != null) {
-				    speciallInd.put("MC", mcSplInd);
-				}
-		    }
-		    if (t1002Cargo.getCashRqstSw() == 'Y') {
-			appCashCategory = true;
-			
-			// code for Task creation
-			ArrayList cashSplInd = new ArrayList();
-			cashSplInd.add("TF");
-			if (cashSplInd != null) {
-			    speciallInd.put("TF", cashSplInd);
-			}
-		    }
-		} else {
-		    // Clde for MPE Check
-		    T1001SsAppMpeCollection t1001SsAppMpeColl = new T1001SsAppMpeCollection(connection);
-		    T1001SSAppMpeCargo[] t1001SsAppMpeArray = (T1001SSAppMpeCargo[]) t1001SsAppMpeColl.select("findAppDtlByAppNum", appNumArgs);
-		    
-			if (t1001SsAppMpeArray != null && t1001SsAppMpeArray.length > 0) {
-				appMPECategory = true; //Keeping this as TRUE would allow other validations to run
-				appFPPECategory = t1001SsAppMpeArray[0].getAppType() != null && "FPPE".equalsIgnoreCase(t1001SsAppMpeArray[0].getAppType());
-				// code for Task Creation
-				dmWebserviceVO.setSourceTypeCode(appFPPECategory ? DMConstants.FP_PRESUMPTIVE_ELIGIBILITY : DMConstants.MEDICAID_PRESUMPTIVE_ELIGIBILITY);
-				ArrayList mPESplInd = new ArrayList();
-				mPESplInd.add(ARConstants.PM);
-				speciallInd.put(ARConstants.PM, mPESplInd);
-				dmWebserviceVO.setSplIndicator(speciallInd);
-				// TODO special indicator for FPPE is same as MPE.
-
-				Map sopCriteria = new HashMap();
-				Timestamp applicationDate = t1001Cargo.getAppRcvDt();
-				sopCriteria.put(SelfServiceBrokerConstants.APPLICATION_DATE,applicationDate);
-				Timestamp sopDueDate = computeSopDueDate(sopCriteria);
-
-				if (sopDueDate != null) {
-					dmWebserviceVO.setDueDate(sopDueDate.toString());
-				}
-				autoRegT1001SSAppMpeCargo = t1001SsAppMpeArray[0];
-			}
-		}
-		// for HPE
-		if (t1060HPECargoArray != null && t1060HPECargoArray.length > 0) {
-		    appHPECategory = true;
-		    if (t1002Cargo.getMaRqstSw() == 'Y') {
-			hpe_pid = t1001Cargo.getHpePId();
-			if (hpe_pid == null || hpe_pid.trim().equals("")) {
-			    hpe_pid = appNum + "_HPE";
-			}
-			
-			hpe_html_pid = t1001Cargo.getHpeHtmlPId();
-			if (hpe_html_pid == null || hpe_html_pid.trim().equals("")) {
-			    hpe_html_pid = appNum + "_HPE";
-			}
-		    }
-		    // code for Task Creation
-		    ArrayList hpeSplInd = new ArrayList();
-		    hpeSplInd.add("HPE");
-		    speciallInd.put("HPE", hpeSplInd);
-		}
-		dmWebserviceVO.setSplIndicator(speciallInd);
-	    }
-	    
-	    if (autoRegCheck) {
-		autoRegT1001Cargo = t1001Cargo;
-		autoRegT1002Cargo = t1002Cargo;
-		autoRegT1004CargoArray = t1004CargoArray;
-		autoRegT1060HPECargoArray = t1060HPECargoArray;
-	    }
-	    
-	} catch (Exception e) {
-	    hasExceptionOccurred = true;
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.getDataForAutoRegProcess() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    throw e;
-	} finally {
-	    t1001Coll = null;
-	    t1001Cargo = null;
-	    t1001CargoArray = null;
-	    t1003SrvColl = null;
-	    t1004Coll = null;
-	    t1004Cargo = null;
-	    t1004CargoArray = null;
-	    t1060_APP_IN_HPEColl = null;
-	    t1002Coll = null;
-	    t1002Cargo = null;
-	    t1002CargoArray = null;
-	}
-	return true;
-    }
-    
-    /**
-     * This method mciFileClearanceCheck is used to check the validations for Auto registration
-     * 
-     * @param appNum
-     * @return
-     * @throws Exception
-     */
-    public boolean mciFileClearanceCheck(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.mciFileClearanceCheck() " + appNum);
-	
-	ArFileClearanceBO fileClrBO = new ArFileClearanceBO(connection);
-	int indvCount = 0;
-	try {
-	    if (autoRegT1004CargoArray == null || autoRegT1004CargoArray.length == 0) {
-		return false;
-	    }
-	    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-		T1004AppIndvCargo t1004AppIndvCargo = autoRegT1004CargoArray[i];
-		
-		if (t1004AppIndvCargo.getBrthDt() == null || t1004AppIndvCargo.getSexInd() == '0' || (t1004AppIndvCargo.getFstNam() == null || t1004AppIndvCargo.getFstNam().trim().length() == 0) || (t1004AppIndvCargo.getLastNam() == null || t1004AppIndvCargo.getLastNam().trim().length() == 0)) {
-		    return false;
-		}
-		
-		DcIndvCargo dcIndvCargo = new DcIndvCargo();
-		dcIndvCargo.setDobDt(t1004AppIndvCargo.getBrthDt());
-		dcIndvCargo.setGenderCd(t1004AppIndvCargo.getSexInd());
-		dcIndvCargo.setFirstName(t1004AppIndvCargo.getFstNam());
-		dcIndvCargo.setLastName(t1004AppIndvCargo.getLastNam());
-		
-		boolean check1 = true;
-		boolean ssnCheck1 = true;
-		
-		CvDcMciIndvCollection cvDcMciIndvCollection1 = fileClrBO.fileClear(dcIndvCargo, "search-name");
-		log(7, "AutoRegistrationBO.mciFileClearanceCheck() :Check111 -- FIRST CALL FILE_CLEARANCE: " + cvDcMciIndvCollection1);
-		if (cvDcMciIndvCollection1 != null) {
-		    log(7, "AutoRegistrationBO.mciFileClearanceCheck() --call1-cvDcMciIndvCollection1.size --" + cvDcMciIndvCollection1.size());
-		    for (int j = 0; j < cvDcMciIndvCollection1.size(); j++) {
-			CvDcMciIndvCargo cvDcMciIndvCargo = cvDcMciIndvCollection1.getResults(j);
-			log(7, "AutoRegistrationBO.mciFileClearanceCheck() --call1-cvDcMciIndvCargo.getHistorySeq() --" + cvDcMciIndvCargo.getHistorySeq());
-			if (cvDcMciIndvCargo.getHistorySeq() == 100) {
-			    check1 = false;
-			    if (t1004AppIndvCargo.getSsnNum() != 0) {
-				log(7, "AutoRegistrationBO.mciFileClearanceCheck() --call1-cvDcMciIndvCargo.getSsn() --" + cvDcMciIndvCargo.getSsn());
-				if (t1004AppIndvCargo.getSsnNum() == cvDcMciIndvCargo.getSsn()) {
-				    // Associate to Existing Individual
-				    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-				    PMDRules.markApprovedStatement("R10");
-				    indvMap.put((int) t1004AppIndvCargo.getIndvSeqNum(), cvDcMciIndvCargo.getIndvId());
-				    log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClear --call1-IndvSeqNum --" + t1004AppIndvCargo.getIndvSeqNum() + "--Existing Individual--" + cvDcMciIndvCargo.getIndvId());
-				    ssnCheck1 = false;
-				} else {
-				    log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClear --call1-Indv SSN is not equal --" + cvDcMciIndvCargo.getIndvId());
-				    // return false;
-				}
-			    } else {
-				log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClear --call1-t1004AppIndvCargo.getSsnNum() is null or 0 --Failing the application");
-				return false;
-			    }
-			}
-		    }
-		    if (check1 == false && ssnCheck1 == true) {
-			log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClearAutoReg --call1-Indv info 100% matched But SSN not matched --Failing the application");
-			return false;
-		    }
-		    
-		}
-		boolean check2 = true;
-		boolean ssnCheck2 = true;
-		if (check1) {
-		    CvDcMciIndvCollection cvDcMciIndvCollection2 = fileClrBO.fileClearAutoReg(dcIndvCargo, "search-name");
-		    log(7, "AutoRegistrationBO.mciFileClearanceCheck() Check222 -- FIRST CALL FILE_CLEARANCE: " + cvDcMciIndvCollection2);
-		    
-		    if (cvDcMciIndvCollection2 != null && cvDcMciIndvCollection2.size() > 0) {
-			log(7, "AutoRegistrationBO.mciFileClearanceCheck() --Call2-cvDcMciIndvCollection2.size --" + cvDcMciIndvCollection2.size());
-			for (int j = 0; j < cvDcMciIndvCollection2.size(); j++) {
-			    CvDcMciIndvCargo cvDcMciIndvCargo = cvDcMciIndvCollection2.getResults(j);
-			    log(7, "AutoRegistrationBO.mciFileClearanceCheck() --Call2-cvDcMciIndvCargo.getHistorySeq() --" + cvDcMciIndvCargo.getHistorySeq());
-			    if (cvDcMciIndvCargo.getHistorySeq() == 100) {
-				check2 = false;
-				if (t1004AppIndvCargo.getSsnNum() != 0) {
-				    log(7, "AutoRegistrationBO.mciFileClearanceCheck() --Call2-cvDcMciIndvCargo.getSsn() --" + cvDcMciIndvCargo.getSsn());
-				    if (t1004AppIndvCargo.getSsnNum() == cvDcMciIndvCargo.getSsn()) {
-					// Associate to Existing Individual
-					// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-					PMDRules.markApprovedStatement("R10");
-					indvMap.put((int) t1004AppIndvCargo.getIndvSeqNum(), cvDcMciIndvCargo.getIndvId());
-					log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClearAutoReg --Call2-IndvSeqNum --" + t1004AppIndvCargo.getIndvSeqNum() + "--Existing Individual--" + cvDcMciIndvCargo.getIndvId());
-					ssnCheck2 = false;
-				    } else {
-					log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClearAutoReg --Call2-Indv SSN is not equal -" + cvDcMciIndvCargo.getIndvId());
-				    }
-				} else {
-				    log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClearAutoReg --Call2-t1004AppIndvCargo.getSsnNum() is null or 0 --Failing the application");
-				    return false;
-				}
-			    }
-			}
-			if (check2 == false && ssnCheck2 == true) {
-			    log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClearAutoReg --Call2-Indv info 100% matched But SSN not matched --Failing the application");
-			    return false;
-			}
-		    } else {
-		    	if (t1004AppIndvCargo.getSsnNum() != 0) {
-		    		if(checkSSNFileClearance(t1004AppIndvCargo)){
-			    		log(7, "AutoRegistrationBO.mciFileClearanceCheck() check 4b ---SSN already file cleared and exists in CV_DC_MCI_INDV table --");
-				    	return false;
-			    	}
-		    	} 
-		    	
-	    		// Create New Individual
-	    		// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-	    		PMDRules.markApprovedStatement("R10");
-	    		indvMap.put((int) t1004AppIndvCargo.getIndvSeqNum(), 0L);
-	    		log(7, "AutoRegistrationBO.mciFileClearanceCheck() -22--SSN not matched --" + t1004AppIndvCargo.getIndvSeqNum() + "--New Individual");
-	    		indvCount++;
-		    }
-		    if (check2 && cvDcMciIndvCollection2 != null && cvDcMciIndvCollection2.size() > 0) {
-			boolean check3 = true;
-			if (t1004AppIndvCargo.getSsnNum() != 0) {
-			    for (int j = 0; j < cvDcMciIndvCollection2.size(); j++) {
-				CvDcMciIndvCargo cvDcMciIndvCargo = cvDcMciIndvCollection2.getResults(j);
-				if (t1004AppIndvCargo.getSsnNum() == cvDcMciIndvCargo.getSsn()) {
-				    
-				    log(7, "AutoRegistrationBO.mciFileClearanceCheck() 22---SSN is same--failing app --");
-				    return false;
-				}
-			    }
-			    if(checkSSNFileClearance(t1004AppIndvCargo)){
-			    	log(7, "AutoRegistrationBO.mciFileClearanceCheck() ---SSN already file cleared and exists in CV_DC_MCI_INDV table --");
-				    return false;
-			    }
-			    // Create New Individual
-			    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-			    PMDRules.markApprovedStatement("R10");
-			    indvMap.put((int) t1004AppIndvCargo.getIndvSeqNum(), 0L);
-			    log(7, "AutoRegistrationBO.mciFileClearanceCheck() -22--SSN not matched --" + t1004AppIndvCargo.getIndvSeqNum() + "--New Individual");
-			    indvCount++;
-			    check2 = false;
-			    
-			} else {
-				
-				//ILIES-235625 - Auto Registration - File Clearance not exceptioning correctly -- 
-				//failing auto app if there is no ssn on input record for scenario where IIR returns multiple records with no 100% match
-				log(7, "AutoRegistrationBO.mciFileClearanceCheck() :fileClearAutoReg :: check3b --Call2-t1004AppIndvCargo.getSsnNum() is null or 0 --Failing the application");
-			    return false;
-			    
-				/*
-			    // Create New Individual
-			    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-			    PMDRules.markApprovedStatement("R10");
-			    indvMap.put((int) t1004AppIndvCargo.getIndvSeqNum(), 0L);
-			    log(7, "AutoRegistrationBO.mciFileClearanceCheck() -22--SSN not provided for input individual --" + t1004AppIndvCargo.getIndvSeqNum() + "--New Individual");
-			    indvCount++;
-			    check2 = false;
-			    */
-			}
-			
-		    } else {
-	    	if(checkSSNFileClearance(t1004AppIndvCargo)){
-		    	log(7, "AutoRegistrationBO.mciFileClearanceCheck() ---SSN already file cleared and exists in CV_DC_MCI_INDV table --");
-			    return false;
-		    }
-			// Create New Individual
-			// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-			PMDRules.markApprovedStatement("R10");
-			indvMap.put((int) t1004AppIndvCargo.getIndvSeqNum(), 0L);
-			log(7, "AutoRegistrationBO.mciFileClearanceCheck() -22--Results not found for the call2 --" + t1004AppIndvCargo.getIndvSeqNum() + "--New Individual");
-			indvCount++;
-			check2 = false;
-		    }
-		}
-	    }
-	    if (indvCount == autoRegT1004CargoArray.length) {
-		indvMCIcheck = false;
-		log(7, "AutoRegistrationBO.mciFileClearanceCheck() -----All are New Individuals");
 	    }
 	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.mciFileClearanceCheck() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    if (e instanceof TIERSValidationException && ((TIERSValidationException) e).getExceptionCode() != null) {
-		if (((TIERSValidationException) e).getExceptionCode().contains("12025")) {
-			log(ILog.ERROR, "AutoRegistrationBO.mciFileClearanceCheck():  =======   ERROR IN SOCKET   ======  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-		    keepProcessing = false;
-		    throw e;
-		} else if (((TIERSValidationException) e).getExceptionCode().contains("12026")) {
-			log(ILog.ERROR, "AutoRegistrationBO.mciFileClearanceCheck():  =======    WRONG INPUT    ======  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-		    return false;
-		} else {
-			log(ILog.ERROR, "AutoRegistrationBO.mciFileClearanceCheck():  =======    UNKNOWN ERROR    ======  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-		    keepProcessing = false;
-		    throw e;
-		}
-	    } else if (e instanceof TIERSRunTimeException) {
-			log(ILog.ERROR, "TIERSRunTimeException in AutoRegistrationBO.mciFileClearanceCheck():  =======   ERROR IN SOCKET   ======  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-			throw e;
-	    }
+	} catch (Exception ex) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateHpeEligDetailsIndvTableForMAApps() appNum: " + appNum + "\n" + ex.getMessage() + "\n", ex);
+	    throw ex;
+	} finally {
+	    arHpeEligDetailIndvCargo = null;
+	    arHpeEligDetailIndvColl = null;
+	    arHpeEligDetailIndvCargoArray = null;
+	}
+    }
+    
+    public boolean updateArHpeEligDetailForMAApps(String appNum) throws TIERSValidationException, Exception {
+	
+	log(7, "Begin AutoRegistrationBO.updateArHpeEligDetailForMAApps() ");
+	ArHpeEligDetailCargo arHpeEligDetailCargo = new ArHpeEligDetailCargo();
+	ArHpeEligDetailCollection arHpeEligDetailColl = new ArHpeEligDetailCollection(connection);
+	ArHpeEligDetailCargo[] arHpeEligDetailCargoArray = null;
+	try {
 	    
+	    arHpeEligDetailCargo.setAppNum(appNum);
+	    arHpeEligDetailColl.add(arHpeEligDetailCargo);
+	    arHpeEligDetailCargoArray = (ArHpeEligDetailCargo[]) arHpeEligDetailColl.select("findUserByAppNum");
+	    arHpeEligDetailColl.clear();
+	    if (arHpeEligDetailCargoArray != null && arHpeEligDetailCargoArray.length > 0) {
+		for (int i = 0; i < arHpeEligDetailCargoArray.length; i++) {
+		    arHpeEligDetailCargo = new ArHpeEligDetailCargo();
+		    arHpeEligDetailCargo = arHpeEligDetailCargoArray[i];
+		    arHpeEligDetailCargo.setHpeEndDt(getMaxDate());
+		    
+		    arHpeEligDetailColl.add(arHpeEligDetailCargo);
+		}
+		
+		arHpeEligDetailColl.update(arHpeEligDetailColl);
+		
+	    }
+	    return true;
+	} catch (Exception ex) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArHpeEligDetailForMAApps() appNum: " + appNum + "\n" + ex.getMessage() + "\n", ex);
+	    throw ex;
+	} finally {
+	    arHpeEligDetailCargo = null;
+	    arHpeEligDetailColl = null;
+	    arHpeEligDetailCargoArray = null;
+	}
+    }
+    
+    public boolean updateHpeEligDetailsIndvTable(String appNum, ArrayList<Long> extIndvList) throws TIERSValidationException, Exception {
+	
+	log(7, "Begin AutoRegistrationBO.updateHpeEligDetailsIndvTable() ");
+	ArHpeEligDetailIndvCargo arHpeEligDetailIndvCargo = null;
+	ArHpeEligDetailIndvCollection arHpeEligDetailIndvColl = new ArHpeEligDetailIndvCollection(connection);
+	ArHpeEligDetailIndvCargo[] arHpeEligDetailIndvCargoArray = null;
+	try {
+	    
+	    for (int i = 0; i < extIndvList.size(); i++) {
+		arHpeEligDetailIndvCargo = new ArHpeEligDetailIndvCargo();
+		arHpeEligDetailIndvCargo.setIndvId(extIndvList.get(i));
+		arHpeEligDetailIndvCargo.setAppNum(appNum);
+		arHpeEligDetailIndvColl.clear();
+		arHpeEligDetailIndvColl.add(arHpeEligDetailIndvCargo);
+		arHpeEligDetailIndvCargoArray = (ArHpeEligDetailIndvCargo[]) arHpeEligDetailIndvColl.select("findByAppIndvId");
+		if (arHpeEligDetailIndvCargoArray != null && arHpeEligDetailIndvCargoArray.length > 0) {
+		    arHpeEligDetailIndvCargo = arHpeEligDetailIndvCargoArray[0];
+		    arHpeEligDetailIndvCargo.setHpeEligSw('N');
+		    arHpeEligDetailIndvColl.clear();
+		    arHpeEligDetailIndvColl.add(arHpeEligDetailIndvCargo);
+		    arHpeEligDetailIndvColl.update(arHpeEligDetailIndvColl);
+		    
+		}
+	    }
+	    return true;
+	} catch (Exception ex) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateHpeEligDetailsIndvTable() appNum: " + appNum + "\n" + ex.getMessage() + "\n", ex);
+	    throw ex;
+	} finally {
+	    arHpeEligDetailIndvCargo = null;
+	    arHpeEligDetailIndvColl = null;
+	}
+    }
+    
+    public boolean isValidHpeApp(String appNum) throws TIERSValidationException, Exception {
+	log(7, "Begin AutoRegistrationBO.isValidHpeApp() ");
+	try {
+	    ArHpeAssociationCargo[] assocCargos = null;
+	    ArHpeAssociationCollection assocColl = new ArHpeAssociationCollection(connection);
+	    Object[] args = new Object[1];
+	    args[0] = appNum;
+	    assocCargos = (ArHpeAssociationCargo[]) assocColl.select("findByAppNum", args);
+	    if (assocCargos != null && assocCargos.length > 0) {
+		ArHpeAssociationCargo hpeCargo = assocCargos[0];
+		if (hpeCargo.getMaAppNum() != null && hpeCargo.getMaAppNum().equals(hpeCargo.getHpeAppNum())) {
+		    // ma app = hpe app means unassociated HPE/MA app
+		    return true;
+		}
+		ArAppProgramCargo progCargo = new ArAppProgramCargo();
+		ArAppProgramCargo[] progCargos = null;
+		ArAppProgramCollection progColl = new ArAppProgramCollection(connection);
+		progCargo.setAppNum(appNum);
+		progColl.add(progCargo);
+		progCargos = (ArAppProgramCargo[]) progColl.select("findByAppNum");
+		if (progCargos != null && progCargos.length > 0) {
+		    if (hpeCargo.getHpeTriggerStatusCd() != null) {
+			if (hpeCargo.getHpeTriggerStatusCd().equals("PM")) {
+			    // potential match detected
+			    ArrayList errorList = new ArrayList();
+			    ArrayList places = new ArrayList();
+			    errorList.add("This application is currently Potentially Matched to " + hpeCargo.getPotMaAppNum() + ". Please confirm or decline the Potential Match in the EDM Inbox");
+			    throw new TIERSValidationException(errorList, places);
+			}
+			if (hpeCargo.getMaAppNum() == null) {
+			    // no association. combined app
+			    return true;
+			}
+			if (!hpeCargo.getMaAppNum().equals(hpeCargo.getHpeAppNum())) {
+			    // HPE/MA app that has an association. Do not go to DC
+			    ArrayList errorList = new ArrayList();
+			    ArrayList places = new ArrayList();
+			    errorList.add("This HPE/MA application is associated to another MA application/case, please complete Data Collection with the associated MA application.");
+			    throw new TIERSValidationException(errorList, places);
+			}
+		    }
+		} else {
+		    // no HPE/MA app
+		}
+		if (hpeCargo.getDcReady() != 0 && hpeCargo.getDcReady() == 'Y') {
+		    return true;
+		}
+	    } else {
+		// not HPE application
+		return true;
+	    }
 	    return false;
+	} catch (ApplicationException ape) {
+		log(ILog.ERROR, "Exception [ApplicationException] in AutoRegistrationBO.isValidHpeApp() appNum: " + appNum + "\n" + ape.getMessage() + "\n", ape);
+	    throw ape;
+	} catch (Exception ex) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.isValidHpeApp() appNum: " + appNum + "\n" + ex.getMessage() + "\n", ex);
+	    throw ex;
 	}
     }
