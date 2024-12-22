@@ -1,627 +1,12 @@
-public boolean autoRegUpdate(String appNum, Connection conn) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.autoRegPEUpdate() " + appNum);
-    	try {
-    	    
-    		updateArAppforAidTable(appNum);
-    	    if (autoRegScheduledSw == 'Y') {
-    		if ((autoRegT1002Cargo.getFsRqstSw() == 'Y' || autoRegT1002Cargo.getCashRqstSw() == 'Y')) {
-    		    log(7, "Auto schedule appointments - Auto Reg");
-    		    if (autoRegShAppCargo != null) {
-    			log(7, autoRegShAppCargo.toString());
-    		    } else {
-    			log(7, "autoRegShAppCargo is null!");
-    		    }
-    		    updateShAppointmentsTable();
-    		    updateShAppointmentProgramsTable();
-    		    generateCorrespondance(appNum, DIConstants.DOC_ID_FXX412, "", this.con);
-    		}
-    	    }
-    	    
-    	    return true;
-    	    
-    	} catch (Exception e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegUpdate() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-    	    hasExceptionOccurred = true;
-    	    if (this.con != null) {
-    		this.con.rollback();
-    	    }
-    	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-    	    if (this.con != null) {
-    		this.con.commit();
-    	    }
-    	    throw e;
-    	}
-       }
-    
-    
-    public boolean autoRegPEUpdate(String appNum, Connection conn) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.autoRegPEUpdate() " + appNum);
-    	try {
-    	    
-    	     if (appMACategory) {
-    				updateArCpeEligDetailTable(appNum);
-    				cpeMMISTrigger(appNum);
-    		}
-    		
-
-    	    if (appHPECategory) {
-    		
-    		if (autoRegT1060HPECargoArray != null && autoRegT1060HPECargoArray.length > 0) {
-    		    updateArHpeEligDetailTable(autoRegT1060HPECargoArray[0]);
-    		    updateArHpeEligDetailIndvTable(autoRegT1060HPECargoArray);
-    		    updateArHpeAssociationTable(autoRegT1060HPECargoArray[0]);
-    		}
-    		if (this.con != null) {
-    			this.con.commit();
-    		    }
-    		// Adding message to queue for IRDB web service call
-    		sendMessageToIRDBQueue(appNum);
-    		generateCorrespondance(appNum, DIConstants.DOC_ID_FXX418, "HPE", this.con);
-    		hpeMMISTrigger(appNum);
-    	    }
-    	    
-    	    if (appMPECategory || appFPPECategory) {
-    	    	String status=updateArMpeEligDetailTable(); //Pre-filling for MPE or FPPE tables
-	    		if("P7true".equalsIgnoreCase(status)){
-	    			generateCorrespondance(appNum, DIConstants.DOC_ID_FXX421, "MPE", this.con);
-	    		}else if("P7false".equalsIgnoreCase(status) && !appFPPECategory){
-	    			generateCorrespondance(appNum, DIConstants.DOC_ID_FXX418, "MPE", this.con);
-		    		mpeMMISTrigger(appNum);
-	    		}else if("P7false".equalsIgnoreCase(status) && appFPPECategory){
-	    			fppeMMISTrigger(appNum);
-	    		}
-    	    }
-    	    
-    	    return true;
-    	    
-    	} catch (Exception e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegPEUpdate() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-    	    hasExceptionOccurred = true;
-    	    if (this.con != null) {
-    		this.con.rollback();
-    	    }
-    	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-    	    if (this.con != null) {
-    		this.con.commit();
-    	    }
-    	    throw e;
-    	}
-       }
-    
-    
-    public long generateIndvId() throws Exception {
-	log(7, "Begin AutoRegistrationBO.generateIndvId() ");
-	DcIndvCollection primaryKeyColl = new DcIndvCollection(connection);
-	DcIndvCargo dcIndvCargo = new DcIndvCargo();
-	DcIndvCargo[] dcIndCarArray = null;
-	
-	try {
-	    
-	    primaryKeyColl.setCargo(dcIndvCargo);
-	    dcIndCarArray = (DcIndvCargo[]) primaryKeyColl.select("findByRetrievePrimaryKey");
-	    if (dcIndCarArray != null && dcIndCarArray.length > 0) {
-		dcIndvCargo.setIndvId(dcIndCarArray[0].getIndvId());
-	    }
-	    String finalResult = "";
-	    if (dcIndvCargo.getIndvId() != 0) {
-		String calcValue = "";
-		String countString = "";
-		countString = String.valueOf("" + dcIndvCargo.getIndvId());
-		int countDigits = countString.trim().length();
-		if (countDigits < 9) {
-		    ArrayList vMesg = new ArrayList();
-		    ArrayList vEmpty = new ArrayList();
-		    vMesg.add("21592");
-		    throw new TIERSValidationException(vMesg, vEmpty);
-		}
-		calcValue = calculatedValue(dcIndvCargo.getIndvId());
-		if (!(calcValue.equals("10"))) {
-		    if (calcValue.equals("11"))
-			calcValue = "0";
-		    finalResult = String.valueOf(dcIndvCargo.getIndvId()) + calcValue;
-		} else {
-		    do {
-			dcIndvCargo.setIndvId(0);
-			primaryKeyColl.setCargo(dcIndvCargo);
-			dcIndCarArray = (DcIndvCargo[]) primaryKeyColl.select("findByRetrievePrimaryKey");
-			if (dcIndCarArray != null && dcIndCarArray.length > 0) {
-			    dcIndvCargo.setIndvId(dcIndCarArray[0].getIndvId());
-			}
-			calcValue = calculatedValue(dcIndvCargo.getIndvId());
-		    } while (calcValue.equals("10"));
-		    if (calcValue.equals("11"))
-			calcValue = "0";
-		    finalResult = String.valueOf(dcIndvCargo.getIndvId()) + calcValue;
-		}
-		
-	    }
-	    return Long.parseLong(finalResult);
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.generateIndvId():" + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    primaryKeyColl = null;
-	    dcIndvCargo = null;
-	    dcIndCarArray = null;
-	}
-    }
-    
-    /**
-     * Method calculatedValue takes the individualId passed and processes the MCI. Check Digit Logic and returns the calculated value.
-     * 
-     * @param individualId
-     *            -- contains the individual number
-     * @return String -- returns the calculated value
-     */
-    public String calculatedValue(long individualId) {
-	String testString = "";
-	testString = String.valueOf("" + individualId);
-	int sumSequence = 0, remainderSeq = 0;
-	String calcValue = null;
-	int[] numArray = new int[9];
-	for (int i = 0; i < 9; i++) {
-	    numArray[i] = Character.getNumericValue(testString.charAt(i));
-	}
-	for (int i = 0; i < 9; i++) {
-	    sumSequence += (9 - i) * numArray[i];
-	}
-	remainderSeq = sumSequence % 11;
-	calcValue = String.valueOf(11 - remainderSeq);
-	
-	return calcValue;
-    }
-    
-    public boolean updateT1004AppIndvTable(T1004AppIndvCargo t1004Cargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateT1004AppIndvTable() ");
-	T1004AppIndvCollection t1004AppIndvColl = null;
-	
-	try {
-	    
-	    t1004AppIndvColl = new T1004AppIndvCollection(connection);
-	    if (t1004Cargo == null) {
-		return false;
-	    }
-	    t1004AppIndvColl.setCargo(t1004Cargo);
-	    t1004AppIndvColl.select("updateBatchIndByAppNum");
-	    
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateT1004AppIndvTable():" + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    t1004AppIndvColl = null;
-	}
-    }
-    
-    public boolean updateSsInterfacesSummaryTable(HashMap<Integer, String> ssaValidationSwMap) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateSsInterfacesSummaryTable() ");
-	SsInterfacesSummaryCargo ssIntSummaryCargo = null;
-	SsInterfacesSummaryCollection ssIntSummaryColl = new SsInterfacesSummaryCollection(connection);
-	
-	SsAbeInterfacesSummaryCargo ssAbeIntSummaryCargo = new SsAbeInterfacesSummaryCargo();
-	SsAbeInterfacesSummaryCollection ssAbeInterfacesSummaryCollection = new SsAbeInterfacesSummaryCollection(connection);
-	SsAbeInterfacesSummaryCargo[] ssAbeIntSummaryCargoArray = null;
-	
-	try {
-	    
-	    Object args[] = { autoRegT1001Cargo.getSsAppNum() };
-	    ssAbeIntSummaryCargoArray = (SsAbeInterfacesSummaryCargo[]) ssAbeInterfacesSummaryCollection.select("findByAppNumAndMaxRunDate", args);
-	    log(7, "AutoRegistrationBO.updateSsInterfacesSummaryTable() :: SsAbeInterfacesSummaryDao.findByAppNumAndMaxRunDate() called");
-	    if (ssAbeIntSummaryCargoArray != null && ssAbeIntSummaryCargoArray.length > 0) {
-		log(7, "AutoRegistrationBO.updateSsInterfacesSummaryTable() :: ssAbeIntSummaryCargoArray.length---" + ssAbeIntSummaryCargoArray.length);
-		for (int i = 0; i < ssAbeIntSummaryCargoArray.length; i++) {
-		    for (int j = 0; j < autoRegT1004CargoArray.length; j++) {
-			if (ssAbeIntSummaryCargoArray[i].getIndvSeqNum() == autoRegT1004CargoArray[j].getIndvSeqNum()) {
-			    log(7, "AutoRegistrationBO.updateSsInterfacesSummaryTable() :: autoRegT1004CargoArray[i].getBridgesIndvId()--" + autoRegT1004CargoArray[i].getBridgesIndvId());
-			    ssAbeIntSummaryCargo = ssAbeIntSummaryCargoArray[i];
-			    
-			    ssIntSummaryCargo = new SsInterfacesSummaryCargo();
-			    ssIntSummaryCargo.setAwvsLastUpdatedDt(ssAbeIntSummaryCargo.getAwvsLastUpdatedDt());
-			    ssIntSummaryCargo.setTwnEmpMstRecHireDt(ssAbeIntSummaryCargo.getTwnEmpMstRecHireDt());
-			    ssIntSummaryCargo.setKidsEmpInfoFoundInd(ssAbeIntSummaryCargo.getKidsEmpInfoFoundInd());
-			    ssIntSummaryCargo.setSummarySsn(ssAbeIntSummaryCargo.getSummarySsn());
-			    ssIntSummaryCargo.setKidsChildSupportInfoFoundInd(ssAbeIntSummaryCargo.getKidsChildSupportInfoFoundInd());
-			    ssIntSummaryCargo.setRegistrationNum(ssAbeIntSummaryCargo.getRegistrationNum());
-			    ssIntSummaryCargo.setTwnNumOfEmpyr(ssAbeIntSummaryCargo.getTwnNumOfEmpyr());
-			    ssIntSummaryCargo.setDrsLastUpdatedDt(ssAbeIntSummaryCargo.getDrsLastUpdatedDt());
-			    ssIntSummaryCargo.setAwvsYearNum(ssAbeIntSummaryCargo.getAwvsYearNum());
-			    ssIntSummaryCargo.setSolqSsnVerificationStsFlg(ssAbeIntSummaryCargo.getSolqSsnVerificationStsFlg());
-			    ssIntSummaryCargo.setKidsChildInfoFoundInd(ssAbeIntSummaryCargo.getKidsChildInfoFoundInd());
-			    ssIntSummaryCargo.setSsaSummarySeqNo(ssAbeIntSummaryCargo.getSsaSummarySeqNo());
-			    ssIntSummaryCargo.setSosSeqNum(ssAbeIntSummaryCargo.getSosSeqNum());
-			    ssIntSummaryCargo.setLawfulPresenceLastUpdatedDt(ssAbeIntSummaryCargo.getLawfulPresenceLastUpdatedDt());
-			    ssIntSummaryCargo.setSummaryDobDt(ssAbeIntSummaryCargo.getSummaryDobDt());
-			    ssIntSummaryCargo.setDrsDisqualificationPresentInd(ssAbeIntSummaryCargo.getDrsDisqualificationPresentInd());
-			    ssIntSummaryCargo.setTwnLastUpdatedDt(ssAbeIntSummaryCargo.getTwnLastUpdatedDt());
-			    ssIntSummaryCargo.setDrsSeqNum(ssAbeIntSummaryCargo.getDrsSeqNum());
-			    ssIntSummaryCargo.setCreateDt(currentTime);
-			    ssIntSummaryCargo.setSsaIncarcerationInd(ssAbeIntSummaryCargo.getSsaIncarcerationInd());
-			    ssIntSummaryCargo.setSsaLastUpdatedDt(ssAbeIntSummaryCargo.getSsaLastUpdatedDt());
-			    ssIntSummaryCargo.setSsaSsnVerificationInd(ssAbeIntSummaryCargo.getSsaSsnVerificationInd());
-			    ssIntSummaryCargo.setSosStatusFlg(ssAbeIntSummaryCargo.getSosStatusFlg());
-			    ssIntSummaryCargo.setSsGender(ssAbeIntSummaryCargo.getSsGender());
-			    ssIntSummaryCargo.setLastName(ssAbeIntSummaryCargo.getLastName());
-			    ssIntSummaryCargo.setKidsLastUpdatedDt(ssAbeIntSummaryCargo.getKidsLastUpdatedDt());
-			    ssIntSummaryCargo.setSsaLawfulPresenceInd(ssAbeIntSummaryCargo.getSsaLawfulPresenceInd());
-			    ssIntSummaryCargo.setSevisId(ssAbeIntSummaryCargo.getSevisId());
-			    ssIntSummaryCargo.setTplvSeqNum(ssAbeIntSummaryCargo.getTplvSeqNum());
-			    ssIntSummaryCargo.setUniqueTransId(ssAbeIntSummaryCargo.getUniqueTransId());
-			    ssIntSummaryCargo.setSolqLastUpdatedDt(ssAbeIntSummaryCargo.getSolqLastUpdatedDt());
-			    ssIntSummaryCargo.setAwvsAmt(ssAbeIntSummaryCargo.getAwvsAmt());
-			    ssIntSummaryCargo.setSolqTitle16CurNmpAmt(ssAbeIntSummaryCargo.getSolqTitle16CurNmpAmt());
-			    ssIntSummaryCargo.setTwnEmpPayDt(ssAbeIntSummaryCargo.getTwnEmpPayDt());
-			    ssIntSummaryCargo.setFirstName(ssAbeIntSummaryCargo.getFirstName());
-			    ssIntSummaryCargo.setTwnEmpyrInfoFndSw(ssAbeIntSummaryCargo.getTwnEmpyrInfoFndSw());
-			    ssIntSummaryCargo.setSosLastUpdatedDt(ssAbeIntSummaryCargo.getSosLastUpdatedDt());
-			    ssIntSummaryCargo.setTwnActEmpyrSw(ssAbeIntSummaryCargo.getTwnActEmpyrSw());
-			    ssIntSummaryCargo.setTplvSegCount(ssAbeIntSummaryCargo.getTplvSegCount());
-			    ssIntSummaryCargo.setLawfulPresenceVerifiedInd(ssAbeIntSummaryCargo.getLawfulPresenceVerifiedInd());
-			    ssIntSummaryCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			    ssIntSummaryCargo.setSsaIdentityVerificationInd(ssAbeIntSummaryCargo.getSsaIdentityVerificationInd());
-			    ssIntSummaryCargo.setAwvsQuarterInd(ssAbeIntSummaryCargo.getAwvsQuarterInd());
-			    ssIntSummaryCargo.setSolqSeqNum(ssAbeIntSummaryCargo.getSolqSeqNum());
-			    ssIntSummaryCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
-			    ssIntSummaryCargo.setKidsSeqNum(ssAbeIntSummaryCargo.getKidsSeqNum());
-			    ssIntSummaryCargo.setDocumentType(ssAbeIntSummaryCargo.getDocumentType());
-			    ssIntSummaryCargo.setKidsChildSupportExpensesFoundInd(ssAbeIntSummaryCargo.getKidsChildSupportExpensesFoundInd());
-			    ssIntSummaryCargo.setAwvsSeqNum(ssAbeIntSummaryCargo.getAwvsSeqNum());
-			    ssIntSummaryCargo.setRunDt(ssAbeIntSummaryCargo.getRunDt());
-			    ssIntSummaryCargo.setSsaCitizenshipInd(ssAbeIntSummaryCargo.getSsaCitizenshipInd());
-			    ssIntSummaryCargo.setSolqTitle2CurNmpAmt(ssAbeIntSummaryCargo.getSolqTitle2CurNmpAmt());
-			    ssIntSummaryCargo.setLawfulPresenceSeqNum(ssAbeIntSummaryCargo.getLawfulPresenceSeqNum());
-			    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-			    PMDRules.markApprovedStatement("R10");
-			    ssaValidationSwMap.put((int) ssAbeIntSummaryCargo.getIndvSeqNum(), "" + ssAbeIntSummaryCargo.getSsaIdentityVerificationInd());
-			    
-			    SsInterfacesSummaryCollection ssIntSummaryTempColl = new SsInterfacesSummaryCollection(connection);
-			    ssIntSummaryTempColl.add(ssIntSummaryCargo);
-			    SsInterfacesSummaryCargo[] ssIntSummaryCargoArray = (SsInterfacesSummaryCargo[]) ssIntSummaryTempColl.select("findByIndvIdAndRunDt");
-			    if (ssIntSummaryCargoArray == null || ssIntSummaryCargoArray.length == 0) {
-				log(7, "AutoRegistrationBO.updateSsInterfacesSummaryTable() :: Inserting data into Ss_Interfaces_Summary table: Indv ID--" + ssIntSummaryCargo.getIndvId() + "--Run date--" + ssIntSummaryCargo.getRunDt());
-				ssIntSummaryColl.add(ssIntSummaryCargo);
-			    } else {
-				log(7, "AutoRegistrationBO.updateSsInterfacesSummaryTable() :: Duplicate data--" + ssIntSummaryCargo.getIndvId() + "--Run date--" + ssIntSummaryCargo.getRunDt());
-			    }
-			}
-		    }
-		}
-		ssIntSummaryColl.insert(ssIntSummaryColl);
-	    }
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateSsInterfacesSummaryTable():" + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    ssIntSummaryCargo = null;
-	    ssIntSummaryColl = null;
-	    ssAbeIntSummaryCargo = null;
-	    ssAbeInterfacesSummaryCollection = null;
-	    ssAbeIntSummaryCargoArray = null;
-	    
-	}
-    }
-    
-    public String getEthnicity(T1006AppInPermdCargo t1006AppInPermdCargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.getEthnicity() ");
-	
-	try {
-	    String ethnicity = "";
-	    if (t1006AppInPermdCargo.getPrInd() != '0') {
-		ethnicity = "PR";
-	    } else if (t1006AppInPermdCargo.getMexInd() != '0') {
-		ethnicity = "MX";
-	    } else if (t1006AppInPermdCargo.getCubInd() != '0') {
-		ethnicity = "CU";
-	    } else if (t1006AppInPermdCargo.getHspcInd() != '0') {
-		ethnicity = "HS";
-	    } else if (t1006AppInPermdCargo.getNonHspcInd() != null && t1006AppInPermdCargo.getNonHspcInd().equals("N")) {
-		ethnicity = "NH";
-	    } else if (t1006AppInPermdCargo.getOtherEthnicityInd() != '0'){
-		ethnicity = "OC";
-	    }else if(t1006AppInPermdCargo.getPreferNotAnswerInd() != '0'){
-	    ethnicity = "PN";
-	    }else{
-	    ethnicity = "UK";
-	    }
-	    
-	    return ethnicity;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.getEthnicity():" + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-    }
-    
-    public String getRaceCode(T1006AppInPermdCargo t1006AppInPermdCargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.getRaceCode() ");
-	
-	try {
-	    String RaceCode = "";
-	    if (t1006AppInPermdCargo.getAiInd() != '0') {
-		RaceCode = "AI";
-	    } else if (t1006AppInPermdCargo.getBlkInd() != '0') {
-		RaceCode = "AA";
-	    } else if (t1006AppInPermdCargo.getWhtInd() != '0') {
-		RaceCode = "WH";
-	    } else if (t1006AppInPermdCargo.getAsiaInd() != '0') {
-		RaceCode = "AS";
-	    } else if (t1006AppInPermdCargo.getPacIslInd() != '0') {
-		RaceCode = "OP";
-	    } else if (t1006AppInPermdCargo.getNatHawInd() != '0') {
-		RaceCode = "NH";
-	    } else if (t1006AppInPermdCargo.getAsIndnInd() != '0') {
-		RaceCode = "AD";
-	    } else if (t1006AppInPermdCargo.getChiInd() != '0') {
-		RaceCode = "CH";
-	    } else if (t1006AppInPermdCargo.getFilInd() != '0') {
-		RaceCode = "FI";
-	    } else if (t1006AppInPermdCargo.getGuamInd() != '0') {
-		RaceCode = "GC";
-	    } else if (t1006AppInPermdCargo.getJpInd() != '0') {
-		RaceCode = "JP";
-	    } else if (t1006AppInPermdCargo.getKorInd() != '0') {
-		RaceCode = "KO";
-	    } else if (t1006AppInPermdCargo.getSamInd() != '0') {
-		RaceCode = "SA";
-	    } else if (t1006AppInPermdCargo.getVtInd() != '0') {
-		RaceCode = "VT";
-	    } else if (t1006AppInPermdCargo.getEthUnkInd() != '0') {
-		RaceCode = "UK";
-	    } else if (t1006AppInPermdCargo.getAsianAmericanInd() != '0'){
-	    RaceCode = "AM";
-	    } else if (t1006AppInPermdCargo.getMidEastNorthAfrInd() != '0'){
-	    RaceCode = "ME";
-	    } else if (t1006AppInPermdCargo.getOtherRaceAloneInd() != '0'){
-	    RaceCode = "OT";
-	    } else {
-		RaceCode = "UK";
-	    }
-	    
-	    return RaceCode;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.getRaceCode():" + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-    }
-    
-    public void updateMSPCountyCd(String countyCd, String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateMSPCountyCd() for County Cd:: "+countyCd);
-	T1001AppRqstCargo t1001Cargo = new T1001AppRqstCargo();
-	T1001AppRqstCollection coll = new T1001AppRqstCollection(connection);
-	T1001AppRqstCargo[] t1001AppRqstCargoArray = null;
-	try {
-		t1001Cargo.setAppNum(appNum);
-		coll.setCargo(t1001Cargo);
-		t1001AppRqstCargoArray = (T1001AppRqstCargo[]) coll.select("findByAppNum");
-		if(t1001AppRqstCargoArray != null && t1001AppRqstCargoArray.length > 0){
-			t1001AppRqstCargoArray[0].setCntyNum(Long.valueOf(countyCd));
-			coll.clear();
-			coll.setCargo(t1001AppRqstCargoArray[0]);
-			coll.update(coll);
-			log(7, "Update done in T1001_App_Rqst for County Cd:: "+countyCd);
-		}
-		
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateMSPCountyCd() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-		hasExceptionOccurred = true;
-		throw e;
-	}finally{
-		t1001Cargo = null;
-		coll = null;
-		t1001AppRqstCargoArray = null;
-	}
-    }
-
-    public boolean updateDcIndvTable(HashMap<Integer, String> ssaValidationSwMap, HashMap<Integer, String> legacyIndvMap, T1006AppInPermdCargo[] t1006AppInPermdCargoArray) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateDcIndvTable() ");
-	DcIndvCargo dcIndvCargo = null;
-	DcIndvCollection dcIndvColl = new DcIndvCollection(connection);
-	T1004AppIndvCargo t1004Cargo = null;
-	int currentCargo = -1;
-	try {
-	    
-	    if (autoRegT1004CargoArray == null || autoRegT1004CargoArray.length == 0) {
-		return false;
-	    }
-	    if (indvMap == null || indvMap.size() == 0) {
-		return false;
-	    }
-	    int size = autoRegT1004CargoArray.length;
-	    if (mSPAppStatus == null && t1006AppInPermdCargoArray.length != size) {
-		return false;
-	    }
-	    
-	    for (int i = 0; i < size; i++) {
-		currentCargo = i;
-		t1004Cargo = autoRegT1004CargoArray[i];
-		if (indvMap.containsKey((int) t1004Cargo.getIndvSeqNum()) && indvMap.get((int) t1004Cargo.getIndvSeqNum()) == 0) {
-		    
-		    dcIndvCargo = new DcIndvCargo();
-		    dcIndvCargo.setChipSeqNum(0);
-		    dcIndvCargo.setClaimedSsn(0);
-		    dcIndvCargo.setCreateDt(currentTime);
-		    dcIndvCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    dcIndvCargo.setDeleteSw('N');
-		    dcIndvCargo.setFedRcgnzdIndianTribeSw('N');
-		    dcIndvCargo.setFileClearanceSw('Y');
-		    dcIndvCargo.setInactiveInd('N');
-		    dcIndvCargo.setDobDt(t1004Cargo.getBrthDt());
-		    if (mSPAppStatus == null) {
-			// ILIES-194873
-			if (appMPECategory || appFPPECategory) {
-			    dcIndvCargo.setEthnicityCd("UK");
-			    dcIndvCargo.setRaceCd("UK");
-			} else {
-			    dcIndvCargo.setEthnicityCd(getEthnicity(t1006AppInPermdCargoArray[i]));
-			    dcIndvCargo.setRaceCd(getRaceCode(t1006AppInPermdCargoArray[i]));
-			}
-		    }
-		    
-		    // ERJA new fields for sex, gender indigenous status
-		    if(t1006AppInPermdCargoArray[i].getGenderIdentity() != null){
-		    	String value = GENDER_IDENTITY_MAP.get(t1006AppInPermdCargoArray[i].getGenderIdentity());
-		    	dcIndvCargo.setGenderIdentity(value != null ? value : "");
-		    }
-		    if(t1006AppInPermdCargoArray[i].getGenderIdentityDetails() != null){
-		    	dcIndvCargo.setGenderIdentityDetails(t1006AppInPermdCargoArray[i].getGenderIdentityDetails());
-		    }
-		    if(t1006AppInPermdCargoArray[i].getSexAtBirth() != null){
-		    	String value = SEX_AT_BIRTH_MAP.get(t1006AppInPermdCargoArray[i].getSexAtBirth());
-		    	dcIndvCargo.setSexAtBirth(value != null ? value : "");
-		    }
-		    if(t1006AppInPermdCargoArray[i].getSexAtBirthDetails() != null){
-		    	dcIndvCargo.setSexAtBirthDetails(t1006AppInPermdCargoArray[i].getSexAtBirthDetails());
-		    }
-		    if(t1006AppInPermdCargoArray[i].getSexualOrientation() != null){
-		    	String value = SEXUAL_ORIENTATION_MAP.get(t1006AppInPermdCargoArray[i].getSexualOrientation());
-		    	dcIndvCargo.setSexualOrientation(value != null ? value : "");
-		    }
-		    if(t1006AppInPermdCargoArray[i].getSexualOrientationDetails() != null){
-		    	dcIndvCargo.setSexualOrientationDetails(t1006AppInPermdCargoArray[i].getSexualOrientationDetails());
-		    }
-		    if(!Character.toString(t1006AppInPermdCargoArray[i].getIndigenousStatus()).equals(null)){
-		    	dcIndvCargo.setIndigenousStatus(t1006AppInPermdCargoArray[i].getIndigenousStatus());
-		    }
-		    // ERJA new fields for sex, gender indigenous status ends
-		    
-		    dcIndvCargo.setFirstName(t1004Cargo.getFstNam());
-		    dcIndvCargo.setLastName(t1004Cargo.getLastNam());
-		    if (t1004Cargo.getMidInit() != null) {
-			dcIndvCargo.setMidName(t1004Cargo.getMidInit().trim());
-		    }
-		    dcIndvCargo.setGenderCd(t1004Cargo.getSexInd());
-		    dcIndvCargo.setIndvId(t1004Cargo.getBridgesIndvId());
-		    if (legacyIndvMap.containsKey((int) t1004Cargo.getIndvSeqNum())) {
-			// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-			PMDRules.markApprovedStatement("R10");
-			dcIndvCargo.setLegacyIndvId(legacyIndvMap.get((int) t1004Cargo.getIndvSeqNum()));
-		    }
-		    dcIndvCargo.setSsn(t1004Cargo.getSsnNum());
-		    dcIndvCargo.setGenderCd(t1004Cargo.getSexInd());
-		    dcIndvCargo.setSufxName(t1004Cargo.getSfxNam());
-		    int seqNum = (int) t1004Cargo.getIndvSeqNum();
-		    if (ssaValidationSwMap.containsKey(seqNum) && ssaValidationSwMap.get(seqNum) != null && !ssaValidationSwMap.get(seqNum).equals("")) {
-			dcIndvCargo.setSsaValidationSw(ssaValidationSwMap.get(seqNum).charAt(0));
-			if (dcIndvCargo.getSsaValidationSw() == 'Y') {
-			    dcIndvCargo.setSsaVrfCd("FED");
-			} else {
-			    dcIndvCargo.setSsnVrfCd("CS");
-			}
-		    } else {
-			dcIndvCargo.setSsnVrfCd("CS");
-		    }
-		    
-		    dcIndvColl.add(dcIndvCargo);
-		}
-	    }
-	    dcIndvColl.insert(dcIndvColl);
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDcIndvTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    dcIndvCargo = null;
-	    dcIndvColl = null;
-	    t1004Cargo = null;
-	}
-    }
-    
-    public boolean updateCvDcMciIndvTable(HashMap<Integer, String> ssaValidationSwMap, HashMap<Integer, String> legacyIndvMap, T1006AppInPermdCargo[] t1006AppInPermdCargoArray) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateCvDcMciIndvTable() ");
-	CvDcMciIndvCargo cvDcMciIndvCargo = null;
-	;
-	CvDcMciIndvCollection cvDcMciIndvColl = new CvDcMciIndvCollection(connection);
-	T1004AppIndvCargo t1004Cargo = null;
+public boolean updateDcIndvSecondaryRaceTable(T1006AppInPermdCargo[] t1006AppInPermdCargoArray) throws Exception {
+	log(7, "Begin AutoRegistrationBO.updateDcIndvSecondaryRaceTable() ");
+	DcIndvSecondaryRaceCargo dcIndvSecRaceCargo = null;
+	DcIndvSecondaryRaceCollection dcIndvSecRaceColl = new DcIndvSecondaryRaceCollection(connection);
+	T1006AppInPermdCargo t1006AppInPermdCargo = null;
 	int currentCargo = -1;
 	
 	try {
 	    
-	    if (autoRegT1004CargoArray == null || autoRegT1004CargoArray.length == 0) {
-		return false;
-	    }
-	    if (indvMap == null || indvMap.size() == 0) {
-		return false;
-	    }
-	    // ILIES-183555
-	    if (mSPAppStatus == null && t1006AppInPermdCargoArray.length != autoRegT1004CargoArray.length) {
-		return false;
-	    }
-	    
-	    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-		currentCargo = i;
-		t1004Cargo = autoRegT1004CargoArray[i];
-		if (indvMap.containsKey((int) t1004Cargo.getIndvSeqNum()) && indvMap.get((int) t1004Cargo.getIndvSeqNum()) == 0) {
-		    
-		    cvDcMciIndvCargo = new CvDcMciIndvCargo();
-		    cvDcMciIndvCargo.setCreateDt(currentTime);
-		    cvDcMciIndvCargo.setCreateSystemCd("TI");
-		    cvDcMciIndvCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    cvDcMciIndvCargo.setInactiveInd('N');
-		    cvDcMciIndvCargo.setDobDt(t1004Cargo.getBrthDt());
-		    cvDcMciIndvCargo.setFirstName(t1004Cargo.getFstNam());
-		    cvDcMciIndvCargo.setLastName(t1004Cargo.getLastNam());
-		    cvDcMciIndvCargo.setMidName(t1004Cargo.getMidInit());
-		    cvDcMciIndvCargo.setGenderCd(t1004Cargo.getSexInd());
-		    cvDcMciIndvCargo.setIndvId(t1004Cargo.getBridgesIndvId());
-		    if (legacyIndvMap.containsKey((int) t1004Cargo.getIndvSeqNum())) {
-			// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-			PMDRules.markApprovedStatement("R10");
-			cvDcMciIndvCargo.setLegacyIndvId(legacyIndvMap.get((int) t1004Cargo.getIndvSeqNum()));
-		    }
-		    if (mSPAppStatus == null) {
-			if (appMPECategory || appFPPECategory) {
-			    cvDcMciIndvCargo.setEthnicityCd("UK");
-			    cvDcMciIndvCargo.setRaceCd("UK");
-			} else {
-			    cvDcMciIndvCargo.setEthnicityCd(getEthnicity(t1006AppInPermdCargoArray[i]));
-			    cvDcMciIndvCargo.setRaceCd(getRaceCode(t1006AppInPermdCargoArray[i]));
-			}
-		    }
-		    cvDcMciIndvCargo.setConversionCd('C');
-		    cvDcMciIndvCargo.setSsn(t1004Cargo.getSsnNum());
-		    cvDcMciIndvCargo.setGenderCd(t1004Cargo.getSexInd());
-		    cvDcMciIndvCargo.setSufxName(t1004Cargo.getSfxNam());
-		    int seqNum = (int) t1004Cargo.getIndvSeqNum();
-		    if (ssaValidationSwMap.containsKey(seqNum) && ssaValidationSwMap.get(seqNum) != null && !ssaValidationSwMap.get(seqNum).equals("")) {
-			cvDcMciIndvCargo.setSsaValidationSw(ssaValidationSwMap.get(seqNum).charAt(0));
-		    }
-		    
-		    cvDcMciIndvColl.add(cvDcMciIndvCargo);
-		}
-	    }
-	    cvDcMciIndvColl.insert(cvDcMciIndvColl);
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateCvDcMciIndvTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    cvDcMciIndvCargo = null;
-	    cvDcMciIndvColl = null;
-	    t1004Cargo = null;
-	    
-	}
-    }
-    
-    public boolean updateDcPregnanciesTable(HashMap<Integer, String> legacyIndvMap, T1006AppInPermdCargo[] t1006AppInPermdCargoArray) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateDcIndvTable() ");
-	DcPregnanciesCargo dcPregCargo = null;
-	DcPregnanciesCollection dcPregColl = new DcPregnanciesCollection(connection);
-	T1004AppIndvCargo t1004Cargo = null;
-	int currentCargo = -1;
-	try {
 	    if (autoRegT1004CargoArray == null || autoRegT1004CargoArray.length == 0) {
 		return false;
 	    }
@@ -631,362 +16,1171 @@ public boolean autoRegUpdate(String appNum, Connection conn) throws Exception {
 		}
 	    }
 	    
-	    if (indvMap == null || indvMap.size() == 0) {
-		return false;
-	    }
-	    int size = autoRegT1004CargoArray.length;
+	    boolean raceCount = false;
 	    
-	    for (int i = 0; i < size; i++) {
+	    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
 		currentCargo = i;
-		t1004Cargo = autoRegT1004CargoArray[i];
-		if (indvMap.containsKey((int) t1004Cargo.getIndvSeqNum()) && indvMap.get((int) t1004Cargo.getIndvSeqNum()) == 0) {
-		    if (t1006AppInPermdCargoArray[i].getPregnancySw() == 'Y') {
-			
-			dcPregCargo = new DcPregnanciesCargo();
-			dcPregCargo.setDueDt(t1006AppInPermdCargoArray[i].getPregnancyDueDt());
-			dcPregCargo.setNbrOfBirthsExpected(t1006AppInPermdCargoArray[i].getNbrOfBirthsExpected());
-			dcPregCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			dcPregCargo.setEffBeginDt(ALSOPUtil.truncate(autoRegT1001Cargo.getAppRcvDt()));
-			dcPregCargo.setReportDt(currentTime);
-			dcPregCargo.setIsProblemPregnancySw('N');
-			dcPregCargo.setDiscoveryDt(currentTime);
-			dcPregCargo.setIndvId(t1004Cargo.getBridgesIndvId());
-			dcPregCargo.setCreateDt(currentTime);
-			dcPregCargo.setExemptForWorkingCd("N");
-			dcPregCargo.setTimelySw('Y');
-			
-			dcPregColl.add(dcPregCargo);
+		t1006AppInPermdCargo = t1006AppInPermdCargoArray[i];
+		if (indvMap.containsKey((int) autoRegT1004CargoArray[i].getIndvSeqNum()) && indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()) == 0L) {
+		    boolean raceCehck = false;
+		    if (t1006AppInPermdCargo.getAiInd() != '0') {
+			raceCehck = true; // "AI";
 		    }
+		    if (t1006AppInPermdCargo.getBlkInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AA");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getWhtInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("WH");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getAsiaInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AS");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getPacIslInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("OP");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getNatHawInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("NH");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getAsIndnInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AD");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getChiInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("CH");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getFilInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("FI");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getGuamInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("GC");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getJpInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("JP");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getKorInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("KO");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getSamInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("SA");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getVtInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("VT");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getEthUnkInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("UK");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getAsianAmericanInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AM");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getMidEastNorthAfrInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("ME");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getOtherRaceAloneInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("RA");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getOther() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("OT");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    /*if (t1006AppInPermdCargo.getNoRaceSpecifiedInd() != '0') {
+			if (raceCehck) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("OT");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }*/
+		    
+		    if (raceCount) {
+			dcIndvSecRaceColl.insert(dcIndvSecRaceColl);
+			dcIndvSecRaceColl.clear();
+		    }
+		} else {
+		    
+		    log(7, "AutoRegistrationBO.updateDcIndvSecondaryRaceTable(): Adding race to existing indv--" + autoRegT1004CargoArray[i].getBridgesIndvId());
+		    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+		    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+		    PMDRules.markApprovedStatement("R10");
+		    dcIndvSecRaceCargo.setIndvId(indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()));
+		    dcIndvSecRaceColl.clear();
+		    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+		    DcIndvSecondaryRaceCargo[] dcIndvSecRaceCargoArray = (DcIndvSecondaryRaceCargo[]) dcIndvSecRaceColl.select("findByIndvId");
+		    dcIndvSecRaceColl.clear();
+		    
+		    boolean raceBlkInd = true;
+		    boolean raceWhtInd = true;
+		    boolean raceAsiaInd = true;
+		    boolean racePacIslInd = true;
+		    boolean raceNatHawInd = true;
+		    boolean raceAsIndnInd = true;
+		    boolean raceChiInd = true;
+		    boolean raceFilInd = true;
+		    boolean raceGuamInd = true;
+		    boolean raceJpInd = true;
+		    boolean raceKorInd = true;
+		    boolean raceSamInd = true;
+		    boolean raceVtInd = true;
+		    boolean raceUnkInd = true;
+		    boolean raceAsianAmericanInd = true;
+		    boolean raceMidEastNorthAfricanInd = true;
+		    boolean raceOtherRaceInd = true;
+		    boolean raceOtherRaceAloneInd = true;
+		    
+		    if (dcIndvSecRaceCargoArray != null && dcIndvSecRaceCargoArray.length > 0) {
+			log(7, "AutoRegistrationBO.updateDcIndvSecondaryRaceTable(): existing indv  Secondary Race count --" + dcIndvSecRaceCargoArray.length);
+			for (int j = 0; j < dcIndvSecRaceCargoArray.length; j++) {
+			    if ("AA".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceBlkInd = false;
+			    } else if ("WH".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceWhtInd = false;
+			    } else if ("AS".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceAsiaInd = false;
+			    } else if ("OP".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				racePacIslInd = false;
+			    } else if ("NH".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceNatHawInd = false;
+			    } else if ("AD".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceAsIndnInd = false;
+			    } else if ("CH".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceChiInd = false;
+			    } else if ("FI".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceFilInd = false;
+			    } else if ("GC".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceGuamInd = false;
+			    } else if ("JP".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceJpInd = false;
+			    } else if ("KO".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceKorInd = false;
+			    } else if ("SA".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceSamInd = false;
+			    } else if ("VT".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceVtInd = false;
+			    } else if ("UK".equals(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())) {
+				raceUnkInd = false;
+			    } else if ("AM".equalsIgnoreCase(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())){
+			    raceAsianAmericanInd = false;
+			    } else if ("ME".equalsIgnoreCase(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())){
+			    raceMidEastNorthAfricanInd = false;
+			    } else if ("OT".equalsIgnoreCase(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())){
+			    raceOtherRaceInd = false;
+			    }else if ("RA".equalsIgnoreCase(dcIndvSecRaceCargoArray[j].getSecondaryRaceCd())){
+			    raceOtherRaceAloneInd = false;
+			    }
+			}
+		    }
+		    
+		    boolean raceCehck = false;
+		    if (t1006AppInPermdCargo.getAiInd() != '0') {
+			raceCehck = true; // "AI";
+		    }
+		    if (t1006AppInPermdCargo.getBlkInd() != '0') {
+			if (raceCehck && raceBlkInd) {
+			    
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AA");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getWhtInd() != '0') {
+			if (raceCehck && raceWhtInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("WH");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getAsiaInd() != '0') {
+			if (raceCehck && raceAsiaInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AS");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getPacIslInd() != '0') {
+			if (raceCehck && racePacIslInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("OP");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getNatHawInd() != '0') {
+			if (raceCehck && raceNatHawInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("NH");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getAsIndnInd() != '0') {
+			if (raceCehck && raceAsIndnInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AD");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getChiInd() != '0') {
+			if (raceCehck && raceChiInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("CH");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getFilInd() != '0') {
+			if (raceCehck && raceFilInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("FI");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getGuamInd() != '0') {
+			if (raceCehck && raceGuamInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("GC");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getJpInd() != '0') {
+			if (raceCehck && raceJpInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("JP");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getKorInd() != '0') {
+			if (raceCehck && raceKorInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("KO");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getSamInd() != '0') {
+			if (raceCehck && raceSamInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("SA");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getVtInd() != '0') {
+			if (raceCehck && raceVtInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("VT");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			} else {
+			    raceCehck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getEthUnkInd() != '0') {
+			if (raceCehck && raceUnkInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("UK");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getAsianAmericanInd() != '0') {
+			if (raceCehck && raceAsianAmericanInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("AM");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getMidEastNorthAfrInd() != '0') {
+			if (raceCehck && raceMidEastNorthAfricanInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("ME");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getOther() != '0') {
+			if (raceCehck && raceOtherRaceInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("OT");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getOtherRaceAloneInd() != '0') {
+			if (raceCehck && raceOtherRaceAloneInd) {
+			    dcIndvSecRaceCargo = new DcIndvSecondaryRaceCargo();
+			    dcIndvSecRaceCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvSecRaceCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvSecRaceCargo.setCreateDt(currentTime);
+			    dcIndvSecRaceCargo.setSecondaryRaceCd("RA");
+			    dcIndvSecRaceColl.add(dcIndvSecRaceCargo);
+			    raceCount = true;
+			}
+		    }
+		    
+		    if (raceCount) {
+			dcIndvSecRaceColl.insert(dcIndvSecRaceColl);
+			dcIndvSecRaceColl.clear();
+		    }
+		    
 		}
+		
 	    }
-	    dcPregColl.insert(dcPregColl);
 	    return true;
 	    
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDcPregnanciesTable(): " + "\n" + e.getMessage() + "\n", e);
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDcIndvSecondaryRaceTable(): " + "\n" + e.getMessage() + "\n", e);
 	    hasExceptionOccurred = true;
 	    throw e;
 	} finally {
-	    dcPregCargo = null;
-	    dcPregColl = null;
-	    t1004Cargo = null;
+	    dcIndvSecRaceCargo = null;
+	    dcIndvSecRaceColl = null;
+	    t1006AppInPermdCargo = null;
 	}
     }
     
-    public boolean updateArApplicationForAidTable(String appNum, T1006AppInPermdCargo t1006AppInPermdCargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateArApplicationForAidTable() ");
-	ArApplicationForAidCargo arAppForAidCargo = new ArApplicationForAidCargo();
-	ArApplicationForAidCollection arAppForAidColl = new ArApplicationForAidCollection(connection);
+    public boolean updateDcIndvEthnicityTable(T1006AppInPermdCargo[] t1006AppInPermdCargoArray) throws Exception {
 	
-	T2040AppAuthRepCargo t2040AppAuthRepCargo = new T2040AppAuthRepCargo();
-	T2040AppAuthRepCollection t2040AppAuthRepCollection = new T2040AppAuthRepCollection(connection);
-	T2040AppAuthRepCargo[] t2040AppAuthRepCargoArray = null;
+	log(7, "Begin AutoRegistrationBO.updateDcIndvEthnicityTable() ");
+	DcIndvEthnicityCargo dcIndvEthnicityCargo = null;
+	DcIndvEthnicityCollection dcIndvEthnicityColl = new DcIndvEthnicityCollection(connection);
+	T1006AppInPermdCargo t1006AppInPermdCargo = null;
+	int currentCargo = -1;
 	
 	try {
 	    
-	    t2040AppAuthRepCargo.setAppNum(appNum);
-	    t2040AppAuthRepCollection.setCargo(t2040AppAuthRepCargo);
-	    t2040AppAuthRepCargoArray = (T2040AppAuthRepCargo[]) t2040AppAuthRepCollection.select("findAuthRepInfoByByAppNum");
-	    
-	    arAppForAidCargo.setApplicantHomelessSw(autoRegT1002Cargo.getHlessSw());
-	    if (mSPAppStatus != null && mSPAppStatus.equals("DP")) {
-		arAppForAidCargo.setApplicationStatusCd("DP");
-	    } else {
-		arAppForAidCargo.setApplicationStatusCd("AC");
+	    if (autoRegT1004CargoArray == null || autoRegT1004CargoArray.length == 0) {
+		return false;
+	    }
+	    if (t1006AppInPermdCargoArray == null || t1006AppInPermdCargoArray.length == 0) {
+		if (mSPAppStatus == null) {
+		    return false;
+		}
 	    }
 	    
-	    arAppForAidCargo.setApplicationSubDt(currentTime);
-	    arAppForAidCargo.setApplicationStatusDt(autoRegT1001Cargo.getAppRcvDt());
-	    arAppForAidCargo.setAppModeCd(autoRegT1001Cargo.getAppMode());
+	    boolean ethnicityCount = false;
 	    
-		arAppForAidCargo.setAppMpeSw(appMPECategory && !appFPPECategory ? 'Y' : 'N'); //MPE is Y only if FPPE is not present
-		arAppForAidCargo.setAppFppeSw(appFPPECategory ? 'Y' : 'N');
-		arAppForAidCargo.setAppForaidSw(appMPECategory || appFPPECategory ? 'N' : 'Y'); //For non-PE apps default Y
-	    arAppForAidCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-	    arAppForAidCargo.setAppRecvdDt(autoRegT1001Cargo.getAppRcvDt());
-	    arAppForAidCargo.setAppTypeCd(autoRegT1001Cargo.getAppMode());
-	    arAppForAidCargo.setCaseNum(0);
-	    arAppForAidCargo.setCreateDt(currentTime);
-	    arAppForAidCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-	    arAppForAidCargo.setEmpId(retrieveIntakeVirtualWkrId(autoRegT1001Cargo.getOfcNum()));
-	    arAppForAidCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
-	    if (null != autoRegT1001Cargo.getLangCd() && autoRegT1001Cargo.getLangCd().trim().length() > 0) {
-		arAppForAidCargo.setLanguageCd(autoRegT1001Cargo.getLangCd());
-	    } else {
-		arAppForAidCargo.setLanguageCd("0");
-	    }
-	    
-	    arAppForAidCargo.setOfficeNum(autoRegT1001Cargo.getOfcNum());
-	    arAppForAidCargo.setPriorSnapSw('N');
-	    
-	    arAppForAidCargo.setPhnNumTyp(autoRegT1002Cargo.getPhnNumTyp().charAt(0));
-	    arAppForAidCargo.setPhNum(autoRegT1002Cargo.getHshlPhnNum().trim());
-	    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the short value.
-	    PMDRules.markApprovedStatement("R10");
-	    arAppForAidCargo.setPrefCntcInd((short) autoRegT1002Cargo.getPrefCntcInd());
-	    arAppForAidCargo.setPrefCntcTmTxt(autoRegT1002Cargo.getPrefCntcTmTxt());
-	    arAppForAidCargo.setPriorSnapSw('N');
-	    if (autoRegT1002Cargo.getHshlCellPhnNum() != null && !autoRegT1002Cargo.getHshlCellPhnNum().trim().equals("")) {
-		arAppForAidCargo.setOtherPhNum(autoRegT1002Cargo.getHshlCellPhnNum().trim());
-	    }
-	    
-	    arAppForAidCargo.setMsgPhnNum(autoRegT1002Cargo.getMsgPhnNum().trim());
-	    arAppForAidCargo.setEmail(autoRegT1002Cargo.getHshlEmailAdr().trim());
-	    arAppForAidCargo.setValPhnNumCd(autoRegT1002Cargo.getValPhnNumCd());
-	    arAppForAidCargo.setPhnTxtTypCd(autoRegT1002Cargo.getPhnTxtTypCd());
-	    arAppForAidCargo.setProviderNumber(autoRegT1001Cargo.getProviderId());
-	    arAppForAidCargo.setScheduledSw(autoRegScheduledSw);
-	    arAppForAidCargo.setSpokenLanguageTypeCd(t1006AppInPermdCargo.getLangCd());
-	    if (t2040AppAuthRepCargoArray == null || t2040AppAuthRepCargoArray.length == 0 || t2040AppAuthRepCargoArray[0].getAuthRepCd() == null || t2040AppAuthRepCargoArray[0].getAuthRepCd().trim().equals("") || t2040AppAuthRepCargoArray[0].getAuthRepCd().trim().equals("0")) {
-		arAppForAidCargo.setAuthRepSw('N');
-		arAppForAidCargo.setAuthRepInd('N');
-	    } else {
+	    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+		currentCargo = i;
+		t1006AppInPermdCargo = t1006AppInPermdCargoArray[i];
+		if (indvMap.containsKey((int) autoRegT1004CargoArray[i].getIndvSeqNum()) && indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()) == 0L) {
+		    
+		    log(7, "AutoRegistrationBO.updateDcIndvEthnicityTable() :: Before inserting Ethnicity details : New Indv " + autoRegT1004CargoArray[i].getBridgesIndvId());
+		    
+		    boolean ethnicityCheck = false;
+		    if (t1006AppInPermdCargo.getPrInd() != '0') {
+			ethnicityCheck = true; // "PR";
+		    }
+		    if (t1006AppInPermdCargo.getMexInd() != '0') {
+			if (ethnicityCheck) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("MX");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			} else {
+			    ethnicityCheck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getCubInd() != '0') {
+			if (ethnicityCheck) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("CU");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			} else {
+			    ethnicityCheck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getHspcInd() != '0') {
+			if (ethnicityCheck) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("HS");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			} else {
+			    ethnicityCheck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getNonHspcInd() != null && t1006AppInPermdCargo.getNonHspcInd().equals("N")) {
+			if (ethnicityCheck) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("NH");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getOtherEthnicityInd() != '0'){
+	    	if (ethnicityCheck){
+	    		dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("OC");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+	    	}
+		    }
+		    if (t1006AppInPermdCargo.getPreferNotAnswerInd() != '0'){
+	    	if (ethnicityCheck){
+	    		dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("PN");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+	    	}
+		    }
+		    
+		    if (ethnicityCount) {
+			dcIndvEthnicityColl.insert(dcIndvEthnicityColl);
+			dcIndvEthnicityColl.clear();
+			log(7, "AutoRegistrationBO.updateDcIndvEthnicityTable() :: Inserted Ethnicity details : New Indv " + autoRegT1004CargoArray[i].getBridgesIndvId());
+		    }
+		} else {
+		    
+		    log(7, "AutoRegistrationBO.updateDcIndvEthnicityTable(): Adding Ethnicity to existing indv--" + autoRegT1004CargoArray[i].getBridgesIndvId());
+		    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+		    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+		    PMDRules.markApprovedStatement("R10");
+		    dcIndvEthnicityCargo.setIndvId(indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()));
+		    dcIndvEthnicityColl.clear();
+		    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+		    DcIndvEthnicityCargo[] dcIndvEthnicityCargoArray = (DcIndvEthnicityCargo[]) dcIndvEthnicityColl.select("findByIndvId");
+		    dcIndvEthnicityColl.clear();
+		    
+		    boolean EthMexInd = true;
+		    boolean EthCubInd = true;
+		    boolean EthHspcInd = true;
+		    boolean EthNonHspcInd = true;
+		    boolean EthOtherInd = true;
+		    boolean EthPreferNotToAnswerInd = true;
+		    
+		    if (dcIndvEthnicityCargoArray != null && dcIndvEthnicityCargoArray.length > 0) {
+			log(7, "AutoRegistrationBO.updateDcIndvEthnicityTable(): existing indv  Secondary Ethnicity count --" + dcIndvEthnicityCargoArray.length);
+			for (int j = 0; j < dcIndvEthnicityCargoArray.length; j++) {
+			    if ("MX".equals(dcIndvEthnicityCargoArray[j].getEthnicityCd())) {
+				EthMexInd = false;
+			    } else if ("CU".equals(dcIndvEthnicityCargoArray[j].getEthnicityCd())) {
+				EthCubInd = false;
+			    } else if ("HS".equals(dcIndvEthnicityCargoArray[j].getEthnicityCd())) {
+				EthHspcInd = false;
+			    } else if ("NH".equals(dcIndvEthnicityCargoArray[j].getEthnicityCd())) {
+				EthNonHspcInd = false;
+			    } else if ("OC".equalsIgnoreCase(dcIndvEthnicityCargoArray[j].getEthnicityCd())){
+			    EthOtherInd = false;
+			    } else if ("PN".equalsIgnoreCase(dcIndvEthnicityCargoArray[j].getEthnicityCd())){
+			    EthPreferNotToAnswerInd = false;
+			    }
+			}
+		    }
+		    
+		    boolean ethnicityCheck = false;
+		    if (t1006AppInPermdCargo.getPrInd() != '0') {
+			ethnicityCheck = true; // "PR";
+		    }
+		    if (t1006AppInPermdCargo.getMexInd() != '0') {
+			if (ethnicityCheck && EthMexInd) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("MX");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			} else {
+			    ethnicityCheck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getCubInd() != '0') {
+			if (ethnicityCheck && EthCubInd) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("CU");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			} else {
+			    ethnicityCheck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getHspcInd() != '0') {
+			if (ethnicityCheck && EthHspcInd) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("HS");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			} else {
+			    ethnicityCheck = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getNonHspcInd() != null && t1006AppInPermdCargo.getNonHspcInd().equals("N")) {
+			if (ethnicityCheck && EthNonHspcInd) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("NH");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getOtherEthnicityInd() != '0') {
+			if (ethnicityCheck && EthOtherInd) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("OC");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			}
+		    }
+		    if (t1006AppInPermdCargo.getPreferNotAnswerInd() != '0') {
+			if (ethnicityCheck && EthPreferNotToAnswerInd) {
+			    dcIndvEthnicityCargo = new DcIndvEthnicityCargo();
+			    dcIndvEthnicityCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvEthnicityCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvEthnicityCargo.setCreateDt(currentTime);
+			    dcIndvEthnicityCargo.setEthnicityCd("PN");
+			    dcIndvEthnicityColl.add(dcIndvEthnicityCargo);
+			    ethnicityCount = true;
+			}
+		    }
+		    
+		    if (ethnicityCount) {
+			dcIndvEthnicityColl.insert(dcIndvEthnicityColl);
+			dcIndvEthnicityColl.clear();
+			log(7, "AutoRegistrationBO.updateDcIndvEthnicityTable() :: Inserted Ethnicity details : existing Indv " + autoRegT1004CargoArray[i].getBridgesIndvId());
+		    }
+		    
+		}
 		
-		arAppForAidCargo.setAuthRepSw('Y');
-		arAppForAidCargo.setAuthRepInd('Y');
 	    }
-	    
-	    arAppForAidCargo.setWorkPhNum(autoRegT1002Cargo.getHshlWorkPhnNum().trim());
-	    if (autoRegT1002Cargo.getWorkPhnExtnNum() != null && !autoRegT1002Cargo.getWorkPhnExtnNum().trim().equals("")) {
-		arAppForAidCargo.setWorkPhNumExt(Long.parseLong(autoRegT1002Cargo.getWorkPhnExtnNum().trim()));
-	    }
-	    arAppForAidCargo.setAssociationSw('Y');
-	    arAppForAidCargo.setVulnerableSw(autoRegT1002Cargo.getVulnerableSw());
-	    System.out.println("VunlnerableSW in updateArApplicationForAidTable in autoRegBO "+arAppForAidCargo.getVulnerableSw()+ "Vul sw= " + autoRegT1002Cargo.getVulnerableSw());
-	    arAppForAidColl.setCargo(arAppForAidCargo);
-	    arAppForAidColl.insert(arAppForAidColl);
 	    
 	    return true;
 	    
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArApplicationForAidTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDcIndvEthnicityTable(): " + "\n" + e.getMessage() + "\n", e);
 	    hasExceptionOccurred = true;
 	    throw e;
 	} finally {
-	    arAppForAidCargo = null;
-	    arAppForAidColl = null;
-	    t2040AppAuthRepCargo = null;
-	    t2040AppAuthRepCollection = null;
-	    t2040AppAuthRepCargoArray = null;
+	    dcIndvEthnicityCargo = null;
+	    dcIndvEthnicityColl = null;
+	    t1006AppInPermdCargo = null;
 	}
     }
-
-    public boolean checkArAuthRepAddress(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.checkArAuthRepAddress() ");
+    
+    public boolean updateDcIndvLanguageTable(T1006AppInPermdCargo[] t1006AppInPermdCargoArray) throws Exception {
 	
-	ArApplicationRepCargo arAppRepCargo = new ArApplicationRepCargo();
-	ArApplicationRepCollection arAppRepColl = new ArApplicationRepCollection(connection);
-	ArAppAddrCargo arAppAddrCargo = new ArAppAddrCargo();
-	ArAppAddrCollection arAppAddrColl = new ArAppAddrCollection(connection);
+	log(7, "Begin AutoRegistrationBO.updateDcIndvLanguageTable ()");
+	DcIndvLanguageCargo dcIndvLangCargo = null;
+	DcIndvLanguageCollection dcIndvLangColl = new DcIndvLanguageCollection(connection);
+	T1006AppInPermdCargo t1006AppInPermdCargo = null;
+	int currentCargo = -1;
 	
-	T2040AppAuthRepCargo t2040AppAuthRepCargo = new T2040AppAuthRepCargo();
-	T2040AppAuthRepCollection t2040AppAuthRepCollection = new T2040AppAuthRepCollection(connection);
-	T2040AppAuthRepCargo[] t2040AppAuthRepCargoArray = null;
-	
-	ArAppAddrCargo arAppAddrTempCargo = null;
-	HashMap paramHashMap = null;
-	boolean interfaceCheckFailed = false;
-	String autoRegExpCode = AppRegConstants.AUTO_REG_PROCESS_AD;
-	
-	ApplicationBO appBo = new ApplicationBO(connection);
 	try {
+	    if (t1006AppInPermdCargoArray == null || t1006AppInPermdCargoArray.length == 0) {
+		return false;
+	    }
 	    
-	    t2040AppAuthRepCargo.setAppNum(appNum);
-	    t2040AppAuthRepCollection.setCargo(t2040AppAuthRepCargo);
-	    t2040AppAuthRepCargoArray = (T2040AppAuthRepCargo[]) t2040AppAuthRepCollection.select("findAuthRepInfoByByAppNum");
-	    if (t2040AppAuthRepCargoArray != null && t2040AppAuthRepCargoArray.length > 0) {
-		ArAppAddrCargo arAppAuthRepAddrCargoArr[] = new ArAppAddrCargo[t2040AppAuthRepCargoArray.length];
-		ArApplicationRepCargo arAppAuthRepCargoArr[] = new ArApplicationRepCargo[t2040AppAuthRepCargoArray.length];
-		for (int i = 0; i < t2040AppAuthRepCargoArray.length; i++) {
-		    t2040AppAuthRepCargo = t2040AppAuthRepCargoArray[i];
-		    log(7, "AutoRegistrationBO.checkArAuthRepAddress() :: t2040AppAuthRepCargo.getAuthRepCd() -" + t2040AppAuthRepCargo.getAuthRepCd());
-		    if (t2040AppAuthRepCargo.getAuthRepCd() != null && !t2040AppAuthRepCargo.getAuthRepCd().trim().equals("") && !t2040AppAuthRepCargo.getAuthRepCd().trim().equals("0")) {
+	    for (int i = 0; i < t1006AppInPermdCargoArray.length; i++) {
+		currentCargo = i;
+		t1006AppInPermdCargo = t1006AppInPermdCargoArray[i];
+		
+		if (indvMap.containsKey((int) autoRegT1004CargoArray[i].getIndvSeqNum()) && indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()) == 0L) {
+		    
+		    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : Inserting Language details for new indv-" + autoRegT1004CargoArray[i].getBridgesIndvId());
+		    
+		    if (t1006AppInPermdCargo.getIndvSeqNum() == autoRegT1004CargoArray[i].getIndvSeqNum()) {
+			dcIndvLangCargo = new DcIndvLanguageCargo();
 			
-			arAppAddrCargo.setAddrStNm(t2040AppAuthRepCargo.getL1Adr());
-			arAppAddrCargo.setAddrLine(t2040AppAuthRepCargo.getL2Adr());
-			arAppAddrCargo.setAddrCity(t2040AppAuthRepCargo.getCityAdr());
-			arAppAddrCargo.setAddrStateCd(t2040AppAuthRepCargo.getStaAdr());
-			arAppAddrCargo.setAddrZip5(t2040AppAuthRepCargo.getZipAdr());
-			log(7, "AutoRegistrationBO.checkArAuthRepAddress() :: Calling ValidateAddress interface -" + appNum);
-			arAppAddrTempCargo = (ArAppAddrCargo) appBo.validateAddressIq8(arAppAddrCargo, paramHashMap);
-			log(7, "AutoRegistrationBO.updateArApplicationRepTable() :: ValidateAddress interface End -" + arAppAddrTempCargo);
-			if (arAppAddrTempCargo == null) {
-			    log(7, "AutoRegistrationBO.checkArAuthRepAddress() :: arAppAddrTempCargo is NULL : App failed in Auth Rep Address Check -" + appNum);
-			    autoRegExpCode = AppRegConstants.AUTO_REG_PROCESS_AD;
-			    interfaceCheckFailed = true;
-			    
-			} else {
-			    log(7, "AutoRegistrationBO.checkArAuthRepAddress() :: validated arAppAddrTempCargo : Auth Rep Address Check success -" + appNum);
-			    log(7, "AutoRegistrationBO.checkArAuthRepAddress() :: Started data update ");
-			    arAppAddrCargo.setAddrStNm(arAppAddrTempCargo.getAddrStNm());
-			    arAppAddrCargo.setAddrStNum(arAppAddrTempCargo.getAddrStNum());
-			    arAppAddrCargo.setAddrStNumFrac(arAppAddrTempCargo.getAddrStNumFrac());
-			    arAppAddrCargo.setAddrLine(arAppAddrTempCargo.getAddrLine());
-			    arAppAddrCargo.setAddrCity(arAppAddrTempCargo.getAddrCity());
-			    arAppAddrCargo.setAddrAptNum(arAppAddrTempCargo.getAddrAptNum());
-			    arAppAddrCargo.setAddrDwellingTypeCd(arAppAddrTempCargo.getAddrDwellingTypeCd());
-			    arAppAddrCargo.setAddrPostDirCd(arAppAddrTempCargo.getAddrPostDirCd());
-			    arAppAddrCargo.setAddrStDirCd(arAppAddrTempCargo.getAddrStDirCd());
-			    arAppAddrCargo.setAddrTypeCd(arAppAddrTempCargo.getAddrStTypeCd());
-			    arAppAddrCargo.setAppNum(appNum);
-			    arAppAddrCargo.setAddrStateCd(arAppAddrTempCargo.getAddrStateCd());
-			    arAppAddrCargo.setAddrZip5(arAppAddrTempCargo.getAddrZip5());
-			    arAppAddrCargo.setAddrZip4(arAppAddrTempCargo.getAddrZip4());
-			    //arAppAddrCargo.setAddrStTypeCd(arAppAddrTempCargo.getAddrStTypeCd());
-			    if (arAppAddrTempCargo.getAddrStTypeCd() != null && !arAppAddrTempCargo.getAddrStTypeCd().trim().equals("")) {
-					RefTableData streetType = new RefTableData();
-					streetType = ReferenceTableManager.getValueForDescription("STREETTYPE", arAppAddrTempCargo.getAddrStTypeCd());
-					if (streetType != null) {
-						arAppAddrCargo.setAddrStTypeCd(streetType.getRefrTableCode());
-					}
+			dcIndvLangCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			dcIndvLangCargo.setCreateDt(currentTime);
+			dcIndvLangCargo.setEffBeginDt(currentTime);
+			dcIndvLangCargo.setPrimaryLanguageSw('Y');
+			dcIndvLangCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			dcIndvLangCargo.setLanguageCd(t1006AppInPermdCargo.getLangCd());
+			dcIndvLangColl.clear();
+			dcIndvLangColl.add(dcIndvLangCargo);
+		    }
+		    dcIndvLangColl.insert(dcIndvLangColl);
+		    dcIndvLangColl.clear();
+		} else {
+		    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+		    PMDRules.markApprovedStatement("R10");
+		    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : Existing indv-" + indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()));
+		    dcIndvLangCargo = new DcIndvLanguageCargo();
+		    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
+		    PMDRules.markApprovedStatement("R10");
+		    dcIndvLangCargo.setIndvId(indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()));
+		    dcIndvLangColl.clear();
+		    dcIndvLangColl.add(dcIndvLangCargo);
+		    DcIndvLanguageCargo[] dcIndvLangCargoArray = (DcIndvLanguageCargo[]) dcIndvLangColl.select("findByIndvId");
+		    if (dcIndvLangCargoArray != null && dcIndvLangCargoArray.length > 0) {
+			boolean extLang = false;
+			log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : Existing indv --dcIndvLangCargoArray.length-" + dcIndvLangCargoArray.length);
+			for (int j = 0; j < dcIndvLangCargoArray.length; j++) {
+			    dcIndvLangCargo = new DcIndvLanguageCargo();
+			    dcIndvLangCargo = dcIndvLangCargoArray[j];
+			    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : Existing indv --dcIndvLangCargo.getLangCd()-" + dcIndvLangCargo.getLanguageCd());
+			    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : Existing indv --dcIndvLangCargo.getPrimaryLanguageSw()-" + dcIndvLangCargo.getPrimaryLanguageSw());
+			    if (dcIndvLangCargo.getLanguageCd().equals(t1006AppInPermdCargo.getLangCd().trim())) {
+				extLang = true;
+				if (dcIndvLangCargo.getPrimaryLanguageSw() != 'Y') {
+				    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : Existing indv :: Updating Language switch to Y --" + dcIndvLangCargo.getLanguageCd());
+				    dcIndvLangCargo.setPrimaryLanguageSw('Y');
+				    dcIndvLangCargo.setEffBeginDt(currentTime);
+				    dcIndvLangCargo.setUpdateUserId(AppRegConstants.AUTO_REG_BATCH);
+				    dcIndvLangCargo.setUpdateDt(currentTime);
+				    
+				    dcIndvLangColl.clear();
+				    dcIndvLangColl.add(dcIndvLangCargo);
+				    dcIndvLangColl.update(dcIndvLangColl);
+				    
 				}
-			    arAppAddrCargo.setAddrTypeCd("AA");
-			    arAppAddrCargo.setValidationSw('N');
-			    if (arAppAddrTempCargo.getAddrCountyCd() != null && !arAppAddrTempCargo.getAddrCountyCd().isEmpty())
-			    	arAppAddrCargo.setAddrCountyCd(arAppAddrTempCargo.getAddrCountyCd());
-			    /*else
-				arAppAddrCargo.setAddrCountyCd("0");*/
+			    }
+			}
+			
+			if (!extLang) {
 			    
-			    arAppAuthRepAddrCargoArr[i] = arAppAddrCargo;
-			    arAppRepCargo.setAppNum(appNum);
-			    arAppRepCargo.setAuthrepFirstName(t2040AppAuthRepCargo.getFilingRepFirstName());
-			    if (t2040AppAuthRepCargo.getFilingRepMidName() != null && !t2040AppAuthRepCargo.getFilingRepMidName().trim().equals("")) {
-				arAppRepCargo.setAuthrepMidName(t2040AppAuthRepCargo.getFilingRepMidName());
+			    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : Existing indv requested new language -" + t1006AppInPermdCargo.getLangCd());
+			    dcIndvLangCargo = new DcIndvLanguageCargo();
+			    
+			    dcIndvLangCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+			    dcIndvLangCargo.setCreateDt(currentTime);
+			    dcIndvLangCargo.setEffBeginDt(currentTime);
+			    dcIndvLangCargo.setPrimaryLanguageSw('Y');
+			    dcIndvLangCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+			    dcIndvLangCargo.setLanguageCd(t1006AppInPermdCargo.getLangCd());
+			    
+			    dcIndvLangColl.clear();
+			    dcIndvLangColl.add(dcIndvLangCargo);
+			    dcIndvLangColl.insert(dcIndvLangColl);
+			    
+			}
+			
+			for (int j = 0; j < dcIndvLangCargoArray.length; j++) {
+			    dcIndvLangCargo = new DcIndvLanguageCargo();
+			    dcIndvLangCargo = dcIndvLangCargoArray[j];
+			    if (!dcIndvLangCargo.getLanguageCd().equals(t1006AppInPermdCargo.getLangCd().trim())) {
+				if (dcIndvLangCargo.getPrimaryLanguageSw() == 'Y') {
+				    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() :: Existing indv :: updating Primary Language Sw to 'N' -" + dcIndvLangCargo.getLanguageCd());
+				    dcIndvLangCargo.setPrimaryLanguageSw('N');
+				    dcIndvLangCargo.setEffBeginDt(currentTime);
+				    dcIndvLangCargo.setUpdateUserId(AppRegConstants.AUTO_REG_BATCH);
+				    dcIndvLangCargo.setUpdateDt(currentTime);
+				    
+				    dcIndvLangColl.clear();
+				    dcIndvLangColl.add(dcIndvLangCargo);
+				    dcIndvLangColl.update(dcIndvLangColl);
+				    
+				}
 			    }
-			    arAppRepCargo.setAuthrepLastName(t2040AppAuthRepCargo.getFilingRepLastName());
-			    if (t2040AppAuthRepCargo.getRelationshipTypeCd() != null && !t2040AppAuthRepCargo.getRelationshipTypeCd().trim().equals("")) {
-				arAppRepCargo.setRelationshipIndvCd(t2040AppAuthRepCargo.getRelationshipTypeCd());
-			    }
-			    if (t2040AppAuthRepCargo.getPhnNum() != null && !t2040AppAuthRepCargo.getPhnNum().trim().equals("")) {
-				arAppRepCargo.setAuthrepPhNum(t2040AppAuthRepCargo.getPhnNum());
-			    }
-			    arAppRepCargo.setAppAddrSeqNum(arAppAddrCargo.getAppAddrSeqNum());
-			    arAppAuthRepCargoArr[i] = arAppRepCargo;
 			}
 			
 		    }
 		    
+		    log(7, "AutoRegistrationBO.updateDcIndvLanguageTable() : End");
 		}
-		arAppAuthRepAddrCargo = arAppAuthRepAddrCargoArr;
-		arAppAuthRepCargo = arAppAuthRepCargoArr;
-		
-	    }
-	    if (interfaceCheckFailed) {
-		log(7, "AutoRegistrationBO.checkArAuthRepAddress() :: interface Check failed - Auth Rep Address validation failed");
-		createEDMTask(appNum);
-		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegExpCode, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-		return false;
 	    }
 	    return true;
 	    
-	} catch (TIERSValidationException e) {
-		log(ILog.ERROR, "Exception [TIERSValidationException] in AutoRegistrationBO.checkArAuthRepAddress() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    if (e.getMessage() != null && e.getMessage().contains("10016")) {
-		exceptionBO.writeExceptionRecord(BatchConstants.INFO, "AR-ATREG-HLY:  AutoRegistrationBO - interfaceCheck()", "Exception processing app num: " + appNum + " :: " + e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.LOG_FILE, ILog.INFO, BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
-		createEDMTask(appNum);
-		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, autoRegExpCode, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
-		return false;
-	    } else {
-		if (this.con != null) {
-		    this.con.rollback();
-		}
-		hasExceptionOccurred = true;
-		updateAutoRegExcpTable(appNum, autoRegExpCode, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-		
-		if (this.con != null) {
-		    this.con.commit();
-		}
-		throw e;
-	    }
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkArAuthRepAddress() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    if (this.con != null) {
-		this.con.rollback();
-	    }
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDcIndvLanguageTable(): " + "\n" + e.getMessage() + "\n", e);
 	    hasExceptionOccurred = true;
-	    updateAutoRegExcpTable(appNum, autoRegExpCode, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    
-	    if (this.con != null) {
-		this.con.commit();
-	    }
-	    
 	    throw e;
 	} finally {
-	    t2040AppAuthRepCargo = null;
-	    t2040AppAuthRepCollection = null;
-	    t2040AppAuthRepCargoArray = null;
-	    arAppAddrCargo = null;
-	    arAppAddrColl = null;
-	    
+	    dcIndvLangCargo = null;
+	    dcIndvLangColl = null;
+	    t1006AppInPermdCargo = null;
 	}
-	
     }
     
-    public boolean updateArApplicationRepTable(String appNum) throws Exception {
-	log(7, "Start: AutoRegistrationBO.updateArApplicationRepTable(): ");
-	ArApplicationRepCollection arAppRepColl = new ArApplicationRepCollection(connection);
-	ArAppAddrCollection arAppRepAddrColl = new ArAppAddrCollection(connection);
-	if (arAppAuthRepCargo == null || arAppAuthRepCargo.length == 0) {
-	    return false;
-	}
-	if (arAppAuthRepAddrCargo == null || arAppAuthRepAddrCargo.length == 0) {
-	    return false;
-	}
+    public boolean updateArExpScreenRespTable(String appNum) throws Exception {
+	
+	log(7, "Begin AutoRegistrationBO.updateArExpScreenRespTable()");
+	ArExpScreenRespCargo arExpScreenRespCargo = null;
+	ArExpScreenRespCollection arExpScreenRespColl = new ArExpScreenRespCollection(connection);
+	
+	T1003AppPrirSrvCargo t1003AppPrirSrvCargo = new T1003AppPrirSrvCargo();
+	T1003AppPrirSrvCollection t1003AppPrirSrvColl = new T1003AppPrirSrvCollection(connection);
+	T1003AppPrirSrvCargo[] t1003CargoArray = null;
 	try {
 	    
-	    for (int j = 0; j < arAppAuthRepAddrCargo.length; j++) {
-		arAppAuthRepAddrCargo[j].setCreateDt(currentTime);
-		arAppAuthRepAddrCargo[j].setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		arAppRepAddrColl.setCargo(arAppAuthRepAddrCargo[j]);
-		arAppRepAddrColl.insert(arAppRepAddrColl);
-		log(7, "Start: AutoRegistrationBO.updateArApplicationRepTable(): Auth Rep Addr inserted successfully::");
-		
-		arAppAuthRepCargo[j].setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		arAppAuthRepCargo[j].setCreateDt(currentTime);
-		arAppAuthRepCargo[j].setAppAddrSeqNum(arAppRepAddrColl.getResults(0).getAppAddrSeqNum());
-		arAppRepColl.setCargo(arAppAuthRepCargo[j]);
-		arAppRepColl.insert(arAppRepColl);
-		log(7, "Start: AutoRegistrationBO.updateArApplicationRepTable(): Auth Rep inserted successfully::");
-		
+	    Object appNumArgs1[] = { appNum };
+	    t1003CargoArray = (T1003AppPrirSrvCargo[]) t1003AppPrirSrvColl.select("findPrirSrvByAppNum", appNumArgs1);
+	    if (t1003CargoArray == null || t1003CargoArray.length == 0) {
+		return false;
+	    }
+	    createArExpScreenRespMAP(t1003AppPrirSrvCargo);
+	    t1003AppPrirSrvCargo = t1003CargoArray[0];
+	    
+	    HashMap hashMap = createArExpScreenRespMAP(t1003AppPrirSrvCargo);
+	    
+	    if (hashMap != null && !hashMap.isEmpty()) {
+		Iterator hashMapKeyItr = hashMap.keySet().iterator();
+		Iterator hashMapValueItr = hashMap.values().iterator();
+		while (hashMapKeyItr.hasNext()) {
+		    arExpScreenRespCargo = new ArExpScreenRespCargo();
+		    arExpScreenRespCargo.setAppNum(appNum);
+		    arExpScreenRespCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		    arExpScreenRespCargo.setCreateDt(currentTime);
+		    
+		    arExpScreenRespCargo.setQuestCd((String) hashMapKeyItr.next());
+		    arExpScreenRespCargo.setResponse(String.valueOf(hashMapValueItr.next()));
+		    
+		    arExpScreenRespColl.add(arExpScreenRespCargo);
+		}
+		arExpScreenRespColl.insert(arExpScreenRespColl);
 	    }
 	    
+	    return true;
+	    
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArApplicationRepTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArExpScreenRespTable(): " + "\n" + e.getMessage() + "\n", e);
 	    hasExceptionOccurred = true;
 	    throw e;
 	} finally {
-	    arAppRepColl = null;
-	    arAppRepAddrColl = null;
+	    arExpScreenRespCargo = null;
+	    arExpScreenRespColl = null;
+	    t1003AppPrirSrvCargo = null;
+	    t1003AppPrirSrvColl = null;
+	    t1003CargoArray = null;
 	}
-	return true;
-	
     }
     
-    public boolean updateDcIndvProfileTable(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateDcIndvProfileTable() ");
-	DcIndvProfileCargo dcIndvProfCargo = null;
-	DcIndvProfileCollection dcIndvProfColl = new DcIndvProfileCollection(connection);
-	DcIndvProfileCargo[] dcIndvProfCargoArray = null;
+    public java.util.HashMap createArExpScreenRespMAP(T1003AppPrirSrvCargo t1003AppPrirSrvCargo) throws Exception {
 	
-	T1055AppInPrflCargo t1055Cargo = new T1055AppInPrflCargo();
-	T1055AppInPrflCollection t1055Coll = new T1055AppInPrflCollection(connection);
-	T1055AppInPrflCargo[] t1055CargoArray = null;
+	log(7, "Begin AutoRegistrationBO.createArExpScreenRespMAP() ");
+	HashMap hashMap = new HashMap();
+	try {
+	    // DT_INCM_SAME_GRWR
+	    hashMap.put("EV", t1003AppPrirSrvCargo.getDtIncmSameGrwr());
+	    
+	    // LQD_ASET_AMT
+	    hashMap.put("EH", t1003AppPrirSrvCargo.getLqdAsetAmt());
+	    
+	    // MO_GR_INCM_AMT
+	    hashMap.put("EC", t1003AppPrirSrvCargo.getMoGrIncmAmt());
+	    
+	    // MO_RENT_MRTG_AMT
+	    hashMap.put("ER", t1003AppPrirSrvCargo.getMoRentMrtgAmt());
+	    
+	    // AMT_SAME_GRWR
+	    hashMap.put("EK", t1003AppPrirSrvCargo.getAmtSameGrwr());
+	    
+	    // DT_FINAL_PAY_CHK
+	    hashMap.put("EO", t1003AppPrirSrvCargo.getDtFinalPayChk());
+	    
+	    // INCM_CRNT_MNTH_SW
+	    hashMap.put("EE", t1003AppPrirSrvCargo.getIncmCrntMnthSw());
+	    
+	    // AMT_CRNT_MNTH
+	    hashMap.put("EA", t1003AppPrirSrvCargo.getAmtCrntMnth());
+	    
+	    // DT_INCM_CRNT_MNTH
+	    hashMap.put("EN", t1003AppPrirSrvCargo.getDtIncmCrntMnth());
+	    
+	    // INCM_SAME_GRWR_SW
+	    hashMap.put("EJ", t1003AppPrirSrvCargo.getIncmSameGrwrSw());
+	    
+	    // HEAT_UTILITY_EXP
+	    hashMap.put("HT", t1003AppPrirSrvCargo.getHeatUtilityExp());
+	    
+	    // NON_HEAT_ELE_EXP
+	    hashMap.put("HN", t1003AppPrirSrvCargo.getNonHeatEleExp());
+	    
+	    // COOK_FUEL_EXP
+	    hashMap.put("HF", t1003AppPrirSrvCargo.getCookFuelExp());
+	    
+	    // WATSEW_EXP
+	    hashMap.put("HW", t1003AppPrirSrvCargo.getWatsewExp());
+	    
+	    // MIG_FARM_WRKR_SW
+	    hashMap.put("EM", t1003AppPrirSrvCargo.getMigFarmWrkrSw());
+	    
+	    // INCM_STOP_SW
+	    hashMap.put("EX", t1003AppPrirSrvCargo.getIncmStopSw());
+	    
+	    // AMT_TRVL_ADVC
+	    hashMap.put("EQ", t1003AppPrirSrvCargo.getAmtTrvlAdvc());
+	    
+	    // TELE_EXP
+	    hashMap.put("HP", t1003AppPrirSrvCargo.getTeleExp());
+	    
+	    // CHILD_SPRT_AMT
+	    hashMap.put("CS", t1003AppPrirSrvCargo.getChildSprtAmt());
+	    
+	    // TRASH_REMOVAL_EXP
+	    hashMap.put("HG", t1003AppPrirSrvCargo.getTrashRemovalExp());
+	    
+	    // SEPTIC_INSTL_RESP
+	    hashMap.put("HS", t1003AppPrirSrvCargo.getSepticInstlResp());
+	    
+	    // UTIL_INSTL_RESP
+	    hashMap.put("HU", t1003AppPrirSrvCargo.getUtilInstlResp());
+	    // LIHEAP_RECEIVE_SW
+	    hashMap.put("LH", t1003AppPrirSrvCargo.getLiheapReceiveSw());
+	    return hashMap;
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.createArExpScreenRespMAP(): " + "\n" + e.getMessage() + "\n", e);
+	    hasExceptionOccurred = true;
+	    throw e;
+	}
+    }
+    
+	public boolean updateArAppAddrTable(String appNum) throws Exception {
+		log(7, "Begin AutoRegistrationBO.updateArAppAddrTable() ");
+		ArAppAddrCollection arAppAddrColl = new ArAppAddrCollection(connection);
+
+		try {
+			if (arAppAddrCargo == null) {
+				return false;
+			}
+			if (arAppAddrCargo != null) {
+				arAppAddrCargo.setAppNum(appNum);
+				arAppAddrCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+				arAppAddrCargo.setCreateDt(currentTime);
+				// ILIES-185675
+				arAppAddrCargo.setAddrCountyCd(String.valueOf(autoRegT1001Cargo.getCntyNum()));
+
+				arAppAddrColl.add(arAppAddrCargo);
+			}
+			if (arAppMailAddrCargo != null) {
+				arAppMailAddrCargo.setAppNum(appNum);
+				arAppMailAddrCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+				arAppMailAddrCargo.setCreateDt(currentTime);
+				arAppMailAddrCargo.setAddrCountyCd(String.valueOf(autoRegT1001Cargo.getCntyNum()));
+				arAppAddrColl.add(arAppMailAddrCargo);
+
+			}
+			arAppAddrColl.insert(arAppAddrColl);
+
+			Object[] objects = new Object[2];
+			objects[0] = "AMMAD";
+			objects[1] = appNum;
+
+			SsBrgConflictStatusCollection ssBrgConflictStatusColl = new SsBrgConflictStatusCollection(connection);
+			SsBrgConflictStatusCargo[] ssBrgConflictStatusArr = (SsBrgConflictStatusCargo[]) ssBrgConflictStatusColl.select("findByPageIdAppNum", objects);
+			if (ssBrgConflictStatusArr != null && ssBrgConflictStatusArr.length > 0) {
+				ssBrgConflictStatusArr[0].setStatusInd("PC");
+				ssBrgConflictStatusColl.add(ssBrgConflictStatusArr[0]);
+				ssBrgConflictStatusColl.update(ssBrgConflictStatusColl);
+			}
+
+			return true;
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArAppAddrTable(): " + "\n" + e.getMessage() + "\n", e);
+			hasExceptionOccurred = true;
+			throw e;
+		} finally {
+			arAppAddrColl = null;
+		}
+	}
+    
+    public boolean updateArAppIndvTable(String appNum) throws Exception {
+	log(7, "Begin AutoRegistrationBO.updateArAppIndvTable() ");
+	ArAppIndvCargo arAppIndvCargo = null;
+	ArAppIndvCollection arAppIndvColl = new ArAppIndvCollection(connection);
 	
-	//ILIES-291048
-	T1008AppInBnftrCargo t1008AppInBnftrCargo= new T1008AppInBnftrCargo();
-	T1008AppInBnftrCollection t1008AppInBnftrCollection=new T1008AppInBnftrCollection(connection);
-	T1008AppInBnftrCargo[] t1008AppInBnftrCargosArray=null;
-	
-	//ILIES-291048 sscn & rrn
-	T1028AppInMedcrCargo t1028AppInMedcrCargo = new T1028AppInMedcrCargo();
-	T1028AppInMedcrCollection t1028AppInMedcrCollection=new T1028AppInMedcrCollection(connection);
-	T1028AppInMedcrCargo[] t1028AppInMedcrCargosArray=null;
-	
-	
-	//ILIES-291048 RM_MEDICARE_CLAIM and medicare number 
-	RmMedicareClaimCargo rmMedicareClaimCargo = new RmMedicareClaimCargo();
-	RmMedicareClaimCollection rmMedicareClaimCollection=new RmMedicareClaimCollection(connection);
-	RmMedicareClaimCargo[] rmMedicareClaimCargosArray=null;
 	try {
 	    
 	    if (autoRegT1004CargoArray == null || autoRegT1004CargoArray.length == 0) {
@@ -995,217 +1189,192 @@ public boolean autoRegUpdate(String appNum, Connection conn) throws Exception {
 	    
 	    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
 		
-		t1055Cargo.setAppNum(appNum);
-		t1055Cargo.setIndvSeqNum(autoRegT1004CargoArray[i].getIndvSeqNum());
-		t1055Coll.setCargo(t1055Cargo);
-
-		t1055CargoArray = (T1055AppInPrflCargo[]) t1055Coll.select("findRecordByAppNumber");
+		arAppIndvCargo = new ArAppIndvCargo();
+		arAppIndvCargo.setAppNum(appNum);
+		arAppIndvCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		arAppIndvCargo.setCreateDt(currentTime);
+		arAppIndvCargo.setEmployeeSw('N');
+		arAppIndvCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
+		arAppIndvCargo.setHeadOfHouseholdSw(autoRegT1004CargoArray[i].getPrimPrsnSw());
 		
-		//ILIES-291048
-		Object[] param = new Object[2];		
-		param[0] = appNum; 
-		param[1] = new Long(autoRegT1004CargoArray[i].getIndvSeqNum());
-		t1008AppInBnftrCargosArray = (T1008AppInBnftrCargo[]) t1008AppInBnftrCollection.select("findByAppNum", param);
-		
-		//ILIES-291048 sscn & rrn		
-		Object[] params = new Object[3];	
-		String[] columnList= {"PARTA_ETTL_RESP","PARTB_ETTL_RESP","RETR_RESP"};
-		params[0] = new ArrayList<String>(Arrays.asList(columnList));
-		params[1] = appNum;
-		params[2] = new Long(autoRegT1004CargoArray[i].getIndvSeqNum());
-		t1028AppInMedcrCargosArray = (T1028AppInMedcrCargo[]) t1028AppInMedcrCollection.select("findByAppNumIndvSeqNum", params);		
-		
-		if (indvMap.containsKey((int) autoRegT1004CargoArray[i].getIndvSeqNum()) && indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()) == 0L) {
-		    
-		    dcIndvProfCargo = new DcIndvProfileCargo();
-		    dcIndvProfCargo.setDhsEmployeeSw('N');
-		    dcIndvProfCargo.setMinorParentSw('N');
-		    dcIndvProfCargo.setLumpSumSw('N');
-		    dcIndvProfCargo.setDomesticViolenceVictimSw('N');
-		    dcIndvProfCargo.setImmunizationSw('N');
-		    dcIndvProfCargo.setAbsentParentSw('N');
-		    dcIndvProfCargo.setNfCommunitySpouseSw('N');
-		    dcIndvProfCargo.setMedicalInsuranceSw('N');
-		    dcIndvProfCargo.setLtcNoncooperationSw('N');		    
-		    dcIndvProfCargo.setHouseholdAccidentSw('N');
-		    dcIndvProfCargo.setDrugAlNonCoopSw('N');
-		    dcIndvProfCargo.setSpecialMaApprovalSw('N');
-		    dcIndvProfCargo.setInstitutionalCareSw('N');
-		    if (mSPAppStatus == null) {
-			if (t1055CargoArray != null && t1055CargoArray.length > 0) {
-			    t1055Cargo = t1055CargoArray[0];
-			    
-			    if (t1055Cargo.getDablResp() != null && t1055Cargo.getDablResp().trim().length() > 0) {
-				dcIndvProfCargo.setDisabledSw(t1055Cargo.getDablResp().charAt(0));
-			    } else {
-				dcIndvProfCargo.setDisabledSw('N');
-			    }
-			    if (t1055Cargo.getPregResp() != null && t1055Cargo.getPregResp().trim().length() > 0) {
-				dcIndvProfCargo.setPregnantSw(t1055Cargo.getPregResp().charAt(0));
-			    } else {
-				dcIndvProfCargo.setPregnantSw('N');
-			    }
-			    dcIndvProfCargo.setOtherInStateBenefitsSw(t1055Cargo.getOtherInStateBenefitsSw());
-			} else {
-			    dcIndvProfCargo.setDisabledSw('N');
-			    //For FPPE apps, below 3 properties are invalid and pregnantSw should be N
-			    if(autoRegT1001SSAppMpeCargo!=null && autoRegT1001SSAppMpeCargo.getExptDlvrDt()!=null && autoRegT1001SSAppMpeCargo.getPosPrefTestInd()=='Y' ){
-			    	dcIndvProfCargo.setPregnantSw('Y');
-			    }else{
-			    	dcIndvProfCargo.setPregnantSw('N');
-			    }
-			    dcIndvProfCargo.setOtherInStateBenefitsSw('N');
-			}
-			
-		    } else {
-			dcIndvProfCargo.setDisabledSw('N');
-			dcIndvProfCargo.setPregnantSw('N');
-			dcIndvProfCargo.setOtherInStateBenefitsSw('N');
-		    }
-		    dcIndvProfCargo.setStandardAllowanceSw('N');
-		    dcIndvProfCargo.setItemsOfExceptionalValSw('N');
-		    dcIndvProfCargo.setResourceTestedSw('N');
-		    dcIndvProfCargo.setHouseholdFacilitySw('N');
-		    dcIndvProfCargo.setSignedPraSw('N');
-		    dcIndvProfCargo.setSsdSsiSw('N');
-		    dcIndvProfCargo.setOutOfStateBenefitsSw('N');
-		    dcIndvProfCargo.setCreateDt(currentTime);
-		    dcIndvProfCargo.setNewbornSw('N');
-		    dcIndvProfCargo.setNfCareSw('N');
-		    dcIndvProfCargo.setVehicleSw('N');
-		    
-		    //ILIES-291048
-		    dcIndvProfCargo.setMedicareSw('N');
-		    dcIndvProfCargo.setSscnSw('N');
-		    if(t1028AppInMedcrCargosArray != null && t1028AppInMedcrCargosArray.length > 0) {
-		    	for(T1028AppInMedcrCargo medcrg: t1028AppInMedcrCargosArray){
-		    		if ((medcrg.getRetrResp() == 'M' || medcrg.getRetrResp() == 'R') && dcIndvProfCargo.getSscnSw() != 'Y'){
-						dcIndvProfCargo.setSscnSw('Y');
-				   }
-				   if ((medcrg.getPartaEttlResp() == 'Y' || medcrg.getPartbEttlResp() == 'Y') && dcIndvProfCargo.getMedicareSw() != 'Y'){
-					   dcIndvProfCargo.setMedicareSw('Y');
-				   }
-		    	}
-		    }
-		    dcIndvProfCargo.setDependentCareSw('N');
-		    dcIndvProfCargo.setCasualtySw('N');
-		    dcIndvProfCargo.setResourcePersonalPropSw('N');
-		    dcIndvProfCargo.setHouseholdPartaBSw('N');
-		    dcIndvProfCargo.setTelephoneExpenseSw('N');
-		    dcIndvProfCargo.setAbawdDeterminationSw('N');
-		    dcIndvProfCargo.setReferToOagSw('N');
-		    dcIndvProfCargo.setSanctionsSw('N');
-		    dcIndvProfCargo.setLifeInsuranceSw('N');
-		    dcIndvProfCargo.setHealthCareOrientationSw('N');
-		    dcIndvProfCargo.setTwcReqOrVolReferredSw('N');
-		    dcIndvProfCargo.setImmRecordsReqGoodCauseSw('N');
-		    dcIndvProfCargo.setMedicalExpenseSw('N');
-		    dcIndvProfCargo.setQcNonCoopSw('N');
-		    dcIndvProfCargo.setHouseholdMineralSw('N');
-		    dcIndvProfCargo.setHouseholdLivestockSw('N');
-		    dcIndvProfCargo.setMiscExpenseSw('N');
-		    dcIndvProfCargo.setUtilityExpenseSw('N');
-		    dcIndvProfCargo.setUniqueTransId('N');
-		    dcIndvProfCargo.setAliasSw('N');
-		    dcIndvProfCargo.setEmpAndTrainingNonCoopSw('N');
-		    dcIndvProfCargo.setRealPropertySw('N');
-		    dcIndvProfCargo.setRoomBoardIncomeSw('N');
-		    dcIndvProfCargo.setPropertyUnusalSw('N');
-		    dcIndvProfCargo.setTrustSw('N');
-		    dcIndvProfCargo.setSelfEmployedSw('N');
-		    dcIndvProfCargo.setTwcNonCoopSw('N');
-		    dcIndvProfCargo.setCaretakerSw('N');
-		    dcIndvProfCargo.setMailingAddrSw('N');
-		    dcIndvProfCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    dcIndvProfCargo.setHouseholdLifeInsuranceSw('N');
-		    //ILIES-291048
-			dcIndvProfCargo.setReceivesSsiRsdiSw('N');
-			if(t1008AppInBnftrCargosArray != null && t1008AppInBnftrCargosArray.length > 0) {
-			   t1008AppInBnftrCargo = t1008AppInBnftrCargosArray[0];
-			   if (t1008AppInBnftrCargo.getRcvSsiSw() == 'Y'){
-				   dcIndvProfCargo.setReceivesSsiRsdiSw('Y');
-				   dcIndvProfCargo.setSsdSsiSw('Y');
-			    }
-			}
-			dcIndvProfCargo.setBurialResourceSw('N');
-		    dcIndvProfCargo.setEmpServicesExemptionSw('N');
-		    dcIndvProfCargo.setFacilitySw('N');
-		    dcIndvProfCargo.setFingImgRequestGoodCauseSw('N');
-		    dcIndvProfCargo.setOagNonCoopSw('N');
-		    dcIndvProfCargo.setIpvSanctionSw('N');
-		    dcIndvProfCargo.setChoicesNonCoopSw('N');
-		    dcIndvProfCargo.setLiquidResourceSw('N');
-		    dcIndvProfCargo.setIncapacitatedSw('N');
-		    dcIndvProfCargo.setEmployedSw('N');
-		    dcIndvProfCargo.setIndvId(autoRegT1004CargoArray[i].getBridgesIndvId());
-		    dcIndvProfCargo.setUnearnedIncSw('N');
-		    dcIndvProfCargo.setAlternatePayeeSw('N');
-		    dcIndvProfCargo.setNonCooperationSw('N');
-		    dcIndvProfCargo.setIncExpTestedSw('N');
-		    dcIndvProfCargo.setShelterExpenseSw('N');
-		    dcIndvProfCargo.setWorkforceOrientationSw('N');
-		    dcIndvProfCargo.setPursuitBenefitsSw('N');
-		    dcIndvProfCargo.setSupportPaymentSw('N');
-		    dcIndvProfCargo.setRoomBoardPaidSw('N');
-		    dcIndvProfCargo.setSpousalDiversionSw('N');
-		    dcIndvProfCargo.setMiscPaymentSw('N');
-		    dcIndvProfCargo.setBreastCervicalSw('N');
-		    
-		    dcIndvProfColl.add(dcIndvProfCargo);
-		    
-		    dcIndvProfColl.insert(dcIndvProfColl);
-		} else {
-		    dcIndvProfCargo = new DcIndvProfileCargo();
-		    // PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the int value.
-		    PMDRules.markApprovedStatement("R10");
-		    dcIndvProfCargo.setIndvId(indvMap.get((int) autoRegT1004CargoArray[i].getIndvSeqNum()));
-		    dcIndvProfColl.clear();
-		    dcIndvProfColl.add(dcIndvProfCargo);
-		    dcIndvProfCargoArray = (DcIndvProfileCargo[]) dcIndvProfColl.select("findBySelectedIndividual");
-		    if (dcIndvProfCargoArray != null && dcIndvProfCargoArray.length > 0) {
-			dcIndvProfCargo = dcIndvProfCargoArray[0];
-			
-			if (mSPAppStatus == null) {
-			    if (t1055CargoArray != null && t1055CargoArray.length > 0) {
-				t1055Cargo = t1055CargoArray[0];
-				
-				if (t1055Cargo.getDablResp() != null && t1055Cargo.getDablResp().trim().length() > 0) {
-				    dcIndvProfCargo.setDisabledSw(t1055Cargo.getDablResp().charAt(0));
-				}
-				if (t1055Cargo.getPregResp() != null && t1055Cargo.getPregResp().trim().length() > 0) {
-				    dcIndvProfCargo.setPregnantSw(t1055Cargo.getPregResp().charAt(0));
-				}
-				else if(autoRegT1001SSAppMpeCargo!=null && autoRegT1001SSAppMpeCargo.getExptDlvrDt()!=null && autoRegT1001SSAppMpeCargo.getPosPrefTestInd()=='Y' ){
-			    	dcIndvProfCargo.setPregnantSw('Y');
-			    }else if(appFPPECategory){ //For FPPE apps, below 3 properties are invalid and pregnantSw should be N
-			    	dcIndvProfCargo.setPregnantSw('N');
-			    }
-				dcIndvProfCargo.setOtherInStateBenefitsSw(t1055Cargo.getOtherInStateBenefitsSw());
-			    }
-			    dcIndvProfCargo.setUpdateDt(currentTime);
-			    dcIndvProfCargo.setUpdateUserId(AppRegConstants.AUTO_REG_BATCH);
-			}
-			dcIndvProfColl.clear();
-			dcIndvProfColl.add(dcIndvProfCargo);
-			dcIndvProfColl.update(dcIndvProfColl);
-		    }
-		    
-		}
-		dcIndvProfColl.clear();
+		arAppIndvColl.add(arAppIndvCargo);
 	    }
+	    arAppIndvColl.insert(arAppIndvColl);
 	    
 	    return true;
 	    
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDcIndvProfileTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArAppIndvTable(): " + "\n" + e.getMessage() + "\n", e);
 	    hasExceptionOccurred = true;
 	    throw e;
 	} finally {
-	    dcIndvProfCargo = null;
-	    dcIndvProfColl = null;
-	    dcIndvProfCargoArray = null;
-	    t1055Cargo = null;
-	    t1055Coll = null;
-	    t1055CargoArray = null;
+	    arAppIndvCargo = null;
+	    arAppIndvColl = null;
+	}
+    }
+    
+    public boolean updateArAppProgramTable(String appNum) throws Exception {
+	
+	log(7, "Begin AutoRegistrationBO.updateArAppProgramTable () ");
+	ArAppProgramCargo arAppProgCargo = null;
+	ArAppProgramCollection arAppProgColl = new ArAppProgramCollection(connection);
+	java.sql.Timestamp defaultProgStatusDt = getCurrentMonthFirstDate(autoRegT1001Cargo.getAppRcvDt(), 0);
+	T1004AppIndvCargo t1004Cargo = null;
+	try {
+	    boolean fsCheck = false;
+	    boolean cashCheck = false;
+	    boolean maCheck = false;
+	    boolean mcCheck = false;
+	    boolean fpCheck = false;
+	    
+	    for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+		if (fsCheck && cashCheck && maCheck && mcCheck && fpCheck) {
+		    break;
+		}
+		t1004Cargo = autoRegT1004CargoArray[i];
+		if (fsCheck == false && t1004Cargo.getFsRqstSw() == 'Y') {
+		    fsCheck = true;
+		}
+		if (cashCheck == false && t1004Cargo.getBcRqstSw() == 'Y') {
+		    cashCheck = true;
+		}
+		if (maCheck == false && t1004Cargo.getMaRqstSw() == 'Y') {
+		    maCheck = true;
+		}
+		if (mcCheck == false && t1004Cargo.getMcRqstSw() == 'Y') {
+		    mcCheck = true;
+		}
+			if(fpCheck == false && t1004Cargo.getFppRqstSw() == 'Y')
+				fpCheck = true;
+	    }
+	    
+	    if (autoRegT1002Cargo.getFsRqstSw() == 'Y' && fsCheck) {
+		arAppProgCargo = new ArAppProgramCargo();
+		arAppProgCargo.setAppNum(appNum);
+		arAppProgCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		arAppProgCargo.setCreateDt(currentTime);
+		arAppProgCargo.setProgStatusCd("PE");
+		arAppProgCargo.setExpScreenDt(autoRegT1001Cargo.getAppRcvDt());
+		arAppProgCargo.setProgStatusDt(ALSOPUtil.truncate(defaultProgStatusDt));
+		arAppProgCargo.setRequestDt(ALSOPUtil.truncate(autoRegT1001Cargo.getAppRcvDt()));
+		arAppProgCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
+		arAppProgCargo.setPriorMedicaidCd("P0");
+		arAppProgCargo.setProgramCd("FS");
+		arAppProgColl.add(arAppProgCargo);
+	    }
+	    if (autoRegT1002Cargo.getCashRqstSw() == 'Y' && cashCheck) {
+		arAppProgCargo = new ArAppProgramCargo();
+		arAppProgCargo.setAppNum(appNum);
+		arAppProgCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		arAppProgCargo.setCreateDt(currentTime);
+		arAppProgCargo.setProgStatusCd("PE");
+		arAppProgCargo.setExpScreenDt(autoRegT1001Cargo.getAppRcvDt());
+		arAppProgCargo.setProgStatusDt(ALSOPUtil.truncate(defaultProgStatusDt));
+		arAppProgCargo.setRequestDt(ALSOPUtil.truncate(autoRegT1001Cargo.getAppRcvDt()));
+		arAppProgCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
+		arAppProgCargo.setPriorMedicaidCd("P0");
+		arAppProgCargo.setProgramCd("TF");
+		
+		arAppProgColl.add(arAppProgCargo);
+	    }
+	    if (autoRegT1002Cargo.getMaRqstSw() == 'Y' && maCheck || autoRegT1002Cargo.getFppRqstSw() == 'Y' && fpCheck) {
+		arAppProgCargo = new ArAppProgramCargo();
+		arAppProgCargo.setAppNum(appNum);
+		arAppProgCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		arAppProgCargo.setCreateDt(currentTime);
+		arAppProgCargo.setProgStatusCd("PE");
+		arAppProgCargo.setExpScreenDt(autoRegT1001Cargo.getAppRcvDt());
+		arAppProgCargo.setProgStatusDt(ALSOPUtil.truncate(defaultProgStatusDt));
+		arAppProgCargo.setRequestDt(ALSOPUtil.truncate(autoRegT1001Cargo.getAppRcvDt()));
+		arAppProgCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
+		arAppProgCargo.setProgramCd(AppIndividualBO.calculatePrgCd(maCheck, fpCheck));
+		arAppProgCargo.setPriorMedicaidCd("P0");
+		
+		arAppProgColl.add(arAppProgCargo);
+		
+		if (autoRegT1002Cargo.getMaBackdtMo1Ind() == 1L) {
+		    arAppProgCargo = new ArAppProgramCargo();
+		    arAppProgCargo.setAppNum(appNum);
+		    arAppProgCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		    arAppProgCargo.setCreateDt(currentTime);
+		    arAppProgCargo.setProgStatusCd("PE");
+		    arAppProgCargo.setExpScreenDt(autoRegT1001Cargo.getAppRcvDt());
+		    java.sql.Timestamp date = ALSOPUtil.truncate(getCurrentMonthFirstDate(autoRegT1001Cargo.getAppRcvDt(), -1));
+		    arAppProgCargo.setProgStatusDt(date);
+		    arAppProgCargo.setRequestDt(date);
+		    arAppProgCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
+		    arAppProgCargo.setProgramCd(AppIndividualBO.calculatePrgCd(maCheck, fpCheck));
+		    arAppProgCargo.setPriorMedicaidCd("P1");
+		    
+		    arAppProgColl.add(arAppProgCargo);
+		    
+		}
+		if (autoRegT1002Cargo.getMaBackdtMo2Ind() == 1L) {
+		    arAppProgCargo = new ArAppProgramCargo();
+		    arAppProgCargo.setAppNum(appNum);
+		    arAppProgCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		    arAppProgCargo.setCreateDt(currentTime);
+		    arAppProgCargo.setProgStatusCd("PE");
+		    arAppProgCargo.setExpScreenDt(autoRegT1001Cargo.getAppRcvDt());
+		    java.sql.Timestamp date = ALSOPUtil.truncate(getCurrentMonthFirstDate(autoRegT1001Cargo.getAppRcvDt(), -2));
+		    arAppProgCargo.setProgStatusDt(date);
+		    arAppProgCargo.setRequestDt(date);
+		    arAppProgCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
+		    arAppProgCargo.setProgramCd(AppIndividualBO.calculatePrgCd(maCheck, fpCheck));
+		    arAppProgCargo.setPriorMedicaidCd("P2");
+		    
+		    arAppProgColl.add(arAppProgCargo);
+		    
+		}
+		if (autoRegT1002Cargo.getMaBackdtMo3Ind() == 1L) {
+		    arAppProgCargo = new ArAppProgramCargo();
+		    arAppProgCargo.setAppNum(appNum);
+		    arAppProgCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		    arAppProgCargo.setCreateDt(currentTime);
+		    arAppProgCargo.setProgStatusCd("PE");
+		    arAppProgCargo.setExpScreenDt(autoRegT1001Cargo.getAppRcvDt());
+		    java.sql.Timestamp date = ALSOPUtil.truncate(getCurrentMonthFirstDate(autoRegT1001Cargo.getAppRcvDt(), -3));
+		    arAppProgCargo.setProgStatusDt(date);
+		    arAppProgCargo.setRequestDt(date);
+		    arAppProgCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
+		    arAppProgCargo.setProgramCd(AppIndividualBO.calculatePrgCd(maCheck, fpCheck));
+		    arAppProgCargo.setPriorMedicaidCd("P3");
+		    
+		    arAppProgColl.add(arAppProgCargo);
+		}
+		
+	    }
+	    if (autoRegT1002Cargo.getMcRqstSw() == 'Y' && mcCheck) {
+		arAppProgCargo = new ArAppProgramCargo();
+		arAppProgCargo.setAppNum(appNum);
+		arAppProgCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+		arAppProgCargo.setCreateDt(currentTime);
+		arAppProgCargo.setProgStatusCd("PE");
+		arAppProgCargo.setExpScreenDt(autoRegT1001Cargo.getAppRcvDt());
+		arAppProgCargo.setProgStatusDt(ALSOPUtil.truncate(defaultProgStatusDt));
+		arAppProgCargo.setRequestDt(ALSOPUtil.truncate(autoRegT1001Cargo.getAppRcvDt()));
+		arAppProgCargo.setExpeditedSw(autoRegT1001Cargo.getExpeditedFapSw());
+		arAppProgCargo.setPriorMedicaidCd("P0");
+		arAppProgCargo.setProgramCd("MC");
+		
+		arAppProgColl.add(arAppProgCargo);
+	    }
+	    
+	    for (ArAppProgramCargo cargo : arAppProgColl.getResults())
+		{
+	    	cargo.setProgNrCd("Y");
+		}
+	    
+	    arAppProgColl.insert(arAppProgColl);
+	    
+	    return true;
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArAppProgramTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    hasExceptionOccurred = true;
+	    throw e;
+	} finally {
+	    arAppProgCargo = null;
+	    arAppProgColl = null;
 	}
     }
