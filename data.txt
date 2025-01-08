@@ -1,1372 +1,846 @@
-ackage gov.illinois.ies.business.rules.st.appreg;
-
-import gov.illinois.framework.factories.FwServiceFactory;
-import gov.illinois.framework.management.context.IContexts;
-import gov.illinois.framework.management.logging.ILog;
-import gov.illinois.framework.management.util.FwCalendar;
-import gov.illinois.framework.management.util.FwConstants;
-import gov.illinois.framework.management.util.FwDate;
-import gov.illinois.framework.management.util.PMDRules;
-import gov.illinois.fw.business.exceptions.ApplicationException;
-import gov.illinois.fw.business.exceptions.FrameworkException;
-import gov.illinois.fw.business.exceptions.SelfServiceApplicationException;
-import gov.illinois.fw.business.rules.AbstractBO;
-import gov.illinois.fw.management.referencetables.RefTableData;
-import gov.illinois.fw.management.referencetables.ReferenceTableManager;
-import gov.illinois.fw.management.util.StringUtils;
-import gov.illinois.fw.persistence.data.AbstractType0Cargo;
-import gov.illinois.ies.business.broker.SelfServiceBrokerConstants;
-import gov.illinois.ies.business.entities.application.ArAppProgramCargo;
-import gov.illinois.ies.business.entities.application.ArAppProgramCollection;
-import gov.illinois.ies.business.entities.application.ArApplicationForAidCargo;
-import gov.illinois.ies.business.entities.application.ArApplicationForAidCollection;
-import gov.illinois.ies.business.entities.application.ArHpeAssociationCargo;
-import gov.illinois.ies.business.entities.application.ArHpeAssociationCollection;
-import gov.illinois.ies.business.entities.application.ArHpeEligDetailCargo;
-import gov.illinois.ies.business.entities.application.ArHpeEligDetailCollection;
-import gov.illinois.ies.business.entities.application.ArHpeEligDetailIndvCargo;
-import gov.illinois.ies.business.entities.application.ArHpeEligDetailIndvCollection;
-import gov.illinois.ies.business.entities.electronicdocument.DmDocGroupCargo;
-import gov.illinois.ies.business.entities.individual.DcIndvCargo;
-import gov.illinois.ies.business.entities.individual.DcIndvCollection;
-import gov.illinois.ies.business.entities.interfaces.InMcRcvIndvCargo;
-import gov.illinois.ies.business.entities.interfaces.InMcRcvIndvCollection;
-import gov.illinois.ies.business.entities.selfservice.*;
-import gov.illinois.ies.business.rules.al.ALSOPUtil;
-import gov.illinois.ies.business.rules.am.AppealsUtil;
-import gov.illinois.ies.business.rules.ar.util.ARConstants;
-import gov.illinois.ies.business.rules.dm.DMApplicationStatusVO;
-import gov.illinois.ies.business.rules.dm.DMElectronicDocumentSSVO;
-import gov.illinois.ies.business.rules.dm.DMElectronicDocumentWSBO;
-import gov.illinois.ies.business.rules.dm.util.DMConstants;
-import gov.illinois.ies.business.rules.dm.util.DMFactory;
-import gov.illinois.ies.business.rules.dm.util.DMWebserviceClient;
-import gov.illinois.ies.business.rules.in.INConstants;
-import gov.illinois.ies.business.rules.in.InRcvDlyMIChildReferralConstants;
-import gov.illinois.ies.business.rules.st.StSerServiceMapping;
-import gov.illinois.ies.business.rules.utility.RMCUtility;
-
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.Serializable;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.Date;
-import java.sql.Timestamp;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Calendar;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-
-import org.jdom.Attribute;
-import org.jdom.Document;
-import org.jdom.Element;
-import org.jdom.input.SAXBuilder;
-
 /**
- * @author ChakalamB
- * 
- *         This BO has the business logic for extracting data from XML and load
- *         the staging tables
- */
-public class SelfServiceAppRegBO extends AbstractBO implements Serializable {
-	private Timestamp highDate = null;
-	private String appNum = null;
-	private Date appTms = null;
-	private Timestamp appFileDt = null;
-	private int beginMonth = -1;
-	private Connection conn = null;
-	private boolean realPropertySw = false;
-	private boolean isSerCase = false;
-	private boolean deliverableFuel = false;
-	boolean isExpidtedFAP = false;
-	StringBuffer errorMessages;
-	private boolean miChildApp = false;
-	private boolean isPregnantInCase = false;
-	private boolean isPresumptive = false;
-	private int hohCount = 0;
-	private static final String DATA_YES = "Y";
-	private static final String DATA_NO = "N";
-	private static final String NF = "NF";
-	private String maShortFormCd = null;
-	private static final char C_YES = 'Y';
-	private static final char C_NO = 'N';
-	private static final String APPROVED = "AP";
-	private static final String PENDING = "PE";
-	private static final String INDV_SEQ_NUM = "1";
-	private static final int SUCCESSFUL = 1;
-	public static final String EMPTY_STRING = "";
-	private Element appElement = null;
-	String miChildAppNum = null;
-	private DMElectronicDocumentSSVO dmWebserviceVO = null;
-
-	public SelfServiceAppRegBO() {
-		highDate = new Timestamp((new Date(2999, 12, 31)).getTime());
-	}
-
-	public SelfServiceAppRegBO(Connection conn) {
-		this.conn = conn;
-		highDate = new Timestamp((new Date(2999, 12, 31)).getTime());
-	}
-
-	private char mcProgramTypeCD;
-
-	/**
-	 * @return Returns the mcProgramTypeCD.
-	 */
-	public char getMcProgramTypeCD() {
-		return mcProgramTypeCD;
-	}
-
-	/**
-	 * @param mcProgramTypeCD
-	 *            The mcProgramTypeCD to set.
-	 */
-	public void setMcProgramTypeCD(char mcProgramTypeCD) {
-		this.mcProgramTypeCD = mcProgramTypeCD;
-	}
-
-	private String MA_RQST_SW = "MA_RQST_SW";
-
-	private long DHS_PLAN_FIRST_OFFICE = 31325;
-
-	private String hpe_pid = null;
-	private String hpe_html_pid = null;
-	private String HPE_ONLY_IND = null;
-	private String HPE_APP_IND = null;
-
-	/**
-	 * The <code>createApplication</code> invokes methods to parse the XML
-	 * String and insert into respective staging tables.
+	 * This method creates and inserts records into T1042_APP_IN_R_PROP_ASET
+	 * staging table
 	 * 
-	 * @param appXMLStr
-	 *            - Contains the SS application info in XML String
-	 * @return String - Indicating success or failure.
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
 	 */
-	public String createApplication(String appXMLStr) throws SelfServiceApplicationException, Exception {
+	private void buildT1042AppInRPropAset(Element root) throws Exception {
 
-		StringBuffer resultXML = new StringBuffer("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-		Document xmlDoc = null;
+		T1042AppInRPropAsetCargo t1042Cargo = null;
+		T1042AppInRPropAsetCollection t1042Coll = null;
+
+		Element propAsets = root.getChild("APP_IN_R_PROP_ASETS");
+		List propAsetList = (propAsets != null ? propAsets.getChildren("APP_IN_R_PROP_ASET") : null);
 		try {
-			log(ILog.DEBUG, "Initialising EDMWebserviceVO...");
-			dmWebserviceVO = new DMElectronicDocumentSSVO();
-			Map speciallInd = new HashMap();
-			isExpidtedFAP = false;
-			hohCount = 0;
-			log(ILog.DEBUG, "START PROCESSING THE XML from WebSercvice");
+			if (propAsetList != null && propAsetList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1042AppInRPropAset method");
+				String dataExist = null;
+				t1042Coll = (conn == null) ? new T1042AppInRPropAsetCollection() : new T1042AppInRPropAsetCollection(conn);
+				Iterator ite = propAsetList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element propAset = (Element) ite.next();
+					Attribute propAsetAttr = (propAset != null ? propAset.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (propAsetAttr != null)
+						dataExist = propAsetAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
 
-			String currentAppNum = "";
+						t1042Cargo = new T1042AppInRPropAsetCargo();
 
-			errorMessages = new StringBuffer("");
+						t1042Cargo.setAppNum(appNum);
+						t1042Cargo.setIndvSeqNum(getLongForString(propAset.getChildTextTrim("INDV_SEQ_NUM")));
+						t1042Cargo.setSeqNum(getLongForString(propAset.getChildTextTrim("SEQ_NUM")));
+						t1042Cargo.setAddRecInd(getCharForString(propAset.getChildTextTrim("ADD_REC_IND")));
+						t1042Cargo.setAsscSeqNum(getLongForString(propAset.getChildTextTrim("ASSC_SEQ_NUM")));
+						t1042Cargo.setEffBegMo(getIntForString(propAset.getChildTextTrim("EFF_BEG_MO")));
+						t1042Cargo.setIntnRetSw(getCharForString(propAset.getChildTextTrim("INTN_RET_SW")));
+						t1042Cargo.setJntOwnResp(getCharForString(propAset.getChildTextTrim("JNT_OWN_RESP")));
+						t1042Cargo.setPropCityAdr(getString(propAset.getChildTextTrim("PROP_CITY_ADR")));
+						t1042Cargo.setPropFmvAmt(getDoubleForString(propAset.getChildTextTrim("PROP_FMV_AMT")));
+						t1042Cargo.setPropFmvAmtInd(getLongForString(propAset.getChildTextTrim("PROP_FMV_AMT_IND")));
+						t1042Cargo.setPropL1Adr(getString(propAset.getChildTextTrim("PROP_L1_ADR")));
+						t1042Cargo.setPropL2Adr(getString(propAset.getChildTextTrim("PROP_L2_ADR")));
+						t1042Cargo.setPropOweAmt(getDoubleForString(propAset.getChildTextTrim("PROP_OWE_AMT")));
+						t1042Cargo.setPropOweAmtInd(getLongForString(propAset.getChildTextTrim("PROP_OWE_AMT_IND")));
+						t1042Cargo.setPropStaAdr(getString(propAset.getChildTextTrim("PROP_STA_ADR")));
+						t1042Cargo.setPropZipAdr(getString(propAset.getChildTextTrim("PROP_ZIP_ADR")));
+						SsStRtValXrefCollection ssXrefCollection = new SsStRtValXrefCollection();
+						SsStRtValXrefCargo ssXrefCargo = new SsStRtValXrefCargo();
+						ssXrefCargo.setSsStTableName("T1042_APP_IN_R_PROP_ASET");
+						ssXrefCargo.setSsStColumnName("REAL_PROP_ASET_TYP");
+						ssXrefCargo.setSsStColumnVal(String.valueOf(propAset.getChildTextTrim("REAL_PROP_ASET_TYP")));
+						Object[] objects = new Object[1];
+						objects[0] = ssXrefCargo;
+						SsStRtValXrefCargo xrefCargo[] = (SsStRtValXrefCargo[]) ssXrefCollection.select("findByTabNameColNameRtCode", objects);
+						if (xrefCargo.length > 0) {
+							t1042Cargo.setRealPropAsetTyp(xrefCargo[0].getRtCode());
+						}
 
-			xmlDoc = parseXML(appXMLStr);
-			DMElectronicDocumentWSBO dmBO = new DMElectronicDocumentWSBO();
+						t1042Cargo.setResSw(getCharForString(propAset.getChildTextTrim("RES_SW")));
+						t1042Cargo.setRltCd(getString(propAset.getChildTextTrim("RLT_CD")));
+						t1042Cargo.setSaleAgrSw(getCharForString(propAset.getChildTextTrim("SALE_AGR_SW")));
+						t1042Cargo.setSpsLiveSw(getCharForString(propAset.getChildTextTrim("SPS_LIVE_SW")));
 
-			T1001AppRqstCargo appRqstCargo = new T1001AppRqstCargo();
-			appRqstCargo.setAppNum(xmlDoc.getRootElement().getChildTextTrim(AppRegConstants.BRIDGES_APP_NUM));
-			T1001AppRqstCollection appRqstColl = new T1001AppRqstCollection();
-			appRqstColl.setCargo(appRqstCargo);
-			T1001AppRqstCargo[] adResults = (T1001AppRqstCargo[]) appRqstColl.select("findByAppNum");
-			if (adResults != null && adResults.length > 0) {
-				resultXML.append(SelfServiceBrokerConstants.SUCCESS);
-				return resultXML.toString();
+						t1042Cargo.setRecordCompleted(C_NO);
+
+						t1042Coll.setCargo(t1042Cargo);
+					}
+					if (t1042Coll.size() > 0)
+						t1042Coll.insert();
+				}
 			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1042AppInRPropAset method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1042AppInRPropAset method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1042AppInRPropAset method");
+	}
 
-			T1001AppRqstCollection appRqstCollection = null;
-			T1053AppProgramCollection appProgramCollection = null;
-			T3004AppProgramSplIndCollection spColl = null;
-			T3001AppSerRqstCollection serColl = null;
-			T1003AppPrirSrvCollection appPrirSrvColl = null;
-			String isAABD = xmlDoc.getRootElement().getChildTextTrim(AppRegConstants.AABD);
-			appRqstCollection = buildT1001AppRqst(xmlDoc.getRootElement());
-			T1002AppDtlCollection appDtlColl = buildT1002AppDtl(xmlDoc.getRootElement());
-			buildT1060HpeApplication(xmlDoc.getRootElement());
-			Timestamp sopDueDate = null;
-			Map sopCriteria = new HashMap();
-			boolean fap = false;
-			boolean ser = false;
-			boolean cash = false;
-			boolean ma = false;
-			boolean cdc = false;
-			boolean hpeApp = false;
-			boolean mc = false;
-			boolean fpp = false;
+	/**
+	 * This method creates and inserts records into T1043_APP_IN_P_PROP_ASET
+	 * staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1043AppInPPropAset(Element root) throws Exception {
 
-			String spInd = null;
-			String progCd = null;
-			T3004AppProgramSplIndCargo cargo = null;
+		T1043AppInPPropAsetCargo t1043Cargo = null;
+		T1043AppInPPropAsetCollection t1043Coll = null;
 
-			Element hpeInd = xmlDoc.getRootElement().getChild("HPE_APP_IND");
-			String hpeIndicatorSw = hpeInd.getText().trim();
+		Element ppropAsets = root.getChild("APP_IN_P_PROP_ASETS");
+		List ppropAsetList = (ppropAsets != null ? ppropAsets.getChildren("APP_IN_P_PROP_ASET") : null);
+		try {
+			if (ppropAsetList != null && ppropAsetList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1043AppInPPropAset method");
+				String dataExist = null;
+				t1043Coll = (conn == null) ? new T1043AppInPPropAsetCollection() : new T1043AppInPPropAsetCollection(conn);
+				Iterator ite = ppropAsetList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element ppropAset = (Element) ite.next();
+					Attribute ppropAsetAttr = (ppropAset != null ? ppropAset.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (ppropAsetAttr != null)
+						dataExist = ppropAsetAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
 
-			if (hpeIndicatorSw.equalsIgnoreCase("Y")) {
-				hpeApp = true;
+						t1043Cargo = new T1043AppInPPropAsetCargo();
+
+						t1043Cargo.setAppNum(appNum);
+						t1043Cargo.setIndvSeqNum(getLongForString(ppropAset.getChildTextTrim("INDV_SEQ_NUM")));
+						t1043Cargo.setSeqNum(getLongForString(ppropAset.getChildTextTrim("SEQ_NUM")));
+						t1043Cargo.setAddRecInd(getCharForString(ppropAset.getChildTextTrim("ADD_REC_IND")));
+						t1043Cargo.setAsscSeqNum(getLongForString(ppropAset.getChildTextTrim("ASSC_SEQ_NUM")));
+						t1043Cargo.setEffBegMo(getIntForString(ppropAset.getChildTextTrim("EFF_BEG_MO")));
+						t1043Cargo.setJntOwnResp(getCharForString(ppropAset.getChildTextTrim("JNT_OWN_RESP")));
+						t1043Cargo.setPrsnPropAmt(getDoubleForString(ppropAset.getChildTextTrim("PRSN_PROP_AMT")));
+						t1043Cargo.setPrsnPropAmtInd(getLongForString(ppropAset.getChildTextTrim("PRSN_PROP_AMT_IND")));
+						t1043Cargo.setPrsnPropAsetTyp(getString(ppropAset.getChildTextTrim("PRSN_PROP_ASET_TYP")));
+						t1043Coll.setCargo(t1043Cargo);
+					}
+					if (t1043Coll.size() > 0)
+						t1043Coll.insert();
+				}
 			}
-			//
-			try {
-				if (appRqstCollection != null && appRqstCollection.size() > 0) {
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1043AppInPPropAset method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1043AppInPPropAset method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1043AppInPPropAset method");
+	}
 
-					Timestamp applicationDate = appRqstCollection.getResults(0).getAppRcvDt();
-					currentAppNum = appRqstCollection.getResults(0).getAppNum();
-					String langCd = appRqstCollection.getResults(0).getLangCd();
-					if(StringUtils.isNotEmpty(langCd) && !("0".equalsIgnoreCase(langCd))){
-					String langSI = dmBO.getLangSPD(langCd);
-						List<String> languageSplInd = new ArrayList<String>();
-						languageSplInd.add(langSI);
-						speciallInd.put(langSI, languageSplInd);
+	/**
+	 * This method creates and inserts records into T1044_APP_IN_BURY_ASET
+	 * staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1044AppInBuryAset(Element root) throws Exception {
+
+		T1044AppInBuryAsetCargo t1044Cargo = null;
+		T1044AppInBuryAsetCollection t1044Coll = null;
+
+		Element buryAsets = root.getChild("APP_IN_BURY_ASETS");
+		List buryAsetList = (buryAsets != null ? buryAsets.getChildren("APP_IN_BURY_ASET") : null);
+		try {
+			if (buryAsetList != null && buryAsetList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1044AppInBuryAset method");
+				String dataExist = null;
+				t1044Coll = (conn == null) ? new T1044AppInBuryAsetCollection() : new T1044AppInBuryAsetCollection(conn);
+				Iterator ite = buryAsetList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element buryAset = (Element) ite.next();
+					Attribute buryAsetAttr = (buryAset != null ? buryAset.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (buryAsetAttr != null)
+						dataExist = buryAsetAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+
+						t1044Cargo = new T1044AppInBuryAsetCargo();
+
+						t1044Cargo.setAppNum(appNum);
+						t1044Cargo.setIndvSeqNum(getLongForString(buryAset.getChildTextTrim("INDV_SEQ_NUM")));
+						t1044Cargo.setSeqNum(getLongForString(buryAset.getChildTextTrim("SEQ_NUM")));
+						t1044Cargo.setAddRecInd(getCharForString(buryAset.getChildTextTrim("ADD_REC_IND")));
+						t1044Cargo.setAsscSeqNum(getLongForString(buryAset.getChildTextTrim("ASSC_SEQ_NUM")));
+						t1044Cargo.setEffBegMo(getIntForString(buryAset.getChildTextTrim("EFF_BEG_MO")));
+						t1044Cargo.setBuryAsetAmt(getDoubleForString(buryAset.getChildTextTrim("BURY_ASET_AMT")));
+						t1044Cargo.setBuryAsetAmtInd(getLongForString(buryAset.getChildTextTrim("BURY_ASET_AMT_IND")));
+						t1044Cargo.setBuryAsetRltCd(getString(buryAset.getChildTextTrim("BURY_ASET_RLT_CD")));
+						SsStRtValXrefCollection ssXrefCollection = new SsStRtValXrefCollection();
+						SsStRtValXrefCargo ssXrefCargo = new SsStRtValXrefCargo();
+						ssXrefCargo.setSsStTableName("T1044_APP_IN_BURY_ASET");
+						ssXrefCargo.setSsStColumnName("BURY_ASET_TYP");
+						ssXrefCargo.setSsStColumnVal(String.valueOf(buryAset.getChildTextTrim("BURY_ASET_TYP")));
+						Object[] objects = new Object[1];
+						objects[0] = ssXrefCargo;
+						SsStRtValXrefCargo xrefCargo[] = (SsStRtValXrefCargo[]) ssXrefCollection.select("findByTabNameColNameRtCode", objects);
+						if (xrefCargo.length > 0) {
+							t1044Cargo.setBuryAsetTyp(xrefCargo[0].getRtCode());
+						}
+
+						t1044Cargo.setForIndvSeqNum(getLongForString(buryAset.getChildTextTrim("FOR_INDV_SEQ_NUM")));
+						t1044Cargo.setRecordCompleted(C_NO);
+
+						t1044Coll.setCargo(t1044Cargo);
 					}
-					sopCriteria.put(SelfServiceBrokerConstants.APPLICATION_DATE, applicationDate);
-					dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
+					if (t1044Coll.size() > 0)
+						t1044Coll.insert();
+				}
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1044AppInBuryAset method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1044AppInBuryAset method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1044AppInBuryAset method");
+	}
 
-					if (appDtlColl != null && appDtlColl.size() > 0) {
-						if (appDtlColl.getResults(0).getFsRqstSw() == 'Y') {
-							fap = true;
-						}
-						if (appDtlColl.getResults(0).getSeRqstSw() == 'Y') {
-							ser = true;
-						}
-						if (appDtlColl.getResults(0).getCashRqstSw() == 'Y') {
-							cash = true;
-						}
-						if (appDtlColl.getResults(0).getMaRqstSw() == 'Y') {
-							ma = true;
-						}
-						if (appDtlColl.getResults(0).getFpwRqstSw() == 'Y') {
-							cdc = true;
-						}
-						if (appDtlColl.getResults(0).getMcRqstSw() == 'Y') {
-							mc = true;
-						}
-						if (appDtlColl.getResults(0).getFppRqstSw() == 'Y') {
-							fpp = true;
+	/**
+	 * This method creates and inserts records into T1045_APP_IN_L_INS_ASET
+	 * staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1045AppInLInsAset(Element root) throws Exception {
+
+		T1045AppInLInsAsetCargo t1045Cargo = null;
+		T1045AppInLInsAsetCollection t1045Coll = null;
+
+		Element insAsets = root.getChild("APP_IN_L_INS_ASETS");
+		List insAsetList = (insAsets != null ? insAsets.getChildren("APP_IN_L_INS_ASET") : null);
+		try {
+			if (insAsetList != null && insAsetList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1045AppInLInsAset method");
+				String dataExist = null;
+				t1045Coll = (conn == null) ? new T1045AppInLInsAsetCollection() : new T1045AppInLInsAsetCollection(conn);
+				Iterator ite = insAsetList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element insAset = (Element) ite.next();
+					Attribute insAsetAttr = (insAset != null ? insAset.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (insAsetAttr != null)
+						dataExist = insAsetAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+
+						t1045Cargo = new T1045AppInLInsAsetCargo();
+
+						t1045Cargo.setAppNum(appNum);
+						t1045Cargo.setIndvSeqNum(getLongForString(insAset.getChildTextTrim("INDV_SEQ_NUM")));
+						t1045Cargo.setSeqNum(getLongForString(insAset.getChildTextTrim("SEQ_NUM")));
+						t1045Cargo.setAddRecInd(getCharForString(insAset.getChildTextTrim("ADD_REC_IND")));
+						t1045Cargo.setAsscSeqNum(getLongForString(insAset.getChildTextTrim("ASSC_SEQ_NUM")));
+						t1045Cargo.setEffBegMo(getIntForString(insAset.getChildTextTrim("EFF_BEG_MO")));
+						t1045Cargo.setInsCoCityAdr(getString(insAset.getChildTextTrim("INS_CO_CITY_ADR")));
+						t1045Cargo.setInsCoL1Adr(getString(insAset.getChildTextTrim("INS_CO_L1_ADR")));
+						t1045Cargo.setInsCoL2Adr(getString(insAset.getChildTextTrim("INS_CO_L2_ADR")));
+						t1045Cargo.setInsCoNam(getString(insAset.getChildTextTrim("INS_CO_NAM")));
+						t1045Cargo.setInsCoStaAdr(getString(insAset.getChildTextTrim("INS_CO_STA_ADR")));
+						t1045Cargo.setInsCoZipAdr(getString(insAset.getChildTextTrim("INS_CO_ZIP_ADR")));
+						SsStRtValXrefCollection ssXrefCollection = new SsStRtValXrefCollection();
+						SsStRtValXrefCargo ssXrefCargo = new SsStRtValXrefCargo();
+						ssXrefCargo.setSsStTableName("T1045_APP_IN_L_INS_ASET");
+						ssXrefCargo.setSsStColumnName("LIFE_INS_ASET_TYP");
+						ssXrefCargo.setSsStColumnVal(String.valueOf(insAset.getChildTextTrim("LIFE_INS_ASET_TYP")));
+						Object[] objects = new Object[1];
+						objects[0] = ssXrefCargo;
+						SsStRtValXrefCargo xrefCargo[] = (SsStRtValXrefCargo[]) ssXrefCollection.select("findByTabNameColNameRtCode", objects);
+						if (xrefCargo.length > 0) {
+							t1045Cargo.setLifeInsAsetTyp(xrefCargo[0].getRtCode());
 						}
 
+						t1045Cargo.setLifeInsFAmtInd(getLongForString(insAset.getChildTextTrim("LIFE_INS_F_AMT_IND")));
+						t1045Cargo.setLifeInsFaceAmt(getDoubleForString(insAset.getChildTextTrim("LIFE_INS_FACE_AMT")));
+						t1045Cargo.setLifeInsPlcyNum(getString(insAset.getChildTextTrim("LIFE_INS_PLCY_NUM")));
+						t1045Cargo.setLifeInsSAmtInd(getLongForString(insAset.getChildTextTrim("LIFE_INS_S_AMT_IND")));
+						t1045Cargo.setLifeInsSurrAmt(getDoubleForString(insAset.getChildTextTrim("LIFE_INS_SURR_AMT")));
+						t1045Cargo.setRecordCompleted(C_NO);
 
-						if (fap) {
-							appPrirSrvColl = buildT1003AppPrirSrv(xmlDoc.getRootElement());
-							appRqstCollection.getResults(0).setExpeditedFapSw(isExpidtedFAP ? 'Y' : 'N');
-							sopCriteria.put("FS_SW", "Y");
-							sopCriteria.put("FS_EXP_SW", String.valueOf(appRqstCollection.getResults(0).getExpeditedFapSw()));
-							dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
-
-						}
-						if (ser) {
-							serColl = buildSerAppRequest(xmlDoc.getRootElement());
-							sopCriteria.put("SE_SW", "Y");
-							dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
-
-						}
-						if (miChildApp) {
-							isPregnantInCase = isPregnantExists(xmlDoc.getRootElement());
-							dmWebserviceVO.setSourceTypeCode(DMConstants.MICHILD);
-						}
-						if (cash) {
-							sopCriteria.put("CASH_SW", "Y");
-						}
-						if (ma) {
-							sopCriteria.put("MA_SW", "Y");
-						}
-						if (mc) {
-							sopCriteria.put("MC_SW", "Y");
-						}
-						if (fpp) {
-							sopCriteria.put("FPP_SW", "Y");
-						}
-						sopDueDate = computeSopDueDate(sopCriteria);
-						if (sopDueDate != null) {
-							dmWebserviceVO.setDueDate(sopDueDate.toString());
-						}
-
-						appRqstCollection.getResults(0).setSopDueDt(sopDueDate);
+						t1045Coll.setCargo(t1045Cargo);
 					}
-					spColl = (conn != null) ? new T3004AppProgramSplIndCollection(conn) : new T3004AppProgramSplIndCollection();
+					if (t1045Coll.size() > 0)
+						t1045Coll.insert();
+				}
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1045AppInLInsAset method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1045AppInLInsAset method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1045AppInLInsAset method");
+	}
 
-					if (fap) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						dmWebserviceVO.setAppNum(currentAppNum);
-						dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
+	/**
+	 * This method creates and inserts records into T1050_APP_IN_A_J_O staging
+	 * table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1050AppInAdditionalJointOwner(Element root) throws Exception {
 
-						ArrayList fapSplInd = new ArrayList();
-						cargo.setProgCd("FS");
-						if (appRqstCollection.getResults(0).getExpeditedFapSw() == 'Y') {
-							cargo.setSplIndCd("EX");
-							fapSplInd.add("EX");
-						} else {
-							cargo.setSplIndCd("NE");
-							fapSplInd.add("NE");
-						}
-						spColl.add(cargo);
-						if (fapSplInd != null) {
-							speciallInd.put("FS", fapSplInd);
-						}
-					}
-					if (ser) {
-						ArrayList serSplInd = new ArrayList();
-						int size = serColl.size();
-						for (int i = 0; i < size; i++) {
-							cargo = new T3004AppProgramSplIndCargo();
-							cargo.setAppNum(currentAppNum);
-							dmWebserviceVO.setAppNum(currentAppNum);
-							dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
+		T1050AppInAJOCargo t1050Cargo = null;
+		T1050AppInAJOCollection t1050Coll = null;
 
-							cargo.setProgCd("SE");
-							cargo.setSplIndCd(serColl.getResults(i).getServiceCd());
-							serSplInd.add(serColl.getResults(i).getServiceCd());
-							spColl.add(cargo);
-						}
-						if (serSplInd != null) {
-							speciallInd.put("SE", serSplInd);
-						}
-					}
-					if (cash) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						dmWebserviceVO.setAppNum(currentAppNum);
-						dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
-						cargo.setProgCd("TF");
-						cargo.setSplIndCd("TF");
-						ArrayList cashSplInd = new ArrayList();
-						cashSplInd.add("TF");
-						if (cashSplInd != null) {
-							speciallInd.put("TF", cashSplInd);
-						}
-						spColl.add(cargo);
-					}
-					if (cdc) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						dmWebserviceVO.setAppNum(currentAppNum);
-						dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
-						cargo.setProgCd("CD");
-						cargo.setSplIndCd("CD");
-						ArrayList cdcSplInd = new ArrayList();
-						cdcSplInd.add("CD");
-						if (cdcSplInd != null) {
-							speciallInd.put("CD", cdcSplInd);
-						}
-						spColl.add(cargo);
-					}
-					if (ma) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						dmWebserviceVO.setAppNum(currentAppNum);
-						dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
-						ArrayList maSplInd = new ArrayList();
-						cargo.setProgCd("MA");
-						cargo.setSplIndCd("MA");
+		Element inJointOwners = root.getChild("JOINT_OWNERS");
+		List inJointOwnerList = (inJointOwners != null ? inJointOwners.getChildren("JOINT_OWNER") : null);
+		try {
+			if (inJointOwnerList != null && inJointOwnerList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1050AppInAdditionalJointOwner method");
+				String dataExist = null;
+				t1050Coll = (conn == null) ? new T1050AppInAJOCollection() : new T1050AppInAJOCollection(conn);
+				Iterator ite = inJointOwnerList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element inJointOwner = (Element) ite.next();
+					Attribute inJointOwnerAttr = (inJointOwner != null ? inJointOwner.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (inJointOwnerAttr != null)
+						dataExist = inJointOwnerAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist) || dataExist.equalsIgnoreCase("")) {
 
-						if (appDtlColl.getResults(0).getMaShortFormCd().equals("MA")) {
-							cargo.setSplIndCd("MA");
-						} else if (appDtlColl.getResults(0).getMaShortFormCd().equals("PF")) {
-							cargo.setSplIndCd("PF");
-						} else if (appDtlColl.getResults(0).getMaShortFormCd().equals("TF")) {
-							cargo.setSplIndCd("TF");
-						} else if (appDtlColl.getResults(0).getMaShortFormCd().equals("HK")) {
-							cargo.setSplIndCd("HK");
-						}
-						spColl.add(cargo);
-						maSplInd.add(cargo.getSplIndCd());
-						if (maSplInd != null) {
-							speciallInd.put("MA", maSplInd);
-						}
-					}
-					if (fpp ) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						dmWebserviceVO.setAppNum(currentAppNum);
-						dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
-						ArrayList maSplInd = new ArrayList();
-						cargo.setProgCd("FP");
-						cargo.setSplIndCd("FPA");
-						spColl.add(cargo);
-						maSplInd.add(cargo.getSplIndCd());
-						if (maSplInd != null) {
-							speciallInd.put("FPA", maSplInd);
-						}
-					} // ILIES-289161 
-					if (mc) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						dmWebserviceVO.setAppNum(currentAppNum);
-						dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE);
-						ArrayList maSplInd = new ArrayList();
-						cargo.setProgCd("MC");
-						cargo.setSplIndCd("MSP");
-						spColl.add(cargo);
-						maSplInd.add(cargo.getSplIndCd());
-						if (maSplInd != null) {
-							speciallInd.put("MSP", maSplInd);
-						}
-					}
-					// Begin MI Child Changes
-					if (miChildApp) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						dmWebserviceVO.setAppNum(currentAppNum);
-						// Set Default to MICHILD_PLANFIRST
-						// TODO: Confirm this
-						dmWebserviceVO.setSourceTypeCode(DMConstants.MICHILD_PLANFIRST);
-						ArrayList miChildSplInd = new ArrayList();
+						t1050Cargo = new T1050AppInAJOCargo();
 
-						cargo.setProgCd("MA");
-						String splInd = null;
-
-						if (InRcvDlyMIChildReferralConstants.MC_APPLICATION_TYPE_CD_HEALTY_KIDS == mcProgramTypeCD) {
-							if (isPresumptive && isPregnantInCase) {
-								// cargo.setSplIndCd("PP");
-								splInd = InRcvDlyMIChildReferralConstants.SS_PROGRAM_SPLIND_PRESUMPTIVE_PREGNANT;
-								// If Pregnant- Presumptive, notify DM
-								// Webservice source as Healthy Kids
-								dmWebserviceVO.setSourceTypeCode(DMConstants.MICHILD_HEALTHY);
-
-							} else if (isPresumptive) {
-								// cargo.setSplIndCd("PM");
-								splInd = InRcvDlyMIChildReferralConstants.SS_PROGRAM_SPLIND_PRESUMPTIVE;
-								// If Presumptive, notify DM Webservice source
-								// as Healthy Kids
-								dmWebserviceVO.setSourceTypeCode(DMConstants.MICHILD_HEALTHY);
-
-							} else if (isPregnantInCase) {
-								// cargo.setSplIndCd("PR");
-								splInd = InRcvDlyMIChildReferralConstants.SS_PROGRAM_SPLIND_PREGNANT;
-								// If Pregnant, notify DM Webservice source as
-								// Healthy Kids
-								dmWebserviceVO.setSourceTypeCode(DMConstants.MICHILD_HEALTHY);
-
+						t1050Cargo.setAppNum(appNum);
+						t1050Cargo.setIndvSeqNum(getLongForString(inJointOwner.getChildTextTrim("INDV_SEQ_NUM")));
+						t1050Cargo.setSeqNum(getLongForString(inJointOwner.getChildTextTrim("SEQ_NUM")));
+						t1050Cargo.setAsetTyp(inJointOwner.getChildTextTrim("ASET_TYP"));
+						t1050Cargo.setJntOwnSeqNum(getLongForString(inJointOwner.getChildTextTrim("JNT_OWN_SEQ_NUM")));
+						if (inJointOwner.getChildTextTrim("ASET_TYP") != null) {
+							if ("RP".equalsIgnoreCase(inJointOwner.getChildTextTrim("ASET_TYP"))) {
+								SsStRtValXrefCollection ssXrefCollection = new SsStRtValXrefCollection();
+								SsStRtValXrefCargo ssXrefCargo = new SsStRtValXrefCargo();
+								ssXrefCargo.setSsStTableName("T1042_APP_IN_R_PROP_ASET");
+								ssXrefCargo.setSsStColumnName("REAL_PROP_ASET_TYP");
+								ssXrefCargo.setSsStColumnVal(inJointOwner.getChildTextTrim("ASET_SUB_TYP"));
+								Object[] objects = new Object[1];
+								objects[0] = ssXrefCargo;
+								SsStRtValXrefCargo xrefCargo[] = (SsStRtValXrefCargo[]) ssXrefCollection.select("findByTabNameColNameRtCode", objects);
+								if (xrefCargo.length > 0) {
+									t1050Cargo.setAsetSubTyp(xrefCargo[0].getRtCode());
+								}
+							} else if ("VA".equalsIgnoreCase(inJointOwner.getChildTextTrim("ASET_TYP"))) {
+								SsStRtValXrefCollection ssXrefCollection = new SsStRtValXrefCollection();
+								SsStRtValXrefCargo ssXrefCargo = new SsStRtValXrefCargo();
+								ssXrefCargo.setSsStTableName("T1041_APP_IN_VEH_ASET");
+								ssXrefCargo.setSsStColumnName("VEH_ASET_TYP");
+								ssXrefCargo.setSsStColumnVal(inJointOwner.getChildTextTrim("ASET_SUB_TYP"));
+								Object[] objects = new Object[1];
+								objects[0] = ssXrefCargo;
+								SsStRtValXrefCargo xrefCargo[] = (SsStRtValXrefCargo[]) ssXrefCollection.select("findByTabNameColNameRtCode", objects);
+								if (xrefCargo.length > 0) {
+									t1050Cargo.setAsetSubTyp(xrefCargo[0].getRtCode());
+								}
 							} else {
-								splInd = InRcvDlyMIChildReferralConstants.SS_PROGRAM_SPLIND_OTHER_HK;
-								// If Other- HK, notify DM Webservice source as
-								// Healthy Kids
-								dmWebserviceVO.setSourceTypeCode(DMConstants.MICHILD_HEALTHY);
-
-							}
-						} else if (InRcvDlyMIChildReferralConstants.MC_APPLICATION_TYPE_CD_PLAN_FIRST == mcProgramTypeCD) {
-
-							InMcRcvIndvCollection mcIndvCollection = new InMcRcvIndvCollection();
-
-							InMcRcvIndvCargo inMcRcvIndvCargo = new InMcRcvIndvCargo();
-
-							inMcRcvIndvCargo.setMcApplicationNum(Long.parseLong(miChildAppNum));
-
-							InMcRcvIndvCargo[] mcIndvResults = null;
-
-							mcIndvCollection.setCargo(inMcRcvIndvCargo);
-
-							mcIndvResults = (InMcRcvIndvCargo[]) mcIndvCollection.select("findDistinctMIChildplanfirstIndividuals");
-
-							if (mcIndvResults.length == 1) {
-								splInd = InRcvDlyMIChildReferralConstants.SS_PROGRAM_SPLIND_SINGLE;
-							} else if (mcIndvResults.length > 1) {
-								splInd = InRcvDlyMIChildReferralConstants.SS_PROGRAM_SPLIND_MUlTIPLE;
-							}
-						} else {
-							log(ILog.ERROR, "Invalid mcProgramTypeCD in  SelfServiceAppRegBO.createApplication.");
-							throw new Exception("Invalid mcProgramTypeCD in  SelfServiceAppRegBO.createApplication.");
-						}
-
-						cargo.setSplIndCd(splInd);
-						// Set program code and spl Indicator to EDM webservice
-						miChildSplInd.add(splInd);
-						if (miChildSplInd != null) {
-							speciallInd.put("MA", miChildSplInd);
-						}
-						spColl.add(cargo);
-					}
-
-					if (hpeApp) {
-						cargo = new T3004AppProgramSplIndCargo();
-						cargo.setAppNum(currentAppNum);
-						cargo.setProgCd("HPE");
-						cargo.setSplIndCd("HPE");
-
-						ArrayList hpeSplInd = new ArrayList();
-						hpeSplInd.add("HPE");
-						speciallInd.put("HPE", hpeSplInd);
-
-						spColl.add(cargo);
-					}
-					// Added by arurajan for AABD special indicator
-					// This is a super value, hence if this indicator is present
-					// all other indicators identified is void.
-					// If the value for this indicator is N then other
-					// indicators are applicable
-					if ("Y".equals(isAABD)) {
-						List aabdSpecialIndicator = new ArrayList();
-						aabdSpecialIndicator.add(InRcvDlyMIChildReferralConstants.SS_PROGRAM_SPLIND_AABD);
-						speciallInd.put("AA", aabdSpecialIndicator);
-					}
-
-					// added for ILIES - 148992
-					char emerMedNonCit = '\u0000';
-					Element indivsNode = xmlDoc.getRootElement().getChild(AppRegConstants.INDIVIDUALS);
-					List indivList = indivsNode.getChildren(AppRegConstants.ELEMENT_INDIVIDUAL);
-					List<Character> emerMedNonCitList = new ArrayList<Character>();
-					Iterator indivItr = indivList.iterator();
-					while (indivItr.hasNext()) {
-						Element indivNode = (Element) indivItr.next();
-						emerMedNonCit = getCharForString(indivNode.getChildText("EMER_MED_NON_CIT"));
-						if (emerMedNonCitList != null && emerMedNonCitList.size() == 0) {
-							if (emerMedNonCit == 'Y') {
-								cargo = new T3004AppProgramSplIndCargo();
-								cargo.setAppNum(currentAppNum);
-								cargo.setProgCd("MA");
-								cargo.setSplIndCd("EM");
-
-								ArrayList emerMedSplInd = new ArrayList();
-								emerMedSplInd.add("EM");
-								speciallInd.put("EM", emerMedSplInd);
-								emerMedNonCitList.add(emerMedNonCit);
-
-								spColl.add(cargo);
+								t1050Cargo.setAsetSubTyp(inJointOwner.getChildTextTrim("ASET_SUB_TYP"));
 							}
 						}
+
+						t1050Cargo.setJntIndvSeqNum(getLongForString(inJointOwner.getChildTextTrim("JNT_INDV_SEQ_NUM")));
+						t1050Cargo.setJntOwnFstNam(inJointOwner.getChildTextTrim("JNT_OWN_FST_NAM"));
+						t1050Cargo.setJntOwnLastNam(inJointOwner.getChildTextTrim("JNT_OWN_LAST_NAM"));
+						t1050Cargo.setJntOwnMidInit(' ');
+						t1050Cargo.setJntOwnSfxNam(" ");
+
+						t1050Coll.setCargo(t1050Cargo);
 					}
-					dmWebserviceVO.setSplIndicator(speciallInd);
-				}
-				// END Child Changes
-
-				appProgramCollection = builtT1053AppProgram(appDtlColl);
-
-				if (appRqstCollection != null && appRqstCollection.size() > 0) {
-					appRqstCollection.update(appRqstCollection);
-				}
-				if (appDtlColl != null && appDtlColl.size() > 0) {
-					appDtlColl.insert();
-				}
-				if (appProgramCollection != null && appProgramCollection.size() > 0) {
-					appProgramCollection.insert();
-				}
-				if (appPrirSrvColl != null && appPrirSrvColl.size() > 0)
-					appPrirSrvColl.insert();
-				if (spColl != null && spColl.size() > 0) {
-					spColl.insert();
-				}
-				if (serColl != null && serColl.size() > 0)
-					serColl.insert();
-				buildAllAppIndv(xmlDoc.getRootElement());
-			}
-
-			catch (Exception e) {
-				log(ILog.ERROR, "Error while populating one/more of the core staging tables : " + e.getMessage(),e);
-				throw new Exception("Error while populating one/more of the core staging tables" + e.getMessage(), e);
-			}
-
-			try {
-				buildT2040AppAuthRep(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T2040AppAuthRep :: " + e.getMessage(),e);
-				errorMessages.append("|T2040AppAuthRep:" + e.getMessage());
-			}
-
-			try {
-				buildT1031AppMailAdr(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1031AppMailAdr :: " + e.getMessage(),e);
-				if (!miChildApp) {
-					errorMessages.append("|T1031AppMailAdr:" + e.getMessage());
+					if (t1050Coll.size() > 0)
+						t1050Coll.insert();
 				}
 			}
-
-			if (serColl != null && serColl.size() > 0) {
-				try {
-					buildSerProviders(xmlDoc.getRootElement());
-				} catch (Exception e) {
-					log(ILog.ERROR, "Exception occured while Inserting a record in T3002AppSerProviders :: " + e.getMessage(),e);
-					errorMessages.append("|T3002AppSerProviders:" + e.getMessage());
-				}
-				try {
-					buildSerPayments(xmlDoc.getRootElement());
-				} catch (Exception e) {
-					log(ILog.ERROR, "Exception occured while Inserting a record in T3003AppSerPymtHist :: " + e.getMessage(),e);
-					errorMessages.append("|T3003AppSerPymtHist:" + e.getMessage());
-				}
-
-			}
-
-			try {
-				buildT1035AppInMedI(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1035AppInMedI :: " + e.getMessage(),e);
-				errorMessages.append("|T1035AppInMedI:" + e.getMessage());
-			}
-
-			try {
-				buildT1054AppInMedDetails(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1054AppInMedDetails :: " + e.getMessage(),e);
-				errorMessages.append("|T1054AppInMedDetails:" + e.getMessage());
-			}
-			
-			try {
-				buildT1019AppInMedE(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1019AppInMedE :: " + e.getMessage(),e);
-				errorMessages.append("|T1019AppInMedE:" + e.getMessage());
-			}
-
-			try {
-				buildT3005AppSerBurialDetails(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T3005AppSerBurialDetails :: " + e.getMessage(),e);
-				errorMessages.append("|T3005AppSerBurialDetails:" + e.getMessage());
-			}
-
-			try {
-				buildT3006AppSerDeathBnfts(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T3006AppSerDeathBnfts :: " + e.getMessage(),e);
-				errorMessages.append("|T3006AppSerDeathBnfts:" + e.getMessage());
-			}
-
-			try {
-				buildT3007AppCdcProvider(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T3007AppCdcProvider :: " + e.getMessage(),e);
-				errorMessages.append("|T3007AppCdcProvider:" + e.getMessage());
-			}
-
-			try {
-				buildT1040AppInLqdAset(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1040AppInLqdAset :: " + e.getMessage(),e);
-				errorMessages.append("|T1040AppInLqdAset:" + e.getMessage());
-			}
-
-			try {
-				buildT1041AppInVehAset(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1041AppInVehAset :: " + e.getMessage(),e);
-				errorMessages.append("|T1041AppInVehAset:" + e.getMessage());
-			}
-
-			try {
-				buildT1042AppInRPropAset(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1042AppInRPropAset :: " + e.getMessage(),e);
-				errorMessages.append("|T1042AppInRPropAset:" + e.getMessage());
-			}
-
-			try {
-				buildT1043AppInPPropAset(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1043AppInPPropAset :: " + e.getMessage(),e);
-				errorMessages.append("|T1043AppInPPropAset:" + e.getMessage());
-			}
-
-			try {
-				buildT1044AppInBuryAset(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1044AppInBuryAset :: " + e.getMessage(),e);
-				errorMessages.append("|T1044AppInBuryAset:" + e.getMessage());
-			}
-
-			try {
-				buildT1045AppInLInsAset(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1045AppInLInsAset :: " + e.getMessage(),e);
-				errorMessages.append("|T1045AppInLInsAset:" + e.getMessage());
-			}
-
-			try {
-				buildT1061AppInAdditionalAsstDet(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1061AppInAAD :: " + e.getMessage(),e);
-				errorMessages.append("|T1061AppInAAD:" + e.getMessage());
-			}
-
-			try {
-				buildT1050AppInAdditionalJointOwner(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in T1050AppInAJO :: " + e.getMessage(),e);
-				errorMessages.append("|T1050AppInAJO:" + e.getMessage());
-			}
-
-			try {
-				buildT1056AppNursingAddress(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in buildT1056AppNursingAddresses :: " + e.getMessage(), e);
-				errorMessages.append("|buildT1056AppNursingAddresses:" + e.getMessage());
-			}
-
-			try {
-				buildT1057AppInMedicalDisabilities(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in buildT1057AppInMedicalDisabilities :: " + e.getMessage(), e);
-				errorMessages.append("|buildT1057AppInMedicalDisabilities:" + e.getMessage());
-			}
-
-			try {
-				buildT1058AppNursingDetail(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in buildT105XAppNursingDetails :: " + e.getMessage(), e);
-				errorMessages.append("|buildT105XAppNursingDetails:" + e.getMessage());
-			}
-
-			try {
-				buildT1011AppInPreg(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in buildT1011AppInPreg :: " + e.getMessage(),e);
-				errorMessages.append("|buildT1011AppInPreg:" + e.getMessage());
-			}
-
-			try {
-				buildT1010AppAssistInfo(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception occured while Inserting a record in buildT1010AppAssistInfo :: " + e.getMessage(),e);
-				errorMessages.append("|buildT1010AppAssistInfo:" + e.getMessage());
-			}
-
-			try {
-				buildT1024AppInUei(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception in buildT1024AppInUei: " + e.getMessage(),e);
-				errorMessages.append("Exception in buildT1024AppInUei: " + e.getMessage());
-			}
-
-			try {
-				buildT1028AppInMedcr(xmlDoc.getRootElement());
-			} catch (Exception e) {
-				log(ILog.ERROR, "Exception in buildT1028AppInMedcr: " + e.getMessage(),e);
-				errorMessages.append("Exception in buildT1028AppInMedcr: " + e.getMessage());
-			}
-			resultXML.append(SelfServiceBrokerConstants.SUCCESS);
-			log(ILog.INFO, "Start reading AutoReg Reference Table data");
-			RefTableData rtd = ReferenceTableManager.getValueForDescription("AUTOREGPROCESS", "AUTO_REG_SW");
-			log(ILog.INFO, "AutoReg Reference Table switch  : " + rtd);
-			String autoRegSw = "";
-			if (rtd != null) {
-				autoRegSw = rtd.getRefrTableCode();
-			}
-			if (autoRegSw != null && "Y".equalsIgnoreCase(autoRegSw)) {
-				log(ILog.INFO, "calling AutoReg preComplenessCheck() - AppNum --" + dmWebserviceVO.getAppNum());
-				AutoRegistrationBO autoRegBO = new AutoRegistrationBO();
-				autoRegBO.preComplenessCheck(dmWebserviceVO.getAppNum());
-			} else {
-				DMFactory dmFactory = new DMFactory();
-				DMWebserviceClient edmWebserviceClient = new DMWebserviceClient();
-				String message = edmWebserviceClient.callWebservice(dmFactory.createGroupForApplication(dmWebserviceVO));
-
-				log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.DEBUG, "SelfServiceAppRegBO::createApplication done calling EDM Webservice with result :" + message);
-				if (!DMConstants.SUCCESS_STATUS_MSG.equalsIgnoreCase(message)) {
-					log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.ERROR, "Exception in SelfServiceAppRegBO::createApplication  EDM Webservice :" + message);
-					throw new Exception(message);
-				}
-				if (!("".equals(errorMessages.toString()))) {
-					log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.ERROR, "SelfServiceAppRegBO::createApplication :" + errorMessages.toString());
-					throw new SelfServiceApplicationException(errorMessages.toString());
-				}
-				if (hpe_pid != null && !hpe_pid.trim().isEmpty()) {
-					log(ILog.DEBUG, "HPE_PID not null. before webservice");
-					dmWebserviceVO.setDocumentId(hpe_pid);
-					if (hpe_html_pid != null && !hpe_html_pid.trim().isEmpty()) {
-						dmWebserviceVO.setHtmlPid(hpe_html_pid);
-					}
-					String message1 = edmWebserviceClient.callWebservice(dmFactory.createGroupForApplication(dmWebserviceVO));
-				}
-			}
-
-		} catch (SelfServiceApplicationException e) {
-			log(ILog.ERROR, "Error while creating the application appNum : " + appNum + e.getMessage(),e);
-			throw e;
-		} catch (NullPointerException ex) {
-			log(ILog.ERROR, "Error while creating the application appNum : " + appNum + ex.getMessage(),ex);
-			throw new SelfServiceApplicationException(ex);
-		} catch (Exception e) {
-			log(ILog.ERROR, "Error while creating the application appNum : " + appNum + e.getMessage(),e);
-			throw e;
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1050AppInAdditionalJointOwner method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1050AppInAdditionalJointOwner method : " + e.getMessage(),e);
 		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1050AppInAdditionalJointOwner method");
 
-		return resultXML.toString();
 	}
 
 	/**
-	 * ILIES-119373, 125410. The <code>createSSMpeApplication</code> invokes
-	 * methods to parse the XML String and insert into respective staging
-	 * tables.
+	 * This method creates and inserts records into T1061_APP_IN_A_A_D staging
+	 * table
 	 * 
-	 * @param appXMLStr
-	 *            - Contains the SS MPE application info in XML String
-	 * @return SSMpeAppErrorMessage - Indicating success or failure.
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
 	 */
-	public SSMpeAppErrorMessage createSSMpeApplication(String appXMLStr) throws Exception {
-		SSMpeApplicationValidator mpeAppValidator = null;
-		T1001SsAppMpeCollection t0001MpeColl = null;
-		T1001AppRqstCollection t001AppRqstMpeColl = null;
-		T1002AppDtlCollection appMpeDtlColl = null;
-		T1004AppIndvCollection appMpeIndvColl = null;
-		T1004AppIndvCargo appMpeIndvCargo = null;
-		T1031AppMailAdrCollection appMailAdrColl = null;
-		Document xmlDoc = null;
-		SSMpeAppErrorMessage mpeMessage = new SSMpeAppErrorMessage();
-		DMElectronicDocumentWSBO dmBO = new DMElectronicDocumentWSBO();
-		
+	private void buildT1061AppInAdditionalAsstDet(Element root) throws Exception {
+
+		T1061AppInAADCargo t1061Cargo = null;
+		T1061AppInAADCollection t1061Coll = null;
+
+		Element inAddAsstDets = root.getChild("APP_IN_ADDITIONAL_ASSETS");
+		List inAddAsstDetList = (inAddAsstDets != null ? inAddAsstDets.getChildren("APP_IN_ADDITIONAL_ASSET") : null);
 		try {
-			log(ILog.DEBUG, "START PROCESSING THE XML from SS APP MPE WebService");
-			xmlDoc = parseXML(appXMLStr);
-			Map speciallInd = new HashMap();
-			T1001SSAppMpeCargo appRqstCargo = new T1001SSAppMpeCargo();
-			appRqstCargo.setAppNum(xmlDoc.getRootElement().getChildTextTrim(AppRegConstants.BRIDGES_APP_NUM));
-			RMCUtility rmcUtility = new RMCUtility();
-			DmDocGroupCargo dmDocGroupCargo = rmcUtility.findDmDocGroupRecord(appRqstCargo.getAppNum());
-			if (dmDocGroupCargo != null && rmcUtility.findTask(dmDocGroupCargo.getGroupSeqNum())) {
-				mpeMessage.setErrorCode(DMConstants.SUCCESS_CODE);
-				return mpeMessage;
-			}
-			
-			T1001SsAppMpeCollection appRqstColl = new T1001SsAppMpeCollection();
-			appRqstColl.setCargo(appRqstCargo);
-			T1001SSAppMpeCargo[] adResults = (T1001SSAppMpeCargo[]) appRqstColl.select("findByAppNum");
-			if (adResults != null && adResults.length > 0) {
-				mpeMessage.setErrorCode(DMConstants.SUCCESS_CODE);
-				return mpeMessage;
-			}
+			if (inAddAsstDetList != null && inAddAsstDetList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1061AppInAdditionalAsstDet method");
+				String dataExist = null;
+				t1061Coll = (conn == null) ? new T1061AppInAADCollection() : new T1061AppInAADCollection(conn);
+				Iterator ite = inAddAsstDetList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element inAddAsst = (Element) ite.next();
+					Attribute inAddAsstAttr = (inAddAsst != null ? inAddAsst.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (inAddAsstAttr != null)
+						dataExist = inAddAsstAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist) || dataExist.equalsIgnoreCase("")) {
 
-			mpeAppValidator = new SSMpeApplicationValidator();
-			mpeMessage = mpeAppValidator.mpeDataValidation(xmlDoc);
-			if (DMConstants.SUCCESS_CODE == mpeMessage.getErrorCode()) {
-				log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.DEBUG, "Data validation successfull");
-				log(ILog.DEBUG, "Initialising EDMWebserviceVO...");
-				dmWebserviceVO = new DMElectronicDocumentSSVO();
-				String currentAppNum = "";
-				errorMessages = new StringBuffer("");
+						t1061Cargo = new T1061AppInAADCargo();
 
-				appMpeIndvColl = (conn == null) ? new T1004AppIndvCollection() : new T1004AppIndvCollection(conn);
-				t0001MpeColl = buildT1001SSAppMpe(xmlDoc.getRootElement());
-				t001AppRqstMpeColl = buildT1001AppRqstForMpe(xmlDoc.getRootElement());
-				appMpeIndvCargo = buildT1004AppIndvForMpe(xmlDoc.getRootElement());
-				appMpeDtlColl = buildT1002AppDtlForMpe(xmlDoc.getRootElement());
-				T1006AppInPermdCargo appInPermdCargo = buildT1006AppInPermd(xmlDoc.getRootElement());
-				appMailAdrColl = buildT1031AppMailAdrForMpe(xmlDoc.getRootElement());
+						t1061Cargo.setAppNum(appNum);
+						t1061Cargo.setIndvSeqNum(getLongForString(inAddAsst.getChildTextTrim("INDV_SEQ_NUM")));
+						t1061Cargo.setAdditionalAssetAmtInd(inAddAsst.getChildTextTrim("ADDITIONAL_ASSET_AMOUNT_IND"));
+						t1061Cargo.setAdditionalAssetAmt(getDoubleForString(inAddAsst.getChildTextTrim("ADDITIONAL_ASSET_AMT")));
+						t1061Cargo.setAdditionalAssetSeqNum(getLongForString(inAddAsst.getChildTextTrim("ADDITIONAL_ASSET_SEQ_NUM")));
+						t1061Cargo.setAdditionalAssetTypeCd(inAddAsst.getChildTextTrim("ADDITIONAL_ASSET_TYPE_CD"));
+						t1061Cargo.setJntOwnResp(getCharForString(inAddAsst.getChildText("JNT_OWN_RESP")));
+						t1061Cargo.setSrcAppInd(inAddAsst.getChildTextTrim("SRC_APP_IND"));
+						t1061Cargo.setRecordCompleted(C_NO);
 
-				// Populate SOP criteria and compute SOP Due Date
-				Timestamp sopDueDate = null;
-				Map sopCriteria = new HashMap();
-				if (t0001MpeColl != null && t0001MpeColl.size() > 0) {
-					currentAppNum = t0001MpeColl.getResults(0).getAppNum();
-					// Default, set the Source Type as SelfService Application for DM Webservice
-					dmWebserviceVO.setSourceTypeCode(DMConstants.MEDICAID_PRESUMPTIVE_ELIGIBILITY);
-					
-					List<String> splInd = new ArrayList<String>();
-					splInd.add(ARConstants.PM);
-					speciallInd.put(ARConstants.PM, splInd);
-				}
-				if (t001AppRqstMpeColl != null && t001AppRqstMpeColl.size() > 0) {
-					String langCd = t001AppRqstMpeColl.getResults(0).getLangCd();
-					if(StringUtils.isNotEmpty(langCd) && !("0".equalsIgnoreCase(langCd))){
-					 String langSI = dmBO.getLangSPD(langCd);
-						List<String> languageSplInd = new ArrayList<String>();
-						languageSplInd.add(langSI);
-						speciallInd.put(langSI, languageSplInd);
+						t1061Coll.setCargo(t1061Cargo);
 					}
-					t001AppRqstMpeColl.update(t001AppRqstMpeColl);
+					if (t1061Coll.size() > 0)
+						t1061Coll.insert();
 				}
-				appMpeIndvColl.add(appMpeIndvCargo);
-				if (appMpeIndvColl != null && appMpeIndvColl.size() > 0) {
-					appMpeIndvColl.insert();
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1061AppInAdditionalAsstDet method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1061AppInAdditionalAsstDet method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1061AppInAdditionalAsstDet method");
+
+	}
+
+	// 11. T1035_APP_IN_MED_I
+	/**
+	 * This method creates and inserts records into T1035_APP_IN_MED_I staging
+	 * table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1035AppInMedI(Element root) throws Exception {
+
+		T1035AppInMedICargo t1035Cargo = null;
+		T1035AppInMedICollection t1035Coll = null;
+
+		Element medInss = root.getChild("APP_IN_MED_INSS");
+		List medInsList = (medInss != null ? medInss.getChildren("APP_IN_MED_INS") : null);
+		try {
+			if (medInsList != null && medInsList.size() > 0) {
+				String dataExist = null;
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1035AppInMedI method");
+				t1035Coll = (conn == null) ? new T1035AppInMedICollection() : new T1035AppInMedICollection(conn);
+				Iterator ite = medInsList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element medIns = (Element) ite.next();
+					Attribute medInsAttr = (medIns != null ? medIns.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (medInsAttr != null)
+						dataExist = medInsAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+
+						t1035Cargo = new T1035AppInMedICargo();
+
+						t1035Cargo.setAppNum(appNum);
+						t1035Cargo.setPlcySeqNum(getLongForString(medIns.getChildTextTrim("PLCY_SEQ_NUM")));
+						t1035Cargo.setIndvSeqNum(getLongForString(medIns.getChildTextTrim("INDV_SEQ_NUM")));
+						t1035Cargo.setAddRecInd(getCharForString(medIns.getChildTextTrim("ADD_REC_IND")));
+
+						SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+						String cvrgBegTms = medIns.getChildTextTrim("CVRG_BEG_DT");
+						if (cvrgBegTms != null && cvrgBegTms.trim().length() > 0) {
+							t1035Cargo.setCvrgBegDt(new Timestamp(sdf.parse(cvrgBegTms).getTime()));
+						} else {
+							t1035Cargo.setCvrgBegDt(highDate);
+						}
+
+						String cvrgEndTms = medIns.getChildTextTrim("CVRG_END_DT");
+						if (cvrgEndTms != null && cvrgEndTms.trim().length() > 0) {
+							t1035Cargo.setCvrgEndDt(new Timestamp(sdf.parse(cvrgEndTms).getTime()));
+						} else {
+							t1035Cargo.setCvrgEndDt(highDate);
+						}
+						String insuranceEndDt = medIns.getChildTextTrim("INSURANCE_END_DT");
+
+						if (insuranceEndDt != null && insuranceEndDt.trim().length() > 0) {
+							if (insuranceEndDt.equalsIgnoreCase(FwConstants.ABE_HIGH_DATE)) {
+								t1035Cargo.setInsuranceEndDt(null);
+							} else {
+								t1035Cargo.setInsuranceEndDt(new Timestamp(sdf.parse(insuranceEndDt).getTime()));
+							}
+
+						}
+						t1035Cargo.setInsuranceEmplUnionName(getString(medIns.getChildTextTrim("INSURANCE_EMPL_UNION_NAME")));
+						t1035Cargo.setCompanyNameCd(getString(medIns.getChildTextTrim("COMPANY_NAME_CD")));
+
+						t1035Cargo.setEmployerUnionAddrCity(getString(medIns.getChildTextTrim("EMPLOYERUNION_ADDR_CITY")));
+						t1035Cargo.setEmployerUnionAddrLine1(getString(medIns.getChildTextTrim("EMPLOYERUNION_ADDR_LINE1")));
+						t1035Cargo.setEmployerUnionAddrStateCd(getString(medIns.getChildTextTrim("EMPLOYERUNION_ADDR_STATE_CD")));
+						t1035Cargo.setEmployerUnionAddrZip(getString(medIns.getChildTextTrim("EMPLOYERUNION_ADDR_ZIP")));
+						t1035Cargo.setPolicyHolderName(getString(medIns.getChildTextTrim("POLICY_HOLDER_NAME")));
+						t1035Cargo.setMajMedSw(getCharForString(medIns.getChildTextTrim("MAJ_MED_SW")));
+						t1035Cargo.setRltCd(getCharForString(medIns.getChildTextTrim("RLT_CD")));
+						t1035Cargo.setCoverageTypeCd(getString(medIns.getChildTextTrim("COVERAGE_TYPE_CD")));
+						t1035Cargo.setInsuranceCompanyName(getString(medIns.getChildTextTrim("INSURANCE_COMPANY_NAME")));
+						t1035Cargo.setInsuranceAddrLine1(getString(medIns.getChildTextTrim("INSURANCE_ADDR_LINE1")));
+						t1035Cargo.setInsuranceAddrLine2(getString(medIns.getChildTextTrim("INSURANCE_ADDR_LINE2")));
+						t1035Cargo.setInsuranceAddrStateCd(getString(medIns.getChildTextTrim("INSURANCE_ADDR_STATE_CD")));
+						t1035Cargo.setInsuranceAddrCity(getString(medIns.getChildTextTrim("INSURANCE_ADDR_CITY")));
+						t1035Cargo.setInsuranceAddrZip(getString(medIns.getChildTextTrim("INSURANCE_ADDR_ZIP")));
+						t1035Cargo.setInsurancePhoneNum(getString(medIns.getChildTextTrim("INSURANCE_PHONE_NUM")));
+						t1035Cargo.setInsuranceClaimNum(getString(medIns.getChildTextTrim("INSURANCE_CLAIM_NUM")));
+						t1035Cargo.setInsurancePolicyNum(getString(medIns.getChildTextTrim("INSURANCE_POLICY_NUM")));
+						t1035Cargo.setCobraSw(getCharForString(medIns.getChildTextTrim("COBRA_SW")));
+						t1035Cargo.setPhydicianHospCoverageSw(getCharForString(medIns.getChildTextTrim("PHYDICIAN_HOSP_COVERAGE_SW")));
+
+						t1035Coll.setCargo(t1035Cargo);
+					}
+					if (t1035Coll.size() > 0)
+						t1035Coll.insert();
 				}
-				if (appMpeDtlColl != null && appMpeDtlColl.size() > 0) {
-					appMpeDtlColl.insert();
-				}
-				if (appInPermdCargo != null) {
-					T1006AppInPermdCollection appInPermdCollection = new T1006AppInPermdCollection();
-					appInPermdCollection.add(appInPermdCargo);
-					appInPermdCollection.insert();
-				}
-				if (appMailAdrColl != null && appMailAdrColl.size() > 0) {
-					appMailAdrColl.insert();
-				}
-				dmWebserviceVO.setSplIndicator(speciallInd);
-				dmWebserviceVO.setAppNum(currentAppNum);
-				Timestamp applicationDate = t001AppRqstMpeColl.getResults(0).getAppRcvDt();
-				sopCriteria.put(SelfServiceBrokerConstants.APPLICATION_DATE, applicationDate);
-				sopDueDate = computeSopDueDate(sopCriteria);
-				// Set Due Date in Bridges
-				if (sopDueDate != null) {
-					dmWebserviceVO.setDueDate(sopDueDate.toString());
-				}
-				log(ILog.INFO, "Start reading AutoReg Reference Table data for MPE");
-				RefTableData rtd = ReferenceTableManager.getValueForDescription("AUTOREGPROCESS", "AUTO_REG_SW");
-				log(ILog.INFO, "AutoReg Reference Table switch  : " + rtd);
-				String autoRegSw = "";
-				if (rtd != null) {
-					autoRegSw = rtd.getRefrTableCode();
-				}
-				if (autoRegSw != null && "Y".equalsIgnoreCase(autoRegSw)) {
-					log(ILog.INFO, "For MPE :: calling AutoReg preComplenessCheck() - AppNum --" + dmWebserviceVO.getAppNum());
-					AutoRegistrationBO autoRegBO = new AutoRegistrationBO();
-					autoRegBO.preComplenessCheck(dmWebserviceVO.getAppNum());
+
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1035AppInMedI method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1035AppInMedI method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1035AppInMedI method");
+	}
+
+	/**
+	 * This method creates and inserts records into T1005_APP_IN_PRFL staging
+	 * table
+	 * 
+	 * @param indivNode
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1055AppInPrfl(Element indivNode, long indvSeqNum) throws Exception {
+
+		T1055AppInPrflCargo t1055Cargo = null;
+		T1055AppInPrflCollection t1055Coll = null;
+		Element appInPrfl = indivNode.getChild("INDIVIDUAL_PROFILE");
+		Attribute providerAttr = appInPrfl.getAttribute(AppRegConstants.DATA_EXIST);
+		try {
+			String dataExist = DATA_NO;
+			log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1055AppInPrfl method");
+
+			if (providerAttr != null)
+				dataExist = providerAttr.getValue().trim();
+			if (DATA_YES.equalsIgnoreCase(dataExist)) {
+
+				t1055Cargo = new T1055AppInPrflCargo();
+				t1055Cargo.setAppNum(appNum);
+				t1055Cargo.setIndvSeqNum(indvSeqNum);
+				t1055Cargo.setOpAodaTmtRcvSw(getCharForString(appInPrfl.getChildTextTrim("OP_AODA_TMT_RCV_SW")));
+				t1055Cargo.setMiRehabResp(getCharForString(appInPrfl.getChildTextTrim("MI_REHAB_RESP")));
+				t1055Cargo.setNeedChildCareResp(getCharForString(appInPrfl.getChildTextTrim("NEED_CHILD_CARE_RESP")));
+				t1055Cargo.setHighSchoolActivityResp(getCharForString(appInPrfl.getChildTextTrim("HIGH_SCHOOL_ACTIVITY_RESP")));
+				t1055Cargo.setHealthActivityResp(getCharForString(appInPrfl.getChildTextTrim("HEALTH_ACTIVITY_RESP")));
+				t1055Cargo.setBurialRequestResp(getCharForString(appInPrfl.getChildTextTrim("BURIAL_REQUEST_RESP")));
+				t1055Cargo.setDablResp(getString(appInPrfl.getChildTextTrim("DABL_RESP")));
+				t1055Cargo.setRcvFsOthStResp(getString(appInPrfl.getChildTextTrim("RCV_FS_OTH_ST_RESP")));
+				t1055Cargo.setSsiBenefitResp(getCharForString(appInPrfl.getChildTextTrim("SSI_BENEFIT_RESP")));
+				t1055Cargo.setAppliedForDisabilityResp(getCharForString(appInPrfl.getChildTextTrim("APPLIED_FOR_DISABILITY_RESP")));
+				t1055Cargo.setCaretakerResp(getCharForString(appInPrfl.getChildTextTrim("CARETAKER_RESP")));
+				t1055Cargo.setPregResp(getString(appInPrfl.getChildTextTrim("PREG_RESP")));
+				t1055Cargo.setCashBenefitResp(getCharForString(appInPrfl.getChildTextTrim("CASH_BENEFIT_RESP")));
+				t1055Cargo.setSpecialEducationClassResp(getCharForString(appInPrfl.getChildTextTrim("SPECIAL_EDUCATION_CLASS_RESP")));
+				t1055Cargo.setImmunizationResp(getCharForString(appInPrfl.getChildTextTrim("IMMUNIZATION_RESP")));
+				t1055Cargo.setMedicalCoverageResp(getCharForString(appInPrfl.getChildTextTrim("MEDICAL_COVERAGE_RESP")));
+				t1055Cargo.setDomesticViolenceVictimResp(getCharForString(appInPrfl.getChildTextTrim("DOMESTIC_VIOLENCE_VICTIM_RESP")));
+				t1055Cargo.setOthrAsetVehResp(getString(appInPrfl.getChildTextTrim("OTHR_ASET_VEH_RESP")));
+				t1055Cargo.setLqdAsetCashResp(getString(appInPrfl.getChildTextTrim("LQD_ASET_CASH_RESP")));
+				t1055Cargo.setLqdAsetCAResp(getString(appInPrfl.getChildTextTrim("LQD_ASET_C_A_RESP")));
+				t1055Cargo.setLqdAsetSAResp(getString(appInPrfl.getChildTextTrim("LQD_ASET_S_A_RESP")));
+				t1055Cargo.setLqdAsetOthrResp(getString(appInPrfl.getChildTextTrim("LQD_ASET_OTHR_RESP")));
+				t1055Cargo.setOthrAsetRPResp(getString(appInPrfl.getChildTextTrim("OTHR_ASET_R_P_RESP")));
+				t1055Cargo.setOthrAsetBurResp(getString(appInPrfl.getChildTextTrim("OTHR_ASET_BUR_RESP")));
+				t1055Cargo.setOthrAsetLIResp(getString(appInPrfl.getChildTextTrim("OTHR_ASET_L_I_RESP")));
+				t1055Cargo.setEmploymentActivityResp(getCharForString(appInPrfl.getChildTextTrim("EMPLOYMENT_ACTIVITY_RESP")));
+				t1055Cargo.setWorkActivityResp(getCharForString(appInPrfl.getChildTextTrim("WORK_ACTIVITY_RESP")));
+				t1055Cargo.setAdditionalAssetWaterResp(getCharForString(appInPrfl.getChildTextTrim("ADDITIONAL_ASSET_WATER_RESP")));
+				t1055Cargo.setLqdAsetKPResp(getCharForString(appInPrfl.getChildTextTrim("LQD_ASET_K_P_RESP")));
+				t1055Cargo.setOtherInStateBenefitsSw('N');
+				String ssiSw = appInPrfl.getChildTextTrim("RCV_SSI_SW");
+				String ssSw = appInPrfl.getChildTextTrim("RCV_SS_RESP");
+			    //ILIES-162945 SSI & RSDI Prefill from ABE
+				if ((ssiSw != null && ssiSw.equals("Y"))) {
+					t1055Cargo.setReceivesSsiRsdiSw('Y');
 				} else {
-					// Create EDM Factory
-					DMFactory dmFactory = new DMFactory();
-					// Init DMWebserviceClient
-					DMWebserviceClient edmWebserviceClient = new DMWebserviceClient();
-					// Call EDMWEbservice
-					String message = edmWebserviceClient.callWebservice(dmFactory.createGroupForApplication(dmWebserviceVO));
-
-					log(ILog.INFO, "Message returned from  EDMWebservice : " + message);
-					log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.DEBUG, "SelfServiceAppRegBO::createSSMpeApplication done calling EDM Webservice with result :" + message);
-					// Exception to roll back // transaction
-					if (!DMConstants.SUCCESS_STATUS_MSG.equalsIgnoreCase(message)) {
-						log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.ERROR, "Exception in SelfServiceAppRegBO::createSSMpeApplication  EDM Webservice :" + message);
-						throw new Exception(message);
-					}
-
-					if (!("".equals(errorMessages.toString()))) {
-						log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.DEBUG, "SelfServiceAppRegBO::createSSMpeApplication :" + errorMessages.toString());
-						throw new SelfServiceApplicationException(errorMessages.toString());
-					}
+					t1055Cargo.setReceivesSsiRsdiSw('Z');
 				}
-			} else {
-				log(FwConstants.LOGGING_CATEGORY_SS_MPE_WEBSERVICE, ILog.ERROR, "SS MPE APP Validation failed");
-			}
-		} catch (Exception e) {
-			log(ILog.ERROR, "Error in SelfServiceAppRegBO.createSSMpeApplication: " + e.getMessage(), e);
-			throw e;
-		}
-		return mpeMessage;
-	}
+				t1055Cargo.setLiquidResourceSw('N');
+				t1055Cargo.setPlanFirstMedicareSw(getCharForString(appInPrfl.getChildTextTrim("PLAN_FIRST_MEDICARE_SW")));
+				t1055Cargo.setHealthInsuranceSw(getCharForString(appInPrfl.getChildTextTrim("HEALTH_INSURANCE_SW")));
+				t1055Cargo.setPastHealthInsuranceSw(getCharForString(appInPrfl.getChildTextTrim("PAST_HEALTH_INSURANCE_SW")));
+				t1055Cargo.setPlanFirstOtherHealthSw(getCharForString(appInPrfl.getChildTextTrim("PLAN_FIRST_OTHER_HEALTH_SW")));
+				t1055Cargo.setChildSupportSw(getCharForString(appInPrfl.getChildTextTrim("CHILD_SUPPORT_SW")));
+				t1055Cargo.setCourtOrderedGuardianSw(getCharForString(appInPrfl.getChildTextTrim("COURT_ORDERED_GUARDIAN_SW")));
+				t1055Cargo.setStateHealthInsuranceSw(getCharForString(appInPrfl.getChildTextTrim("STATE_HEALTH_INSURANCE_SW")));
+				t1055Cargo.setChildCareSw(getCharForString(appInPrfl.getChildTextTrim("CHILD_CARE_SW")));
+				t1055Cargo.setParoleProbViolResp(getCharForString(appInPrfl.getChildTextTrim("PAROLE_PROB_VIOL_RESP")));
+				t1055Coll = (conn == null) ? new T1055AppInPrflCollection() : new T1055AppInPrflCollection(conn);
+				t1055Coll.setCargo(t1055Cargo);
 
-	private T1006AppInPermdCargo buildT1006AppInPermd(Element rootElement) throws SelfServiceApplicationException {
-		T1006AppInPermdCargo appInPermdCargo = null;
-		SimpleDateFormat sdf = null;
-		String pregnancyDueDtStr = null;
-
-		try {
-			appInPermdCargo = new T1006AppInPermdCargo();
-			log(ILog.DEBUG, "Entered SelfServiceAppRegBO.buildT1006AppInPermd ");
-			appInPermdCargo.setAppNum(rootElement.getChildTextTrim("BRIDGES_APP_NUM"));
-			appInPermdCargo.setIndvSeqNum(1);
-			appInPermdCargo.setAiInd('N');
-			appInPermdCargo.setAsiaInd('N');
-			appInPermdCargo.setBlkInd('N');
-			appInPermdCargo.setPacIslInd('N');
-			appInPermdCargo.setWhtInd('N');
-			appInPermdCargo.setHspcInd('N');
-			appInPermdCargo.setNonHspcInd("N");
-			appInPermdCargo.setDtLeaveFacty(highDate);
-			appInPermdCargo.setVetResp('N');
-			appInPermdCargo.setVetActDutyResp('N');
-			appInPermdCargo.setSpsDeceasedVetResp('N');
-			appInPermdCargo.setChldDeceasedVetResp('N');
-			appInPermdCargo.setDisableVetResp('N');
-			appInPermdCargo.setLangCd(rootElement.getChild("APPLICANT_INFO").getChildTextTrim("SPOKEN_LANGUAGE"));
-			appInPermdCargo.setSsNumAppDt(highDate);
-			appInPermdCargo.setUsCtznSw('Y');
-			appInPermdCargo.setDthDt(highDate);
-			appInPermdCargo.setTrbMbrInd(' ');
-			appInPermdCargo.setTrbChldMbrInd(' ');
-			appInPermdCargo.setPregnancySw(getCharForString(rootElement.getChild("APPLICANT_INFO").getChildTextTrim("PREG_TEST_SW")));
-			if (appInPermdCargo.getPregnancySw() == 'Y') {
-				isPregnantInCase = true;
-			}
-			pregnancyDueDtStr = rootElement.getChild("APPLICANT_INFO").getChildTextTrim("EXPECTED_DELIVERY_DT");
-			sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-			if (pregnancyDueDtStr != null && pregnancyDueDtStr.trim().length() > 0) {
-				appInPermdCargo.setPregnancyDueDt(new Timestamp(sdf.parse(pregnancyDueDtStr).getTime()));
-			} else {
-				appInPermdCargo.setPregnancyDueDt(highDate);
+				if (t1055Coll.size() > 0)
+					t1055Coll.insert();
 			}
 
-			appInPermdCargo.setNbrOfBirthsExpected(getIntForString(rootElement.getChild("APPLICANT_INFO").getChildTextTrim("UNBORN_BABY_COUNT")));
-			appInPermdCargo.setPregnancyVrfCd("");
-			appInPermdCargo.setCitizenStsDeclaredVrfCd("");
-			appInPermdCargo.setIdentificationVrfCd("");
-			appInPermdCargo.setAlienStatusCd("");
-			appInPermdCargo.setAlienTypeCd("N");
-			appInPermdCargo.setAlienStatusVrfCd("");
-			appInPermdCargo.setUsEntryDt(highDate);
-		} catch (ParseException e) {
-			log(ILog.ERROR, "Exception in SelfServiceAppRegBO.buildT1004AppIndv Error:" + e.getMessage(), e);
-			throw new SelfServiceApplicationException("Exception in SelfServiceAppRegBO.buildT1006AppInPermd Error:" + e.getMessage(),e);
-		} catch (Exception e) {
-			log(ILog.ERROR, "Exception in SelfServiceAppRegBO.buildT1006AppInPermd  " + " :  method : " + e.getMessage(), e);
-			throw new SelfServiceApplicationException("Exception in SelfServiceAppRegBO.buildT1006AppInPermd " + " :  method : " + e.getMessage(),e);
-		}
-		log(ILog.DEBUG, "Exiting SelfServiceAppRegBO.buildT1006AppInPermd ");
-		return appInPermdCargo;
-	}
-
-	/**
-	 * The <ocde> parseXML</code> parses the given XML string and returns a JDOM
-	 * Object.
-	 * 
-	 * @param aStagingXML
-	 *            - Application XML String
-	 * @return Document - JDOM Object.
-	 * @throws Exception
-	 */
-	private Document parseXML(String aStagingXML) throws Exception {
-		log(ILog.DEBUG, "entered SelfServiceAppRegBO.parseXML method");
-		InputStream is = null;
-		Document document = null;
-		try {
-			byte[] barray = aStagingXML.getBytes();
-			is = new ByteArrayInputStream(barray);
-			document = this.unmarshall(new InputStreamReader(is));
-		} catch (Exception e) {
-			log(ILog.ERROR, "Error in SelfServiceAppRegBO.parseXML method : " + e.getMessage(), e);
-			throw e;
-		} finally {
-			try {
-				if (is != null) {
-					is.close();
-				}
-			} catch (Exception e) {
-				log(ILog.ERROR, "Error in finally block, in SelfServiceAppRegBO.parseXML method : " + e.getMessage(), e);
-				throw e;
-			}
-		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.parseXML method");
-		return document;
-	}
-
-	/**
-	 * Unmarshalls the xml string into a JDOM Document.
-	 * 
-	 * @param reader
-	 *            - Reader Object
-	 * @return Document - JDOM Object.
-	 * @throws Exception
-	 */
-	private Document unmarshall(Reader reader) throws Exception {
-		log(ILog.DEBUG, "entered SelfServiceAppRegBO.unmarshall method");
-		Document document = null;
-		try {
-			SAXBuilder builder = new SAXBuilder(false);
-			document = builder.build(reader);
-		} catch (Exception e) {
-			log(ILog.ERROR, "Error in SelfServiceAppRegBO.unmarshall method : " + e.getMessage(), e);
-			throw e;
-		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.unmarshall method");
-		return document;
-	}
-
-	/**
-	 * This method creates and inserts records into T3006_APP_SER_DEATH_BNFTS
-	 * staging table
-	 * 
-	 * @param root
-	 *            - Element Object
-	 * @return void
-	 * @throws Exception
-	 */
-	private void buildT3006AppSerDeathBnfts(Element root) throws Exception {
-
-		T3006AppSerDeathBnftsCargo t3006Cargo = null;
-		T3006AppSerDeathBnftsCollection t3006Coll = null;
-		Element serDeathBnfts = root.getChild("APP_SER_DEATH_BNFTS");
-		List serDeathBnftsList = (serDeathBnfts != null ? serDeathBnfts.getChildren("APP_SER_DEATH_BNFT") : null);
-		try {
-			if (serDeathBnftsList != null && serDeathBnftsList.size() > 0) {
-				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT3006AppSerDeathBnfts method");
-				Iterator ite = serDeathBnftsList.iterator();
-				t3006Coll = (conn == null) ? new T3006AppSerDeathBnftsCollection() : new T3006AppSerDeathBnftsCollection(conn);
-				String dataExist = null;
-				while (ite.hasNext()) {
-					dataExist = DATA_NO;
-					Element serDeathBnft = (Element) ite.next();
-					Attribute serDeathAttr = (serDeathBnft != null ? serDeathBnft.getAttribute(AppRegConstants.DATA_EXIST) : null);
-					if (serDeathAttr != null)
-						dataExist = serDeathAttr.getValue().trim();
-
-					if (DATA_YES.equalsIgnoreCase(dataExist)) {
-
-						t3006Cargo = new T3006AppSerDeathBnftsCargo();
-
-						t3006Cargo.setAppNum(appNum);
-						t3006Cargo.setIndvSeqNum(getIntForString(serDeathBnft.getChildTextTrim("INDV_SEQ_NUM")));
-						t3006Cargo.setAccidentInsuranceAmt(getDoubleForString(serDeathBnft.getChildTextTrim("ACCIDENT_INSURANCE_AMT")));
-						t3006Cargo.setFuneralAgreementAmt(getDoubleForString(serDeathBnft.getChildTextTrim("FUNERAL_AGREEMENT_AMT")));
-						t3006Cargo.setLifeInsuranceAmt(getDoubleForString(serDeathBnft.getChildTextTrim("LIFE_INSURANCE_AMT")));
-						t3006Cargo.setLaborUnionAmt(getDoubleForString(serDeathBnft.getChildTextTrim("LABOR_UNION_AMT")));
-						t3006Cargo.setSocialSecurityDeathAmt(getDoubleForString(serDeathBnft.getChildTextTrim("SOCIAL_SECURITY_DEATH_AMT")));
-						t3006Cargo.setVeteranDeathAmt(getDoubleForString(serDeathBnft.getChildTextTrim("VETERAN_DEATH_AMT")));
-						t3006Cargo.setSoldiersFundAmt(getDoubleForString(serDeathBnft.getChildTextTrim("SOLDIERS_FUND_AMT")));
-						t3006Cargo.setCommunityAssistanceAmt(getDoubleForString(serDeathBnft.getChildTextTrim("COMMUNITY_ASSISTANCE_AMT")));
-						t3006Cargo.setOtherBenefitText(getString(serDeathBnft.getChildTextTrim("OTHER_BENEFIT_TEXT")));
-						t3006Cargo.setOtherBenefitAmt(getDoubleForString(serDeathBnft.getChildTextTrim("OTHER_BENEFIT_AMT")));
-
-						t3006Coll.setCargo(t3006Cargo);
-					}
-					if (t3006Coll.size() > 0)
-						t3006Coll.insert();
-				}
-			}
 		} catch (RuntimeException e) {
-			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT3006AppSerDeathBnfts method : " + e.getMessage(), e);
-			throw new Exception("exception in SelfServiceAppRegBO.buildT3006AppSerDeathBnfts method : " + e.getMessage(),e);
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1055AppInPrfl method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1055AppInPrfl method : " + e.getMessage(),e);
 		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT3006AppSerDeathBnfts method");
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1055AppInPrfl method");
+
 	}
 
 	/**
-	 * This method creates and inserts records into T3007_APP_CDC_PROVIDER
-	 * staging table
+	 * This method creates and inserts Non Energy details records into
+	 * T3001_APP_SER_RQST staging table
 	 * 
 	 * @param root
 	 *            - Element Object
 	 * @return void
 	 * @throws Exception
 	 */
-	private void buildT3007AppCdcProvider(Element root) throws Exception {
-
-		T3007AppInCdcProviderCargo t3007Cargo = null;
-		T3007AppInCdcProviderCollection t3007Coll = null;
-		Element cdcProviders = root.getChild("APP_IN_CDC_PROVIDERS");
-		List cdcProviderList = (cdcProviders != null ? cdcProviders.getChildren("APP_IN_CDC_PROVIDER") : null);
-		try {
-			if (cdcProviderList != null && cdcProviderList.size() > 0) {
-				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT3007AppCdcProvider method");
-				Iterator ite = cdcProviderList.iterator();
-				String dataExist = null;
-				t3007Coll = (conn == null) ? new T3007AppInCdcProviderCollection() : new T3007AppInCdcProviderCollection(conn);
-				while (ite.hasNext()) {
-					dataExist = DATA_NO;
-					Element cdcProvider = (Element) ite.next();
-					Attribute providerAttr = (cdcProvider != null ? cdcProvider.getAttribute(AppRegConstants.DATA_EXIST) : null);
-					if (providerAttr != null)
-						dataExist = providerAttr.getValue().trim();
-					if (DATA_YES.equalsIgnoreCase(dataExist)) {
-
-						t3007Cargo = new T3007AppInCdcProviderCargo();
-
-						t3007Cargo.setAppNum(appNum);
-						t3007Cargo.setIndvSeqNum(getIntForString(cdcProvider.getChildTextTrim("INDV_SEQ_NUM")));
-						t3007Cargo.setProviderSeqNum(getIntForString(cdcProvider.getChildTextTrim("PROVIDER_SEQ_NUM")));
-						t3007Cargo.setCdcProviderName(getString(cdcProvider.getChildTextTrim("CDC_PROVIDER_NAME")));
-						t3007Cargo.setCdcProviderAddrLine1(getString(cdcProvider.getChildTextTrim("CDC_PROVIDER_ADDR_LINE1")));
-						t3007Cargo.setCdcProviderAddrLine2(getString(cdcProvider.getChildTextTrim("CDC_PROVIDER_ADDR_LINE2")));
-						t3007Cargo.setCdcProviderAddrCity(getString(cdcProvider.getChildTextTrim("CDC_PROVIDER_ADDR_CITY")));
-						t3007Cargo.setCdcProviderAddrStateCd(getString(cdcProvider.getChildTextTrim("CDC_PROVIDER_ADDR_STATE_CD")));
-						t3007Cargo.setCdcProviderAddrZip(getString(cdcProvider.getChildTextTrim("CDC_PROVIDER_ADDR_ZIP")));
-						t3007Cargo.setProviderPhoneNum(getLongForString(cdcProvider.getChildTextTrim("PROVIDER_PHONE_NUM")));
-						t3007Cargo.setProviderNum(getString(cdcProvider.getChildTextTrim("PROVIDER_NUM")));
-
-						t3007Coll.setCargo(t3007Cargo);
-					}
-					if (t3007Coll.size() > 0)
-						t3007Coll.insert();
-				}
-			}
-		} catch (RuntimeException e) {
-			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT3007AppCdcProvider method : " + e.getMessage(), e);
-			throw new Exception("exception in SelfServiceAppRegBO.buildT3007AppCdcProvider method : " + e.getMessage(),e);
-		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT3007AppCdcProvider method");
-	}
-
-	/**
-	 * This method creates and inserts records into T1019_APP_IN_MED_E
-	 * staging table
-	 * 
-	 * @param root
-	 *            - Element Object
-	 * @return void
-	 * @throws Exception
-	 */
-	private void buildT1019AppInMedE(Element root) throws Exception {
-
-		T1019AppInMedECargo t1019Cargo = null;
-		T1019AppInMedECollection t1019Coll = null;
-		Element medExpenses = root.getChild("APP_IN_MED_E");
-		List medExpensesList = (medExpenses != null ? medExpenses.getChildren("APP_IN_MED_E") : null);
-		try {
-			if (medExpensesList != null && medExpensesList.size() > 0) {
-				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1019AppInMedE method");
-				t1019Coll = (conn == null) ? new T1019AppInMedECollection() : new T1019AppInMedECollection(conn);
-				Iterator ite = medExpensesList.iterator();
-				String dataExist = null;
-				while (ite.hasNext()) {
-					dataExist = DATA_NO;
-					Element medExpense = (Element) ite.next();
-					Attribute medAttr = (medExpense != null ? medExpense.getAttribute(AppRegConstants.DATA_EXIST) : null);
-
-					if (medAttr != null)
-						dataExist = medAttr.getValue().trim();
-					if (DATA_YES.equalsIgnoreCase(dataExist)) {
-
-						t1019Cargo = new T1019AppInMedECargo();
-						t1019Cargo.setIndvSeqNum(getIntForString(medExpense.getChildTextTrim("INDV_SEQ_NUM")));
-						t1019Cargo.setSeqNum((short)1);
-						t1019Cargo.setAsscSeqNum(0);
-						t1019Cargo.setAddRecInd(getCharForString(medExpense.getChildTextTrim("ADD_REC_IND")));
-						t1019Cargo.setEffBegMo(getIntForString(medExpense.getChildTextTrim("EFF_BEG_MO")));
-						t1019Cargo.setFreqCd(getCharForString(medExpense.getChildTextTrim("FREQ_CD")));
-						t1019Cargo.setMedExpAmt(getDoubleForString(medExpense.getChildTextTrim("MED_EXP_AMT")));
-						t1019Cargo.setMedExpTyp(getString(medExpense.getChildTextTrim("MED_EXP_TYP")));
-						t1019Cargo.setMedExpAmtInd(getLongForString(medExpense.getChildTextTrim("MED_EXP_AMT_IND")));
-						t1019Coll.setCargo(t1019Cargo);
-					}
-					if (t1019Coll.size() > 0)
-						t1019Coll.insert(t1019Coll);
-				}
-			}
-		} catch (RuntimeException e) {
-			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1019AppInMedE method : " + e.getMessage(), e);
-			throw new Exception("exception in SelfServiceAppRegBO.buildT1019AppInMedE method : " + e.getMessage(),e);
-		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1019AppInMedE method");
-	}
-	
-	/**
-	 * This method creates and inserts records into T1054_APP_IN_MED_DETAILS
-	 * staging table
-	 * 
-	 * @param root
-	 *            - Element Object
-	 * @return void
-	 * @throws Exception
-	 */
-	private void buildT1054AppInMedDetails(Element root) throws Exception {
-
-		T1054AppInMedDetailCargo t1054Cargo = null;
-		T1054AppInMedDetailCollection t1054Coll = null;
-		Element medDetails = root.getChild("APP_IN_MED_DETAILS");
-		List medDetailList = (medDetails != null ? medDetails.getChildren("APP_IN_MED_DETAIL") : null);
-		try {
-			if (medDetailList != null && medDetailList.size() > 0) {
-				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1054AppInMedDetails method");
-				t1054Coll = (conn == null) ? new T1054AppInMedDetailCollection() : new T1054AppInMedDetailCollection(conn);
-				Iterator ite = medDetailList.iterator();
-				String dataExist = null;
-				while (ite.hasNext()) {
-					dataExist = DATA_NO;
-					Element medDetail = (Element) ite.next();
-					Attribute medAttr = (medDetail != null ? medDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
-
-					if (medAttr != null)
-						dataExist = medAttr.getValue().trim();
-					if (DATA_YES.equalsIgnoreCase(dataExist)) {
-
-						t1054Cargo = new T1054AppInMedDetailCargo();
-
-						t1054Cargo.setAppNum(appNum);
-						t1054Cargo.setIndvSeqNum(getIntForString(medDetail.getChildTextTrim("INDV_SEQ_NUM")));
-						String medicalTypeCd = getString(medDetail.getChildTextTrim("MEDICAL_TYPE_CD"));
-						t1054Cargo.setMedicalTypeCd(medicalTypeCd);
-						t1054Cargo.setCoordinatorName(getString(medDetail.getChildTextTrim("COORDINATOR_NAME")));
-						t1054Cargo.setCoordinatorPhoneNum(getString(medDetail.getChildTextTrim("COORDINATOR_PHONE_NUM")));
-						if ("RE".equalsIgnoreCase(medicalTypeCd)) {
-							t1054Cargo.setEnrolledInSchoolSw('Y');
-						} else {
-							t1054Cargo.setEnrolledInSchoolSw(getCharForString(medDetail.getChildTextTrim("ENROLLED_IN_SCHOOL_SW")));
-						}
-						t1054Coll.setCargo(t1054Cargo);
-					}
-					if (t1054Coll.size() > 0)
-						t1054Coll.insert(t1054Coll);
-				}
-			}
-		} catch (RuntimeException e) {
-			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1054AppInMedDetails method : " + e.getMessage(), e);
-			throw new Exception("exception in SelfServiceAppRegBO.buildT1054AppInMedDetails method : " + e.getMessage(),e);
-		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1054AppInMedDetails method");
-	}
-
-	/**
-	 * This method creates and inserts records into T3005_APP_SER_BURIAL_DETAILS
-	 * and T3001_APP_SER_RQST staging tables
-	 * 
-	 * @param root
-	 *            - Element Object
-	 * @return void
-	 * @throws Exception
-	 */
-	private void buildT3005AppSerBurialDetails(Element root) throws Exception {
-		T3005AppSerBurialDtlCargo t3005Cargo = null;
-		T3005AppSerBurialDtlCollection t3005Coll = null;
-
+	private void buildT3001AppSerRqstNonEnergy(Element root) throws Exception {
 		T3001AppSerRqstCollection t3001Coll = null;
 		T3001AppSerRqstCargo t3001Cargo = null;
-		boolean addSerRqst = true;
-		Element burialDetails = root.getChild("APP_SER_BURIAL_DTLS");
-		List burialDetailList = (burialDetails != null ? burialDetails.getChildren("APP_SER_BURIAL_DTL") : null);
+		Element nonEnergDetails = root.getChild("SER_NON_ENERGY_DETAILS");
+		List nonEnergList = (nonEnergDetails != null ? nonEnergDetails.getChildren("SER_NON_ENERGY_DETAIL") : null);
 		try {
-			if (burialDetailList != null && burialDetailList.size() > 0) {
-				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT3005AppSerBurialDetails method");
-				t3005Coll = (conn == null) ? new T3005AppSerBurialDtlCollection() : new T3005AppSerBurialDtlCollection(conn);
-				Iterator ite = burialDetailList.iterator();
+			log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT3001AppSerRqstNonEnergy method");
+			if (nonEnergList != null && nonEnergList.size() > 0) {
 				String dataExist = null;
+				t3001Coll = (conn == null) ? new T3001AppSerRqstCollection() : new T3001AppSerRqstCollection(conn);
+				Iterator ite = nonEnergList.iterator();
 				while (ite.hasNext()) {
 					dataExist = DATA_NO;
-					Element burialDetail = (Element) ite.next();
-					Attribute burialAttr = (burialDetail != null ? burialDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
-					if (burialAttr != null)
-						dataExist = burialAttr.getValue().trim();
-
+					Element nonEnergDetail = (Element) ite.next();
+					Attribute nonEnergAttr = (nonEnergDetail != null ? nonEnergDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (nonEnergAttr != null)
+						dataExist = nonEnergAttr.getValue();
 					if (DATA_YES.equalsIgnoreCase(dataExist)) {
-						t3005Cargo = new T3005AppSerBurialDtlCargo();
-						t3005Cargo.setAppNum(appNum);
-						t3005Cargo.setIndvSeqNum(getIntForString(burialDetail.getChildTextTrim("INDV_SEQ_NUM")));
+						t3001Cargo = new T3001AppSerRqstCargo();
+						t3001Cargo.setAppNum(appNum);
 
-						SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+						String ssNEServiceCd = getString(nonEnergDetail.getChildTextTrim("SERVICE_TYPE_CD"));
+						String bridgesNEServiceCd = StSerServiceMapping.getBridgesServiceCode("NO", ssNEServiceCd);
+						if (bridgesNEServiceCd == null) {
+							throw new SelfServiceApplicationException("Invalid service type requested for App Num:" + appNum);
+						}
+						t3001Cargo.setServiceCd(bridgesNEServiceCd);
+						try {
+							String bridgesServiceTypeCd = ReferenceTableManager.getValueByColumn(true, "EDSERSRVCODE", bridgesNEServiceCd, "SERVICETYPECODE");
+							String bridgesServiceGroupCd = ReferenceTableManager.getValueByColumn(true, "EDSERSRVCODE", bridgesNEServiceCd, "SERVICEGROUPCODE");
+							t3001Cargo.setServiceGrpCd(bridgesServiceGroupCd);
+							t3001Cargo.setServiceTypeCd(bridgesServiceTypeCd);
+						} catch (Exception e) {
+							log(ILog.ERROR, "exception in  SelfServiceAppRegBO.buildSerAppRequest method, error: " + e.getMessage(), e);
+							throw new SelfServiceApplicationException(e.getMessage(),e);
+						}
+						double outstandingAmt = getDoubleForString(nonEnergDetail.getChildTextTrim("OUTSTANDING_AMT"));
+						t3001Cargo.setOutstandingAmt(outstandingAmt);
+						t3001Cargo.setRequestedAmt(outstandingAmt);
 
-						String deathTms = burialDetail.getChildTextTrim("DEATH_DT");
-						if (deathTms != null && deathTms.trim().length() > 0) {
-							t3005Cargo.setDeathDt(new Timestamp(sdf.parse(deathTms).getTime()));
-						} else {
-							t3005Cargo.setDeathDt(highDate);
-						}
+						t3001Cargo.setIsSrvcAddrLiveAddrSw(getCharForString(nonEnergDetail.getChildTextTrim("IS_SRVC_ADDR_LIVE_ADDR_SW")));
+						t3001Cargo.setBillFromOldAddressSw(getCharForString(nonEnergDetail.getChildTextTrim("BILL_FROM_OLD_ADDRESS_SW")));
+						t3001Cargo.setBillResidentialAccntSw(getCharForString(nonEnergDetail.getChildTextTrim("BILL_RESIDENTIAL_ACCOUNT_SW")));
+						t3001Cargo.setHelpOthDhsName(getString(nonEnergDetail.getChildTextTrim("HELP_OTHER_DHS_NAME")));
+						t3001Cargo.setHelpOthDhsAmt(getDoubleForString(nonEnergDetail.getChildTextTrim("HELP_OTHER_DHS_AMT")));
+						t3001Cargo.setCommonMeterSw(getCharForString(nonEnergDetail.getChildTextTrim("COMMON_METER_SW")));
+						t3001Cargo.setBillForMultipleAddrSw(getCharForString(nonEnergDetail.getChildTextTrim("BILL_FOR_MULTIPLE_ADDR_SW")));
+						t3001Cargo.setIllegalUsageSw(getCharForString(nonEnergDetail.getChildTextTrim("ILLEGAL_USAGE_SW")));
+						t3001Cargo.setIllegalUsageAmt(getDoubleForString(nonEnergDetail.getChildTextTrim("ILLEGAL_USAGE_AMT")));
+						t3001Cargo.setBankruptAccntSw(getCharForString(nonEnergDetail.getChildTextTrim("BANKRUPT_ACCOUNT_SW")));
+						t3001Cargo.setCookingGasOnlySw(getCharForString(nonEnergDetail.getChildTextTrim("COOKING_GAS_ONLY_SW")));
 
-						String cremationTms = burialDetail.getChildTextTrim("CREMATION_DT");
-						if (cremationTms != null && cremationTms.trim().length() > 0) {
-							t3005Cargo.setCremationDt(new Timestamp(sdf.parse(cremationTms).getTime()));
-						} else {
-							t3005Cargo.setCremationDt(highDate);
-						}
-						t3005Cargo.setBurialAmt(getDoubleForString(burialDetail.getChildTextTrim("BURIAL_AMT")));
-						t3005Cargo.setMemorialServiceSw(getCharForString(burialDetail.getChildTextTrim("MEMORIAL_SERVICE_SW")));
-						t3005Cargo.setContributionFriendsSw(getCharForString(burialDetail.getChildTextTrim("CONTRIBUTION_FRIENDS_SW")));
-						t3005Cargo.setContributionAmt(getDoubleForString(burialDetail.getChildTextTrim("CONTRIBUTION_AMT")));
-						t3005Cargo.setDeceasedVeteranSw(getCharForString(burialDetail.getChildTextTrim("DECEASED_VETERAN_SW")));
-						t3005Cargo.setSignStatementSw(getCharForString(burialDetail.getChildTextTrim("SIGN_STATEMENT_SW")));
-						t3005Cargo.setFuneralHomeName(getString(burialDetail.getChildTextTrim("FUNERAL_HOME_NAME")));
-						t3005Cargo.setFuneralHomeAddrLine1(getString(burialDetail.getChildTextTrim("FUNERAL_HOME_ADDR_LINE1")));
-						t3005Cargo.setFuneralHomeAddrLine2(getString(burialDetail.getChildTextTrim("FUNERAL_HOME_ADDR_LINE2")));
-						t3005Cargo.setFuneralHomeAddrCity(getString(burialDetail.getChildTextTrim("FUNERAL_HOME_ADDR_CITY")));
-						t3005Cargo.setFuneralHomeAddrStateCd(getString(burialDetail.getChildTextTrim("FUNERAL_HOME_ADDR_STATE_CD")));
-						t3005Cargo.setFunrealHomeAddrZip(getString(burialDetail.getChildTextTrim("FUNREAL_HOME_ADDR_ZIP")));
-						t3005Cargo.setFuneralHomePhoneNum(getLongForString(burialDetail.getChildTextTrim("FUNERAL_HOME_PHONE_NUM")));
-						t3005Coll.setCargo(t3005Cargo);
-						if (addSerRqst) {
-							t3001Coll = (conn == null) ? new T3001AppSerRqstCollection() : new T3001AppSerRqstCollection(conn);
-							t3001Cargo = new T3001AppSerRqstCargo();
-							t3001Cargo.setAppNum(appNum);
-							t3001Cargo.setServiceCd(FwConstants.BURIAL_SRVC_CD);
-							t3001Cargo.setServiceTypeCd(FwConstants.BURIAL_SRVC_TYP_CD);
-							t3001Cargo.setServiceGrpCd(FwConstants.BURIAL_SRVC_GRP_CD);
-							t3001Cargo.setRequestedAmt(t3005Cargo.getBurialAmt());
-							t3001Coll.setCargo(t3001Cargo);
-							if (t3001Coll.size() > 0)
-								t3001Coll.insert();
-							addSerRqst = false;
-						}
+						t3001Coll.setCargo(t3001Cargo);
 					}
-					if (t3005Coll.size() > 0)
-						t3005Coll.insert();
+					if (t3001Coll.size() > 0)
+						t3001Coll.insert();
 				}
 			}
 		} catch (RuntimeException e) {
-			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT3005AppSerBurialDetails method : " + e.getMessage(), e);
-			throw new Exception("exception in SelfServiceAppRegBO.buildT3005AppSerBurialDetails method : " + e.getMessage(),e);
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT3001AppSerRqstNonEnergy method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT3001AppSerRqstNonEnergy method : " + e.getMessage(),e);
 		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT3005AppSerBurialDetails method");
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT3001AppSerRqstNonEnergy method");
 	}
 
 	/**
-	 * This method creates and inserts records into T1040_APP_IN_LQD_ASET
+	 * This method creates and inserts Home Owner details records into
+	 * T3001_APP_SER_RQST staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT3001AppSerRqstHomeOwner(Element root) throws Exception {
+		T3001AppSerRqstCollection t3001Coll = null;
+		T3001AppSerRqstCargo t3001Cargo = null;
+		Element homeOwnerDetails = root.getChild("SER_HOME_OWNERSHIP_DETAILS");
+		List homeOwnerList = (homeOwnerDetails != null ? homeOwnerDetails.getChildren("SER_HOME_OWNERSHIP_DETAIL") : null);
+
+		try {
+			log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT3001AppSerRqstHomeOwner method");
+			if (homeOwnerList != null && homeOwnerList.size() > 0) {
+				String dataExist = null;
+				t3001Coll = (conn == null) ? new T3001AppSerRqstCollection() : new T3001AppSerRqstCollection(conn);
+				Iterator ite = homeOwnerList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element homeOwnerDetail = (Element) ite.next();
+					Attribute homeOwnerAttr = (homeOwnerDetail != null ? homeOwnerDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (homeOwnerAttr != null)
+						dataExist = homeOwnerAttr.getValue();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+						t3001Cargo = new T3001AppSerRqstCargo();
+						t3001Cargo.setAppNum(appNum);
+
+						String ssHOServiceCd = getString(homeOwnerDetail.getChildTextTrim("SERVICE_TYPE_CD"));
+						String bridgesHOServiceCd = StSerServiceMapping.getBridgesServiceCode("NO", ssHOServiceCd);
+						if (bridgesHOServiceCd == null) {
+							throw new SelfServiceApplicationException("Invalid service type requested for App Num:" + appNum);
+						}
+						t3001Cargo.setServiceCd(bridgesHOServiceCd);
+						try {
+							String bridgesServiceTypeCd = ReferenceTableManager.getValueByColumn(true, "EDSERSRVCODE", bridgesHOServiceCd, "SERVICETYPECODE");
+							String bridgesServiceGroupCd = ReferenceTableManager.getValueByColumn(true, "EDSERSRVCODE", bridgesHOServiceCd, "SERVICEGROUPCODE");
+							t3001Cargo.setServiceGrpCd(bridgesServiceGroupCd);
+							t3001Cargo.setServiceTypeCd(bridgesServiceTypeCd);
+						} catch (Exception e) {
+							log(ILog.ERROR, "exception in  SelfServiceAppRegBO.buildSerAppRequest method, error: " + e.getMessage(), e);
+							throw new SelfServiceApplicationException(e.getMessage(),e);
+						}
+						double estimatedCostAmt = getDoubleForString(homeOwnerDetail.getChildTextTrim("ESTIMATED_COST_AMT"));
+						t3001Cargo.setEstimatedRepairAmt(estimatedCostAmt);
+						t3001Cargo.setRequestedAmt(estimatedCostAmt);
+
+						t3001Cargo.setOwnHouseSw(getCharForString(homeOwnerDetail.getChildTextTrim("OWN_HOUSE_SW")));
+						t3001Cargo.setLiveHouseSw(getCharForString(homeOwnerDetail.getChildTextTrim("LIVE_HOUSE_SW")));
+						t3001Cargo.setPermanentResidenceSw(getCharForString(homeOwnerDetail.getChildTextTrim("PERMANENT_RESIDENCE_SW")));
+						t3001Cargo.setLifeEstateSw(getCharForString(homeOwnerDetail.getChildTextTrim("LIFE_ESTATE_SW")));
+						t3001Cargo.setOweBackTaxesMortgageSw(getCharForString(homeOwnerDetail.getChildTextTrim("OWE_BACK_TAXES_MORTGAGE_SW")));
+						t3001Cargo.setDebtRepayArrangeSw(getCharForString(homeOwnerDetail.getChildTextTrim("EBT_REPAY_ARRANGE_SW")));
+						t3001Cargo.setHouseListedForSaleSw(getCharForString(homeOwnerDetail.getChildTextTrim("HOUSE_LISTED_FOR_SALE_SW")));
+						t3001Cargo.setHelpOthDhsName(getString(homeOwnerDetail.getChildTextTrim("HELP_OTHER_DHS_NAME")));
+						t3001Cargo.setHelpOthDhsAmt(getDoubleForString(homeOwnerDetail.getChildTextTrim("HELP_OTHER_DHS_AMT")));
+
+						t3001Coll.setCargo(t3001Cargo);
+					}
+					if (t3001Coll.size() > 0)
+						t3001Coll.insert();
+				}
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT3001AppSerRqstHomeOwner method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT3001AppSerRqstHomeOwner method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT3001AppSerRqstHomeOwner method");
+
+	}
+
+	/**
+	 * This method creates and inserts ReLocation details records into
+	 * T3001_APP_SER_RQST staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT3001AppSerRqstReLocation(Element root) throws Exception {
+		T3001AppSerRqstCollection t3001Coll = null;
+		T3001AppSerRqstCargo t3001Cargo = null;
+		Element reLocationDetails = root.getChild("SER_RELOC_DETAILS");
+		List reLocationList = (reLocationDetails != null ? reLocationDetails.getChildren("SER_RELOC_DETAIL") : null);
+
+		try {
+			log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT3001AppSerRqstReLocation method");
+			if (reLocationList != null && reLocationList.size() > 0) {
+				String dataExist = null;
+				t3001Coll = (conn == null) ? new T3001AppSerRqstCollection() : new T3001AppSerRqstCollection(conn);
+				Iterator ite = reLocationList.iterator();
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element reLocationDetail = (Element) ite.next();
+					Attribute reLocationAttr = (reLocationDetail != null ? reLocationDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (reLocationAttr != null)
+						dataExist = reLocationAttr.getValue();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+						t3001Cargo = new T3001AppSerRqstCargo();
+						t3001Cargo.setAppNum(appNum);
+
+						String ssRLServiceCd = getString(reLocationDetail.getChildTextTrim("SERVICE_TYPE_CD"));
+						String bridgesRLServiceCd = StSerServiceMapping.getBridgesServiceCode("NO", ssRLServiceCd);
+						if (bridgesRLServiceCd == null) {
+							throw new SelfServiceApplicationException("Invalid service type requested for App Num:" + appNum);
+						}
+						t3001Cargo.setServiceCd(bridgesRLServiceCd);
+						try {
+							String bridgesServiceTypeCd = ReferenceTableManager.getValueByColumn(true, "EDSERSRVCODE", bridgesRLServiceCd, "SERVICETYPECODE");
+							String bridgesServiceGroupCd = ReferenceTableManager.getValueByColumn(true, "EDSERSRVCODE", bridgesRLServiceCd, "SERVICEGROUPCODE");
+							t3001Cargo.setServiceGrpCd(bridgesServiceGroupCd);
+							t3001Cargo.setServiceTypeCd(bridgesServiceTypeCd);
+						} catch (Exception e) {
+							log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildSerAppRequest method, error: " + e.getMessage(), e);
+							throw new SelfServiceApplicationException(e.getMessage(),e);
+						}
+						double appSerAmt = getDoubleForString(reLocationDetail.getChildTextTrim("RELOCATION_AMT"));
+						t3001Cargo.setRelocationAmt(appSerAmt);
+						log(ILog.DEBUG, appNum + " RelocationAmt = " + appSerAmt);
+
+						if (appSerAmt > 0)
+							t3001Cargo.setRequestedAmt(appSerAmt);
+						else if ((appSerAmt = getDoubleForString(reLocationDetail.getChildTextTrim("SECURITY_DEPOSIT_AMT"))) > 0)
+							t3001Cargo.setRequestedAmt(appSerAmt);
+						else if ((appSerAmt = getDoubleForString(reLocationDetail.getChildTextTrim("MONTHLY_RENT_AMT"))) > 0)
+							t3001Cargo.setRequestedAmt(appSerAmt);
+						log(ILog.DEBUG, appNum + " RequestedAmt = " + t3001Cargo.getRequestedAmt());
+						t3001Cargo.setIncludesHeatSw(getCharForString(reLocationDetail.getChildTextTrim("INCLUDES_HEAT_SW")));
+						t3001Cargo.setIncludesWaterSw(getCharForString(reLocationDetail.getChildTextTrim("INCLUDES_WATER_SW")));
+						t3001Cargo.setIncludesElectricitySw(getCharForString(reLocationDetail.getChildTextTrim("INCLUDES_ELECTRICITY_SW")));
+						t3001Cargo.setIncludesCookingGasSw(getCharForString(reLocationDetail.getChildTextTrim("INCLUDES_COOKING_GAS_SW")));
+						t3001Cargo.setSecurityDepositAmt(getDoubleForString(reLocationDetail.getChildTextTrim("SECURITY_DEPOSIT_AMT")));
+						t3001Cargo.setCourtSummonSw(getCharForString(reLocationDetail.getChildTextTrim("COURT_SUMMON_SW")));
+						t3001Cargo.setMovingCompanyName(getString(reLocationDetail.getChildTextTrim("MOVING_COMPANY_NAME")));
+						t3001Cargo.setMoveReasonTxt(getString(reLocationDetail.getChildTextTrim("MOVE_REASON_TEXT")));
+						t3001Coll.setCargo(t3001Cargo);
+						log(ILog.DEBUG, appNum + " T3001Cargo Contents= " + t3001Cargo.toString());
+
+					}
+					if (t3001Coll.size() > 0)
+						t3001Coll.insert();
+				}
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT3001AppSerRqstReLocation method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT3001AppSerRqstReLocation method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT3001AppSerRqstReLocation method");
+	}
+
+	/**
+	 * This method creates and inserts records into T1056_APP_NURSING_ADDRESS
 	 * staging table
 	 * 
 	 * @param root
@@ -1374,90 +848,55 @@ public class SelfServiceAppRegBO extends AbstractBO implements Serializable {
 	 * @return void
 	 * @throws Exception
 	 */
-	private void buildT1040AppInLqdAset(Element root) throws Exception {
+	private void buildT1056AppNursingAddress(Element root) throws Exception {
 
-		T1040AppInLqdAsetCargo t1040Cargo = null;
-		T1040AppInLqdAsetCollection t1040Coll = null;
+		T1056AppNursingAddressCargo t1056Cargo = null;
+		T1056AppNursingAddressCollection t1056Coll = null;
 
-		Element lqdAsets = root.getChild("APP_IN_LQD_ASETS");
-		List lqdAsetList = (lqdAsets != null ? lqdAsets.getChildren("APP_IN_LQD_ASET") : null);
+		Element nAddresses = root.getChild("APP_NURSING_ADDRESSES");
+		List nAddressList = (nAddresses != null ? nAddresses.getChildren("APP_NURSING_ADDRESS") : null);
 		try {
-			if (lqdAsetList != null && lqdAsetList.size() > 0) {
-				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1040AppInLqdAset method");
+			if (nAddressList != null && nAddressList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1056AppNursingAddresses method");
 				String dataExist = null;
-				t1040Coll = (conn == null) ? new T1040AppInLqdAsetCollection() : new T1040AppInLqdAsetCollection(conn);
-				Iterator ite = lqdAsetList.iterator();
+
+				t1056Coll = (conn == null) ? new T1056AppNursingAddressCollection() : new T1056AppNursingAddressCollection(conn);
+				Iterator ite = nAddressList.iterator();
+
 				while (ite.hasNext()) {
 					dataExist = DATA_NO;
-					Element lqdAset = (Element) ite.next();
-					Attribute lqdAsetAttr = (lqdAset != null ? lqdAset.getAttribute(AppRegConstants.DATA_EXIST) : null);
-					if (lqdAsetAttr != null)
-						dataExist = lqdAsetAttr.getValue().trim();
+					Element nAddress = (Element) ite.next();
+					Attribute nAddressAttr = (nAddress != null ? nAddress.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (nAddressAttr != null)
+						dataExist = nAddressAttr.getValue().trim();
 					if (DATA_YES.equalsIgnoreCase(dataExist)) {
 
-						t1040Cargo = new T1040AppInLqdAsetCargo();
+						t1056Cargo = new T1056AppNursingAddressCargo();
+						t1056Cargo.setAppNum(appNum);
+						t1056Cargo.setAddrTypeCd(getString(nAddress.getChildTextTrim("ADDR_TYPE_CD")));
+						t1056Cargo.setAddrLine1(getString(nAddress.getChildTextTrim("ADDR_LINE1")));
+						t1056Cargo.setAddrLine2(getString(nAddress.getChildTextTrim("ADDR_LINE2")));
+						t1056Cargo.setAddrCity(getString(nAddress.getChildTextTrim("ADDR_CITY")));
+						t1056Cargo.setAddrStateCd(getString(nAddress.getChildTextTrim("ADDR_STATE_CD")));
 
-						t1040Cargo.setAppNum(appNum);
-						t1040Cargo.setIndvSeqNum(getLongForString(lqdAset.getChildTextTrim("INDV_SEQ_NUM")));
-						t1040Cargo.setSeqNum(getLongForString(lqdAset.getChildTextTrim("SEQ_NUM")));
-						t1040Cargo.setAcctNum(getString(lqdAset.getChildTextTrim("ACCT_NUM")));
-						t1040Cargo.setAddRecInd(getCharForString(lqdAset.getChildTextTrim("ADD_REC_IND")));
-						t1040Cargo.setAsscSeqNum(getLongForString(lqdAset.getChildTextTrim("ASSC_SEQ_NUM")));
-						t1040Cargo.setBuryDsgtSw(getCharForString(lqdAset.getChildTextTrim("BURY_DSGT_SW")));
-						t1040Cargo.setEffBegMo(getIntForString(lqdAset.getChildTextTrim("EFF_BEG_MO")));
-						t1040Cargo.setFnclInstCityAdr(getString(lqdAset.getChildTextTrim("FNCL_INST_CITY_ADR")));
-						t1040Cargo.setFnclInstL1Adr(getString(lqdAset.getChildTextTrim("FNCL_INST_L1_ADR")));
-						t1040Cargo.setFnclInstL2Adr(getString(lqdAset.getChildTextTrim("FNCL_INST_L2_ADR")));
-						t1040Cargo.setFnclInstNam(getString(lqdAset.getChildTextTrim("FNCL_INST_NAM")));
-						t1040Cargo.setFnclInstStaAdr(getString(lqdAset.getChildTextTrim("FNCL_INST_STA_ADR")));
-						t1040Cargo.setFnclInstZipAdr(getString(lqdAset.getChildTextTrim("FNCL_INST_ZIP_ADR")));
-						t1040Cargo.setJntOwnResp(getCharForString(lqdAset.getChildTextTrim("JNT_OWN_RESP")));
-						t1040Cargo.setLqdAsetAmt(getDoubleForString(lqdAset.getChildTextTrim("LQD_ASET_AMT")));
-						t1040Cargo.setLqdAsetAmtInd(getLongForString(lqdAset.getChildTextTrim("LQD_ASET_AMT_IND")));
-						SsStRtValXrefCollection ssXrefCollection = new SsStRtValXrefCollection();
-						SsStRtValXrefCargo ssXrefCargo = new SsStRtValXrefCargo();
-						ssXrefCargo.setSsStTableName("T1040_APP_IN_LQD_ASET");
-						ssXrefCargo.setSsStColumnName("LQD_ASET_TYP");
-						ssXrefCargo.setSsStColumnVal(String.valueOf(lqdAset.getChildTextTrim("LQD_ASET_TYP")));
-						Object[] objects = new Object[1];
-						objects[0] = ssXrefCargo;
-						SsStRtValXrefCargo xrefCargo[] = (SsStRtValXrefCargo[]) ssXrefCollection.select("findByTabNameColNameRtCode", objects);
-						if (xrefCargo.length > 0) {
-							t1040Cargo.setLqdAsetTyp(xrefCargo[0].getRtCode());
-						}
-
-						t1040Cargo.setAccountChangeAmt(getDoubleForString(lqdAset.getChildTextTrim("ACCOUNT_CHANGE_AMT")));
-						t1040Cargo.setLiquidAssetOtherNum(getIntForString(lqdAset.getChildTextTrim("LIQUID_ASSET_OTHER_NUM")));
-						t1040Cargo.setAccountChangeCd(getString(lqdAset.getChildTextTrim("ACCOUNT_CHANGE_CD")));
-						t1040Cargo.setAccountChangeIndvSeqNum(getIntForString(lqdAset.getChildTextTrim("ACCOUNT_CHANGE_INDV_SEQ_NUM")));
-
-						SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
-						String changeTms = lqdAset.getChildTextTrim("ACCOUNT_CHANGE_DT");
-
-						if (changeTms != null && changeTms.trim().length() > 0) {
-							t1040Cargo.setAccountChangeDt(new Timestamp(sdf.parse(changeTms).getTime()));
-						} else {
-							t1040Cargo.setAccountChangeDt(highDate);
-						}
-
-						t1040Cargo.setRecordCompleted(C_NO);
-						t1040Coll.setCargo(t1040Cargo);
+						t1056Cargo.setAddrZip(getString(nAddress.getChildTextTrim("ADDR_ZIP")));
+						t1056Cargo.setPhoneNum(getString(nAddress.getChildTextTrim("PHONE_NUM")));
+						t1056Coll.setCargo(t1056Cargo);
 					}
-					if (t1040Coll.size() > 0)
-						t1040Coll.insert();
+					if (t1056Coll.size() > 0)
+						t1056Coll.insert();
 				}
-
 			}
 		} catch (RuntimeException e) {
-			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1040AppInLqdAset method : " + e.getMessage(), e);
-			throw new Exception("exception in SelfServiceAppRegBO.buildT1040AppInLqdAset method : " + e.getMessage(),e);
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1056AppNursingAddresses method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1056AppNursingAddresses method : " + e.getMessage(),e);
 		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1040AppInLqdAset method");
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1056AppNursingAddresses method");
 	}
 
+	// 17. T1057_APP_IN_MEDICAL_DABL
 	/**
-	 * This method creates and inserts records into T1041_APP_IN_VEH_ASET
+	 * This method creates and inserts records into T1057_APP_IN_MEDICAL_DABL
 	 * staging table
 	 * 
 	 * @param root
@@ -1465,68 +904,529 @@ public class SelfServiceAppRegBO extends AbstractBO implements Serializable {
 	 * @return void
 	 * @throws Exception
 	 */
-	private void buildT1041AppInVehAset(Element root) throws Exception {
+	private void buildT1057AppInMedicalDisabilities(Element root) throws Exception {
 
-		T1041AppInVehAsetCargo t1041Cargo = null;
-		T1041AppInVehAsetCollection t1041Coll = null;
+		T1057AppInMedicalDablCargo t1057Cargo = null;
+		T1057AppInMedicalDablCollection t1057Coll = null;
+		Element indivsNode = root.getChild(AppRegConstants.INDIVIDUALS);
+		List indivList = (indivsNode != null ? indivsNode.getChildren(AppRegConstants.ELEMENT_INDIVIDUAL) : null);
+		if (indivList != null & indivList.size() > 0) {
+			Iterator indivItr = indivList.iterator();
+			String dExist = null;
+			String ssiResponse = null;
+			while (indivItr.hasNext()) {
+				dExist = DATA_NO;
+				Element indivNode = (Element) indivItr.next();
+				Element indvProfile = indivNode.getChild(AppRegConstants.INDIVIDUAL_PROFILE);
+				Attribute ssiAttr = (indvProfile != null ? indvProfile.getAttribute(AppRegConstants.DATA_EXIST) : null);
+				if (ssiAttr != null) {
+					dExist = ssiAttr.getValue().trim();
+				}
+				t1057Coll = (conn == null) ? new T1057AppInMedicalDablCollection() : new T1057AppInMedicalDablCollection(conn);
+				if (DATA_YES.equalsIgnoreCase(dExist)) {
+					ssiResponse = indvProfile.getChildTextTrim("SSI_BENEFIT_RESP");
+					if (DATA_YES.equalsIgnoreCase(ssiResponse)) {
+						t1057Cargo = new T1057AppInMedicalDablCargo();
+						t1057Cargo.setAppNum(appNum);
+						t1057Cargo.setIndvSeqNum(getIntForString(indivNode.getChildTextTrim("INDV_SEQ_NUM")));
+						t1057Cargo.setDisabilityTypeCd("SI");
+						t1057Cargo.setDisabilityAppStatusCd(APPROVED);
+						t1057Coll.setCargo(t1057Cargo);
+					}
+				}
+				if (t1057Coll.size() > 0)
+					t1057Coll.insert();
+			}
+		}
 
-		Element vehAsets = root.getChild("APP_IN_VEH_ASETS");
-		List vehAsetList = (vehAsets != null ? vehAsets.getChildren("APP_IN_VEH_ASET") : null);
+		Element medicalDisabilities = root.getChild("APP_IN_MEDICAL_DISABILITIES");
+		List medicalDisabilityList = (medicalDisabilities != null ? medicalDisabilities.getChildren("APP_IN_MEDICAL_DISABILITY") : null);
 		try {
-			if (vehAsetList != null && vehAsetList.size() > 0) {
-				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1041AppInVehAset method");
-				t1041Coll = (conn == null) ? new T1041AppInVehAsetCollection() : new T1041AppInVehAsetCollection(conn);
+			if (medicalDisabilityList != null && medicalDisabilityList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1057AppInMedicalDisabilities method");
 				String dataExist = null;
-				Iterator ite = vehAsetList.iterator();
+				t1057Coll = (conn == null) ? new T1057AppInMedicalDablCollection() : new T1057AppInMedicalDablCollection(conn);
+				Iterator ite = medicalDisabilityList.iterator();
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 				while (ite.hasNext()) {
 					dataExist = DATA_NO;
-					Element vehAset = (Element) ite.next();
-					Attribute vehAsetAttr = (vehAset != null ? vehAset.getAttribute(AppRegConstants.DATA_EXIST) : null);
-					if (vehAsetAttr != null)
-						dataExist = vehAsetAttr.getValue().trim();
+					Element medicalDisability = (Element) ite.next();
+					Attribute medicalDisabilityAttr = (medicalDisability != null ? medicalDisability.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (medicalDisabilityAttr != null)
+						dataExist = medicalDisabilityAttr.getValue().trim();
 					if (DATA_YES.equalsIgnoreCase(dataExist)) {
-						t1041Cargo = new T1041AppInVehAsetCargo();
-						t1041Cargo.setAppNum(appNum);
-						t1041Cargo.setIndvSeqNum(getLongForString(vehAset.getChildTextTrim("INDV_SEQ_NUM")));
-						t1041Cargo.setSeqNum(getLongForString(vehAset.getChildTextTrim("SEQ_NUM")));
-						t1041Cargo.setAddRecInd(getCharForString(vehAset.getChildTextTrim("ADD_REC_IND")));
-						t1041Cargo.setAsscSeqNum(getLongForString(vehAset.getChildTextTrim("ASSC_SEQ_NUM")));
-						t1041Cargo.setEffBegMo(getIntForString(vehAset.getChildTextTrim("EFF_BEG_MO")));
-						t1041Cargo.setJntOwnResp(getCharForString(vehAset.getChildTextTrim("JNT_OWN_RESP")));
-						t1041Cargo.setLicPlateTxt(getString(vehAset.getChildTextTrim("LIC_PLATE_TXT")));
-						t1041Cargo.setLicStaCd(getString(vehAset.getChildTextTrim("LIC_STA_CD")));
-						t1041Cargo.setMvFmvAmt(getDoubleForString(vehAset.getChildTextTrim("MV_FMV_AMT")));
-						t1041Cargo.setMvFmvAmtInd(getLongForString(vehAset.getChildTextTrim("MV_FMV_AMT_IND")));
-						t1041Cargo.setMvMakeTxt(getString(vehAset.getChildTextTrim("MV_MAKE_TXT")));
-						t1041Cargo.setMvModlTxt(getString(vehAset.getChildTextTrim("MV_MODL_TXT")));
-						t1041Cargo.setMvOweAmt(getDoubleForString(vehAset.getChildTextTrim("MV_OWE_AMT")));
-						t1041Cargo.setMvOweAmtInd(getLongForString(vehAset.getChildTextTrim("MV_OWE_AMT_IND")));
-						t1041Cargo.setMvRgstRqrSw(getCharForString(vehAset.getChildTextTrim("MV_RGST_RQR_SW")));
-						t1041Cargo.setMvYr(getLongForString(vehAset.getChildTextTrim("MV_YR")));
-						SsStRtValXrefCollection ssXrefCollection = new SsStRtValXrefCollection();
-						SsStRtValXrefCargo ssXrefCargo = new SsStRtValXrefCargo();
-						ssXrefCargo.setSsStTableName("T1041_APP_IN_VEH_ASET");
-						ssXrefCargo.setSsStColumnName("VEH_ASET_TYP");
-						ssXrefCargo.setSsStColumnVal(String.valueOf(vehAset.getChildTextTrim("VEH_ASET_TYP")));
-						Object[] objects = new Object[1];
-						objects[0] = ssXrefCargo;
-						SsStRtValXrefCargo xrefCargo[] = (SsStRtValXrefCargo[]) ssXrefCollection.select("findByTabNameColNameRtCode", objects);
-						if (xrefCargo.length > 0) {
-							t1041Cargo.setVehAsetTyp(xrefCargo[0].getRtCode());
+
+						t1057Cargo = new T1057AppInMedicalDablCargo();
+						t1057Cargo.setAppNum(appNum);
+						t1057Cargo.setIndvSeqNum(getIntForString(medicalDisability.getChildTextTrim("INDV_SEQ_NUM")));
+						t1057Cargo.setDisabilityTypeCd(getString(medicalDisability.getChildTextTrim("DISABILITY_TYPE_CD")));
+						t1057Cargo.setOtherDisabilityTypeText(getString(medicalDisability.getChildTextTrim("OTHER_DISABILITY_TYPE_TEXT")));
+						t1057Cargo.setDisabilityClaimNum(getString(medicalDisability.getChildTextTrim("DISABILITY_CLAIM_NUM")));
+						if (APPROVED.equalsIgnoreCase(medicalDisability.getChildTextTrim("DISABILITY_APP_STATUS_CD"))) {
+							t1057Cargo.setDisabilityAppStatusCd(PENDING);
+						} else {
+							t1057Cargo.setDisabilityAppStatusCd(getString(medicalDisability.getChildTextTrim("DISABILITY_APP_STATUS_CD")));
 						}
 
-						t1041Cargo.setRecordCompleted(C_NO);
-
-						t1041Coll.setCargo(t1041Cargo);
+						String actionTms = medicalDisability.getChildTextTrim("ACTION_DT");
+						if (actionTms != null && actionTms.trim().length() > 0) {
+							t1057Cargo.setActionDt(new Timestamp(sdf.parse(actionTms).getTime()));
+						} else {
+							t1057Cargo.setActionDt(highDate);
+						}
+						t1057Coll.setCargo(t1057Cargo);
 					}
-					if (t1041Coll.size() > 0)
-						t1041Coll.insert();
+					if (t1057Coll.size() > 0)
+						t1057Coll.insert();
+				}
+			}
+
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1057AppInMedicalDisabilities method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1057AppInMedicalDisabilities method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1057AppInMedicalDisabilities method");
+	}
+
+	/**
+	 * This method creates and inserts records into T1058_APP_NURSING_DETAIL
+	 * staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1058AppNursingDetail(Element root) throws Exception {
+
+		T1058AppNursingDetailCargo t1058Cargo = null;
+		T1058AppNursingDetailCollection t1058Coll = null;
+
+		Element nursingDetails = root.getChild("APP_NURSING_DETAILS");
+		List nursingDetailList = (nursingDetails != null ? nursingDetails.getChildren("APP_NURSING_DETAIL") : null);
+		try {
+			if (nursingDetailList != null && nursingDetailList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1058AppNursingDetail method");
+				String dataExist = null;
+				t1058Coll = (conn == null) ? new T1058AppNursingDetailCollection() : new T1058AppNursingDetailCollection(conn);
+				Iterator ite = nursingDetailList.iterator();
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element nursingDetail = (Element) ite.next();
+					Attribute nursingDetailAttr = (nursingDetail != null ? nursingDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (nursingDetailAttr != null)
+						dataExist = nursingDetailAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+
+						t1058Cargo = new T1058AppNursingDetailCargo();
+						t1058Cargo.setAppNum(appNum);
+						t1058Cargo.setFacilityName(getString(nursingDetail.getChildTextTrim("FACILITY_NAME")));
+						t1058Cargo.setGuardianName(getString(nursingDetail.getChildTextTrim("GUARDIAN_NAME")));
+
+						String admissionTms = nursingDetail.getChildTextTrim("ADMISSION_DT");
+						if (admissionTms != null && admissionTms.trim().length() > 0) {
+							t1058Cargo.setAdmissionDt(new Timestamp(sdf.parse(admissionTms).getTime()));
+						} else {
+							t1058Cargo.setAdmissionDt(highDate);
+						}
+						t1058Cargo.setCountyCd(getString(nursingDetail.getChildTextTrim("COUNTY_CD")));
+						t1058Cargo.setGuardianSw(getCharForString(nursingDetail.getChildTextTrim("GUARDIAN_SW")));
+						t1058Cargo.setGuardianExpensePaySw(getCharForString(nursingDetail.getChildTextTrim("GUARDIAN_EXPENSE_PAY_SW")));
+
+						t1058Coll.setCargo(t1058Cargo);
+					}
+					if (t1058Coll.size() > 0)
+						t1058Coll.insert();
+				}
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1058AppNursingDetail method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1058AppNursingDetail method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1058AppNursingDetail method");
+	}
+
+	// 19. T1011_APP_IN_PREG
+	/**
+	 * This method creates and inserts records into TT1011_APP_IN_PREG staging
+	 * table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1011AppInPreg(Element root) throws Exception {
+
+		T1011AppInPregCargo t1011Cargo = null;
+		T1011AppInPregCollection t1011Coll = null;
+
+		Element pregDetails = root.getChild("APP_IN_PREGNANCY_DETAILS");
+		List pregDetailList = (pregDetails != null ? pregDetails.getChildren("APP_IN_PREGNANCY") : null);
+		try {
+			if (pregDetailList != null && pregDetailList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1011AppInPreg method");
+				String dataExist = null;
+				t1011Coll = (conn == null) ? new T1011AppInPregCollection() : new T1011AppInPregCollection(conn);
+				Iterator ite = pregDetailList.iterator();
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element pregDetail = (Element) ite.next();
+					Attribute pregDetailAttr = (pregDetail != null ? pregDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (pregDetailAttr != null)
+						dataExist = pregDetailAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+
+						t1011Cargo = new T1011AppInPregCargo();
+						t1011Cargo.setAppNum(appNum);
+						t1011Cargo.setIndvSeqNum(getLongForString(pregDetail.getChildTextTrim("INDV_SEQ_NUM")));
+						t1011Cargo.setFetusCt(getLongForString(pregDetail.getChildTextTrim("FETUS_CT")));
+
+						String pregDueTms = pregDetail.getChildTextTrim("PREG_DUE_DT");
+						if (pregDueTms != null && pregDueTms.trim().length() > 0) {
+							t1011Cargo.setPregDueDt(new Timestamp(sdf.parse(pregDueTms).getTime()));
+						} else {
+							t1011Cargo.setPregDueDt(highDate);
+						}
+
+						t1011Coll.setCargo(t1011Cargo);
+					}
+					if (t1011Coll.size() > 0)
+						t1011Coll.insert();
+				}
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1011AppInPreg method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1011AppInPreg method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1011AppInPreg method");
+	}
+
+	/**
+	 * This method creates and inserts records into T1010_APP_ASSIST_INFO
+	 * staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return void
+	 * @throws Exception
+	 */
+	private void buildT1010AppAssistInfo(Element root) throws Exception {
+
+		T1010AppAssistInfoCargo t1010Cargo = null;
+		T1010AppAssistInfoCollection t1010Coll = null;
+
+		Element assistDetails = root.getChild("APP_ASSISTER_INFO_DETAILS");
+		List assistDetailList = (assistDetails != null ? assistDetails.getChildren("APP_ASSISTER_INFO") : null);
+		try {
+			if (assistDetailList != null && assistDetailList.size() > 0) {
+				log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1010AppAssistInfo method");
+				String dataExist = null;
+				t1010Coll = (conn == null) ? new T1010AppAssistInfoCollection() : new T1010AppAssistInfoCollection(conn);
+				Iterator ite = assistDetailList.iterator();
+				SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+				while (ite.hasNext()) {
+					dataExist = DATA_NO;
+					Element assistDetail = (Element) ite.next();
+					Attribute assistDetailAttr = (assistDetail != null ? assistDetail.getAttribute(AppRegConstants.DATA_EXIST) : null);
+					if (assistDetailAttr != null)
+						dataExist = assistDetailAttr.getValue().trim();
+					if (DATA_YES.equalsIgnoreCase(dataExist)) {
+
+						t1010Cargo = new T1010AppAssistInfoCargo();
+						t1010Cargo.setAgcyNam(assistDetail.getChildTextTrim("AGCY_NAM"));
+						t1010Cargo.setAgcyTyp(assistDetail.getChildTextTrim("AGCY_TYP"));
+						t1010Cargo.setAgcyUrlAdr(assistDetail.getChildTextTrim("AGCY_URL_ADR"));
+						t1010Cargo.setAppNum(appNum);
+						t1010Cargo.setAssistInfoInd(assistDetail.getChildTextTrim("ASSIST_INFO_IND"));
+
+						String dobStr = assistDetail.getChildTextTrim("BRTH_DT");
+						if (dobStr != null && dobStr.trim().length() > 0) {
+							t1010Cargo.setBrthDt(new Timestamp(sdf.parse(dobStr).getTime()));
+						} else {
+							t1010Cargo.setBrthDt(highDate);
+						}
+
+						t1010Cargo.setCityAdr(assistDetail.getChildTextTrim("CITY_ADR"));
+						t1010Cargo.setEmailAdr(assistDetail.getChildTextTrim("EMAIL_ADR"));
+						t1010Cargo.setFstNam(assistDetail.getChildTextTrim("FST_NAM"));
+						t1010Cargo.setHelpLvlCd(assistDetail.getChildTextTrim("HELP_LVL_CD"));
+						t1010Cargo.setLastNam(assistDetail.getChildTextTrim("LAST_NAM"));
+						t1010Cargo.setLINE1_ADR(assistDetail.getChildTextTrim("LINE1_ADR"));
+						t1010Cargo.setLINE2_ADR(assistDetail.getChildTextTrim("LINE2_ADR"));
+						t1010Cargo.setMidInit(assistDetail.getChildTextTrim("MID_INIT"));
+						t1010Cargo.setPhnNum(assistDetail.getChildTextTrim("PHN_NUM"));
+
+						String prvdIdStr = assistDetail.getChildTextTrim("PRVD_ID");
+						if (prvdIdStr != null && prvdIdStr.trim().length() > 0) {
+							t1010Cargo.setProviderId(Long.valueOf(prvdIdStr));
+						}
+
+						t1010Cargo.setStAdr(assistDetail.getChildTextTrim("ST_ADR"));
+						String updtDtStr = assistDetail.getChildTextTrim("UPDT_DT");
+						if (updtDtStr != null && updtDtStr.trim().length() > 0) {
+							t1010Cargo.setUpdtDt(new Timestamp(sdf.parse(updtDtStr).getTime()));
+						}
+
+						t1010Cargo.setUserTyp(assistDetail.getChildTextTrim("USER_TYP"));
+						String wamsIdStr = assistDetail.getChildTextTrim("WAMS_INTL_USER_ID");
+						if (wamsIdStr != null && wamsIdStr.trim().length() > 0) {
+							t1010Cargo.setWamsIntlUserId(Long.valueOf(wamsIdStr));
+						}
+						t1010Cargo.setWamsLognId(assistDetail.getChildTextTrim("WAMS_LOGN_ID"));
+						t1010Cargo.setZipAdr(assistDetail.getChildTextTrim("ZIP_ADR"));
+
+						t1010Coll.setCargo(t1010Cargo);
+					}
+					if (t1010Coll.size() > 0)
+						t1010Coll.insert();
+				}
+			}
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1010AppAssistInfo method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1010AppAssistInfo method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1010AppAssistInfo method");
+	}
+
+	private T1001AppRqstCollection buildT1001AppRqst(Element root) throws Exception {
+		T1001AppRqstCargo apprqstCargo = null;
+		T1001AppRqstCollection apprqstColl = null;
+		String appTms = null;
+		String ssAppNum = null;
+		String cntyNumStr = null;
+		String disableRespSw = null;
+		String langCd = null;
+		String prirRecCpltInd = null;
+		String assistInfoInd = null;
+		String prvdId = null;
+		SimpleDateFormat sdf = null;
+
+		try {
+			log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1001AppRqst method");
+			apprqstCargo = new T1001AppRqstCargo();
+			appNum = root.getChildTextTrim(AppRegConstants.BRIDGES_APP_NUM);
+			ssAppNum = root.getChildTextTrim(AppRegConstants.ABE_APP_NUM);
+			if (dmWebserviceVO == null) {
+				dmWebserviceVO = new DMElectronicDocumentSSVO();
+			}
+			dmWebserviceVO.setAppNum(appNum);
+			String pid = root.getChildTextTrim(AppRegConstants.BRIDGES_PID);
+			log(ILog.DEBUG, "PID : " + pid);
+			String htmlPid = root.getChildTextTrim("HTML_P_ID");
+			log(ILog.DEBUG, "HTML PID : " + htmlPid);
+			if (pid != null && !pid.trim().equalsIgnoreCase("")) {
+				dmWebserviceVO.setDocumentId(pid);
+				dmWebserviceVO.setHtmlPid(htmlPid);
+			} else {
+				dmWebserviceVO.setDocumentId(appNum);
+			}
+			hpe_pid = root.getChildTextTrim("HPE_P_ID");
+			hpe_html_pid = root.getChildTextTrim("HPE_HTML_P_ID");
+			HPE_ONLY_IND = root.getChildTextTrim("HPE_ONLY_IND");
+			HPE_APP_IND = root.getChildTextTrim("HPE_APP_IND");
+			if (HPE_ONLY_IND != null && HPE_ONLY_IND.equals("N") && HPE_APP_IND != null && HPE_APP_IND.equals("Y")) {
+				if (hpe_pid == null || hpe_pid.equals("")) {
+					hpe_pid = appNum + "_HPE";
+				}
+			}
+			apprqstCargo.setPId(pid);
+			apprqstCargo.setHpePId(hpe_pid);
+			apprqstCargo.setHtmlPId(htmlPid);
+			apprqstCargo.setHpeHtmlPId(hpe_html_pid);
+			apprqstCargo.setAppNum(appNum);
+			apprqstCargo.setSsAppNum(ssAppNum);
+			apprqstCargo.setAppStatCd(AppRegConstants.UN_ASSIGNED);
+			apprqstCargo.setAppStatusInd('0');
+			appTms = root.getChildText("APP_RCV_DT");
+			log(ILog.DEBUG, "appTms value before conversion"+ appTms);
+			if (appTms != null && appTms.trim().length() > 0) {
+				sdf = new SimpleDateFormat("MM-dd-yyyy HH:mm:ss");
+				apprqstCargo.setAppTms(new Timestamp(sdf.parse(appTms).getTime()));
+				log(ILog.DEBUG, "appTms value after conversion"+ apprqstCargo.getAppTms());
+			} else {
+				apprqstCargo.setAppTms(new Timestamp(System.currentTimeMillis()));
+			}
+			
+			this.appTms = new Date(apprqstCargo.getAppTms().getTime());
+			
+
+			apprqstCargo.setAppTyp(getCharForString(root.getChildText("APP_TYP")));
+			apprqstCargo.setAssistorInfoInd(root.getChildTextTrim("ASSIST_INFO_IND"));
+			cntyNumStr = root.getChildTextTrim("CNTY_NUM");
+			if (cntyNumStr != null) {
+				apprqstCargo.setCntyNum((Long.parseLong(cntyNumStr)));
+			}
+			disableRespSw = root.getChildText("DABL_STAT_SW");
+			if ("A".equals(disableRespSw)) {
+				disableRespSw = "Y";
+			}
+			apprqstCargo.setDablStatSw(getCharForString(disableRespSw));
+
+			apprqstCargo.setHshlZipAdr(getString((root.getChildTextTrim("HSHL_ZIP_ADR"))));
+			if (apprqstCargo.getHshlZipAdr() != null && apprqstCargo.getHshlZipAdr().length() > 9) {
+				apprqstCargo.setHshlZipAdr(apprqstCargo.getHshlZipAdr().trim().substring(0, 9));
+			}
+
+			langCd = root.getChildText("LANG_CD");
+			if (langCd != null && langCd.trim().equals("E")) {
+				RefTableData rtd = ReferenceTableManager.getValueForDescription("LANGUAGE", "English");
+				langCd = rtd.getRefrTableCode();
+			} else if (langCd != null && langCd.trim().equals("S")) {
+				RefTableData rtd = ReferenceTableManager.getValueForDescription("LANGUAGE", "Spanish");
+				langCd = rtd.getRefrTableCode();
+			}
+			apprqstCargo.setLangCd(langCd);
+
+			apprqstCargo.setOfcNum(getLongForString(root.getChildTextTrim("AFB_OFFICE_NUM")));
+
+
+			if (InRcvDlyMIChildReferralConstants.MC_APPLICATION_TYPE_CD_PLAN_FIRST == mcProgramTypeCD) {
+				apprqstCargo.setOfcNum(DHS_PLAN_FIRST_OFFICE);
+			}
+
+			if (dmWebserviceVO != null) {
+				dmWebserviceVO.setDestinationOfficeNum(new Long(apprqstCargo.getOfcNum()));
+				dmWebserviceVO.setScannedOfficeNum(new Long(apprqstCargo.getOfcNum()));
+			}
+
+			apprqstCargo.setExpeditedFapSw('N');
+			prirRecCpltInd = root.getChildTextTrim("PRIR_SRVC_ELG_SW");
+			apprqstCargo.setPrirSrvcElgSw(getCharForString(prirRecCpltInd));
+			prvdId = root.getChildTextTrim("PROVIDER_ID");
+			if (prvdId != null && !prvdId.equals(""))
+				apprqstCargo.setProviderId(Long.valueOf(prvdId));
+			miChildAppNum = root.getChildTextTrim("MI_CHILD_APP_NUM");
+			if (miChildAppNum != null && miChildAppNum.length() > 0) {
+				miChildApp = true;
+				apprqstCargo.setMcAppNum(miChildAppNum);
+
+				if (getCharForString(root.getChildTextTrim("CASE_PRES_ELIG_SW")) == 'Y') {
+					isPresumptive = true;
 				}
 
 			}
+			apprqstCargo.setAppCnfdSw(' ');
+			apprqstCargo.setAppRcvDt(apprqstCargo.getAppTms());
+			if(AppealsUtil.isDateAfterFivePm(apprqstCargo.getAppRcvDt()) || !AppealsUtil.isValidWorkDay(apprqstCargo.getAppRcvDt())){
+				apprqstCargo.setAppRcvDt(new Timestamp(AppealsUtil.findNextValidWorkDay(apprqstCargo.getAppTms()).getTime()));	
+			}
+			dmWebserviceVO.setReceivedDate(apprqstCargo.getAppRcvDt().toString());
+			dmWebserviceVO.setScanDate(AppealsUtil.getCurrentDateStringForDB());
+			
+			if (HPE_APP_IND != null && HPE_APP_IND.equals("Y")) {
+				apprqstCargo.setAppMode(AppRegConstants.HPE_APP_MODE);
+			} else {
+				apprqstCargo.setAppMode(AppRegConstants.SS_APP_MODE);
+			}
+
+			if (conn == null) {
+				apprqstColl = new T1001AppRqstCollection();
+			} else {
+				apprqstColl = new T1001AppRqstCollection(conn);
+			}
+			apprqstColl.add(apprqstCargo);
 		} catch (RuntimeException e) {
-			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1041AppInVehAset method : " + e.getMessage(), e);
-			throw new Exception("exception in SelfServiceAppRegBO.buildT1041AppInVehAset method : " + e.getMessage(),e);
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1001AppRqst method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1001AppRqst method : " + e.getMessage(),e);
 		}
-		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1041AppInVehAset method");
+		return apprqstColl;
+	}
+
+	/**
+	 * This method created records in T1001AppRqst staging table
+	 * 
+	 * @param root
+	 *            - Element Object
+	 * @return T1001AppRqstCollection
+	 * @throws Exception
+	 */
+	private T1001AppRqstCollection buildT1001AppRqstForMpe(Element root) throws Exception {
+		T1001AppRqstCargo apprqstCargo = null;
+		T1001AppRqstCollection apprqstColl = null;
+		String appTms = null;
+		String appNum = null;
+		String cntyNumStr = null;
+		String zipNumStr = null;
+		String langCd = null;
+		SimpleDateFormat sdf = null;
+		try {
+			log(ILog.DEBUG, "entered SelfServiceAppRegBO.buildT1001AppRqstForMpe method");
+			apprqstCargo = new T1001AppRqstCargo();
+			appNum = root.getChildTextTrim(AppRegConstants.BRIDGES_APP_NUM);
+			if (dmWebserviceVO == null) {
+				dmWebserviceVO = new DMElectronicDocumentSSVO();
+			}
+			dmWebserviceVO.setAppNum(appNum);
+			String pid = root.getChildTextTrim(AppRegConstants.BRIDGES_PID);
+			log(ILog.DEBUG, "PID : " + pid);
+			String htmlPid = root.getChildTextTrim("HTML_P_ID");
+			log(ILog.DEBUG, "HTML PID : " + htmlPid);
+			if (pid != null && !pid.trim().equalsIgnoreCase("")) {
+				dmWebserviceVO.setDocumentId(pid);
+				dmWebserviceVO.setHtmlPid(htmlPid);
+			} else {
+				dmWebserviceVO.setDocumentId(appNum);
+			}
+			apprqstCargo.setPId(pid);
+			apprqstCargo.setHtmlPId(htmlPid);
+			apprqstCargo.setAppNum(appNum);
+			apprqstCargo.setAppStatCd(AppRegConstants.UN_ASSIGNED);
+			apprqstCargo.setAppStatusInd('0');
+			Element appContact = root.getChild("APPLICANT_INFO");
+			if (appContact != null && appContact.getChildren().size() > 0) {
+				cntyNumStr = appContact.getChildTextTrim("ADDR_COUNTYNUM");
+				if (cntyNumStr != null) {
+					apprqstCargo.setCntyNum((Long.parseLong(cntyNumStr)));
+				}
+				zipNumStr = appContact.getChildTextTrim("ADDR_ZIP");
+				if (zipNumStr != null) {
+					apprqstCargo.setHshlZipAdr(zipNumStr);
+				} else {
+					apprqstCargo.setHshlZipAdr(" ");
+				}
+				langCd = appContact.getChildTextTrim("LANGUAGE_PREFERENCE");
+				apprqstCargo.setLangCd(langCd);
+			}
+			apprqstCargo.setAppTms(new Timestamp(System.currentTimeMillis()));
+			apprqstCargo.setAppRcvDt(apprqstCargo.getAppTms());
+
+			if (dmWebserviceVO != null) {
+				dmWebserviceVO.setReceivedDate(apprqstCargo.getAppRcvDt().toString()); 
+				dmWebserviceVO.setScanDate(dmWebserviceVO.getReceivedDate());
+			}
+
+			apprqstCargo.setAppTyp(getCharForString("M"));
+
+			apprqstCargo.setDablStatSw('N');
+
+			if (apprqstCargo.getHshlZipAdr() != null && apprqstCargo.getHshlZipAdr().length() > 9) {
+				apprqstCargo.setHshlZipAdr(apprqstCargo.getHshlZipAdr().trim().substring(0, 9));
+			}
+
+			apprqstCargo.setOfcNum(getLongForString(root.getChildTextTrim("AFB_OFFICE_NUM")));
+
+
+			if (dmWebserviceVO != null) {
+				dmWebserviceVO.setDestinationOfficeNum(new Long(apprqstCargo.getOfcNum()));
+				dmWebserviceVO.setScannedOfficeNum(new Long(apprqstCargo.getOfcNum()));
+			}
+			apprqstCargo.setPrirSrvcElgSw('N');
+			apprqstCargo.setAppCnfdSw(' ');
+			apprqstCargo.setAppMode(AppRegConstants.SS_APP_MODE);
+
+			if (conn == null) {
+				apprqstColl = new T1001AppRqstCollection();
+			} else {
+				apprqstColl = new T1001AppRqstCollection(conn);
+			}
+			apprqstColl.add(apprqstCargo);
+		} catch (RuntimeException e) {
+			log(ILog.ERROR, "exception in SelfServiceAppRegBO.buildT1001AppRqstForMpe method : " + e.getMessage(), e);
+			throw new Exception("exception in SelfServiceAppRegBO.buildT1001AppRqstForMpe method : " + e.getMessage(),e);
+		}
+		log(ILog.DEBUG, "exiting SelfServiceAppRegBO.buildT1001AppRqstForMpe method");
+		return apprqstColl;
 	}
