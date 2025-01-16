@@ -1,57 +1,60 @@
-package gov.nv.dwss.infc.partitioner;
+package gov.nv.dwss.infc.reader;
 
+import gov.nv.dwss.domain.record.SorRecord;
+import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
+import gov.nv.dwss.fw.batch.exception.BatchBusinessException;
 import gov.nv.dwss.infc.model.DeathRegistryBatchParam;
+import gov.nv.dwss.infc.model.DeathRegistryRecord;
+import gov.nv.dwss.infc.service.dataservice.DeathRegistryDataService;
 import gov.nv.dwss.infc.util.DeathRegistryUtil;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.batch.core.partition.support.Partitioner;
-import org.springframework.batch.item.ExecutionContext;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.env.Environment;
+import org.springframework.batch.item.ItemReader;
+import org.springframework.beans.factory.annotation.Value;
 
+import java.text.ParseException;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
-public class DeathRegistryPartitioner implements Partitioner{
+public class DeathRegistryReader extends AbstractBatchStepComponent implements ItemReader<DeathRegistryRecord> {
 
-    private final static Logger LOG = LogManager.getLogger(DeathRegistryPartitioner.class);
-    Map<String,Object> parameters;
-    @Autowired
-    Environment environment;
+    final static Logger LOG = LogManager.getLogger(DeathRegistryReader.class);
+    private DeathRegistryDataService deathRegistryDataService;
+    private Map<String, Object> map = new HashMap<>();
+    private Iterator<SorRecord> iterator=null;
+    @Value("#{jobParameters}") 
+    Map<String, Object> jobParams;
+    int periodMonth = -1;
+    int periodYear = -1;
+    int periodDate = -1;
+    int i = -1;
 
-    public DeathRegistryPartitioner(Map<String,Object> jobParams){
-        super();
-        this.parameters=jobParams;
+    public DeathRegistryReader(DeathRegistryDataService deathRegistryDataService, Long partition, Long minValue, Long maxValue) {
+        LOG.info(" +++ Calling Reader for Death Registry FILE GENERATOR batch");
+        this.deathRegistryDataService = deathRegistryDataService;
+        map.put("partition",partition);
+        map.put("maxValue",maxValue);
+        map.put("minValue",minValue);
+        map.put("iterator",iterator);
     }
 
     @Override
-    public Map<String, ExecutionContext> partition(int gridSize) {
-        // TODO Auto-generated method stub
-        LOG.info("+++++ In Partitioner Class");
-        Map<String,ExecutionContext> result=new HashMap<>();
-        String jobCode = DeathRegistryBatchParam.getJob().getJobCode();
-        String inputDateString = parameters.get("if.VTLS.date").toString();
-        String arr[]=inputDateString.split("-");
-        int sampleMonth = Integer.parseInt(arr[1]);
-        int sampleYear = Integer.parseInt(arr[0]);
-        int sampleDate = Integer.parseInt(arr[2]);
-        Date periodBeginDate = DeathRegistryUtil.getPeriodBeginDate(sampleMonth,sampleYear);
-        Date periodEndDate = DeathRegistryUtil.getPeriodEndDate(sampleMonth,sampleYear);
-        Date inputDate = DeathRegistryUtil.getInputDate(sampleDate,sampleMonth,sampleYear);
-
-        DeathRegistryBatchParam.setPeriodBeginDate(periodBeginDate);
-        DeathRegistryBatchParam.setPeriodEndDate(periodEndDate);
-        DeathRegistryBatchParam.setInputDate(inputDate);
-
-        ExecutionContext value = new ExecutionContext();
-        result.put("partition" + 0, value);
-
-        value.putLong("partition", 0);
-        value.putLong("minValue", 0);
-        value.putLong("maxValue", 0);
-
-        return result;
-
+    public DeathRegistryRecord read() throws BatchBusinessException, ParseException {
+        if(periodMonth == -1){
+            String inputDateString = jobParams.get("if.VTLS.date").toString();
+            String arr[]=inputDateString.split("-");
+            periodDate = Integer.parseInt(arr[2]);
+            periodMonth = Integer.parseInt(arr[1]);
+            periodYear = Integer.parseInt(arr[0]);
+            DeathRegistryBatchParam.setPeriodMonth(periodMonth);
+            DeathRegistryBatchParam.setPeriodYear(periodYear);
+            Date inputDate = DeathRegistryUtil.getInputDate(periodDate,periodMonth,periodYear);
+            DeathRegistryBatchParam.setPeriodBeginDate(inputDate);
+            DeathRegistryBatchParam.setPeriodEndDate(inputDate);
+        }
+        return deathRegistryDataService.getRecordsForProcessing(map);
     }
 }
