@@ -1,16 +1,57 @@
-package gov.nv.dwss.infc.constants;
+package gov.nv.dwss.infc.partitioner;
 
-public interface  DeathRegistryQueryConstants {
-    
-    public String GET_UPI_FROM_TWNPRSN =  "SELECT T1.UPI FROM ##db-schema-name##.TWNPERSON T1 WHERE T1.SSN = ? And T1.DOB = ?";
+import gov.nv.dwss.infc.model.DeathRegistryBatchParam;
+import gov.nv.dwss.infc.util.DeathRegistryUtil;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.batch.core.partition.support.Partitioner;
+import org.springframework.batch.item.ExecutionContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
 
-    public String GET_UPI_FROM_TWNPRSN_LASTNAME = "SELECT T1.UPI, T1.SSN FROM ##db-schema-name##.TWNPERSON T1 WHERE T1.LST_NM = ? And T1.DOB = ?";
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 
-    public String GET_ICI_FROM_TWNCASEMEMBER =  "SELECT T1.ICI FROM ##db-schema-name##.TWNCASE_MEMBER T1 WHERE T1.UPI = ?";
-    
-    // public String GET_COUNT_FROM_TWNSTATSDOD =  "SELECT count(*) FROM ##db-schema-name##.TWNVTL_STAT_DOD T1 WHERE T1.UPI =?";
+public class DeathRegistryPartitioner implements Partitioner{
 
-    public String DELETE_RECORDS_FROM_TWNWTPYREQUEST =
-           " DELETE FROM ##db-schema-name##.TWNWTPY_REQUEST ";
+    private final static Logger LOG = LogManager.getLogger(DeathRegistryPartitioner.class);
+    Map<String,Object> parameters;
+    @Autowired
+    Environment environment;
 
+    public DeathRegistryPartitioner(Map<String,Object> jobParams){
+        super();
+        this.parameters=jobParams;
+    }
+
+    @Override
+    public Map<String, ExecutionContext> partition(int gridSize) {
+        // TODO Auto-generated method stub
+        LOG.info("+++++ In Partitioner Class");
+        Map<String,ExecutionContext> result=new HashMap<>();
+        String jobCode = DeathRegistryBatchParam.getJob().getJobCode();
+        String inputDateString = parameters.get("if.VTLS.date").toString();
+        String arr[]=inputDateString.split("-");
+        int sampleMonth = Integer.parseInt(arr[1]);
+        int sampleYear = Integer.parseInt(arr[0]);
+        int sampleDate = Integer.parseInt(arr[2]);
+        Date periodBeginDate = DeathRegistryUtil.getPeriodBeginDate(sampleMonth,sampleYear);
+        Date periodEndDate = DeathRegistryUtil.getPeriodEndDate(sampleMonth,sampleYear);
+        Date inputDate = DeathRegistryUtil.getInputDate(sampleDate,sampleMonth,sampleYear);
+
+        DeathRegistryBatchParam.setPeriodBeginDate(periodBeginDate);
+        DeathRegistryBatchParam.setPeriodEndDate(periodEndDate);
+        DeathRegistryBatchParam.setInputDate(inputDate);
+
+        ExecutionContext value = new ExecutionContext();
+        result.put("partition" + 0, value);
+
+        value.putLong("partition", 0);
+        value.putLong("minValue", 0);
+        value.putLong("maxValue", 0);
+
+        return result;
+
+    }
 }
