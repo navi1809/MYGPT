@@ -1,60 +1,324 @@
-package gov.nv.dwss.infc.reader;
+package gov.nv.dwss.infc.service.dataservice;
 
-import gov.nv.dwss.domain.record.SorRecord;
-import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
-import gov.nv.dwss.fw.batch.exception.BatchBusinessException;
-import gov.nv.dwss.infc.model.DeathRegistryBatchParam;
-import gov.nv.dwss.infc.model.DeathRegistryRecord;
-import gov.nv.dwss.infc.service.dataservice.DeathRegistryDataService;
-import gov.nv.dwss.infc.util.DeathRegistryUtil;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import static gov.nv.dwss.fw.batch.constants.FWConstants.CURRENT_DATE;
+
+import java.math.BigDecimal;
+// import java.io.File;
+// import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.sql.Time;
+import java.sql.Timestamp;
+import java.sql.Date; 
+import java.text.ParseException;
+// import java.text.SimpleDateFormat;
+// import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+// import java.time.format.DateTimeFormatter;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.beans.factory.annotation.Value;
+// import org.springframework.batch.item.ExecutionContext;
+// import org.springframework.batch.item.file.FlatFileItemReader;
+// import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
+// import org.springframework.batch.item.file.mapping.DefaultLineMapper;
+// import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.EmptyResultDataAccessException;
+// import org.springframework.core.io.FileSystemResource;
+import org.springframework.stereotype.Service;
 
-import java.text.ParseException;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import com.ibm.db2.jcc.am.dd;
 
-public class DeathRegistryReader extends AbstractBatchStepComponent implements ItemReader<DeathRegistryRecord> {
+import gov.nv.dwss.domain.constants.DomainConstants;
+import gov.nv.dwss.domain.dao.sor.CaseLogSorDao;
+//import gov.nv.dwss.domain.dao.sor.FourtyQuarterEmploymentSorDao;
+import gov.nv.dwss.domain.dao.sor.NevadaDoctorOnDemandSorDao;
+import gov.nv.dwss.domain.record.SorRecord;
+import gov.nv.dwss.domain.record.component.Name;
+import gov.nv.dwss.domain.record.sor.CaseLogSorRecord;
+//import gov.nv.dwss.domain.record.sor.FourtyQuarterEmploymentSorRecord;
+import gov.nv.dwss.domain.record.sor.NevadaDoctorOnDemandSorRecord;
+import gov.nv.dwss.fw.batch.exception.BatchBusinessException;
+import gov.nv.dwss.fw.batch.service.BatchDataService;
+import gov.nv.dwss.infc.constants.DeathRegistryQueryConstants;
+import gov.nv.dwss.infc.model.CaseLogRecord;
+import gov.nv.dwss.infc.model.DeathRegistryBatchParam;
+import gov.nv.dwss.infc.model.DeathRegistryRecord;
+import gov.nv.dwss.infc.util.DeathRegistryUtil;
 
-    final static Logger LOG = LogManager.getLogger(DeathRegistryReader.class);
-    private DeathRegistryDataService deathRegistryDataService;
-    private Map<String, Object> map = new HashMap<>();
-    private Iterator<SorRecord> iterator=null;
-    @Value("#{jobParameters}") 
-    Map<String, Object> jobParams;
-    int periodMonth = -1;
-    int periodYear = -1;
-    int periodDate = -1;
-    int i = -1;
+@Service
+public class DeathRegistryDataService extends BatchDataService {
+    private final static Logger LOG = LogManager.getLogger(DeathRegistryDataService.class);
+    private static String filenamePrefix;
+    List<String> eachLineList = new ArrayList<>();
+    @Autowired
+    NevadaDoctorOnDemandSorDao nevadaDoctorOnDemandSorDao;
 
-    public DeathRegistryReader(DeathRegistryDataService deathRegistryDataService, Long partition, Long minValue, Long maxValue) {
-        LOG.info(" +++ Calling Reader for Death Registry FILE GENERATOR batch");
-        this.deathRegistryDataService = deathRegistryDataService;
-        map.put("partition",partition);
-        map.put("maxValue",maxValue);
-        map.put("minValue",minValue);
-        map.put("iterator",iterator);
-    }
+    @Autowired
+    CaseLogSorDao caseLogSorDao;
 
-    @Override
-    public DeathRegistryRecord read() throws BatchBusinessException, ParseException {
-        if(periodMonth == -1){
-            String inputDateString = jobParams.get("if.VTLS.date").toString();
-            String arr[]=inputDateString.split("-");
-            periodDate = Integer.parseInt(arr[2]);
-            periodMonth = Integer.parseInt(arr[1]);
-            periodYear = Integer.parseInt(arr[0]);
-            DeathRegistryBatchParam.setPeriodMonth(periodMonth);
-            DeathRegistryBatchParam.setPeriodYear(periodYear);
-            Date inputDate = DeathRegistryUtil.getInputDate(periodDate,periodMonth,periodYear);
-            DeathRegistryBatchParam.setPeriodBeginDate(inputDate);
-            DeathRegistryBatchParam.setPeriodEndDate(inputDate);
+    @SuppressWarnings("unchecked")
+    public DeathRegistryRecord getRecordsForProcessing(final Map<String, Object> map) throws BatchBusinessException {
+        try {
+
+            Iterator<String> initialIterator = (Iterator<String>) map.get("iterator");
+            if (initialIterator == null){
+                filenamePrefix = "DeathRegistryInputFile-" + DeathRegistryBatchParam.getPeriodYear() + "-" + DeathRegistryBatchParam.getPeriodMonth();
+                
+                String filePath = System.getProperty("user.dir") + "/input/" + filenamePrefix + ".txt";
+                List<String> lines = Files.readAllLines(Paths.get(filePath));
+                initialIterator = lines.iterator();
+                if (!initialIterator.hasNext()) {
+                    LOG.info("++++ IN DeathRegistry batch Reader, No records to read in Reader.");
+                    return null;
+                }
+                map.put("iterator", initialIterator);
+            }
+            if(!initialIterator.hasNext()){
+                return null;
+            }
+            DeathRegistryRecord processEachRecord = processEachRecord(map);
+            return processEachRecord;
+        } catch (Exception ex) {
+        throw new BatchBusinessException(ex.getMessage(), ex);
         }
-        return deathRegistryDataService.getRecordsForProcessing(map);
     }
+
+    // Fetching UPI value from TWNPerson Table using SSN and DOB from the input flat file
+
+    public Integer getUpi(String ssn , Date dob) {
+        LOG.info("++++ IN Reader, fetching records from TWNPERSON Table");
+        String sql = DeathRegistryQueryConstants.GET_UPI_FROM_TWNPRSN;
+        sql = sql.replaceAll(DomainConstants.SQL_DB_SCHEMA_PATTERN, schemaName);
+         try {
+            return jdbcTemplate.query(sql, resultSet -> {
+                if (resultSet.next()) {
+                    return resultSet.getInt("UPI");
+                }
+                return -1;
+            }, new Object[] { ssn , dob });
+        } catch (EmptyResultDataAccessException ex) {
+        LOGGER.debug("++++ Exception while fetching records from TWNPERSON Table ");
+        return 0;
+        }
+    }
+
+    
+    // Fetching ICI value from TWNCASE_MEMBER Table using UPI, got from the TWNPerson Table
+
+    public Integer getIci(Integer upi) {
+        LOG.info("++++ IN Reader, fetching records from TWNCASE_MEMBER Table");
+        String sql = DeathRegistryQueryConstants.GET_ICI_FROM_TWNCASEMEMBER;
+        sql = sql.replaceAll(DomainConstants.SQL_DB_SCHEMA_PATTERN, schemaName);
+         try {
+            return jdbcTemplate.query(sql, resultSet -> {
+                if (resultSet.next()) {
+                    return resultSet.getInt("ICI");
+                }
+                return -1;
+            }, new Object[] { upi } );
+        } catch (EmptyResultDataAccessException ex) {
+        LOGGER.debug("++++ Exception while fetching records from TWNCASE_MEMBER Table ");
+        return 0;
+        }
+    }
+
+    // Fetching UPI and SSN values from TWNPerson Table using LastName and DOB from the input flat file
+
+    public List<Map<String,Object>> getUpiAndSsn(String lastName , Date dob) {
+        LOG.info("++++ IN Reader, fetching records from TWNPERSON Table");
+        String sql = DeathRegistryQueryConstants.GET_UPI_FROM_TWNPRSN_LASTNAME;
+        sql = sql.replaceAll(DomainConstants.SQL_DB_SCHEMA_PATTERN, schemaName);
+         try {
+            return jdbcTemplate.query(sql, resultSet -> {
+                List<Map<String, Object>> resultList = new ArrayList<>();
+                while (resultSet.next()){
+                    Map<String, Object> resultMap = new HashMap<>();
+                    resultMap.put("SSN", resultSet.getString("SSN"));
+                    resultMap.put("UPI", resultSet.getInt("UPI"));
+                    resultList.add(resultMap);
+                }
+                return resultList;
+            }, new Object[] { lastName , dob }); 
+        } catch (EmptyResultDataAccessException ex) {
+        LOGGER.debug("++++ Exception while fetching records from TWNPERSON Table ");
+        return null;
+        }
+    }
+
+    // Inserting each record in TWNVTL_STAT_DOD Table
+
+    public void insertDeathRegistryRecord(NevadaDoctorOnDemandSorRecord record) {
+        try{
+		SorRecord sorRecord = (SorRecord) record;
+        LOG.debug("Inserting into TWNVTL_STAT_DOD table");
+        nevadaDoctorOnDemandSorDao.insert(sorRecord);
+		}
+		catch(Exception ex){
+            LOG.debug("Exception occurred while Inserting into TWNVTL_STAT_DOD table"+ ex.getMessage());
+            record.setSequenceCount(record.getSequenceCount()+1);
+            SorRecord sorRecord = (SorRecord) record;
+            nevadaDoctorOnDemandSorDao.insert(sorRecord);
+        }
+    }
+
+    // Processing Each Record from the input flat file and creating a List of Death Registry records
+
+    public DeathRegistryRecord processEachRecord(Map<String, Object> map) throws ParseException {
+        Iterator<String> iterator = (Iterator<String>) map.get("iterator");
+        List<NevadaDoctorOnDemandSorRecord> deathRegistryRecordList = new ArrayList<>();
+        DeathRegistryRecord deathRegistryRecordToWriter = new DeathRegistryRecord();
+        String matchType ="";
+        //Integer matchCount = 1;
+        Integer sequenceCount=1;
+        String ssn = "";
+        List<Map<String,Object>> upiAndSsnFromPersonTable = new ArrayList<>();
+        long currentTimeMillis = System.currentTimeMillis();
+        Date currentDate = new Date(currentTimeMillis);
+        while (iterator.hasNext()) {
+            NevadaDoctorOnDemandSorRecord deathRegistryRecord1 = new NevadaDoctorOnDemandSorRecord();
+            String previousInputSsn = String.valueOf(map.getOrDefault("previousInputSsn", "-1"));
+            String nextRecord = iterator.next();
+            Integer matchCount = 1;
+            // String[] nextRecordArray = new String[]{nextRecord};
+            String inputSsn = nextRecord.substring(0, 9);
+            String dateOfBirth = nextRecord.substring(149, 157);
+            String dateOfDeath = nextRecord.substring(380, 388);
+            // Integer dobMonth = Integer.valueOf(dateOfBirth.substring(0, 2));
+            // Integer dobDay = Integer.valueOf(dateOfBirth.substring(2, 4));
+            // Integer dobYear = Integer.valueOf(dateOfBirth.substring(4));
+            String dateOfBrth = dateOfBirth.substring(4)+"-"+dateOfBirth.substring(0, 2)+"-"+dateOfBirth.substring(2, 4);
+            // Integer dodMonth = Integer.valueOf(dateOfDeath.substring(0, 2));
+            // Integer dodDay = Integer.valueOf(dateOfDeath.substring(2, 4));
+            // Integer dodYear = Integer.valueOf(dateOfDeath.substring(4));
+            String dateofdath = dateOfDeath.substring(4)+"-"+dateOfDeath.substring(0, 2)+"-"+dateOfDeath.substring(2, 4);
+            Date dobDate = Date.valueOf(dateOfBrth);
+            Date dodDate = Date.valueOf(dateofdath);
+            String lastNm = nextRecord.substring(89, 139).trim();
+
+           
+            if (!inputSsn.equals(previousInputSsn)) {
+                map.put("previousInputSsn", inputSsn);
+                Integer upiFromPersonTable = getUpi(inputSsn, dobDate);
+                Integer upi = -1;
+                if(upiFromPersonTable != -1){
+                    upi = upiFromPersonTable;
+                    matchType = "SSN";
+                    ssn = inputSsn;
+                }
+                else{
+                    upi=0;
+                    upiAndSsnFromPersonTable = getUpiAndSsn(lastNm, dobDate);
+                    matchType = "LNM";
+                    matchCount = upiAndSsnFromPersonTable.size();
+                }
+                
+                if (upi != -1 ){
+
+                    if (matchType == "LNM"){
+
+                        for(Map<String, Object> resultMap: upiAndSsnFromPersonTable){
+                            ssn = (String) resultMap.get("SSN");
+                            upi = (Integer) resultMap.get("UPI");
+                            deathRegistryRecord1 = deathRegistrySorRecord(nextRecord, upi, ssn, matchType, matchCount,dobDate,dodDate, sequenceCount, currentDate);
+                            deathRegistryRecordList.add(deathRegistryRecord1);
+                            //setCaseLogData(deathRegistryRecord1);
+                        }
+                    }
+                    else{
+                        deathRegistryRecord1 = deathRegistrySorRecord(nextRecord, upi, ssn, matchType, matchCount,dobDate,dodDate, sequenceCount, currentDate);       
+                        deathRegistryRecordList.add(deathRegistryRecord1);
+                        //setCaseLogData(deathRegistryRecord1);
+                    }
+                }
+            }
+        }
+        deathRegistryRecordToWriter.setDeathRegistryRecordsList(deathRegistryRecordList);
+        return deathRegistryRecordToWriter;
+    }
+
+    // Creating a death registry sor record to add to the list of records in processing each record
+
+    public NevadaDoctorOnDemandSorRecord deathRegistrySorRecord(String inputRecord, Integer upi, String ssn, String matchType, Integer matchCount, Date dobDate, Date dodDate, Integer sequenceCount, Date currentDate){
+
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTime(currentDate);
+        int month = calendar.get(Calendar.MONTH) + 1; 
+        int year = calendar.get(Calendar.YEAR);
+        NevadaDoctorOnDemandSorRecord deathRegistryRecord1 = new NevadaDoctorOnDemandSorRecord();
+        deathRegistryRecord1.setUpi(upi);
+        deathRegistryRecord1.setSsn(ssn);
+        deathRegistryRecord1.setMatchType(matchType);
+        deathRegistryRecord1.setMatchCount(matchCount);
+        deathRegistryRecord1.setVstSsn(inputRecord.substring(0, 9));
+        deathRegistryRecord1.setLastName(inputRecord.substring(89, 139).trim());
+        deathRegistryRecord1.setFirstName(inputRecord.substring(9,59));
+        deathRegistryRecord1.setMidName(inputRecord.substring(59,89));
+        deathRegistryRecord1.setModfr(inputRecord.substring(139,149));
+        deathRegistryRecord1.setDob(dobDate);
+        deathRegistryRecord1.setDod(dodDate);
+        deathRegistryRecord1.setSequenceCount(sequenceCount);
+        deathRegistryRecord1.setBirthState(inputRecord.substring(157,207));
+        deathRegistryRecord1.setBirthCountry(inputRecord.substring(207,257));
+        deathRegistryRecord1.setResidentailAddress(inputRecord.substring(257,307));
+        deathRegistryRecord1.setResidentialAptNumber(inputRecord.substring(307,317));
+        deathRegistryRecord1.setResidentialCity(inputRecord.substring(317,367));
+        deathRegistryRecord1.setResidentialStateNchs(inputRecord.substring(367,369));
+        deathRegistryRecord1.setResidentialCountryNchs(inputRecord.substring(378,380));
+        deathRegistryRecord1.setResidenctialZipCode(inputRecord.substring(369,378));
+        deathRegistryRecord1.setPaternalLastName(inputRecord.substring(688,738));
+        deathRegistryRecord1.setPaternalFirstName(inputRecord.substring(588,638));
+        deathRegistryRecord1.setPaternalMidName(inputRecord.substring(638,688));
+        deathRegistryRecord1.setPaternalModfr(inputRecord.substring(738));
+        deathRegistryRecord1.setMaternalLastName(inputRecord.substring(528,578));
+        deathRegistryRecord1.setMaternalFirstName(inputRecord.substring(428,478));
+        deathRegistryRecord1.setMaternalMidName(inputRecord.substring(478,528));
+        deathRegistryRecord1.setMaternalmodfr(inputRecord.substring(578,588));
+        deathRegistryRecord1.setPlaceOfDeath(inputRecord.substring(388,428));
+        deathRegistryRecord1.setReceivedDate(currentDate);
+        deathRegistryRecord1.setReceievedMonth(month);
+        deathRegistryRecord1.setReceievedYear(year);
+        return deathRegistryRecord1;
+    }
+            
+
+    // creating a Case Log Sor Record using each Death registry record
+
+    public CaseLogSorRecord setCaseLogData(NevadaDoctorOnDemandSorRecord deathRegistryRecord1){
+
+        CaseLogSorRecord caseLogRecord = new CaseLogSorRecord();
+        // Date currenDate = new Date();
+        long currentTimeMillis = System.currentTimeMillis();
+        Date currentDate = new Date(currentTimeMillis);
+        LocalTime localTime = LocalTime.now();
+        LocalDateTime localTimeStamp = LocalDateTime.now();
+        caseLogRecord.setActivityDate(currentDate);
+        caseLogRecord.setProgramCaseType("");
+        caseLogRecord.setWorkerId("VITSTATS");
+        caseLogRecord.setLogEntryType("");
+        caseLogRecord.setLogEntryDescription("VITAL STATISTICS DEATH MATCH");
+        caseLogRecord.setIci(getIci(deathRegistryRecord1.getUpi()));
+        caseLogRecord.setActivityTime(Time.valueOf(localTime));
+        caseLogRecord.setLogCreatedTime(Timestamp.valueOf(localTimeStamp));
+        caseLogRecord.setCaseLogDescription("PER SSN/DOB MATCH WITH VITAL STATISTICS DEATH REGISTRY, CLIENT (UPI "+deathRegistryRecord1.getUpi()+") IS DECEASED AS OF "+deathRegistryRecord1.getDod());
+        return caseLogRecord;
+    }
+
+    //  Inserting each Case log record in Case Log Table
+
+    public void insertCaseLogRecord(CaseLogSorRecord record) {
+        SorRecord sorRecord = (SorRecord) record;
+        LOG.debug("Inserting into Case Log table");
+        caseLogSorDao.insert(sorRecord);
+    }
+          
 }
