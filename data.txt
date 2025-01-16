@@ -29,72 +29,76 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 
-import javax.annotation.PostConstruct;
 import java.util.Map;
 
 @Configuration
 public class DeathRegistryBatchConfiguration extends AbstractBatchConfiguration {
-    private final static Logger LOG = LogManager.getLogger(DeathRegistryBatchConfiguration.class);
+
+    private static final Logger logger = LogManager.getLogger(DeathRegistryBatchConfiguration.class);
+
+    @Autowired
+    private final BatchDataService batchDataService;
     
     @Autowired
-    private BatchDataService batchDataService;
+    private final DeathRegistryDataService deathRegistryDataService;
+    
     @Autowired
-    private DeathRegistryDataService deathRegistryDataService;
+    private final JobBuilderFactory jobBuilderFactory;
+    
     @Autowired
-    private JobBuilderFactory jobBuilderFactory;
+    private final StepBuilderFactory stepBuilderFactory;
+    
     @Autowired
-    private StepBuilderFactory stepBuilderFactory;
+    private WriterTrackingStepExecutionListener stepExecutionListener;
+
     @Autowired
-	WriterTrackingStepExecutionListener stepExecutionListener;
+    private Environment environment;
+
     @Value("${jobName}")
-    String jobCode;
+    private String jobCode;
 
     @PostConstruct
     public void loadJobDetail() throws BatchException {
         BatchFwJob job = getJobDetail(jobCode);
+        if (job == null) {
+            throw new IllegalStateException("BatchFwJob details could not be loaded for jobCode: " + jobCode);
+        }
         DeathRegistryBatchParam.setJob(job);
-        LOG.info(" ++++ BatchFwJob loaded.. for DeathRegistryFileGen!");
+        logger.info("BatchFwJob loaded successfully for DeathRegistryFileGen with jobCode: {}", jobCode);
     }
 
     @Bean
-    public Job deathRegstryJob() {
-        return jobBuilderFactory.get("deathRegstryJob")
-                .start(deathRegistryFileGen())
+    public Job deathRegistryJob() {
+        return jobBuilderFactory.get("deathRegistryJob")
+                .start(generateDeathRegistryFileStep())
                 .build();
     }
 
     @Bean
-    public Step deathRegistryFileGen() {
-        return stepBuilderFactory.get("deathRegistryFileGen")
-                .<DeathRegistryRecord, DeathRegistryRecord>chunk(DeathRegistryBatchParam.getJob().getChunkSize())
-                .reader(deathRegistryFileGenReader(deathRegistryDataService,null,null,null))
+    public Step generateDeathRegistryFileStep() {
+        BatchFwJob job = DeathRegistryBatchParam.getJob();
+        if (job == null) {
+            throw new IllegalStateException("Job details are missing for DeathRegistryBatchParam.");
+        }
+
+        return stepBuilderFactory.get("generateDeathRegistryFileStep")
+                .<DeathRegistryRecord, DeathRegistryRecord>chunk(job.getChunkSize())
+                .reader(deathRegistryFileGenReader(deathRegistryDataService, null, null, null))
                 .writer(deathRegistryFileGenWriter(deathRegistryDataService, environment))
                 .faultTolerant()
                 .skip(BatchSkipRecordException.class)
-                .skipLimit(DeathRegistryBatchParam.getJob().getSkipLimit())
+                .skipLimit(job.getSkipLimit())
                 .retry(BatchRetryRecordException.class)
-                .retryLimit(DeathRegistryBatchParam.getJob().getSkipLimit())
-                .processorNonTransactional()
-                .listener(fwSkipExceptionListener)
-                .listener(stepExceptionListener)
-                .listener(skipExceptionChunkListener)
+                .retryLimit(job.getRetryLimit())
+                .listener(stepExecutionListener)
                 .build();
-    }
-
-    @Bean
-    @StepScope
-    public ItemReader<DeathRegistryRecord> deathRegistryFileGenReader(DeathRegistryDataService deathRegistryDataService, @Value("#{stepExecutionContext['partition']}") Long partition, @Value("#{stepExecutionContext['minValue']}") Long minValue, @Value("#{stepExecutionContext['maxValue']}") Long maxValue) {
-        return new DeathRegistryReader(deathRegistryDataService, partition, minValue, maxValue);
-    }
-
-    @Bean
-    @StepScope
-    public ItemWriter<DeathRegistryRecord> deathRegistryFileGenWriter(DeathRegistryDataService deathRegistryDataService, Environment env) {
-        return new DeathRegistryWriter(deathRegistryDataService,sorDataSource,env,stepExecutionListener);
     }
 
     private BatchFwJob getJobDetail(String jobCode) throws BatchException {
         Map<String, Object> jobDetail = batchDataService.getJobDetail(jobCode);
-        return jobDetail.isEmpty() ? new BatchFwJob() : BatchDataTransformerUtil.transformToBatchFW(jobDetail);
+        if (jobDetail == null || jobDetail.isEmpty()) {
+            return new BatchFwJob();
+        }
+        return BatchDataTransformerUtil.transformToBatchFW(jobDetail);
     }
 }
