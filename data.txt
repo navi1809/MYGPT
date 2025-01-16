@@ -1,100 +1,16 @@
-package gov.nv.dwss.infc.config;
+package gov.nv.dwss.infc.constants;
 
-import gov.nv.dwss.fw.batch.common.AbstractBatchConfiguration;
-import gov.nv.dwss.fw.batch.exception.BatchException;
-import gov.nv.dwss.fw.batch.exception.BatchRetryRecordException;
-import gov.nv.dwss.fw.batch.exception.BatchSkipRecordException;
-import gov.nv.dwss.fw.batch.model.BatchFwJob;
-import gov.nv.dwss.fw.batch.service.BatchDataService;
-import gov.nv.dwss.fw.batch.util.BatchDataTransformerUtil;
-import gov.nv.dwss.infc.listener.WriterTrackingStepExecutionListener;
-import gov.nv.dwss.infc.model.DeathRegistryRecord;
-import gov.nv.dwss.infc.model.DeathRegistryBatchParam;
-import gov.nv.dwss.infc.reader.DeathRegistryReader;
-import gov.nv.dwss.infc.service.dataservice.DeathRegistryDataService;
-import gov.nv.dwss.infc.writer.DeathRegistryWriter;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.StepScope;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.ItemWriter;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.core.env.Environment;
-
-import javax.annotation.PostConstruct;
-import java.util.Map;
-
-@Configuration
-public class DeathRegistryBatchConfiguration extends AbstractBatchConfiguration {
-    private final static Logger LOG = LogManager.getLogger(DeathRegistryBatchConfiguration.class);
+public interface  DeathRegistryQueryConstants {
     
-    @Autowired
-    private BatchDataService batchDataService;
-    @Autowired
-    private DeathRegistryDataService deathRegistryDataService;
-    @Autowired
-    private JobBuilderFactory jobBuilderFactory;
-    @Autowired
-    private StepBuilderFactory stepBuilderFactory;
-    @Autowired
-	WriterTrackingStepExecutionListener stepExecutionListener;
-    @Value("${jobName}")
-    String jobCode;
+    public String GET_UPI_FROM_TWNPRSN =  "SELECT T1.UPI FROM ##db-schema-name##.TWNPERSON T1 WHERE T1.SSN = ? And T1.DOB = ?";
 
-    @PostConstruct
-    public void loadJobDetail() throws BatchException {
-        BatchFwJob job = getJobDetail(jobCode);
-        DeathRegistryBatchParam.setJob(job);
-        LOG.info(" ++++ BatchFwJob loaded.. for DeathRegistryFileGen!");
-    }
+    public String GET_UPI_FROM_TWNPRSN_LASTNAME = "SELECT T1.UPI, T1.SSN FROM ##db-schema-name##.TWNPERSON T1 WHERE T1.LST_NM = ? And T1.DOB = ?";
 
-    @Bean
-    public Job deathRegstryJob() {
-        return jobBuilderFactory.get("deathRegstryJob")
-                .start(deathRegistryFileGen())
-                .build();
-    }
+    public String GET_ICI_FROM_TWNCASEMEMBER =  "SELECT T1.ICI FROM ##db-schema-name##.TWNCASE_MEMBER T1 WHERE T1.UPI = ?";
+    
+    // public String GET_COUNT_FROM_TWNSTATSDOD =  "SELECT count(*) FROM ##db-schema-name##.TWNVTL_STAT_DOD T1 WHERE T1.UPI =?";
 
-    @Bean
-    public Step deathRegistryFileGen() {
-        return stepBuilderFactory.get("deathRegistryFileGen")
-                .<DeathRegistryRecord, DeathRegistryRecord>chunk(DeathRegistryBatchParam.getJob().getChunkSize())
-                .reader(deathRegistryFileGenReader(deathRegistryDataService,null,null,null))
-                .writer(deathRegistryFileGenWriter(deathRegistryDataService, environment))
-                .faultTolerant()
-                .skip(BatchSkipRecordException.class)
-                .skipLimit(DeathRegistryBatchParam.getJob().getSkipLimit())
-                .retry(BatchRetryRecordException.class)
-                .retryLimit(DeathRegistryBatchParam.getJob().getSkipLimit())
-                .processorNonTransactional()
-                .listener(fwSkipExceptionListener)
-                .listener(stepExceptionListener)
-                .listener(skipExceptionChunkListener)
-                .build();
-    }
+    public String DELETE_RECORDS_FROM_TWNWTPYREQUEST =
+           " DELETE FROM ##db-schema-name##.TWNWTPY_REQUEST ";
 
-    @Bean
-    @StepScope
-    public ItemReader<DeathRegistryRecord> deathRegistryFileGenReader(DeathRegistryDataService deathRegistryDataService, @Value("#{stepExecutionContext['partition']}") Long partition, @Value("#{stepExecutionContext['minValue']}") Long minValue, @Value("#{stepExecutionContext['maxValue']}") Long maxValue) {
-        return new DeathRegistryReader(deathRegistryDataService, partition, minValue, maxValue);
-    }
-
-    @Bean
-    @StepScope
-    public ItemWriter<DeathRegistryRecord> deathRegistryFileGenWriter(DeathRegistryDataService deathRegistryDataService, Environment env) {
-        return new DeathRegistryWriter(deathRegistryDataService,sorDataSource,env,stepExecutionListener);
-    }
-
-    private BatchFwJob getJobDetail(String jobCode) throws BatchException {
-        Map<String, Object> jobDetail = batchDataService.getJobDetail(jobCode);
-        return jobDetail.isEmpty() ? new BatchFwJob() : BatchDataTransformerUtil.transformToBatchFW(jobDetail);
-    }
 }
