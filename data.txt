@@ -1,313 +1,303 @@
-<outputfinishingconfig>
-    <defaultjobsetup printserver="Server_Default" printqueue="Queue_Default" duplex="False" addbannerpages="False" batchrelatedspool="True">
-        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="envelope">
-            <thresholds errored="100" stopped="100" workflow="100"/>
-            <envelopesortparams>SORTKEYTYPE=PN
-SORTORDER=ASC</envelopesortparams>
-        </enveloperules>
-        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
-            <sortingparams>SORTKEYTYPE=NONE
-MAXPAGECOUNT=0
-MAXENVCOUNT=0
-MAXDOCCOUNT=0
-SORTORDER=ASC</sortingparams>
-        </sorting>
-        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
-            <closeparams>WHEN=BATCHSTATE
-FREQUENCY=60
-INACTIVEPERIOD=60
-MAXENVELOPES=1000</closeparams>
-        </closecriteria>
-        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
-            <sendparams>WHEN=ONCLOSE</sendparams>
-            <thresholds errored="0" stopped="0" workflow="0"/>
-        </sendcriteria>
-        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
-            <renderingparams>FOPCONFIG=cms\:1</renderingparams>
-        </saxhandlers>
-        <disk subdirspool="no" subdirbin="no" outputdir="/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/" mergeprint="NONE" csshandling="reference"/>
-    </defaultjobsetup>
-    <jobsetup name="Print" printserver="Server_Print" printqueue="Queue_Print" duplex="True" addbannerpages="False" batchrelatedspool="False">
-        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="transaction">
-            <thresholds errored="100" stopped="100" workflow="100"/>
-            <envelopesortparams>SORTKEYTYPE=PN
-SORTORDER=ASC</envelopesortparams>
-        </enveloperules>
-        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
-            <sortingparams>SORTKEYTYPE=NONE
-MAXPAGECOUNT=4000
-MAXENVCOUNT=0
-MAXDOCCOUNT=0
-SORTORDER=ASC</sortingparams>
-        </sorting>
-        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
-            <closeparams>WHEN=FREQUENCY
-FREQUENCY=7200
-INACTIVEPERIOD=60
-MAXENVELOPES=1000</closeparams>
-        </closecriteria>
-        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
-            <sendparams>WHEN=ONCLOSE</sendparams>
-            <thresholds errored="0" stopped="0" workflow="0"/>
-        </sendcriteria>
-        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
-            <mergingparams>continuous.pagenumbers=True</mergingparams>
-            <renderingparams>FOPCONFIG={cms\:1}</renderingparams>
-        </saxhandlers>
-        <mergedoutput outputpath="/mnt/autofs/output/IV-A/PrintOutput"/>
-        <omrdef docseqmax="0" docseqmin="0" pageseqmax="0" pageseqmin="0" printonheader="False" printonback="False" expclass="com.thunderhead.distributors.outputproc.barcode.ScriptableBarcodeBuilder">
-            <bench-mark x="4.7625" y="22.2938" length="1" width="10.16"/>
-            <end-of-collation x="4.7625" y="22.2938" length="1" width="10.16"/>
-            <scriptmark x="4.7625" y="19.1188" length="1" width="10.16">
-                <script>//EOC
-//If the second page in envelope, print EOC
-//First page (Master) is suppressed
-//mt 7/31/2020 (orig 3-8-18), Changing below CurrentEnvelopePage from 2 to 1. We have removed the custom bin handler (suppress first page) and replaced with doc prop 'op-bin exclude=true'.
-pageinfo.getCurrentEnvelopePage == 1</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="15.9438" length="1" width="10.16">
-                <script>//Seq B
-//If the Envelope Count is the 2nd or 3rd, place Seq B mark
-var envelopeCount;
-if(pageinfo.isFirstDocumentInBin)
-{
-	envelopeCount = 1;
-}else if(pageinfo.isFirstPageInEnvelope)
-{
-	envelopeCount += 1;
+// *******************************************************************************
+// Scriptable Batch Config
+// Customer: DWSS Nevada
+
+// Load Business Object - Business Object to use
+var BOresourceId = xpath.numberValueOf("/CASE/JOB_DETAILS/BUSINESSOBJECT_ID");
+var OPConfigID = 206800145;
+
+// Creating Time and Date stamp for file name
+var todayIs = new Date();
+
+// Create a unique time stamp, milliseconds since January 1, 1970 00:00:00 UTC
+var GUID = todayIs.getTime();
+var barcodeMessage = GUID;
+
+var jobDetailsNode = xpath.selectNodes("/CASE/JOB_DETAILS");
+var boCopy = xpath.loadBO("/CASE", BOresourceId, 1, "CASE");
+
+// ** START ** If the element - IS_BARCODE_PROVIDED is missing, Modify DOM for
+// adding a new element (BARCODE_IDENTIFIER), Add millisecond GUID as the
+// barcode message/identifier
+if (IsMissing(boCopy.JOB_DETAILS.IS_BARCODE_PROVIDED)) {
+	var dom = jobDetailsNode[0].getOwnerDocument();
+	var newElement = dom.createElement("BARCODE_IDENTIFIER");
+	newElement.setTextContent(barcodeMessage);
+	jobDetailsNode[0].appendChild(newElement);
 }
-(envelopeCount%4 == 2 || envelopeCount%4 == 3)</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="12.7688" length="1" width="10.16">
-                <script>//Seq A
-//If the Envelope Count is the 1st or 3rd, place Seq A mark
-(envelopeCount%4 == 1 || envelopeCount%4 == 3)</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="9.5938" length="1" width="10.16">
-                <script>//Feed 3
-//If Feed 3 has been selected, place Feed 3 mark
-pageinfo.getMasterChannelProperties("Feed3") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="6.4188" length="1" width="10.16">
-                <script>//Feed 2
-//If Feed 2 has been selected, place Feed 2 mark
-pageinfo.getMasterChannelProperties("Feed2") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="3.2438" length="1" width="10.16">
-                <script>//Feed 1
-//If Feed 1 has been selected, place Feed 1 mark
-pageinfo.getMasterChannelProperties("Feed1") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="0.0688" length="1" width="10.16">
-                <script>//Safety Line
-//Always print Safely Line mark
-true</script>
-            </scriptmark>
-        </omrdef>
-        <custom-handlers>
-            <default-handlers/>
-        </custom-handlers>
-        <envelope-custom-handlers>
-            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.FOPSuppressFirstPageFilter"/>
-        </envelope-custom-handlers>
-    </jobsetup>
-    <jobsetup name="Archive" printserver="Server_Archive" printqueue="Queue_Archive" duplex="False" addbannerpages="False" batchrelatedspool="True">
-        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="transaction">
-            <thresholds errored="100" stopped="100" workflow="100"/>
-            <envelopesortparams>SORTKEYTYPE=PN
-SORTORDER=ASC</envelopesortparams>
-        </enveloperules>
-        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
-            <sortingparams>SORTORDER=ASC
-MAXDOCCOUNT=0
-MAXPAGECOUNT=0
-SORTKEYTYPE=NONE
-SORTKEY=1
-MAXENVCOUNT=0</sortingparams>
-        </sorting>
-        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
-            <closeparams>WHEN=BATCHSTATE
-FREQUENCY=60
-INACTIVEPERIOD=60
-MAXENVELOPES=1000</closeparams>
-        </closecriteria>
-        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
-            <sendparams>WHEN=ONCLOSE</sendparams>
-            <thresholds errored="0" stopped="0" workflow="0"/>
-        </sendcriteria>
-        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
-            <mergingparams>FOP.NOP.AllPages=False
-continuous.pagenumbers=True
-FOP.TLE.AllPages=False</mergingparams>
-            <renderingparams>FOPCONFIG={cms\:1}</renderingparams>
-        </saxhandlers>
-        <mergedoutput indexfilewriter="com.thunderhead.distributors.outputproc.indexing.DefaultIndexFileWriter" outputpath="/mnt/autofs/output/IV-A/ArchiveOutput"/>
-        <omrdef docseqmax="0" docseqmin="0" pageseqmax="0" pageseqmin="0" printonheader="False" printonback="False" expclass="com.thunderhead.distributors.outputproc.barcode.ScriptableBarcodeBuilder">
-            <bench-mark x="4.7625" y="26.1938" length="1" width="10.16"/>
-            <end-of-collation x="4.7625" y="26.1938" length="1" width="10.16"/>
-            <scriptmark x="4.7625" y="23.0188" length="1" width="10.16">
-                <script>//EOC
-//If the second page in envelope, print EOC
-//First page (Master) is suppressed
-pageinfo.getCurrentEnvelopePage == 2</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="19.8438" length="1" width="10.16">
-                <script>//Seq B
-//If the Envelope Count is the 2nd or 3rd, place Seq B mark
-var envelopeCount;
-if(pageinfo.isFirstDocumentInBin)
-{
-	envelopeCount = 1;
-}else if(pageinfo.isFirstPageInEnvelope)
-{
-	envelopeCount += 1;
+// **END** Modify DOM for adding a new element (BARCODE_IDENTIFIER)
+var bo = xpath.loadBO("/CASE", BOresourceId, 1, "CASE");
+var ARCHIVENAME = bo.ARCHIVENAME; // Set archive file name
+
+var DOCTYPE = "PRIMARY"; // Set default recipient to primary
+var recipientIndex = 0; // Recipient count indicates what index recipient
+var channelCount = 0; 
+// Used for setting thunderhead channel job properties
+
+// Set language, this section sets the language for the primary recipient.
+// var primaryLanguage = bo.JOB_DETAILS.PRIMARY_LANG_CD;
+// Additional Code for NOD
+var primaryLanguage = bo.JOB_DETAILS.PRIMARY_LANG_CD;
+/*
+ * if (BOresourceId == "983000907") { primaryLanguage =
+ * bo.CONTACT.NOTICE_ADDRESSES.ADDRESS[0].ADDRESS_LANG; } else { primaryLanguage =
+ * bo.JOB_DETAILS.PRIMARY_LANG_CD; }
+ */
+var language = 5; // 5 is for English (United States)
+// Setting Language "02" indicates Spanish
+if (primaryLanguage == "02") {
+	language = 6;// 6 is for Spanish
 }
-(envelopeCount%4 == 2 || envelopeCount%4 == 3)</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="16.6688" length="1" width="10.16">
-                <script>//Seq A
-//If the Envelope Count is the 1st or 3rd, place Seq A mark
-(envelopeCount%4 == 1 || envelopeCount%4 == 3)</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="13.4938" length="1" width="10.16">
-                <script>//Feed 3
-//If Feed 3 has been selected, place Feed 3 mark
-pageinfo.getMasterChannelProperties("Feed3") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="10.3188" length="1" width="10.16">
-                <script>//Feed 2
-//If Feed 2 has been selected, place Feed 2 mark
-pageinfo.getMasterChannelProperties("Feed2") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="7.1438" length="1" width="10.16">
-                <script>//Feed 1
-//If Feed 1 has been selected, place Feed 1 mark
-pageinfo.getMasterChannelProperties("Feed1") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="3.9688" length="1" width="10.16">
-                <script>//Safety Line
-//Always print Safely Line mark
-true</script>
-            </scriptmark>
-        </omrdef>
-        <sendhandler classname="com.thunderhead.distributors.outputproc.delivery.DefaultSendBin">
-            <sendparams>SCRIPTFILE={/mnt/autofs/jobs/CreateFileNetText.sh}</sendparams>
-        </sendhandler>
-        <custom-handlers>
-            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.SuppressFirstPageFilter"/>
-        </custom-handlers>
-        <envelope-custom-handlers>
-            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.FOPSuppressFirstPageFilter"/>
-        </envelope-custom-handlers>
-    </jobsetup>
-    <jobsetup name="Email" printserver="Server_Email" printqueue="Queue_Email" duplex="False" addbannerpages="False" batchrelatedspool="True">
-        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="envelope">
-            <thresholds errored="0" stopped="0" workflow="0"/>
-            <envelopesortparams>SORTKEYTYPE=PN
-SORTORDER=ASC</envelopesortparams>
-        </enveloperules>
-        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
-            <sortingparams>SORTKEYTYPE=NONE
-MAXPAGECOUNT=0
-MAXENVCOUNT=0
-MAXDOCCOUNT=0
-SORTORDER=ASC</sortingparams>
-        </sorting>
-        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
-            <closeparams>WHEN=BATCHSTATE</closeparams>
-        </closecriteria>
-        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
-            <sendparams>WHEN=ONCLOSE</sendparams>
-            <thresholds errored="0" stopped="0" workflow="0"/>
-        </sendcriteria>
-        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
-            <renderingparams>FOPCONFIG=cms\:1</renderingparams>
-        </saxhandlers>
-        <smtp sender="tlecture@thunderhead.com" sendersource="fixed" subject="State of Nevada DWSS Test" subjectsource="fixed" recipient="nwillis@thunderhead.com" recipientsource="fixed" imagehandling="reference" mergeprint="NONE" csshandling="include"/>
-        <disk subdirspool="no" subdirbin="no" outputdir="/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/" mergeprint="NONE" csshandling="reference"/>
-    </jobsetup>
-    <jobsetup name="Print NOD" printserver="Server_Print_NOD" printqueue="Queue_Print_NOD" duplex="True" addbannerpages="False" batchrelatedspool="False">
-        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="transaction">
-            <thresholds errored="100" stopped="100" workflow="100"/>
-            <envelopesortparams>SORTKEYTYPE=PN
-SORTORDER=ASC</envelopesortparams>
-        </enveloperules>
-        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
-            <sortingparams>SORTKEYTYPE=NONE
-MAXPAGECOUNT=4000
-MAXENVCOUNT=0
-MAXDOCCOUNT=0
-SORTORDER=ASC</sortingparams>
-        </sorting>
-        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
-            <closeparams>WHEN=FREQUENCY
-FREQUENCY=7200
-INACTIVEPERIOD=60
-MAXENVELOPES=1000</closeparams>
-        </closecriteria>
-        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
-            <sendparams>WHEN=ONCLOSE</sendparams>
-            <thresholds errored="100" stopped="100" workflow="100"/>
-        </sendcriteria>
-        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
-            <mergingparams>continuous.pagenumbers=True</mergingparams>
-            <renderingparams>FOPCONFIG={cms\:1}</renderingparams>
-        </saxhandlers>
-        <mergedoutput outputpath="/mnt/autofs/output/IV-A/PrintOutput"/>
-        <omrdef docseqmax="0" docseqmin="0" pageseqmax="0" pageseqmin="0" printonheader="False" printonback="False" expclass="com.thunderhead.distributors.outputproc.barcode.ScriptableBarcodeBuilder">
-            <bench-mark x="4.7625" y="22.2938" length="1" width="10.16"/>
-            <end-of-collation x="4.7625" y="22.2938" length="1" width="10.16"/>
-            <scriptmark x="4.7625" y="19.1188" length="1" width="10.16">
-                <script>//EOC
-//If the second page in envelope, print EOC
-//First page (Master) is suppressed
-//mt 7/31/2020 (orig 3-8-18), Changing below CurrentEnvelopePage from 2 to 1. We have removed the custom bin handler (suppress first page) and replaced with doc prop 'op-bin exclude=true'.
-pageinfo.getCurrentEnvelopePage == 1</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="15.9438" length="1" width="10.16">
-                <script>//Seq B
-//If the Envelope Count is the 2nd or 3rd, place Seq B mark
-var envelopeCount;
-if(pageinfo.isFirstDocumentInBin)
+
+// var PrintDestination=
+// "/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/"+GUID;
+// var ArchiveDestination=
+// "/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/"+GUID;
+// var ArchiveEnglishDestination=
+// "/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/"+GUID+"_English";
+// var EmailDestination=
+// "/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/"+GUID+".html";
+
+// Reset Job Setup to clear it before adding anything to the job
+job.reset();
+
+if (bo.JOB_DETAILS.isSTP == true) // If Straight Through Processing (STP)
 {
-	envelopeCount = 1;
-}else if(pageinfo.isFirstPageInEnvelope)
-{
-	envelopeCount += 1;
+	// PRIMARY
+	// PS - Print
+	if (bo.JOB_DETAILS.CHANNELS.PRINT == true) {
+
+		if (IsNotMissing(bo.APPL_SUPPRESS_FLAG)) {
+			// For RD and NOD and END
+			if (bo.APPL_SUPPRESS_FLAG == "N")
+
+			{
+				setPrint();
+			}
+		} else {
+			// for All others
+			setPrint();
+		}
+
+	}
+
+	// PDF - Archive
+	if (bo.JOB_DETAILS.CHANNELS.ARCHIVE == true) {
+		setArchive();
+	}
+
+	// HTML - Email
+	// if(bo.JOB_DETAILS.CHANNELS.EMAIL == true)
+	// {
+	// setEmail();
+	// }
+
+	setArgs();
+	job.submit();
+
+	// ***** English Archive Channel ************
+	// If the original is in any language besides English, create an English
+	// Archive copy.
+	if (language != 5) {
+		language = 5; // Set the language for the English Archive and reset of
+		// Auth Rep copies
+		// Create a new (English) Archive copy, if original language was not
+		// English (e.g. Spanish)
+		if (bo.JOB_DETAILS.CHANNELS.ARCHIVE == true) {
+			if (BOresourceId == "983000907") {
+				DOCTYPE = "ENGLISHARCHIVE";
+			}
+			job.reset();
+			channelCount = 0;
+			setArchive();
+			setArgs();
+			job.submit();
+		}
+	}
+
+	if (IsNotMissing(bo.AUTHORIZED_REPRESENTATIVES)) {
+		// CC output
+		DOCTYPE = "CC";
+
+		// Create CC for each Authorized Representative
+		for (recipientIndex = 0; recipientIndex < bo.AUTHORIZED_REPRESENTATIVES.length; recipientIndex++) {
+			job.reset();
+			channelCount = 0;
+
+			// PS - Print
+			if (bo.JOB_DETAILS.CHANNELS.PRINT == true) {
+                    if (IsNotMissing(bo.AUTHORIZED_REPRESENTATIVES[recipientIndex].AUTH_REP_SUPPRESS_FLAG)) {
+        if (bo.AUTHORIZED_REPRESENTATIVES[recipientIndex].AUTH_REP_SUPPRESS_FLAG == "N") {
+            setPrint();
+        }
+    } else {
+        setPrint();
+    }					
+			}
+
+			// PDF - Archive
+			if (bo.JOB_DETAILS.CHANNELS.ARCHIVE == true) {
+				setArchive();
+			}
+
+			setArgs();
+			job.submit();
+		}
+	}
+} else { // Not STP - Using user interaction, RC Utility Review Cases, create
+	// review case job
+	DOCTYPE = "PRIMARY"; // Set default recipient to primary
+	recipientIndex = 0; // Recipient count indicates what index recipient
+	channelCount = 0; // Used for setting thunderhead channel job properties
+
+	if (bo.JOB_DETAILS.isRCUtility == true) { // transaction from RC Utility
+		// for RC execute preview will
+		// have this set to false
+		// (Schema/BO Default = false)
+		// override defaults with values set by the RC Utility
+		DOCTYPE = bo.JOB_DETAILS.recipientType; // could be 'PRIMARY' or 'CC'
+		recipientIndex = bo.JOB_DETAILS.recipientIndex;
+	}
+
+	if (EqualsIgnoreCase(DOCTYPE, "PRIMARY")) {
+		if (recipientIndex == 0) {
+			// PS - Print
+			if (bo.JOB_DETAILS.CHANNELS.PRINT == true) {
+				if (IsNotMissing(bo.APPL_SUPPRESS_FLAG)) {
+					// For RD and NOD and END
+					if (bo.APPL_SUPPRESS_FLAG == "N")
+
+					{
+						setPrint();
+					}
+				} else {
+					// for All others
+					setPrint();
+				}
+
+			}
+
+			// PDF - Archive
+			if (bo.JOB_DETAILS.CHANNELS.ARCHIVE == true) {
+				setArchive();
+			}
+
+			// HTML - Email
+			// if(bo.JOB_DETAILS.CHANNELS.EMAIL == true)
+			// {
+			// setEmail();
+			// }
+			setArgs();
+			job.submit();
+
+		} else if (recipientIndex == -1) {
+			// ***** English Archive Channel ************
+			// If the original is in any language besides English, create an
+			// English Archive copy.
+			if (language != 5) {
+				language = 5; // Set the language for the English Archive and
+				// reset of Auth Rep copies
+				// Create a new (English) Archive copy, if original language was
+				// not English (e.g. Spanish)
+				if (bo.JOB_DETAILS.CHANNELS.ARCHIVE == true) {
+					job.reset();
+					channelCount = 0;
+					setArchive();
+					setArgs();
+					job.submit();
+				}
+			}
+		}
+	} else if (EqualsIgnoreCase(DOCTYPE, "CC")) {
+		job.reset();
+		channelCount = 0;
+		if (language != 5) // CC's are English copies
+		{
+			language = 5;
+		}
+
+		// PS - Print
+		if (bo.JOB_DETAILS.CHANNELS.PRINT == true) {
+			if (IsNotMissing(bo.APPL_SUPPRESS_FLAG)) {
+				// For RD and NOD and END
+				if (bo.APPL_SUPPRESS_FLAG == "N")
+
+				{
+					setPrint();
+				}
+			} else {
+				// for All others
+				setPrint();
+			}
+
+		}
+
+		// PDF - Archive
+		if (bo.JOB_DETAILS.CHANNELS.ARCHIVE == true) {
+			setArchive();
+		}
+
+		setArgs();
+		job.submit();
+	}
 }
-(envelopeCount%4 == 2 || envelopeCount%4 == 3)</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="12.7688" length="1" width="10.16">
-                <script>//Seq A
-//If the Envelope Count is the 1st or 3rd, place Seq A mark
-(envelopeCount%4 == 1 || envelopeCount%4 == 3)</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="9.5938" length="1" width="10.16">
-                <script>//Feed 3
-//If Feed 3 has been selected, place Feed 3 mark
-pageinfo.getMasterChannelProperties("Feed3") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="6.4188" length="1" width="10.16">
-                <script>//Feed 2
-//If Feed 2 has been selected, place Feed 2 mark
-pageinfo.getMasterChannelProperties("Feed2") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="3.2438" length="1" width="10.16">
-                <script>//Feed 1
-//If Feed 1 has been selected, place Feed 1 mark
-pageinfo.getMasterChannelProperties("Feed1") == "true"</script>
-            </scriptmark>
-            <scriptmark x="4.7625" y="0.0688" length="1" width="10.16">
-                <script>//Safety Line
-//Always print Safely Line mark
-true</script>
-            </scriptmark>
-        </omrdef>
-        <custom-handlers>
-            <default-handlers/>
-        </custom-handlers>
-        <envelope-custom-handlers>
-            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.FOPSuppressFirstPageFilter"/>
-        </envelope-custom-handlers>
-    </jobsetup>
-</outputfinishingconfig>
+
+function setPrint() {
+	job.addChannel(2, -6);
+	// job.setChannelProperty(channelCount, "bin.outputpath", PrintDestination);
+	job.setChannelProperty(channelCount, "print.config.resid", OPConfigID);
+	if (BOresourceId == "983000907") {
+		job.setChannelProperty(channelCount, "print.jobsetup", "Print NOD");
+	} else {
+		job.setChannelProperty(channelCount, "print.jobsetup", "Print");
+	}
+	job.setChannelProperty(channelCount, "Feed1", "false");
+	job.setChannelProperty(channelCount, "Feed2", "false");
+	job.setChannelProperty(channelCount, "Feed3", "false");
+	job.setChannelProperty(channelCount, "recipient", DOCTYPE);
+	job.setChannelProperty(channelCount, "recipientIndex", recipientIndex);
+	job.setChannelProperty(channelCount, "language", language);
+	channelCount += 1;
+}
+
+function setArchive() {
+	job.addChannel(206800000, -5);
+	// job.setChannelProperty(channelCount, "bin.outputpath",
+	// ArchiveDestination);
+	job.setChannelProperty(channelCount, "print.config.resid", OPConfigID);
+	job.setChannelProperty(channelCount, "print.jobsetup", "Archive");
+	/*
+	 * if (BOresourceId == "983000060") { if(IsNotMissing(bo.ARCHIVENAME) &&
+	 * !bo.ARCHIVENAME.equalsIgnoreCase("")) {
+	 * job.setChannelProperty(channelCount, "bin.outputpath",
+	 * "/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/"+ARCHIVENAME); } }
+	 */
+	job.setChannelProperty(channelCount, "Feed1", "false");
+	job.setChannelProperty(channelCount, "Feed2", "false");
+	job.setChannelProperty(channelCount, "Feed3", "false");
+	job.setChannelProperty(channelCount, "recipient", DOCTYPE);
+	job.setChannelProperty(channelCount, "recipientIndex", recipientIndex);
+	job.setChannelProperty(channelCount, "language", language);
+	channelCount += 1;
+}
+
+function setEmail() {
+	job.addChannel(1, 0);
+	// job.setChannelProperty(channelCount, "disk.outputpath",
+	// EmailDestination);
+	job.setChannelProperty(channelCount, "print.config.resid", OPConfigID);
+	job.setChannelProperty(channelCount, "print.jobsetup", "Email");
+	job.setChannelProperty(channelCount, "recipient", DOCTYPE);
+	job.setChannelProperty(channelCount, "recipientIndex", recipientIndex);
+	job.setChannelProperty(channelCount, "language", language);
+	channelCount += 1;
+}
+
+function setArgs() {
+	job.setTemplate(bo.JOB_DETAILS.TEMPLATE_ID);
+	job.setArg("CASE", bo);
+	job.setArg("CC_REPRESENTATIVE", "");
+	job.setArg("CC_INDEX", recipientIndex);
+	job.setArg("DOC_TYPE", DOCTYPE);
+	job.setLanguage(language);
+}
