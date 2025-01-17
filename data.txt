@@ -1,324 +1,313 @@
-package gov.nv.dwss.infc.service.dataservice;
-
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-
-import static gov.nv.dwss.fw.batch.constants.FWConstants.CURRENT_DATE;
-
-import java.math.BigDecimal;
-// import java.io.File;
-// import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.sql.Time;
-import java.sql.Timestamp;
-import java.sql.Date; 
-import java.text.ParseException;
-// import java.text.SimpleDateFormat;
-// import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-// import java.time.format.DateTimeFormatter;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-// import org.springframework.batch.item.ExecutionContext;
-// import org.springframework.batch.item.file.FlatFileItemReader;
-// import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
-// import org.springframework.batch.item.file.mapping.DefaultLineMapper;
-// import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.EmptyResultDataAccessException;
-// import org.springframework.core.io.FileSystemResource;
-import org.springframework.stereotype.Service;
-
-import com.ibm.db2.jcc.am.dd;
-
-import gov.nv.dwss.domain.constants.DomainConstants;
-import gov.nv.dwss.domain.dao.sor.CaseLogSorDao;
-//import gov.nv.dwss.domain.dao.sor.FourtyQuarterEmploymentSorDao;
-import gov.nv.dwss.domain.dao.sor.NevadaDoctorOnDemandSorDao;
-import gov.nv.dwss.domain.record.SorRecord;
-import gov.nv.dwss.domain.record.component.Name;
-import gov.nv.dwss.domain.record.sor.CaseLogSorRecord;
-//import gov.nv.dwss.domain.record.sor.FourtyQuarterEmploymentSorRecord;
-import gov.nv.dwss.domain.record.sor.NevadaDoctorOnDemandSorRecord;
-import gov.nv.dwss.fw.batch.exception.BatchBusinessException;
-import gov.nv.dwss.fw.batch.service.BatchDataService;
-import gov.nv.dwss.infc.constants.DeathRegistryQueryConstants;
-import gov.nv.dwss.infc.model.CaseLogRecord;
-import gov.nv.dwss.infc.model.DeathRegistryBatchParam;
-import gov.nv.dwss.infc.model.DeathRegistryRecord;
-import gov.nv.dwss.infc.util.DeathRegistryUtil;
-
-@Service
-public class DeathRegistryDataService extends BatchDataService {
-    private final static Logger LOG = LogManager.getLogger(DeathRegistryDataService.class);
-    private static String filenamePrefix;
-    List<String> eachLineList = new ArrayList<>();
-    @Autowired
-    NevadaDoctorOnDemandSorDao nevadaDoctorOnDemandSorDao;
-
-    @Autowired
-    CaseLogSorDao caseLogSorDao;
-
-    @SuppressWarnings("unchecked")
-    public DeathRegistryRecord getRecordsForProcessing(final Map<String, Object> map) throws BatchBusinessException {
-        try {
-
-            Iterator<String> initialIterator = (Iterator<String>) map.get("iterator");
-            if (initialIterator == null){
-                filenamePrefix = "DeathRegistryInputFile-" + DeathRegistryBatchParam.getPeriodYear() + "-" + DeathRegistryBatchParam.getPeriodMonth();
-                
-                String filePath = System.getProperty("user.dir") + "/input/" + filenamePrefix + ".txt";
-                List<String> lines = Files.readAllLines(Paths.get(filePath));
-                initialIterator = lines.iterator();
-                if (!initialIterator.hasNext()) {
-                    LOG.info("++++ IN DeathRegistry batch Reader, No records to read in Reader.");
-                    return null;
-                }
-                map.put("iterator", initialIterator);
-            }
-            if(!initialIterator.hasNext()){
-                return null;
-            }
-            DeathRegistryRecord processEachRecord = processEachRecord(map);
-            return processEachRecord;
-        } catch (Exception ex) {
-        throw new BatchBusinessException(ex.getMessage(), ex);
-        }
-    }
-
-    // Fetching UPI value from TWNPerson Table using SSN and DOB from the input flat file
-
-    public Integer getUpi(String ssn , Date dob) {
-        LOG.info("++++ IN Reader, fetching records from TWNPERSON Table");
-        String sql = DeathRegistryQueryConstants.GET_UPI_FROM_TWNPRSN;
-        sql = sql.replaceAll(DomainConstants.SQL_DB_SCHEMA_PATTERN, schemaName);
-         try {
-            return jdbcTemplate.query(sql, resultSet -> {
-                if (resultSet.next()) {
-                    return resultSet.getInt("UPI");
-                }
-                return -1;
-            }, new Object[] { ssn , dob });
-        } catch (EmptyResultDataAccessException ex) {
-        LOGGER.debug("++++ Exception while fetching records from TWNPERSON Table ");
-        return 0;
-        }
-    }
-
-    
-    // Fetching ICI value from TWNCASE_MEMBER Table using UPI, got from the TWNPerson Table
-
-    public Integer getIci(Integer upi) {
-        LOG.info("++++ IN Reader, fetching records from TWNCASE_MEMBER Table");
-        String sql = DeathRegistryQueryConstants.GET_ICI_FROM_TWNCASEMEMBER;
-        sql = sql.replaceAll(DomainConstants.SQL_DB_SCHEMA_PATTERN, schemaName);
-         try {
-            return jdbcTemplate.query(sql, resultSet -> {
-                if (resultSet.next()) {
-                    return resultSet.getInt("ICI");
-                }
-                return -1;
-            }, new Object[] { upi } );
-        } catch (EmptyResultDataAccessException ex) {
-        LOGGER.debug("++++ Exception while fetching records from TWNCASE_MEMBER Table ");
-        return 0;
-        }
-    }
-
-    // Fetching UPI and SSN values from TWNPerson Table using LastName and DOB from the input flat file
-
-    public List<Map<String,Object>> getUpiAndSsn(String lastName , Date dob) {
-        LOG.info("++++ IN Reader, fetching records from TWNPERSON Table");
-        String sql = DeathRegistryQueryConstants.GET_UPI_FROM_TWNPRSN_LASTNAME;
-        sql = sql.replaceAll(DomainConstants.SQL_DB_SCHEMA_PATTERN, schemaName);
-         try {
-            return jdbcTemplate.query(sql, resultSet -> {
-                List<Map<String, Object>> resultList = new ArrayList<>();
-                while (resultSet.next()){
-                    Map<String, Object> resultMap = new HashMap<>();
-                    resultMap.put("SSN", resultSet.getString("SSN"));
-                    resultMap.put("UPI", resultSet.getInt("UPI"));
-                    resultList.add(resultMap);
-                }
-                return resultList;
-            }, new Object[] { lastName , dob }); 
-        } catch (EmptyResultDataAccessException ex) {
-        LOGGER.debug("++++ Exception while fetching records from TWNPERSON Table ");
-        return null;
-        }
-    }
-
-    // Inserting each record in TWNVTL_STAT_DOD Table
-
-    public void insertDeathRegistryRecord(NevadaDoctorOnDemandSorRecord record) {
-        try{
-		SorRecord sorRecord = (SorRecord) record;
-        LOG.debug("Inserting into TWNVTL_STAT_DOD table");
-        nevadaDoctorOnDemandSorDao.insert(sorRecord);
-		}
-		catch(Exception ex){
-            LOG.debug("Exception occurred while Inserting into TWNVTL_STAT_DOD table"+ ex.getMessage());
-            record.setSequenceCount(record.getSequenceCount()+1);
-            SorRecord sorRecord = (SorRecord) record;
-            nevadaDoctorOnDemandSorDao.insert(sorRecord);
-        }
-    }
-
-    // Processing Each Record from the input flat file and creating a List of Death Registry records
-
-    public DeathRegistryRecord processEachRecord(Map<String, Object> map) throws ParseException {
-        Iterator<String> iterator = (Iterator<String>) map.get("iterator");
-        List<NevadaDoctorOnDemandSorRecord> deathRegistryRecordList = new ArrayList<>();
-        DeathRegistryRecord deathRegistryRecordToWriter = new DeathRegistryRecord();
-        String matchType ="";
-        //Integer matchCount = 1;
-        Integer sequenceCount=1;
-        String ssn = "";
-        List<Map<String,Object>> upiAndSsnFromPersonTable = new ArrayList<>();
-        long currentTimeMillis = System.currentTimeMillis();
-        Date currentDate = new Date(currentTimeMillis);
-        while (iterator.hasNext()) {
-            NevadaDoctorOnDemandSorRecord deathRegistryRecord1 = new NevadaDoctorOnDemandSorRecord();
-            String previousInputSsn = String.valueOf(map.getOrDefault("previousInputSsn", "-1"));
-            String nextRecord = iterator.next();
-            Integer matchCount = 1;
-            // String[] nextRecordArray = new String[]{nextRecord};
-            String inputSsn = nextRecord.substring(0, 9);
-            String dateOfBirth = nextRecord.substring(149, 157);
-            String dateOfDeath = nextRecord.substring(380, 388);
-            // Integer dobMonth = Integer.valueOf(dateOfBirth.substring(0, 2));
-            // Integer dobDay = Integer.valueOf(dateOfBirth.substring(2, 4));
-            // Integer dobYear = Integer.valueOf(dateOfBirth.substring(4));
-            String dateOfBrth = dateOfBirth.substring(4)+"-"+dateOfBirth.substring(0, 2)+"-"+dateOfBirth.substring(2, 4);
-            // Integer dodMonth = Integer.valueOf(dateOfDeath.substring(0, 2));
-            // Integer dodDay = Integer.valueOf(dateOfDeath.substring(2, 4));
-            // Integer dodYear = Integer.valueOf(dateOfDeath.substring(4));
-            String dateofdath = dateOfDeath.substring(4)+"-"+dateOfDeath.substring(0, 2)+"-"+dateOfDeath.substring(2, 4);
-            Date dobDate = Date.valueOf(dateOfBrth);
-            Date dodDate = Date.valueOf(dateofdath);
-            String lastNm = nextRecord.substring(89, 139).trim();
-
-           
-            if (!inputSsn.equals(previousInputSsn)) {
-                map.put("previousInputSsn", inputSsn);
-                Integer upiFromPersonTable = getUpi(inputSsn, dobDate);
-                Integer upi = -1;
-                if(upiFromPersonTable != -1){
-                    upi = upiFromPersonTable;
-                    matchType = "SSN";
-                    ssn = inputSsn;
-                }
-                else{
-                    upi=0;
-                    upiAndSsnFromPersonTable = getUpiAndSsn(lastNm, dobDate);
-                    matchType = "LNM";
-                    matchCount = upiAndSsnFromPersonTable.size();
-                }
-                
-                if (upi != -1 ){
-
-                    if (matchType == "LNM"){
-
-                        for(Map<String, Object> resultMap: upiAndSsnFromPersonTable){
-                            ssn = (String) resultMap.get("SSN");
-                            upi = (Integer) resultMap.get("UPI");
-                            deathRegistryRecord1 = deathRegistrySorRecord(nextRecord, upi, ssn, matchType, matchCount,dobDate,dodDate, sequenceCount, currentDate);
-                            deathRegistryRecordList.add(deathRegistryRecord1);
-                            //setCaseLogData(deathRegistryRecord1);
-                        }
-                    }
-                    else{
-                        deathRegistryRecord1 = deathRegistrySorRecord(nextRecord, upi, ssn, matchType, matchCount,dobDate,dodDate, sequenceCount, currentDate);       
-                        deathRegistryRecordList.add(deathRegistryRecord1);
-                        //setCaseLogData(deathRegistryRecord1);
-                    }
-                }
-            }
-        }
-        deathRegistryRecordToWriter.setDeathRegistryRecordsList(deathRegistryRecordList);
-        return deathRegistryRecordToWriter;
-    }
-
-    // Creating a death registry sor record to add to the list of records in processing each record
-
-    public NevadaDoctorOnDemandSorRecord deathRegistrySorRecord(String inputRecord, Integer upi, String ssn, String matchType, Integer matchCount, Date dobDate, Date dodDate, Integer sequenceCount, Date currentDate){
-
-        Calendar calendar = Calendar.getInstance();
-        calendar.setTime(currentDate);
-        int month = calendar.get(Calendar.MONTH) + 1; 
-        int year = calendar.get(Calendar.YEAR);
-        NevadaDoctorOnDemandSorRecord deathRegistryRecord1 = new NevadaDoctorOnDemandSorRecord();
-        deathRegistryRecord1.setUpi(upi);
-        deathRegistryRecord1.setSsn(ssn);
-        deathRegistryRecord1.setMatchType(matchType);
-        deathRegistryRecord1.setMatchCount(matchCount);
-        deathRegistryRecord1.setVstSsn(inputRecord.substring(0, 9));
-        deathRegistryRecord1.setLastName(inputRecord.substring(89, 139).trim());
-        deathRegistryRecord1.setFirstName(inputRecord.substring(9,59));
-        deathRegistryRecord1.setMidName(inputRecord.substring(59,89));
-        deathRegistryRecord1.setModfr(inputRecord.substring(139,149));
-        deathRegistryRecord1.setDob(dobDate);
-        deathRegistryRecord1.setDod(dodDate);
-        deathRegistryRecord1.setSequenceCount(sequenceCount);
-        deathRegistryRecord1.setBirthState(inputRecord.substring(157,207));
-        deathRegistryRecord1.setBirthCountry(inputRecord.substring(207,257));
-        deathRegistryRecord1.setResidentailAddress(inputRecord.substring(257,307));
-        deathRegistryRecord1.setResidentialAptNumber(inputRecord.substring(307,317));
-        deathRegistryRecord1.setResidentialCity(inputRecord.substring(317,367));
-        deathRegistryRecord1.setResidentialStateNchs(inputRecord.substring(367,369));
-        deathRegistryRecord1.setResidentialCountryNchs(inputRecord.substring(378,380));
-        deathRegistryRecord1.setResidenctialZipCode(inputRecord.substring(369,378));
-        deathRegistryRecord1.setPaternalLastName(inputRecord.substring(688,738));
-        deathRegistryRecord1.setPaternalFirstName(inputRecord.substring(588,638));
-        deathRegistryRecord1.setPaternalMidName(inputRecord.substring(638,688));
-        deathRegistryRecord1.setPaternalModfr(inputRecord.substring(738));
-        deathRegistryRecord1.setMaternalLastName(inputRecord.substring(528,578));
-        deathRegistryRecord1.setMaternalFirstName(inputRecord.substring(428,478));
-        deathRegistryRecord1.setMaternalMidName(inputRecord.substring(478,528));
-        deathRegistryRecord1.setMaternalmodfr(inputRecord.substring(578,588));
-        deathRegistryRecord1.setPlaceOfDeath(inputRecord.substring(388,428));
-        deathRegistryRecord1.setReceivedDate(currentDate);
-        deathRegistryRecord1.setReceievedMonth(month);
-        deathRegistryRecord1.setReceievedYear(year);
-        return deathRegistryRecord1;
-    }
-            
-
-    // creating a Case Log Sor Record using each Death registry record
-
-    public CaseLogSorRecord setCaseLogData(NevadaDoctorOnDemandSorRecord deathRegistryRecord1){
-
-        CaseLogSorRecord caseLogRecord = new CaseLogSorRecord();
-        // Date currenDate = new Date();
-        long currentTimeMillis = System.currentTimeMillis();
-        Date currentDate = new Date(currentTimeMillis);
-        LocalTime localTime = LocalTime.now();
-        LocalDateTime localTimeStamp = LocalDateTime.now();
-        caseLogRecord.setActivityDate(currentDate);
-        caseLogRecord.setProgramCaseType("");
-        caseLogRecord.setWorkerId("VITSTATS");
-        caseLogRecord.setLogEntryType("");
-        caseLogRecord.setLogEntryDescription("VITAL STATISTICS DEATH MATCH");
-        caseLogRecord.setIci(getIci(deathRegistryRecord1.getUpi()));
-        caseLogRecord.setActivityTime(Time.valueOf(localTime));
-        caseLogRecord.setLogCreatedTime(Timestamp.valueOf(localTimeStamp));
-        caseLogRecord.setCaseLogDescription("PER SSN/DOB MATCH WITH VITAL STATISTICS DEATH REGISTRY, CLIENT (UPI "+deathRegistryRecord1.getUpi()+") IS DECEASED AS OF "+deathRegistryRecord1.getDod());
-        return caseLogRecord;
-    }
-
-    //  Inserting each Case log record in Case Log Table
-
-    public void insertCaseLogRecord(CaseLogSorRecord record) {
-        SorRecord sorRecord = (SorRecord) record;
-        LOG.debug("Inserting into Case Log table");
-        caseLogSorDao.insert(sorRecord);
-    }
-          
+<outputfinishingconfig>
+    <defaultjobsetup printserver="Server_Default" printqueue="Queue_Default" duplex="False" addbannerpages="False" batchrelatedspool="True">
+        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="envelope">
+            <thresholds errored="100" stopped="100" workflow="100"/>
+            <envelopesortparams>SORTKEYTYPE=PN
+SORTORDER=ASC</envelopesortparams>
+        </enveloperules>
+        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
+            <sortingparams>SORTKEYTYPE=NONE
+MAXPAGECOUNT=0
+MAXENVCOUNT=0
+MAXDOCCOUNT=0
+SORTORDER=ASC</sortingparams>
+        </sorting>
+        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
+            <closeparams>WHEN=BATCHSTATE
+FREQUENCY=60
+INACTIVEPERIOD=60
+MAXENVELOPES=1000</closeparams>
+        </closecriteria>
+        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
+            <sendparams>WHEN=ONCLOSE</sendparams>
+            <thresholds errored="0" stopped="0" workflow="0"/>
+        </sendcriteria>
+        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
+            <renderingparams>FOPCONFIG=cms\:1</renderingparams>
+        </saxhandlers>
+        <disk subdirspool="no" subdirbin="no" outputdir="/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/" mergeprint="NONE" csshandling="reference"/>
+    </defaultjobsetup>
+    <jobsetup name="Print" printserver="Server_Print" printqueue="Queue_Print" duplex="True" addbannerpages="False" batchrelatedspool="False">
+        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="transaction">
+            <thresholds errored="100" stopped="100" workflow="100"/>
+            <envelopesortparams>SORTKEYTYPE=PN
+SORTORDER=ASC</envelopesortparams>
+        </enveloperules>
+        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
+            <sortingparams>SORTKEYTYPE=NONE
+MAXPAGECOUNT=4000
+MAXENVCOUNT=0
+MAXDOCCOUNT=0
+SORTORDER=ASC</sortingparams>
+        </sorting>
+        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
+            <closeparams>WHEN=FREQUENCY
+FREQUENCY=7200
+INACTIVEPERIOD=60
+MAXENVELOPES=1000</closeparams>
+        </closecriteria>
+        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
+            <sendparams>WHEN=ONCLOSE</sendparams>
+            <thresholds errored="0" stopped="0" workflow="0"/>
+        </sendcriteria>
+        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
+            <mergingparams>continuous.pagenumbers=True</mergingparams>
+            <renderingparams>FOPCONFIG={cms\:1}</renderingparams>
+        </saxhandlers>
+        <mergedoutput outputpath="/mnt/autofs/output/IV-A/PrintOutput"/>
+        <omrdef docseqmax="0" docseqmin="0" pageseqmax="0" pageseqmin="0" printonheader="False" printonback="False" expclass="com.thunderhead.distributors.outputproc.barcode.ScriptableBarcodeBuilder">
+            <bench-mark x="4.7625" y="22.2938" length="1" width="10.16"/>
+            <end-of-collation x="4.7625" y="22.2938" length="1" width="10.16"/>
+            <scriptmark x="4.7625" y="19.1188" length="1" width="10.16">
+                <script>//EOC
+//If the second page in envelope, print EOC
+//First page (Master) is suppressed
+//mt 7/31/2020 (orig 3-8-18), Changing below CurrentEnvelopePage from 2 to 1. We have removed the custom bin handler (suppress first page) and replaced with doc prop 'op-bin exclude=true'.
+pageinfo.getCurrentEnvelopePage == 1</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="15.9438" length="1" width="10.16">
+                <script>//Seq B
+//If the Envelope Count is the 2nd or 3rd, place Seq B mark
+var envelopeCount;
+if(pageinfo.isFirstDocumentInBin)
+{
+	envelopeCount = 1;
+}else if(pageinfo.isFirstPageInEnvelope)
+{
+	envelopeCount += 1;
 }
+(envelopeCount%4 == 2 || envelopeCount%4 == 3)</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="12.7688" length="1" width="10.16">
+                <script>//Seq A
+//If the Envelope Count is the 1st or 3rd, place Seq A mark
+(envelopeCount%4 == 1 || envelopeCount%4 == 3)</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="9.5938" length="1" width="10.16">
+                <script>//Feed 3
+//If Feed 3 has been selected, place Feed 3 mark
+pageinfo.getMasterChannelProperties("Feed3") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="6.4188" length="1" width="10.16">
+                <script>//Feed 2
+//If Feed 2 has been selected, place Feed 2 mark
+pageinfo.getMasterChannelProperties("Feed2") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="3.2438" length="1" width="10.16">
+                <script>//Feed 1
+//If Feed 1 has been selected, place Feed 1 mark
+pageinfo.getMasterChannelProperties("Feed1") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="0.0688" length="1" width="10.16">
+                <script>//Safety Line
+//Always print Safely Line mark
+true</script>
+            </scriptmark>
+        </omrdef>
+        <custom-handlers>
+            <default-handlers/>
+        </custom-handlers>
+        <envelope-custom-handlers>
+            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.FOPSuppressFirstPageFilter"/>
+        </envelope-custom-handlers>
+    </jobsetup>
+    <jobsetup name="Archive" printserver="Server_Archive" printqueue="Queue_Archive" duplex="False" addbannerpages="False" batchrelatedspool="True">
+        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="transaction">
+            <thresholds errored="100" stopped="100" workflow="100"/>
+            <envelopesortparams>SORTKEYTYPE=PN
+SORTORDER=ASC</envelopesortparams>
+        </enveloperules>
+        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
+            <sortingparams>SORTORDER=ASC
+MAXDOCCOUNT=0
+MAXPAGECOUNT=0
+SORTKEYTYPE=NONE
+SORTKEY=1
+MAXENVCOUNT=0</sortingparams>
+        </sorting>
+        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
+            <closeparams>WHEN=BATCHSTATE
+FREQUENCY=60
+INACTIVEPERIOD=60
+MAXENVELOPES=1000</closeparams>
+        </closecriteria>
+        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
+            <sendparams>WHEN=ONCLOSE</sendparams>
+            <thresholds errored="0" stopped="0" workflow="0"/>
+        </sendcriteria>
+        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
+            <mergingparams>FOP.NOP.AllPages=False
+continuous.pagenumbers=True
+FOP.TLE.AllPages=False</mergingparams>
+            <renderingparams>FOPCONFIG={cms\:1}</renderingparams>
+        </saxhandlers>
+        <mergedoutput indexfilewriter="com.thunderhead.distributors.outputproc.indexing.DefaultIndexFileWriter" outputpath="/mnt/autofs/output/IV-A/ArchiveOutput"/>
+        <omrdef docseqmax="0" docseqmin="0" pageseqmax="0" pageseqmin="0" printonheader="False" printonback="False" expclass="com.thunderhead.distributors.outputproc.barcode.ScriptableBarcodeBuilder">
+            <bench-mark x="4.7625" y="26.1938" length="1" width="10.16"/>
+            <end-of-collation x="4.7625" y="26.1938" length="1" width="10.16"/>
+            <scriptmark x="4.7625" y="23.0188" length="1" width="10.16">
+                <script>//EOC
+//If the second page in envelope, print EOC
+//First page (Master) is suppressed
+pageinfo.getCurrentEnvelopePage == 2</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="19.8438" length="1" width="10.16">
+                <script>//Seq B
+//If the Envelope Count is the 2nd or 3rd, place Seq B mark
+var envelopeCount;
+if(pageinfo.isFirstDocumentInBin)
+{
+	envelopeCount = 1;
+}else if(pageinfo.isFirstPageInEnvelope)
+{
+	envelopeCount += 1;
+}
+(envelopeCount%4 == 2 || envelopeCount%4 == 3)</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="16.6688" length="1" width="10.16">
+                <script>//Seq A
+//If the Envelope Count is the 1st or 3rd, place Seq A mark
+(envelopeCount%4 == 1 || envelopeCount%4 == 3)</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="13.4938" length="1" width="10.16">
+                <script>//Feed 3
+//If Feed 3 has been selected, place Feed 3 mark
+pageinfo.getMasterChannelProperties("Feed3") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="10.3188" length="1" width="10.16">
+                <script>//Feed 2
+//If Feed 2 has been selected, place Feed 2 mark
+pageinfo.getMasterChannelProperties("Feed2") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="7.1438" length="1" width="10.16">
+                <script>//Feed 1
+//If Feed 1 has been selected, place Feed 1 mark
+pageinfo.getMasterChannelProperties("Feed1") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="3.9688" length="1" width="10.16">
+                <script>//Safety Line
+//Always print Safely Line mark
+true</script>
+            </scriptmark>
+        </omrdef>
+        <sendhandler classname="com.thunderhead.distributors.outputproc.delivery.DefaultSendBin">
+            <sendparams>SCRIPTFILE={/mnt/autofs/jobs/CreateFileNetText.sh}</sendparams>
+        </sendhandler>
+        <custom-handlers>
+            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.SuppressFirstPageFilter"/>
+        </custom-handlers>
+        <envelope-custom-handlers>
+            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.FOPSuppressFirstPageFilter"/>
+        </envelope-custom-handlers>
+    </jobsetup>
+    <jobsetup name="Email" printserver="Server_Email" printqueue="Queue_Email" duplex="False" addbannerpages="False" batchrelatedspool="True">
+        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="envelope">
+            <thresholds errored="0" stopped="0" workflow="0"/>
+            <envelopesortparams>SORTKEYTYPE=PN
+SORTORDER=ASC</envelopesortparams>
+        </enveloperules>
+        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
+            <sortingparams>SORTKEYTYPE=NONE
+MAXPAGECOUNT=0
+MAXENVCOUNT=0
+MAXDOCCOUNT=0
+SORTORDER=ASC</sortingparams>
+        </sorting>
+        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
+            <closeparams>WHEN=BATCHSTATE</closeparams>
+        </closecriteria>
+        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
+            <sendparams>WHEN=ONCLOSE</sendparams>
+            <thresholds errored="0" stopped="0" workflow="0"/>
+        </sendcriteria>
+        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
+            <renderingparams>FOPCONFIG=cms\:1</renderingparams>
+        </saxhandlers>
+        <smtp sender="tlecture@thunderhead.com" sendersource="fixed" subject="State of Nevada DWSS Test" subjectsource="fixed" recipient="nwillis@thunderhead.com" recipientsource="fixed" imagehandling="reference" mergeprint="NONE" csshandling="include"/>
+        <disk subdirspool="no" subdirbin="no" outputdir="/usr/IBM/WebSphere/Thunderhead/servers/thserver/data/output/" mergeprint="NONE" csshandling="reference"/>
+    </jobsetup>
+    <jobsetup name="Print NOD" printserver="Server_Print_NOD" printqueue="Queue_Print_NOD" duplex="True" addbannerpages="False" batchrelatedspool="False">
+        <enveloperules envelopesortclass="com.thunderhead.distributors.outputproc.DefaultEnvelopeSort" releasetype="transaction">
+            <thresholds errored="100" stopped="100" workflow="100"/>
+            <envelopesortparams>SORTKEYTYPE=PN
+SORTORDER=ASC</envelopesortparams>
+        </enveloperules>
+        <sorting classname="com.thunderhead.distributors.outputproc.DefaultJobSort">
+            <sortingparams>SORTKEYTYPE=NONE
+MAXPAGECOUNT=4000
+MAXENVCOUNT=0
+MAXDOCCOUNT=0
+SORTORDER=ASC</sortingparams>
+        </sorting>
+        <closecriteria classname="com.thunderhead.distributors.outputproc.DefaultCloseSpoolDecisionMaker">
+            <closeparams>WHEN=FREQUENCY
+FREQUENCY=7200
+INACTIVEPERIOD=60
+MAXENVELOPES=1000</closeparams>
+        </closecriteria>
+        <sendcriteria classname="com.thunderhead.distributors.outputproc.DefaultSendSpoolDecisionMaker">
+            <sendparams>WHEN=ONCLOSE</sendparams>
+            <thresholds errored="100" stopped="100" workflow="100"/>
+        </sendcriteria>
+        <saxhandlers renderertype="FOP" bannerhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBannerHandler" duplexhandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPDuplexPageHandler" barcodehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPBarcodeHandler" mergehandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPMergeHandler" renderinghandler="com.thunderhead.distributors.outputproc.saxhandlers.FOPRenderingHandler">
+            <mergingparams>continuous.pagenumbers=True</mergingparams>
+            <renderingparams>FOPCONFIG={cms\:1}</renderingparams>
+        </saxhandlers>
+        <mergedoutput outputpath="/mnt/autofs/output/IV-A/PrintOutput"/>
+        <omrdef docseqmax="0" docseqmin="0" pageseqmax="0" pageseqmin="0" printonheader="False" printonback="False" expclass="com.thunderhead.distributors.outputproc.barcode.ScriptableBarcodeBuilder">
+            <bench-mark x="4.7625" y="22.2938" length="1" width="10.16"/>
+            <end-of-collation x="4.7625" y="22.2938" length="1" width="10.16"/>
+            <scriptmark x="4.7625" y="19.1188" length="1" width="10.16">
+                <script>//EOC
+//If the second page in envelope, print EOC
+//First page (Master) is suppressed
+//mt 7/31/2020 (orig 3-8-18), Changing below CurrentEnvelopePage from 2 to 1. We have removed the custom bin handler (suppress first page) and replaced with doc prop 'op-bin exclude=true'.
+pageinfo.getCurrentEnvelopePage == 1</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="15.9438" length="1" width="10.16">
+                <script>//Seq B
+//If the Envelope Count is the 2nd or 3rd, place Seq B mark
+var envelopeCount;
+if(pageinfo.isFirstDocumentInBin)
+{
+	envelopeCount = 1;
+}else if(pageinfo.isFirstPageInEnvelope)
+{
+	envelopeCount += 1;
+}
+(envelopeCount%4 == 2 || envelopeCount%4 == 3)</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="12.7688" length="1" width="10.16">
+                <script>//Seq A
+//If the Envelope Count is the 1st or 3rd, place Seq A mark
+(envelopeCount%4 == 1 || envelopeCount%4 == 3)</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="9.5938" length="1" width="10.16">
+                <script>//Feed 3
+//If Feed 3 has been selected, place Feed 3 mark
+pageinfo.getMasterChannelProperties("Feed3") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="6.4188" length="1" width="10.16">
+                <script>//Feed 2
+//If Feed 2 has been selected, place Feed 2 mark
+pageinfo.getMasterChannelProperties("Feed2") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="3.2438" length="1" width="10.16">
+                <script>//Feed 1
+//If Feed 1 has been selected, place Feed 1 mark
+pageinfo.getMasterChannelProperties("Feed1") == "true"</script>
+            </scriptmark>
+            <scriptmark x="4.7625" y="0.0688" length="1" width="10.16">
+                <script>//Safety Line
+//Always print Safely Line mark
+true</script>
+            </scriptmark>
+        </omrdef>
+        <custom-handlers>
+            <default-handlers/>
+        </custom-handlers>
+        <envelope-custom-handlers>
+            <custom-handler class="com.thunderhead.distributors.outputproc.customhandlers.FOPSuppressFirstPageFilter"/>
+        </envelope-custom-handlers>
+    </jobsetup>
+</outputfinishingconfig>
