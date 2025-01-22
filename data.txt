@@ -1,601 +1,27 @@
-package IVA_Batch;
-import egl.core.*;
-import CommonMigratedParts.*;
-import DataItems.*;
-import DataTables.*;
-
-//*** PROGRAM=AIN64A ****
-// COMPONENT NAME: AIN64A
-// ===============
-// DESCRIPTION:
-// ============
-// This module processes the file provided by
-// DCFS.  Records will be (A)dded, (M)odified or (D)eleted
-// based on the record type and the record being valid.
-// 
-// CHANGE LOG:
-// ===========
-// WI #    USERID   DATE      DESCRIPTION
-// ------  ------   ----      -----------
-//   281   WNMMD    2011      ORIGINAL
-//  1588   WNMBS    2013      Bug Fixes (bugs 4060, 4062, 4040, 4041)
-// ***********************
-Program AIN64A type basicProgram //VAGen Info - main batch program
-  {
-  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
-  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
-  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes, 
-  inputRecord = AIN64W1
-  }
-
-  // Data Declarations
-  AIN64W AIN64W; // record
-  AIN64W1 AIN64W1 ; // record
-  AIN64W2 AIN64W2; // record
-  APO04W1 APO04W1; // record
-  BDATEREC BDATEREC; // record
-  CEP01W CEP01W; // record
-  G-IV-D G-IV-D; // record
-  GDW GDW; // record
-  GNOMADS GNOMADS; // record
-  H2-2-FAM-DRF H2-2-FAM-DRF; // record
-  H2-2-FAM-RES H2-2-FAM-RES; // record
-  H2-3-CCH-FAM-SPT H2-3-CCH-FAM-SPT; // record
-  H2-CHILD H2-CHILD; // record
-  H2-CODE-TBL H2-CODE-TBL; // record
-  H2-FAM-CASE H2-FAM-CASE; // record
-  H2-FAM-CHILD H2-FAM-CHILD; // record
-  H2-FAM-NCP H2-FAM-NCP; // record
-  H2-FAMCST H2-FAMCST; // record
-  H2-IVD-CASE H2-IVD-CASE; // record
-  H2-IVD-RFRL-DTLS H2-IVD-RFRL-DTLS; // record
-  H2-PERSON H2-PERSON; // record
-  H2-PERSON-ADRS-HST H2-PERSON-ADRS-HST; // record
-  H2-REFERRAL H2-REFERRAL; // record
-  H2-RESOLUTION H2-RESOLUTION; // record
-  H2-RFRL-ADRS H2-RFRL-ADRS; // record
-  PCALINP PCALINP; // record
-  PDCM-CASE-TRACKING PDCM-CASE-TRACKING; // record
-  REP-COMMON REP-COMMON; // record
-  SR-AIN64-RECIN SR-AIN64-RECIN; // record
-  SR-AIN64-RECOUT SR-AIN64-RECOUT; // record
-  VCONTROL VCONTROL; // record
-  VDBCOMMON VDBCOMMON; // record
-  VDBCONTROL VDBCONTROL; // record
-  VDTSREC VDTSREC; // record
-  VMESSAGE VMESSAGE; // record
-  VSTRREC4 VSTRREC4; // record
-  VWORKSTOR VWORKSTOR; // record
-
-  // VAGen Info - items needed for migration
-  VAGen_EZESYS char(8);
-  VAGen_EZEREPLY num(1);
-  VAGen_EZE_WAIT_TIME bin(9,2);
-  VAGen_EZE_ITEMLEN int;
-
-  // Use Declarations
-  use VDB00T1 {deleteAfterUse = yes}; // table
-
-  function main()
-    // VAGen Info - initialization needed for migration
-    VAGen_EZESYS = VGLib.getVAGSysType();
-    AIN64P9-MAIN: AIN64P9-MAIN();
-  end // end main
-end
-// end AEA03P9-GET-EVR-L1
-
-Function AIN64P9-ADD()
-// THIS ROUTINE WILL ADD A RECORD IF NONE IS PRESENT.
-  AIN64W1.WS-RFRL-ADDED = "N";
-  set H2-2-FAM-RES empty;
-  H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-  /*  */
-  AIN64P9-FMR-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    H2-REFERRAL.ICI = H2-2-FAM-RES.T2-ICI;
-  end
-  /*  */
-  if (sysVar.sqlData.sqlcode == 100)
-    set H2-2-FAM-DRF empty;
-    H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-    H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-    /*  */
-    AIN64P9-FMI-S01();
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    /*  */
-    if (sysVar.sqlData.sqlcode == 100)
-      set H2-REFERRAL empty;
-      AIN64P9-REF-S01();
-    /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (AIN64W1.WS-MAX-NCP-SQNC-NMB > 0)
-        AIN64W1.WS-NEXT-NCP-SQNC-NMB = AIN64W1.WS-MAX-NCP-SQNC-NMB + 1;
-      else
-        AIN64W1.WS-NEXT-NCP-SQNC-NMB = 1;
-      end
-      /*  */
-      AIN64P9-BUILD-NCP1();
-      /*  */
-      /* CALL APO30A - REFER CASES TO IV-D*/
-      /*  */
-      AIN64P9-CALL-APO30();
-      /*  */
-    end
-  else
-    if (sysVar.sqlData.sqlcode == 0)
-      set H2-2-FAM-DRF empty;
-      H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-      H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-      H2-REFERRAL.ICI = H2-2-FAM-DRF.T2-ICI;
-      /*  */
-      AIN64P9-FMI-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode == 100)
-        AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
-        AIN64W2.WS-ERROR-CODE = "DT02";
-        /*  */
-        AIN64P9-WRITE-OUT();
-      end
-    end
-  end
-  if (AIN64W1.WS-RFRL-ADDED == "N")
-    set H2-2-FAM-DRF empty;
-    H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-    H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-    /*  */
-    AIN64P9-FMI-S01();
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    /*  */
-    if (sysVar.sqlData.sqlcode == 0)
-      set H2-2-FAM-RES empty;
-      H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-      H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-      H2-REFERRAL.ICI = H2-2-FAM-DRF.T2-ICI;
-      /*  */
-      AIN64P9-FMR-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode == 100)
-        AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
-        AIN64W2.WS-ERROR-CODE = "DT02";
-        /*  */
-        AIN64P9-WRITE-OUT();
-        /*  */
-      end
-    end
-  end
-  if (AIN64W1.WS-RFRL-ADDED == "N")
-    set H2-2-FAM-RES empty;
-    H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-    H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-    H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-    H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-    /*  */
-    AIN64P9-FAM-S01();
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    /*  */
-    if (sysVar.sqlData.sqlcode == 0)
-      AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
-      AIN64W2.WS-ERROR-CODE = "DT02";
-      /*  */
-      AIN64P9-WRITE-OUT();
-    end
-    if (sysVar.sqlData.sqlcode == 100)
-      set H2-REFERRAL empty;
-      AIN64P9-REF-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (AIN64W1.WS-MAX-NCP-SQNC-NMB > 0)
-        AIN64W1.WS-NEXT-NCP-SQNC-NMB = AIN64W1.WS-MAX-NCP-SQNC-NMB + 1;
-      else
-        AIN64W1.WS-NEXT-NCP-SQNC-NMB = 1;
-      end
-      /*  */
-      AIN64P9-BUILD-NCP1();
-      /*  */
-      /* CALL APO30A - REFER CASES TO IV-D*/
-      /*  */
-      AIN64P9-CALL-APO30();
-      /*  */
-    end
-  end
-end
-
-// end AIN64P9-ADD
-
-// PROCESS TO ALERT THE WORKER
-Function AIN64P9-ALERT()
-  PCALINP.PAL-UPI = AIN64W1.WS-NCP-UPI;
-  PCALINP.PAL-SUFFIX = AIN64W1.WS-NCP-CASE-SUFFIX;
-  PCALINP.PAL-ALERT-CD = 390205;
-  PCALINP.PAL-ALERT-ACTION = "C";
-  PCALINP.PAL-DISPL-DT = AIN64W1.WS-PROC-DATE;
-  PCALINP.PAL-PROCESS-DT = AIN64W1.WS-PROC-DATE;
-  /*  */
-  call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-end
-
-// end AIN64P9-ALERT
-
-Function AIN64P9-BUILD-NCP1()
-// THIS ROUTINE WILL CREATE ALL RECORDS NECESSARY FOR THE A NCP1 SCREEN.
-  set H2-REFERRAL empty;
-  H2-REFERRAL.ICI = AIN64W1.WS-ICI;
-  H2-REFERRAL.NCP-SQNC-NMB = AIN64W1.WS-NEXT-NCP-SQNC-NMB;
-  H2-REFERRAL.RFRL-DT = "0001-01-01";
-  H2-REFERRAL.RFRL-STS = "N";
-  set H2-PERSON-ADRS-HST empty;
-  H2-PERSON-ADRS-HST.UPI = AIN64W1.WS-APPL-UPI;
-  /*  */
-    AIN64P9-PAH-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    H2-CODE-TBL.CODE-TBL-CD = H2-PERSON-ADRS-HST.RSDN-CNTY-CD;
-    /*  */
-    AIN64P9-CDT-S02();
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    /*  */
-    H2-REFERRAL.IVD-OFFICE = H2-CODE-TBL.CODE-DESC;
-  else
-    H2-REFERRAL.IVD-OFFICE = "02";
-  end
-  /*  */
-  AIN64P9-CFS-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    H2-REFERRAL.CRTN-FAME-OFFICE = H2-3-CCH-FAM-SPT.T3-OFC-CD;
-    H2-REFERRAL.CRTN-FAME-WRKR = H2-3-CCH-FAM-SPT.NOMADS-USRID;
-  end
-  /*  */
-  H2-REFERRAL.FRM-4000-EXISTS = "Y";
-  H2-REFERRAL.FRM-4000-RCVD-DT = "0001-01-01";
-  H2-REFERRAL.RCVD-IVD-WRKR = " ";
-  H2-REFERRAL.RFR-BACK-DT = "0001-01-01";
-  H2-REFERRAL.RFR-BACK-RSN = " ";
-  H2-REFERRAL.RFR-BACK-IVD-WRKR = " ";
-  H2-REFERRAL.RESOLUTION-DT = "0001-01-01";
-  H2-REFERRAL.RESOLV-IVD-WRKR = " ";
-  /*  */
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  /*  */
-  H2-REFERRAL.CRTN-TS = GDW.TS;
-  H2-REFERRAL.DECLINE-DT = "0001-01-01";
-  H2-REFERRAL.DECLINE-RSN = " ";
-  H2-REFERRAL.DECLINE-IVD-WRKR = " ";
-  H2-REFERRAL.DECLINE-OFC-CD = " ";
-  /*  */
-  AIN64P9-REF-I01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  set H2-RESOLUTION empty;
-  H2-RESOLUTION.ICI = AIN64W1.WS-ICI;
-  H2-RESOLUTION.NCP-SQNC-NMB = AIN64W1.WS-NEXT-NCP-SQNC-NMB;
-  H2-RESOLUTION.SSN = AIN64W.WS-NCP-SSN;
-  H2-RESOLUTION.LST-NM = AIN64W.WS-NCP-LAST-NAME;
-  H2-RESOLUTION.FRST-NM = AIN64W.WS-NCP-FIRST-NAME;
-  H2-RESOLUTION.MID-NM = AIN64W.WS-NCP-MID-NAME;
-  H2-RESOLUTION.MODFR = AIN64W.WS-NCP-MODIFIER;
-  H2-RESOLUTION.HM-PHN-NMB = AIN64W.WS-NCP-PHONE;
-  H2-RESOLUTION.ETHNC-CD = AIN64W.WS-NCP-RACE;
-  H2-RESOLUTION.SEX-CD = AIN64W.WS-NCP-SEX;
-  H2-RESOLUTION.PLACE-OF-BIRTH = AIN64W.WS-NCP-BIRTH-CITY;
-  H2-RESOLUTION.BIRTH-PLACE-CD = AIN64W.WS-NCP-BIRTH-ST;
-  if (AIN64W.WS-NCP-DOB == " ")
-    H2-RESOLUTION.DOB = "0001-01-01";
-  else
-    H2-RESOLUTION.DOB = AIN64W.WS-NCP-DOB;
-  end
-  H2-RESOLUTION.DEATH-DT = "9999-12-31";
-  H2-RESOLUTION.NCP-CST-EVMRD-FG = AIN64W.WS-PARENTS-EVER-MARRIED;
-  if (AIN64W.WS-DT-OF-MARRIAGE == " ")
-    H2-RESOLUTION.NCP-CST-EVMRD-DT = "0001-01-01";
-  else
-    H2-RESOLUTION.NCP-CST-EVMRD-DT = AIN64W.WS-DT-OF-MARRIAGE;
-  end
-  H2-RESOLUTION.NCP-CST-CRMRD-FG = AIN64W.WS-CURRENTLY-MARRIED;
-  H2-RESOLUTION.NCP-CST-CRMRD-DT = "0001-01-01";
-  H2-RESOLUTION.NCP-CST-EVDVR-FG = " ";
-  if (AIN64W.WS-DT-OF-DIVORCE == " ")
-    H2-RESOLUTION.NCP-CST-EVDVR-DT = "0001-01-01";
-  else
-    H2-RESOLUTION.NCP-CST-EVDVR-DT = AIN64W.WS-DT-OF-DIVORCE;
-  end
-  H2-RESOLUTION.NCP-CST-SPRTD-DT = "0001-01-01";
-  H2-RESOLUTION.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-RESOLUTION.DCFS-CSORDR-FILEDT = AIN64W.WS-CS-ORDR-FILEDT;
-  H2-RESOLUTION.DCFS-SRVC-OFC-WRKR = AIN64W.WS-DCFS-SRVC-OFC-WRKR;
-  H2-RESOLUTION.DCFS-SRVC-OFC-PHN = AIN64W.WS-DCFS-SRVC-OFC-PHN;
-  H2-RESOLUTION.DCFS-SRVC-OFC-CD = AIN64W.WS-DCFS-SRVC-OFC-CD;
-  H2-RESOLUTION.LGL-CST-BEG-DT = AIN64W.WS-LGL-CST-BEG-DT;
-  H2-RESOLUTION.LGL-CST-END-DT = AIN64W.WS-LGL-CST-END-DT;
-  /*  */
-  AIN64P9-RES-I01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  set H2-RFRL-ADRS empty;
-  H2-RFRL-ADRS.ICI = AIN64W1.WS-ICI;
-  H2-RFRL-ADRS.NCP-SQNC-NMB = AIN64W1.WS-NEXT-NCP-SQNC-NMB;
-  H2-RFRL-ADRS.HOUSE-NMB = AIN64W.WS-NCP-STREET-NUMBER;
-  H2-RFRL-ADRS.STR-DIR = AIN64W.WS-NCP-STREET-DIR;
-  H2-RFRL-ADRS.STR-NM = AIN64W.WS-NCP-STREET-NAME;
-  H2-RFRL-ADRS.STR-TYPE = AIN64W.WS-NCP-STREET-TYPE;
-  H2-RFRL-ADRS.APT-NMB = AIN64W.WS-NCP-APARTMENT-NMB;
-  H2-RFRL-ADRS.OTH-ADDR = AIN64W.WS-NCP-OTHER;
-  H2-RFRL-ADRS.CITY = AIN64W.WS-NCP-CITY;
-  H2-RFRL-ADRS.ST-CD = AIN64W.WS-NCP-STATE;
-  H2-RFRL-ADRS.ZIP-CD = AIN64W.WS-NCP-ZIP-CODE;
-  /*  */
-  AIN64P9-RFA-I01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  set H2-PERSON empty;
-  H2-PERSON.SSN = "777000000";
-  /*  */
-  AIN64P9-PER-S02();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-  	WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  set H2-FAM-NCP empty;
-  H2-FAM-NCP.ICI = AIN64W1.WS-ICI;
-  H2-FAM-NCP.PRD-BEG-DT = H2-FAM-CASE.CASE-ESTBL-DT;
-  H2-FAM-NCP.NCP-SQNC-NMB = AIN64W1.WS-NEXT-NCP-SQNC-NMB;
-  H2-FAM-NCP.EYE-COLOR = AIN64W.WS-NCP-EYES;
-  H2-FAM-NCP.HAIR-COLOR = AIN64W.WS-NCP-HAIR;
-  H2-FAM-NCP.HGHT = AIN64W1.WS-NCP-HEIGHT-NMB;
-  H2-FAM-NCP.WGHT = AIN64W1.WS-NCP-WEIGHT-NMB;
-  H2-FAM-NCP.NCP-UPI = 999999999;
-  H2-FAM-NCP.PRD-END-DT = "9999-12-31";
-  H2-FAM-NCP.MAINT-CD = " ";
-  H2-FAM-NCP.LEFT-DT = "0001-01-01";
-  H2-FAM-NCP.WAIV-3O-DAYS-FG = " ";
-  H2-FAM-NCP.PRSN-RSOLN-STS = " ";
-  H2-FAM-NCP.DSBLD-IND = AIN64W.WS-NCP-DISABLED;
-  H2-FAM-NCP.CASE-SUFX = " ";
-  H2-FAM-NCP.MULT-PAT-EXIST-IND = " ";
-  H2-FAM-NCP.RFRL-STS = "N";
-  H2-FAM-NCP.RETRO-GRNT-DT = "0001-01-01";
-  H2-FAM-NCP.CST-UPI = H2-PERSON.UPI;
-  H2-FAM-NCP.IVD-CASE-TYPE = "N";
-  H2-FAM-NCP.DEATH-DT = "9999-12-31";
-  H2-FAM-NCP.ADDED-BY = "D";
-  H2-FAM-NCP.ADDED-DT = GDW.DTCD;
-  H2-FAM-NCP.CASH-ASST-IND = "N";
-  H2-FAM-NCP.MED-ASST-IND = "N";
-  H2-FAM-NCP.SUSP-RSN-CD = " ";
-  H2-FAM-NCP.CST-CHG-IND = " ";
-  /*  */
-  AIN64P9-FMN-I01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  set H2-FAMCST empty;
-  H2-FAMCST.CST-UPI = 100000000;
-  H2-FAMCST.ICI = AIN64W1.WS-ICI;
-  H2-FAMCST.PRD-BEG-DT = H2-FAM-CASE.CASE-ESTBL-DT;
-  H2-FAMCST.NCP-SQNMB = AIN64W1.WS-NEXT-NCP-SQNC-NMB;
-  H2-FAMCST.GOOD-CAUSE-BASIS = " ";
-  H2-FAMCST.GOOD-CAUS-DTRMN-CD = " ";
-  H2-FAMCST.EFF-DT = "0001-01-01";
-  H2-FAMCST.CLAIM-DT = "0001-01-01";
-  H2-FAMCST.PRD-END-DT = "9999-12-31";
-  H2-FAMCST.COOP-CD = " ";
-  H2-FAMCST.MAINT-CD = " ";
-  H2-FAMCST.COOP-EFF-DT = "0001-01-01";
-  H2-FAMCST.SEP-CONCIL-STRT-DT = "0001-01-01";
-  H2-FAMCST.CST-REL-TO-CHILD = "36";
-  /*  */
-  AIN64P9-FMT-I01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  set H2-FAM-CHILD empty;
-  H2-FAM-CHILD.CHILD-UPI = AIN64W1.WS-CHILD-UPI;
-  H2-FAM-CHILD.ICI = AIN64W1.WS-ICI;
-  H2-FAM-CHILD.PRD-BEG-DT = H2-FAM-CASE.CASE-ESTBL-DT;
-  H2-FAM-CHILD.NCP-SQNMB = AIN64W1.WS-NEXT-NCP-SQNC-NMB;
-  H2-FAM-CHILD.CSTDY-DT = H2-FAM-CASE.CASE-ESTBL-DT;
-  H2-FAM-CHILD.PRD-END-DT = "9999-12-31";
-  H2-FAM-CHILD.MAINT-CD = " ";
-  H2-FAM-CHILD.CASH-ASST-IND = "N";
-  H2-FAM-CHILD.MED-ASST-IND = "N";
-  H2-FAM-CHILD.PAT-AFFDV-CRT-ORD = " ";
-  H2-FAM-CHILD.NCP-NM-ON-BC = " ";
-  /*  */
-  AIN64P9-FMC-I01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  set H2-CHILD empty;
-  H2-CHILD.UPI = AIN64W1.WS-CHILD-UPI;
-  H2-CHILD.XIX-PAID-ADJ-AMT = 0;
-  H2-CHILD.XIX-PAID-EFF-DT = "0001-01-01";
-  H2-CHILD.XIX-PAID-UNADJ-AMT = 0;
-  H2-CHILD.FTHR-NM-BCRTF-IND = " ";
-  H2-CHILD.BIRTH-CRTF-IND = " ";
-  H2-CHILD.PLACE-OF-CNCPT = " ";
-  H2-CHILD.SSI-RCPNT-IND = " ";
-  H2-CHILD.MTHLY-NET-INCM = 0;
-  H2-CHILD.MTHLY-GROSS-INCM = 0;
-  H2-CHILD.OTHER-INCM-SRC = " ";
-  H2-CHILD.SPL-NED-IND = " ";
-  H2-CHILD.EMNCP-OVRD-RSN-CD = " ";
-  /*  */
-  AIN64W1.WS-REM1 = 0;
-  AIN64W1.WS-REM2 = 0;
-  AIN64W1.WS-REM3 = 0;
-  set H2-PERSON empty;
-  /*  */
-  AIN64P9-PER-S03();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    AIN64W1.WS-EMAN-DATE = H2-PERSON.DOB;
-    AIN64W1.WS-EMAN-DATE-CCNUM = AIN64W1.WS-EMAN-DATE-CCNUM + 18;
-    if (AIN64W1.WS-EMAN-DATE-MM == "02" && 
-    AIN64W1.WS-EMAN-DATE-DD == "29")
-      AIN64W1.WS-REM1 = AIN64W1.WS-EMAN-DATE-CCNUM % 400;
-      AIN64W1.WS-REM2 = AIN64W1.WS-EMAN-DATE-CCNUM % 4;
-      AIN64W1.WS-REM3 = AIN64W1.WS-EMAN-DATE-CCNUM % 100;
-      if ((AIN64W1.WS-REM1 == 0 || (AIN64W1.WS-REM2 == 0 && 
-      AIN64W1.WS-REM3 != 0)))
-      else
-        AIN64W1.WS-EMAN-DATE-MM = "03";
-        AIN64W1.WS-EMAN-DATE-DD = "01";
-      end
-    end
-  else
-    AIN64W1.WS-EMAN-DATE = "9999-12-31";
-  end
-  H2-CHILD.EMNCP-DT = AIN64W1.WS-EMAN-DATE;
-  H2-CHILD.MINOR-MOM-IND = " ";
-  H2-CHILD.PATRN-PRSMP-IND = " ";
-  H2-CHILD.RSDI-SSI-APRVD-IND = " ";
-  H2-CHILD.HNDCP-IND = " ";
-  H2-CHILD.MTHR-SPOUS-TOB-LNM = " ";
-  H2-CHILD.MTHR-SPOUS-TOB-FNM = " ";
-  H2-CHILD.MTHR-SPOUS-TOB-MNM = " ";
-  H2-CHILD.MTHR-SPOUS-TOB-MOD = " ";
-  H2-CHILD.ALERT-GEN-IND = " ";
-  H2-CHILD.PAT-EST-IND = " ";
-  H2-CHILD.PAT-EST-DT = "0001-01-01";
-  H2-CHILD.BOW-IND = " ";
-  H2-CHILD.PAT-EST-NCP-UPI = 999999999;
-  H2-CHILD.PAT-EST-CASE-SUFX = " ";
-  /*  */
-  AIN64P9-CHD-I01();
-  /*  */
-  if (VDBCONTROL.URC > 104 && 
-  VDBCONTROL.URC != 112)
-    WCM00P2-TO-CEP01A();
-  end
-  AIN64W1.WS-RFRL-ADDED = "Y";
-end
-
-// end AIN64P9-BUILD-NCP1
-
-// REFERRAL PROCESS
-Function AIN64P9-CALL-APO30()
-  set APO04W1 empty;
-  /*  */
-  APO04W1.FAPO-ICI = AIN64W1.WS-ICI;
-  APO04W1.FAPO-SYS-DATE = AIN64W1.WS-PROC-DATE;
-  AIN64W1.WS-TEMP-REF-DATE = AIN64W.WS-REFERRAL-DATE;
-  AIN64W1.WS-TEMP-REF-DD = "01";
-  APO04W1.FAPO-BENEFIT-DT = AIN64W1.WS-TEMP-REF-DATE;
-  AIN64W1.WS-TEMP-DATE = AIN64W1.WS-TEMP-REF-DATE;
-  /*  */
-  AIN64P9-LST-DATE();
-  /*  */
-  APO04W1.FAPO-BENEFIT-MTH-END-DT = AIN64W1.WS-LAST-DATE;
-  AIN64W1.WS-TEMP-DATE = AIN64W.WS-REFERRAL-DATE;
-  AIN64W1.WS-TEMP-DD = "01";
-  AIN64W1.WS-TEMP-MM-NUM = AIN64W1.WS-TEMP-MM-NUM + 1;
-  if (AIN64W1.WS-TEMP-MM-NUM > 12)
-    AIN64W1.WS-TEMP-MM = "01";
-    AIN64W1.WS-TEMP-CCYY-NUM = AIN64W1.WS-TEMP-CCYY-NUM + 1;
-  end
-  APO04W1.FAPO-NEXT-MTH-BEG-DT = AIN64W1.WS-TEMP-DATE;
-  AIN64W1.WS-TEMP-DATE = AIN64W.WS-REFERRAL-DATE;
-  /*  */
-  AIN64P9-LAST-DATE();
-  /*  */
-  APO04W1.FAPO-PREV-MTH-END-DT = AIN64W1.WS-LAST-DATE;
-  /*  */
-  call "APO30A" (VDBCONTROL, VMESSAGE, APO04W1) {isNoRefresh = yes};
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-end
-
-// end AIN64P9-CALL-APO30
-
-// READS TWNCODE_TBL
-Function AIN64P9-CDT-S01()
+// READS TWNPERSON
+Function AIN64P9-PER-S01()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-CODE-TBL";
-  VDBCONTROL.UPROC-NM = "AIN64P9-CDT-S01";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-NM = "AIN64P9-PER-S01";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-CODE-TBL";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
   /*  */
   try
-    get H2-CODE-TBL
+    get H2-PERSON
       with #sql{
-        select CODE_TBL_CD,
-          CODE_TBL_TYP
-        from twncode_tbl
+        select FRST_NM,
+          LST_NM
+        from TWNPERSON T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE CODE_TBL_TYP = :CODE-TBL-TYP
-          AND CODE_TBL_CD = :CODE-TBL-CD
+        WHERE T1.UPI = :UPI
+        FOR FETCH ONLY
          --** INSERT ORDER BY CLAUSE HERE **
       }
-      into CODE-TBL-CD,
-           CODE-TBL-TYP ;
+      into FRST-NM,
+           LST-NM ;
   end
   /*  */
   /* Increment count of rows retrieved*/
@@ -612,30 +38,29 @@ Function AIN64P9-CDT-S01()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-CDT-S01
+// end AIN64P9-PER-S01
 
-// READS TWNCODE_TBL
-Function AIN64P9-CDT-S02()
+// READS TWNPERSON
+Function AIN64P9-PER-S02()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-CODE-TBL";
-  VDBCONTROL.UPROC-NM = "AIN64P9-CDT-S02";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-NM = "AIN64P9-PER-S02";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-CODE-TBL";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
   /*  */
   try
-    get H2-CODE-TBL
+    get H2-PERSON singleRow
       with #sql{
-        select CODE_DESC
-        from twncode_tbl
+        select UPI
+        from TWNPERSON T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE CODE_TBL_TYP = 'RFRLOFC'
-          AND CODE_TBL_CD = :CODE-TBL-CD
+        WHERE T1.SSN = :SSN
          --** INSERT ORDER BY CLAUSE HERE **
       }
-      into CODE-DESC ;
+      into UPI ;
   end
   /*  */
   /* Increment count of rows retrieved*/
@@ -652,41 +77,29 @@ Function AIN64P9-CDT-S02()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-CDT-S02
+// end AIN64P9-PER-S02
 
-// GETS OFC-CD AND USER-ID
-Function AIN64P9-CFS-S01()
+// READS TWNPERSON
+Function AIN64P9-PER-S03()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-3-CCH-FAM-SPT";
-  VDBCONTROL.UPROC-NM = "AIN64P9-CFS-S01";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-NM = "AIN64P9-PER-S03";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-3-CCH-FAM-SPT";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
   /*  */
   try
-    get H2-3-CCH-FAM-SPT
+    get H2-PERSON singleRow
       with #sql{
-        select T3.OFC_CD,
-          T3.NOMADS_USRID
-        from TWNCASLD_CASE_HST T1,
-             TWNFAM_CASE T2,
-             TWNSUP_UNT_POS_HST T3
+        select DOB
+        from TWNPERSON T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI           = :AIN64W1.WS-ICI
-          AND T1.ICI           = T2.ICI
-          AND T1.PRGM_OFC_TYPE = 'A'
-          AND T1.PRGM_OFC_TYPE = T3.PRGM_OFC_TYPE
-          AND T3.ASMNT_BEG_DT <= :AIN64W1.WS-PROC-DATE
-          AND T3.ASMNT_END_DT >= :AIN64W1.WS-PROC-DATE
-          AND T1.OFC_CD        = T3.OFC_CD
-          AND T1.SPRVS_UNIT    = T3.SPRVS_UNIT
-          AND T1.PSN_NMB       = T3.PSN_NMB
+        WHERE T1.UPI = :AIN64W1.WS-CHILD-UPI
          --** INSERT ORDER BY CLAUSE HERE **
       }
-      into T3-OFC-CD,
-           NOMADS-USRID ;
+      into DOB ;
   end
   /*  */
   /* Increment count of rows retrieved*/
@@ -703,463 +116,71 @@ Function AIN64P9-CFS-S01()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-CFS-S01
+// end AIN64P9-PER-S03
 
-// ADDS RECS TO TWNCHILD
-Function AIN64P9-CHD-I01()
-  WDB00PI();
+// PROCESS DCFS FLAT FILE
+Function AIN64P9-PROC-DATA()
+  AIN64W.WS-INPUT-DATA = SR-AIN64-RECIN.INPUT-DATA;
+  AIN64W2.WS-ERROR-CODE = " ";
+  AIN64W1.WS-GOOD-REC = "Y";
+  AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
   /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-CHILD";
-  VDBCONTROL.UPROC-NM = "AIN64P9-CHD-I01";
-  VDBCONTROL.UPROC-OPT = "INSERT";
-  VDBCONTROL.UPROC-OBJ = "H2-CHILD";
+  AIN64P9-VALIDATE();
   /*  */
-  try
-    add H2-CHILD ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-CHD-I01
-
-Function AIN64P9-CLOSE()
-  VGVar.handleSysLibraryErrors = 0;
-  sysLib.commit();
-  /*  */
-  exit program;
-end
-
-// end AIN64P9-CLOSE
-
-Function AIN64P9-DELETE()
-// THIS ROUTINE DELETES RECORDS.
-  set H2-2-FAM-RES empty;
-  H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-  /*  */
-  AIN64P9-FMR-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    set H2-IVD-RFRL-DTLS empty;
-    /*  */
-    AIN64P9-DRF-S02();
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    /*  */
-    if (sysVar.sqlData.sqlcode == 100)
-      /*  */
-      AIN64P9-FMN-D01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      AIN64P9-FMC-D01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      AIN64P9-RES-D01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      AIN64P9-FMT-D01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      AIN64P9-RFA-D01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      AIN64P9-REF-U01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
-      AIN64W2.WS-ERROR-CODE = "CN01";
-      /*  */
-      AIN64P9-WRITE-OUT();
-      /*  */
-    end
-  end
-  set H2-2-FAM-RES empty;
-  H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-  /*  */
-  AIN64P9-FMR-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  if (sysVar.sqlData.sqlcode == 100)
-    set H2-2-FAM-DRF empty;
-    H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-    H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-    /*  */
-    AIN64P9-FMI-S01();
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    /*  */
-    if (sysVar.sqlData.sqlcode == 0)
-      AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
-      AIN64W2.WS-ERROR-CODE = "DT05";
-      /*  */
-      AIN64P9-WRITE-OUT();
-    end
-  end
-  set H2-2-FAM-RES empty;
-  H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-  H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-  /*  */
-  AIN64P9-FAM-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  if (sysVar.sqlData.sqlcode == 100)
-    AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
-    AIN64W2.WS-ERROR-CODE = "DT04";
+  if (AIN64W1.WS-GOOD-REC == "N")
     /*  */
     AIN64P9-WRITE-OUT();
+    /*  */
+    AIN64W2.WS-OUTPUT-DATA = " ";
+    AIN64W1.WS-GOOD-REC = "Y";
+  else
+    AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
+    if (AIN64W.WS-REC-TYPE == "A")
+      AIN64P9-ADD();
+    else
+      if (AIN64W.WS-REC-TYPE == "M")
+        AIN64P9-MODIFY();
+      else
+        if (AIN64W.WS-REC-TYPE == "D")
+          AIN64P9-DELETE();
+        end
+      end
+    end
   end
 end
 
-// end AIN64P9-DELETE
+// end AIN64P9-PROC-DATA
 
-// READS TWNIVD_RFRL_DTLS
-Function AIN64P9-DRF-S01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-IVD-RFRL-DTLS";
-  VDBCONTROL.UPROC-NM = "AIN64P9-DRF-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-RFRL-DTLS";
-  /*  */
-  try
-    get H2-IVD-RFRL-DTLS
-      with #sql{
-        select DCFS_NCP_ID
-        from TWNIVD_RFRL_DTLS T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.DCFS_NCP_ID = :DCFS-NCP-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into DCFS-NCP-ID ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-DRF-S01
-
-// READS TWNIVD_RFRL_DTLS
-Function AIN64P9-DRF-S02()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-IVD-RFRL-DTLS";
-  VDBCONTROL.UPROC-NM = "AIN64P9-DRF-S02";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-RFRL-DTLS";
-  /*  */
-  try
-    get H2-IVD-RFRL-DTLS
-      with #sql{
-        select NCP_UPI
-        from TWNIVD_RFRL_DTLS T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = :AIN64W1.WS-ICI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into NCP-UPI ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-DRF-S02
-
-// READS TWNIVD_RFRL_DTLS
-Function AIN64P9-DRF-S03()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-IVD-RFRL-DTLS";
-  VDBCONTROL.UPROC-NM = "AIN64P9-DRF-S03";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-RFRL-DTLS";
-  /*  */
-  try
-    get H2-IVD-RFRL-DTLS
-      with #sql{
-        select LGL_CST_BEG_DT,
-               LGL_CST_END_DT,
-               NCP_UPI
-        from TWNIVD_RFRL_DTLS T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = :AIN64W1.WS-ICI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into LGL-CST-BEG-DT,
-           LGL-CST-END-DT,
-           NCP-UPI ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-DRF-S03
-
-// UPDATES TWNIVD_RFRL_DTLS
-Function AIN64P9-DRF-U01()
+// INSERTS RECS INTO TWNREFERRAL
+Function AIN64P9-REF-I01()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-IVD-RFRL-DTLS";
-  VDBCONTROL.UPROC-NM = "AIN64P9-DRF-U01";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-RFRL-DTLS";
-  /*  */
-  try
-    execute update 
-      #sql{
-        UPDATE
-          TWNIVD_RFRL_DTLS T1
-        SET
-          DCFS_SRVC_OFC_WRKR = :DCFS-SRVC-OFC-WRKR,
-          DCFS_SRVC_OFC_PHN  = :DCFS-SRVC-OFC-PHN,
-          DCFS_SRVC_OFC_CD   = :DCFS-SRVC-OFC-CD,
-          LGL_CST_BEG_DT     = :LGL-CST-BEG-DT,
-          LGL_CST_END_DT     = :LGL-CST-END-DT
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = :AIN64W1.WS-ICI
-      }
-      for H2-IVD-RFRL-DTLS ; // model = update
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-// end AIN64P9-DRF-U01
-
-// READS TWNFAM_CASE
-Function AIN64P9-FAM-S01()
-  WDB00PI();
-  //
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-FAM-CASE";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FAM-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-CASE";
-  //
-  try
-    get H2-FAM-CASE
-      with #sql{
-        select ICI,
-          IVE_CASE_ID,
-          CASE_ESTBL_DT,
-          HOH_UPI,
-          APPL_UPI
-        from TWNFAM_CASE T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.IVE_CASE_ID = :IVE-CASE-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into AIN64W1.WS-ICI,
-           IVE-CASE-ID,
-           CASE-ESTBL-DT,
-           AIN64W1.WS-CHILD-UPI,
-           AIN64W1.WS-APPL-UPI ;
-  end
-  //
-  // Increment count of rows retrieved
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  // Set error control flags
-  // UNRF - No record found flag (Y,N,1)
-  // UDUP - Duplicate key flag (Y,N)
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  //
-  // Perform DBM error processing
-  WDB00PE-SQLERR();
-end
-// end AIN64P9-FAM-S01
-
-Function AIN64P9-FAM-S02()
-  WDB00PI();
-  //
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-FAM-CASE";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FAM-S02";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-CASE";
-  //
-  try
-    get H2-FAM-CASE
-      with #sql{
-        select HOH_UPI,
-               APPL_UPI
-        from TWNFAM_CASE T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = :AIN64W1.WS-ICI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into HOH-UPI, 
-           AIN64W1.WS-CST-UPI ;
-  end
-  //
-  // Increment count of rows retrieved
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  // Set error control flags
-  // UNRF - No record found flag (Y,N,1)
-  // UDUP - Duplicate key flag (Y,N)
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  // Perform DBM error processing
-  WDB00PE-SQLERR();
-end
-// end AIN64P9-FAM-S02
-
-// DELETES TWNFAM_CHILD RECORDS
-Function AIN64P9-FMC-D01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAM-CHILD";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMC-D01";
-  VDBCONTROL.UPROC-OPT = "DELETE";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-CHILD";
-  /*  */
-  try
-    execute delete 
-      #sql{
-        DELETE FROM
-          twnfam_child T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE CHILD_UPI = :AIN64W1.WS-CHILD-UPI
-          AND ICI = :AIN64W1.WS-ICI
-      }
-      for H2-FAM-CHILD ; // model = delete
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-FMC-D01
-
-// ADDS RECS TO TWNFAM_CHILD
-Function AIN64P9-FMC-I01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAM-CHILD";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMC-I01";
+  VDBCOMMON.USQLREC = "H2-REFERRAL";
+  VDBCONTROL.UPROC-NM = "AIN64P9-REF-I01";
   VDBCONTROL.UPROC-OPT = "INSERT";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-CHILD";
+  VDBCONTROL.UPROC-OBJ = "H2-REFERRAL";
   /*  */
   try
-    add H2-FAM-CHILD ;
+    add H2-REFERRAL
+      with #sql{
+        insert into TWNREFERRAL 
+        (ICI, NCP_SQNC_NMB, RFRL_DT, RFRL_STS,
+          IVD_OFFICE, CRTN_FAME_OFFICE, CRTN_FAME_WRKR,
+          FRM_4000_EXISTS, FRM_4000_RCVD_DT,
+          RCVD_IVD_WRKR, RFR_BACK_DT, RFR_BACK_RSN,
+          RFR_BACK_IVD_WRKR, RESOLUTION_DT,
+          RESOLV_IVD_WRKR, CRTN_TS, DECLINE_DT,
+          DECLINE_RSN, DECLINE_IVD_WRKR, DECLINE_OFC_CD)
+        values (:ICI, :NCP-SQNC-NMB, :RFRL-DT, :RFRL-STS,
+          :IVD-OFFICE, :CRTN-FAME-OFFICE, :CRTN-FAME-WRKR,
+          :FRM-4000-EXISTS, :FRM-4000-RCVD-DT,
+          :RCVD-IVD-WRKR, :RFR-BACK-DT, :RFR-BACK-RSN,
+          :RFR-BACK-IVD-WRKR, :RESOLUTION-DT,
+          :RESOLV-IVD-WRKR, :CRTN-TS, :DECLINE-DT,
+          :DECLINE-RSN, :DECLINE-IVD-WRKR, :DECLINE-OFC-CD)
+      } ;
   end
   /*  */
   /* Increment count of rows retrieved*/
@@ -1176,122 +197,70 @@ Function AIN64P9-FMC-I01()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-FMC-I01
+// end AIN64P9-REF-I01
 
-// UPDATES TWNFAM_CHILD RECORDS
-Function AIN64P9-FMC-U01()
+// READS TWNREFERRAL
+Function AIN64P9-REF-S01()
+  WDB00PI();
+  /*  */
+  VDBCOMMON.UAPPLNAM = "AIN64A";
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.USQLREC = "H2-REFERRAL";
+  VDBCONTROL.UPROC-NM = "AIN64P9-REF-S01";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCONTROL.UPROC-OBJ = "H2-REFERRAL";
+  /*  */
+  try
+    get H2-REFERRAL
+      with #sql{
+        select MAX(NCP_SQNC_NMB)
+        from TWNREFERRAL T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE T1.ICI = :AIN64W1.WS-ICI
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into AIN64W1.WS-MAX-NCP-SQNC-NMB ;
+  end
+  /*  */
+  /* Increment count of rows retrieved*/
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  /* Set error control flags*/
+  /* UNRF - No record found flag (Y,N,1)*/
+  /* UDUP - Duplicate key flag (Y,N)*/
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  /*  */
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+end
+
+// end AIN64P9-REF-S01
+
+// UPDATES TWNREFERRAL
+Function AIN64P9-REF-U01()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAM-CHILD";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMC-U01";
+  VDBCOMMON.USQLREC = "H2-REFERRAL";
+  VDBCONTROL.UPROC-NM = "AIN64P9-REF-U01";
   VDBCONTROL.UPROC-OPT = "UPDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-CHILD";
+  VDBCONTROL.UPROC-OBJ = "H2-REFERRAL";
   /*  */
   try
     execute update 
       #sql{
         UPDATE
-          twnfam_child T1
+          TWNREFERRAL T1
         SET
-          CHILD_UPI=:CHILD-UPI,
-          ICI=:ICI,
-          PRD_BEG_DT=:PRD-BEG-DT,
-          NCP_SQNMB=:NCP-SQNMB,
-          CSTDY_DT=:CSTDY-DT,
-          PRD_END_DT=:PRD-END-DT,
-          MAINT_CD=:MAINT-CD,
-          CASH_ASST_IND=:CASH-ASST-IND,
-          MED_ASST_IND=:MED-ASST-IND,
-          PAT_AFFDV_CRT_ORD=:PAT-AFFDV-CRT-ORD,
-          NCP_NM_ON_BC=:NCP-NM-ON-BC
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE CHILD_UPI = :AIN64W1.WS-CHILD-UPI
-          AND ICI = :AIN64W1.WS-ICI
-      }
-      for H2-FAM-CHILD ; // model = update
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-FMC-U01
-
-// READS FAM_CASE IVD_RFRL_DTLS
-Function AIN64P9-FMI-S01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-2-FAM-DRF";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMI-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-2-FAM-DRF";
-  /*  */
-  try
-    get H2-2-FAM-DRF
-      with #sql{
-        select T2.ICI
-        from TWNFAM_CASE T1,
-             TWNIVD_RFRL_DTLS T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = T2.ICI
-          AND T1.IVE_CASE_ID = :H2-2-FAM-DRF.IVE-CASE-ID
-          AND T2.DCFS_NCP_ID = :H2-2-FAM-DRF.DCFS-NCP-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into AIN64W1.WS-ICI ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-FMI-S01
-
-// DELETES TWNFAM_NCP RECORDS
-Function AIN64P9-FMN-D01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAM-NCP";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMN-D01";
-  VDBCONTROL.UPROC-OPT = "DELETE";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-NCP";
-  /*  */
-  try
-    execute delete 
-      #sql{
-        DELETE FROM
-          TWNFAM_NCP T1
+          RFRL_STS = 'D'
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
         WHERE ICI = :AIN64W1.WS-ICI
           AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
       }
-      for H2-FAM-NCP ; // model = delete
+      for H2-REFERRAL ; // model = update
   end
   /*  */
   /* Increment count of rows retrieved*/
@@ -1308,67 +277,29 @@ Function AIN64P9-FMN-D01()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-FMN-D01
+// end AIN64P9-REF-U01
 
-// ADDS RECS TO TWNFAM_NCP
-Function AIN64P9-FMN-I01()
+// DELETES TWNRESOLUTION RECORDS
+Function AIN64P9-RES-D01()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAM-NCP";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMN-I01";
-  VDBCONTROL.UPROC-OPT = "INSERT";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-NCP";
+  VDBCOMMON.USQLREC = "H2-RESOLUTION";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RES-D01";
+  VDBCONTROL.UPROC-OPT = "DELETE";
+  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
   /*  */
   try
-    add H2-FAM-NCP ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-FMN-I01
-
-// UPDATES TWNFAM_NCP RECORDS
-Function AIN64P9-FMN-U01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAM-NCP";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMN-U01";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-NCP";
-  /*  */
-  try
-    execute update 
+    execute delete 
       #sql{
-        UPDATE
-          TWNFAM_NCP T1
-        SET
-          EYE_COLOR  = :EYE-COLOR,
-          HAIR_COLOR = :HAIR-COLOR,
-          HGHT       = :HGHT,
-          WGHT       = :WGHT,
-          DSBLD_IND  = :DSBLD-IND,
-          ADDED_DT   = :ADDED-DT
+        DELETE FROM
+          TWNRESOLUTION T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE ICI          = :AIN64W1.WS-ICI
+        WHERE ICI = :AIN64W1.WS-ICI
           AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
       }
-      for H2-FAM-NCP ; // model = update
+      for H2-RESOLUTION ; // model = delete
   end
   /*  */
   /* Increment count of rows retrieved*/
@@ -1385,16 +316,91 @@ Function AIN64P9-FMN-U01()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-FMN-U01
+// end AIN64P9-RES-D01
 
-// READS FAM_CASE RESOLUTION
-Function AIN64P9-FMR-S01()
+// ADDS RECS TO TWNRESOLUTION
+Function AIN64P9-RES-I01()
+  WDB00PI();
+  /*  */
+  VDBCOMMON.UAPPLNAM = "AIN64A";
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.USQLREC = "H2-RESOLUTION";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RES-I01";
+  VDBCONTROL.UPROC-OPT = "INSERT";
+  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
+  /*  */
+  try
+    add H2-RESOLUTION ;
+  end
+  /*  */
+  /* Increment count of rows retrieved*/
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  /* Set error control flags*/
+  /* UNRF - No record found flag (Y,N,1)*/
+  /* UDUP - Duplicate key flag (Y,N)*/
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  /*  */
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+end
+
+// end AIN64P9-RES-I01
+
+// READS TWNRESOLUTION
+Function AIN64P9-RES-S01()
+  WDB00PI();
+  /*  */
+  VDBCOMMON.UAPPLNAM = "AIN64A";
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.USQLREC = "H2-RESOLUTION";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RES-S01";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
+  /*  */
+  try
+    get H2-RESOLUTION
+      with #sql{
+        select DCFS_NCP_ID,
+          SSN,
+          ICI
+        from TWNRESOLUTION T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE T1.DCFS_NCP_ID = :DCFS-NCP-ID
+         --** INSERT ORDER BY CLAUSE HERE **
+        FOR FETCH ONLY
+      }
+      into DCFS-NCP-ID,
+           SSN, 
+           AIN64W1.WS-ICI ;
+  end
+  /*  */
+  /* Increment count of rows retrieved*/
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  /* Set error control flags*/
+  /* UNRF - No record found flag (Y,N,1)*/
+  /* UDUP - Duplicate key flag (Y,N)*/
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  /*  */
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+end
+
+// end AIN64P9-RES-S01
+
+// READS TWNRESOLUTION
+Function AIN64P9-RES-S02()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "R";
   VDBCOMMON.USQLREC = "H2-2-FAM-RES";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMR-S01";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RES-S02";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
   VDBCONTROL.UPROC-OBJ = "H2-2-FAM-RES";
   /*  */
@@ -1402,24 +408,38 @@ Function AIN64P9-FMR-S01()
     get H2-2-FAM-RES
       with #sql{
         select T2.ICI,
-          T2.NCP_SQNC_NMB,
-          T2.LGL_CST_BEG_DT,
-          T2.LGL_CST_END_DT
+               T2.DCFS_NCP_ID,
+               'RES'
         from TWNFAM_CASE T1,
              TWNRESOLUTION T2
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = T2.ICI
-          AND T1.IVE_CASE_ID = :H2-2-FAM-RES.IVE-CASE-ID
-          AND T2.DCFS_NCP_ID = :H2-2-FAM-RES.DCFS-NCP-ID
+        where T1.ICI = T2.ICI
+        and   T1.IVE_CASE_ID = :H2-2-FAM-RES.IVE-CASE-ID
+        and   T2.DCFS_NCP_ID = :H2-2-FAM-RES.DCFS-NCP-ID
+        union
+        select T2.ICI,
+               T2.DCFS_NCP_ID,
+               'RFL'
+        from TWNFAM_CASE T1,
+             TWNIVD_RFRL_DTLS T2
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        where T1.ICI = T2.ICI
+        and   T1.IVE_CASE_ID = :H2-2-FAM-DRF.IVE-CASE-ID
+        and   T2.DCFS_NCP_ID = :H2-2-FAM-DRF.DCFS-NCP-ID
          --** INSERT ORDER BY CLAUSE HERE **
+        FOR FETCH ONLY
       }
       into AIN64W1.WS-ICI,
-           AIN64W1.WS-MAX-NCP-SQNC-NMB,
-           H2-2-FAM-RES.LGL-CST-BEG-DT,
-           H2-2-FAM-RES.LGL-CST-END-DT ;
+           DCFS-NCP-ID,
+           AIN64W1.WS-FROM ;
   end
   /*  */
   /* Increment count of rows retrieved*/
+  if (sysVar.sqlData.sqlcode == -811)
+  	sysVar.sqlData.sqlcode = 0;
+  	AIN64W1.WS-From = "BTH";
+  end
+  
   if (sysVar.sqlData.sqlcode == 0)
     VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
   end
@@ -1433,114 +453,49 @@ Function AIN64P9-FMR-S01()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-FMR-S01
+// end AIN64P9-RES-S02
 
-// DELETES TWNFAMCST RECORDS
-Function AIN64P9-FMT-D01()
+
+// UPDATES TWNRESOLUTION
+Function AIN64P9-RES-U01()
   WDB00PI();
   /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
   VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAMCST";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMT-D01";
-  VDBCONTROL.UPROC-OPT = "DELETE";
-  VDBCONTROL.UPROC-OBJ = "H2-FAMCST";
-  /*  */
-  try
-    execute delete 
-      #sql{
-        DELETE FROM
-          twnfamcst T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE ICI = :AIN64W1.WS-ICI
-          AND NCP_SQNMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
-      }
-      for H2-FAMCST ; // model = delete
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-FMT-D01
-
-// ADDS RECS TO TWNFAMCST
-Function AIN64P9-FMT-I01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAMCST";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMT-I01";
-  VDBCONTROL.UPROC-OPT = "INSERT";
-  VDBCONTROL.UPROC-OBJ = "H2-FAMCST";
-  /*  */
-  try
-    add H2-FAMCST ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-FMT-I01
-
-// UPDATES TWNFAMCST RECORDS
-Function AIN64P9-FMT-U01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-FAMCST";
-  VDBCONTROL.UPROC-NM = "AIN64P9-FMT-U01";
+  VDBCOMMON.USQLREC = "H2-RESOLUTION";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RES-U01";
   VDBCONTROL.UPROC-OPT = "UPDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-FAMCST";
+  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
   /*  */
   try
     execute update 
       #sql{
         UPDATE
-          twnfamcst T1
+          TWNRESOLUTION T1
         SET
-          CST_UPI=:CST-UPI,
-          ICI=:ICI,
-          PRD_BEG_DT=:PRD-BEG-DT,
-          NCP_SQNMB=:NCP-SQNMB,
-          GOOD_CAUSE_BASIS=:GOOD-CAUSE-BASIS,
-          GOOD_CAUS_DTRMN_CD=:GOOD-CAUS-DTRMN-CD,
-          EFF_DT=:EFF-DT,
-          CLAIM_DT=:CLAIM-DT,
-          PRD_END_DT=:PRD-END-DT,
-          COOP_CD=:COOP-CD,
-          MAINT_CD=:MAINT-CD,
-          COOP_EFF_DT=:COOP-EFF-DT,
-          SEP_CONCIL_STRT_DT=:SEP-CONCIL-STRT-DT,
-          CST_REL_TO_CHILD=:CST-REL-TO-CHILD
+          SSN=:SSN,
+          LST_NM=:LST-NM,
+          FRST_NM=:FRST-NM,
+          MID_NM=:MID-NM,
+          MODFR=:MODFR,
+          HM_PHN_NMB=:HM-PHN-NMB,
+          ETHNC_CD=:ETHNC-CD,
+          SEX_CD=:SEX-CD,
+          PLACE_OF_BIRTH=:PLACE-OF-BIRTH,
+          BIRTH_PLACE_CD=:BIRTH-PLACE-CD,
+          DOB=:DOB,
+          DCFS_NCP_ID=:DCFS-NCP-ID,
+          DCFS_CSORDR_FILEDT=:DCFS-CSORDR-FILEDT,
+          DCFS_SRVC_OFC_WRKR=:DCFS-SRVC-OFC-WRKR,
+          DCFS_SRVC_OFC_PHN=:DCFS-SRVC-OFC-PHN,
+          DCFS_SRVC_OFC_CD=:DCFS-SRVC-OFC-CD,
+          LGL_CST_BEG_DT=:LGL-CST-BEG-DT,
+          LGL_CST_END_DT=:LGL-CST-END-DT
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
         WHERE ICI = :AIN64W1.WS-ICI
-          AND NCP_SQNMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
+          AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
       }
-      for H2-FAMCST ; // model = update
+      for H2-RESOLUTION ; // model = update
   end
   /*  */
   /* Increment count of rows retrieved*/
@@ -1557,478 +512,1086 @@ Function AIN64P9-FMT-U01()
   WDB00PE-SQLERR();
 end
 
-// end AIN64P9-FMT-U01
+// end AIN64P9-RES-U01
 
-// READS TWNIVD_CASE
-Function AIN64P9-IDC-S01()
+// DELETES TWNRFRL_ADRS RECORDS
+Function AIN64P9-RFA-D01()
   WDB00PI();
-  //
+  /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-IVD-CASE";
-  VDBCONTROL.UPROC-NM = "AIN64P9-IDC-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-  //
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.USQLREC = "H2-RFRL-ADRS";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RFA-D01";
+  VDBCONTROL.UPROC-OPT = "DELETE";
+  VDBCONTROL.UPROC-OBJ = "H2-RFRL-ADRS";
+  /*  */
   try
-    get H2-IVD-CASE
-      with #sql{
-        select CASE_SUFX
-        from TWNIVD_CASE T1
+    execute delete 
+      #sql{
+        DELETE FROM
+          TWNRFRL_ADRS T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.NCP_UPI = :NCP-UPI
-         --** INSERT ORDER BY CLAUSE HERE **
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
+        WHERE T1.ICI = :AIN64W1.WS-ICI
+          AND T1.NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
       }
-      into AIN64W1.WS-NCP-CASE-SUFFIX ;
+      for H2-RFRL-ADRS ; // model = delete
   end
-  //
-  // Increment count of rows retrieved
+  /*  */
+  /* Increment count of rows retrieved*/
   if (sysVar.sqlData.sqlcode == 0)
     VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
   end
-  // Set error control flags
-  // UNRF - No record found flag (Y,N,1)
-  // UDUP - Duplicate key flag (Y,N)
+  /* Set error control flags*/
+  /* UNRF - No record found flag (Y,N,1)*/
+  /* UDUP - Duplicate key flag (Y,N)*/
   VDBCOMMON.UNRF = "Y";
   VDBCOMMON.UDUP = "N";
-  //
-  // Perform DBM error processing
+  /*  */
+  /* Perform DBM error processing*/
   WDB00PE-SQLERR();
 end
-// end AIN64P9-IDC-S01
 
-// READS TWNIVD_CASE
-Function AIN64P9-IDC-S02()
+// end AIN64P9-RFA-D01
+
+// ADDS RECS TO TWNRFRL_ADRS
+Function AIN64P9-RFA-I01()
   WDB00PI();
-  //
+  /*  */
   VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-IVD-CASE";
-  VDBCONTROL.UPROC-NM = "AIN64P9-IDC-S02";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-  //
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.USQLREC = "H2-RFRL-ADRS";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RFA-I01";
+  VDBCONTROL.UPROC-OPT = "INSERT";
+  VDBCONTROL.UPROC-OBJ = "H2-RFRL-ADRS";
+  /*  */
   try
-    get H2-IVD-CASE
-      with #sql{
-        select NCP_UPI,
-               CASE_SUFX
-        from TWNIVD_CASE T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.CST_UPI = :AIN64W1.WS-CST-UPI
-         --** INSERT ORDER BY CLAUSE HERE **
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into NCP-UPI,
-           CASE-SUFX ;
+    add H2-RFRL-ADRS ;
   end
-  // Increment count of rows retrieved
+  /*  */
+  /* Increment count of rows retrieved*/
   if (sysVar.sqlData.sqlcode == 0)
     VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
   end
-  // Set error control flags
-  // UNRF - No record found flag (Y,N,1)
-  // UDUP - Duplicate key flag (Y,N)
+  /* Set error control flags*/
+  /* UNRF - No record found flag (Y,N,1)*/
+  /* UDUP - Duplicate key flag (Y,N)*/
   VDBCOMMON.UNRF = "Y";
   VDBCOMMON.UDUP = "N";
-  //
-  // Perform DBM error processing
+  /*  */
+  /* Perform DBM error processing*/
   WDB00PE-SQLERR();
 end
-// end AIN64P9-IDC-S02
 
-// INITIALIZE PROCESS
-Function AIN64P9-INIT()
-  set AIN64W empty;
-  set AIN64W1 empty;
-  set AIN64W2 empty;
+// end AIN64P9-RFA-I01
+
+// UPDATES TWNRFRL_ADRS RECORDS
+Function AIN64P9-RFA-U01()
+  WDB00PI();
   /*  */
-  AIN64W1.WS-FIRST-IND = "Y";
-  AIN64W1.WS-LGL-BEG-DT-CHANGED = "N";
-  AIN64W1.WS-LGL-END-DT-CHANGED = "N";
+  VDBCOMMON.UAPPLNAM = "AIN64A";
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.USQLREC = "H2-RFRL-ADRS";
+  VDBCONTROL.UPROC-NM = "AIN64P9-RFA-U01";
+  VDBCONTROL.UPROC-OPT = "UPDATE";
+  VDBCONTROL.UPROC-OBJ = "H2-RFRL-ADRS";
   /*  */
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  /*  */
-  WCM00P3-FETCHBDTS();
-  /*  */
-  AIN64W1.WS-PROC-DT-CC = BDATEREC.BDATE-PROCESS-DATE-CC;
-  AIN64W1.WS-PROC-DT-YY = BDATEREC.BDATE-PROCESS-DATE-YY;
-  AIN64W1.WS-PROC-DASH1 = "-";
-  AIN64W1.WS-PROC-DT-MM = BDATEREC.BDATE-PROCESS-DATE-MM;
-  AIN64W1.WS-PROC-DASH2 = "-";
-  AIN64W1.WS-PROC-DT-DD = BDATEREC.BDATE-PROCESS-DATE-DD;
-end
-
-// end AIN64P9-INIT
-
-// date retrieval process
-Function AIN64P9-LAST-DATE()
-  /* LAST DAY OF THE PREVIOUS MONTH FROM THE GIVEN DATE*/
-  /*  */
-  AIN64W1.WS-PREV-CCYY = AIN64W1.WS-TEMP-CCYY-NUM;
-  if (AIN64W1.WS-TEMP-MM-NUM == 1)
-    AIN64W1.WS-PREV-MM = 12;
-    AIN64W1.WS-PREV-CCYY = AIN64W1.WS-TEMP-CCYY-NUM - 1;
-    AIN64W1.WS-PREV-DD = 31;
-  end
-  if (AIN64W1.WS-TEMP-MM-NUM == 05 || 
-  AIN64W1.WS-TEMP-MM-NUM == 07 || 
-  AIN64W1.WS-TEMP-MM-NUM == 10 || 
-  AIN64W1.WS-TEMP-MM-NUM == 12)
-    AIN64W1.WS-PREV-MM = AIN64W1.WS-TEMP-MM-NUM - 1;
-    AIN64W1.WS-PREV-DD = 30;
-  end
-
-  if (AIN64W1.WS-TEMP-MM-NUM == 02 || 
-  AIN64W1.WS-TEMP-MM-NUM == 04 || 
-  AIN64W1.WS-TEMP-MM-NUM == 06 || 
-  AIN64W1.WS-TEMP-MM-NUM == 08 || 
-  AIN64W1.WS-TEMP-MM-NUM == 09 || 
-  AIN64W1.WS-TEMP-MM-NUM == 11)
-
-    AIN64W1.WS-PREV-MM = AIN64W1.WS-TEMP-MM-NUM - 1;
-    AIN64W1.WS-PREV-DD = 31;
-  end
-  if (AIN64W1.WS-TEMP-MM-NUM == 03)
-    AIN64W1.WS-REM1 = AIN64W1.WS-PREV-CCYY % 4;
-    AIN64W1.WS-REM2 = AIN64W1.WS-PREV-CCYY % 100;
-    AIN64W1.WS-REM3 = AIN64W1.WS-PREV-CCYY % 400;
-
-    if (AIN64W1.WS-REM1 != 0)
-      AIN64W1.WS-PREV-MM = 02;
-      AIN64W1.WS-PREV-DD = 28;
-    else
-      if (AIN64W1.WS-REM2 == 0)
-        if (AIN64W1.WS-REM3 == 0)
-          AIN64W1.WS-PREV-MM = 02;
-          AIN64W1.WS-PREV-DD = 29;
-        else
-          AIN64W1.WS-PREV-MM = 02;
-          AIN64W1.WS-PREV-DD = 28;
-        end
-      else
-        AIN64W1.WS-PREV-MM = 02;
-        AIN64W1.WS-PREV-DD = 29;
-      end
-    end
-  end
-  AIN64W1.WS-LAST-DATE-CC = AIN64W1.WS-PREV-CC-C;
-  AIN64W1.WS-LAST-DATE-YY = AIN64W1.WS-PREV-YY-C;
-  AIN64W1.WS-LAST-DATE-MM = AIN64W1.WS-PREV-MM-C;
-  AIN64W1.WS-LAST-DATE-DD = AIN64W1.WS-PREV-DD-C;
-  AIN64W1.WS-LAST-DATE-FIL1 = "-";
-  AIN64W1.WS-LAST-DATE-FIL2 = "-";
-end
-
-// end AIN64P9-LAST-DATE
-
-// date retrieval process
-Function AIN64P9-LST-DATE()
-  /* LAST DAY OF THE MONTH FROM THE GIVEN DATE*/
-  /*  */
-  AIN64W1.WS-PREV-YY-C = AIN64W1.WS-TEMP-YY;
-  AIN64W1.WS-PREV-MM-C = AIN64W1.WS-TEMP-MM;
-  if (AIN64W1.WS-PREV-YY > 90 && AIN64W1.WS-PREV-YY <= 99)
-    AIN64W1.WS-PREV-CC = 19;
-  else
-    AIN64W1.WS-PREV-CC = 20;
-  end
-  if (AIN64W1.WS-TEMP-MM == "04" || 
-  AIN64W1.WS-TEMP-MM == "06" || 
-  AIN64W1.WS-TEMP-MM == "09" || 
-  AIN64W1.WS-TEMP-MM == "11")
-    AIN64W1.WS-PREV-DD = 30;
-  end
-
-  if (AIN64W1.WS-TEMP-MM == "01" || 
-  AIN64W1.WS-TEMP-MM == "03" || 
-  AIN64W1.WS-TEMP-MM == "05" || 
-  AIN64W1.WS-TEMP-MM == "07" || 
-  AIN64W1.WS-TEMP-MM == "08" || 
-  AIN64W1.WS-TEMP-MM == "10" || 
-  AIN64W1.WS-TEMP-MM == "12")
-    AIN64W1.WS-PREV-DD = 31;
-  end
-  if (AIN64W1.WS-TEMP-MM == "02")
-
-    AIN64W1.WS-REM1 = AIN64W1.WS-PREV-CCYY % 4;
-    AIN64W1.WS-REM2 = AIN64W1.WS-PREV-CCYY % 100;
-    AIN64W1.WS-REM3 = AIN64W1.WS-PREV-CCYY % 400;
-
-    if (AIN64W1.WS-REM1 != 0)
-      AIN64W1.WS-PREV-MM = 02;
-      AIN64W1.WS-PREV-DD = 28;
-    else
-      if (AIN64W1.WS-REM2 == 0)
-        if (AIN64W1.WS-REM3 == 0)
-          AIN64W1.WS-PREV-MM = 02;
-          AIN64W1.WS-PREV-DD = 29;
-        else
-          AIN64W1.WS-PREV-MM = 02;
-          AIN64W1.WS-PREV-DD = 28;
-        end
-      else
-        AIN64W1.WS-PREV-MM = 02;
-        AIN64W1.WS-PREV-DD = 29;
-      end
-    end
-  end
-  AIN64W1.WS-LAST-DATE-CC = AIN64W1.WS-PREV-CC-C;
-  AIN64W1.WS-LAST-DATE-YY = AIN64W1.WS-PREV-YY-C;
-  AIN64W1.WS-LAST-DATE-MM = AIN64W1.WS-PREV-MM-C;
-  AIN64W1.WS-LAST-DATE-DD = AIN64W1.WS-PREV-DD-C;
-  AIN64W1.WS-LAST-DATE-FIL1 = "-";
-  AIN64W1.WS-LAST-DATE-FIL2 = "-";
-end
-
-// end AIN64P9-LST-DATE
-
-// INITIALIZE PROCESS
-Function AIN64P9-MAIN()
-  AIN64P9-INIT();
-  /*  */
-  while (SR-AIN64-RECIN not endOfFile)
-    AIN64P9-SCAN-INPUT();
-  /*  */
-    if (sysVar.errorCode == "00000000")
-      AIN64P9-PROC-DATA();
-  /*  */
-    end
+  try
+    execute update 
+      #sql{
+        UPDATE
+          TWNRFRL_ADRS T1
+        SET
+          HOUSE_NMB=:HOUSE-NMB,
+          STR_DIR=:STR-DIR,
+          STR_NM=:STR-NM,
+          STR_TYPE=:STR-TYPE,
+          APT_NMB=:APT-NMB,
+          OTH_ADDR=:OTH-ADDR,
+          CITY=:CITY,
+          ST_CD=:ST-CD,
+          ZIP_CD=:ZIP-CD
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE ICI = :AIN64W1.WS-ICI
+          AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
+      }
+      for H2-RFRL-ADRS ; // model = update
   end
   /*  */
-  AIN64P9-CLOSE();
-end
-
-// end AIN64P9-MAIN
-
-Function AIN64P9-MIN-MOD()
-  H2-IVD-RFRL-DTLS.DCFS-SRVC-OFC-WRKR = AIN64W.WS-DCFS-SRVC-OFC-WRKR;
-  H2-IVD-RFRL-DTLS.DCFS-SRVC-OFC-PHN = AIN64W.WS-DCFS-SRVC-OFC-PHN;
-  H2-IVD-RFRL-DTLS.DCFS-SRVC-OFC-CD = AIN64W.WS-DCFS-SRVC-OFC-CD;
-  H2-IVD-RFRL-DTLS.LGL-CST-BEG-DT = AIN64W.WS-LGL-CST-BEG-DT;
-  if (AIN64W.WS-LGL-CST-END-DT == " ")
-    H2-IVD-RFRL-DTLS.LGL-CST-END-DT = "9999-12-31";
-  else
-    H2-IVD-RFRL-DTLS.LGL-CST-END-DT = AIN64W.WS-LGL-CST-END-DT;
-  end
-  /*  */
-  AIN64P9-DRF-U01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-end
-
-// end AIN64P9-MIN-MOD
-
-Function AIN64P9-MOD-DATA()
-  H2-RESOLUTION.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-RESOLUTION.DCFS-CSORDR-FILEDT = AIN64W.WS-CS-ORDR-FILEDT;
-  H2-RESOLUTION.SSN = AIN64W.WS-NCP-SSN;
-  H2-RESOLUTION.LST-NM = AIN64W.WS-NCP-LAST-NAME;
-  H2-RESOLUTION.FRST-NM = AIN64W.WS-NCP-FIRST-NAME;
-  H2-RESOLUTION.MID-NM = AIN64W.WS-NCP-MID-NAME;
-  H2-RESOLUTION.MODFR = AIN64W.WS-NCP-MODIFIER;
-  H2-RESOLUTION.HM-PHN-NMB = AIN64W.WS-NCP-PHONE;
-  H2-RESOLUTION.ETHNC-CD = AIN64W.WS-NCP-RACE;
-  H2-RESOLUTION.SEX-CD = AIN64W.WS-NCP-SEX;
-  H2-RESOLUTION.PLACE-OF-BIRTH = AIN64W.WS-NCP-BIRTH-CITY;
-  H2-RESOLUTION.BIRTH-PLACE-CD = AIN64W.WS-NCP-BIRTH-ST;
-  if (AIN64W.WS-NCP-DOB == " ")
-    H2-RESOLUTION.DOB = "0001-01-01";
-  else
-    H2-RESOLUTION.DOB = AIN64W.WS-NCP-DOB;
-  end
-  H2-RESOLUTION.NCP-CST-EVMRD-FG = AIN64W.WS-PARENTS-EVER-MARRIED;
-  if (AIN64W.WS-DT-OF-MARRIAGE == " ")
-    H2-RESOLUTION.NCP-CST-EVMRD-DT = "0001-01-01";
-  else
-    H2-RESOLUTION.NCP-CST-EVMRD-DT = AIN64W.WS-DT-OF-MARRIAGE;
-  end
-  H2-RESOLUTION.NCP-CST-CRMRD-FG = AIN64W.WS-CURRENTLY-MARRIED;
-  if (AIN64W.WS-DT-OF-DIVORCE == " ")
-    H2-RESOLUTION.NCP-CST-EVDVR-DT = "0001-01-01";
-  else
-    H2-RESOLUTION.NCP-CST-EVDVR-DT = AIN64W.WS-DT-OF-DIVORCE;
-  end
-  H2-RESOLUTION.DCFS-SRVC-OFC-WRKR = AIN64W.WS-DCFS-SRVC-OFC-WRKR;
-  H2-RESOLUTION.DCFS-SRVC-OFC-PHN = AIN64W.WS-DCFS-SRVC-OFC-PHN;
-  H2-RESOLUTION.DCFS-SRVC-OFC-CD = AIN64W.WS-DCFS-SRVC-OFC-CD;
-  H2-RESOLUTION.LGL-CST-BEG-DT = AIN64W.WS-LGL-CST-BEG-DT;
-  H2-RESOLUTION.LGL-CST-END-DT = AIN64W.WS-LGL-CST-END-DT;
-  /*  */
-  AIN64P9-RES-U01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  H2-RFRL-ADRS.HOUSE-NMB = AIN64W.WS-NCP-STREET-NUMBER;
-  H2-RFRL-ADRS.STR-DIR = AIN64W.WS-NCP-STREET-DIR;
-  H2-RFRL-ADRS.STR-NM = AIN64W.WS-NCP-STREET-NAME;
-  H2-RFRL-ADRS.STR-TYPE = AIN64W.WS-NCP-STREET-TYPE;
-  H2-RFRL-ADRS.APT-NMB = AIN64W.WS-NCP-APARTMENT-NMB;
-  H2-RFRL-ADRS.OTH-ADDR = AIN64W.WS-NCP-OTHER;
-  H2-RFRL-ADRS.CITY = AIN64W.WS-NCP-CITY;
-  H2-RFRL-ADRS.ST-CD = AIN64W.WS-NCP-STATE;
-  H2-RFRL-ADRS.ZIP-CD = AIN64W.WS-NCP-ZIP-CODE;
-  /*  */
-  AIN64P9-RFA-U01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-  H2-FAM-NCP.EYE-COLOR = AIN64W.WS-NCP-EYES;
-  H2-FAM-NCP.HAIR-COLOR = AIN64W.WS-NCP-HAIR;
-  H2-FAM-NCP.WGHT = AIN64W1.WS-NCP-WEIGHT-NMB;
-  H2-FAM-NCP.HGHT = AIN64W1.WS-NCP-HEIGHT-NMB;
-  H2-FAM-NCP.DSBLD-IND = AIN64W.WS-NCP-DISABLED;
-  H2-FAM-NCP.ADDED-DT = AIN64W.WS-REFERRAL-DATE;
-  /*  */
-  AIN64P9-FMN-U01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-end
-
-// end AIN64P9-MOD-DATA
-
-Function AIN64P9-MODIFY()
-  AIN64W1.WS-RFRL-EXISTS = "N";
-  AIN64W1.WS-LGL-BEG-DT-CHANGED = "N";
-  AIN64W1.WS-LGL-END-DT-CHANGED = "N";
-  set H2-IVD-RFRL-DTLS empty;
-  /*  */
-  AIN64P9-DRF-S03();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-  	WCM00P2-TO-CEP01A();
-  end
+  /* Increment count of rows retrieved*/
   if (sysVar.sqlData.sqlcode == 0)
-  	AIN64W1.WS-NCP-UPI = H2-IVD-RFRL-DTLS.NCP-UPI;
-  	AIN64W1.WS-RFRL-EXISTS = "Y";
-    if (AIN64W.WS-LGL-CST-BEG-DT != H2-IVD-RFRL-DTLS.LGL-CST-BEG-DT)
-      AIN64W1.WS-LGL-BEG-DT-CHANGED = "Y";
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  /* Set error control flags*/
+  /* UNRF - No record found flag (Y,N,1)*/
+  /* UDUP - Duplicate key flag (Y,N)*/
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  /*  */
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+end
+
+// end AIN64P9-RFA-U01
+
+// READ RECORDS
+Function AIN64P9-SCAN-INPUT()
+  VGVar.handleHardIOErrors = 1;
+  /*  */
+  try
+    get next SR-AIN64-RECIN ;
+  end
+  /*  */
+  if (SR-AIN64-RECIN is ioError && SR-AIN64-RECIN not endOfFile)
+    VDBCONTROL.UPROC-OBJ = "SR-AIN64-RECIN";
+    VDBCONTROL.UPROC-NM = "AIN64P9-SCAN-INPUT";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = VMESSAGE.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = sysVar.transferName;
+    VDBCONTROL.UMSQLCODE = 0;
+    if (SR-AIN64-RECIN is invalidFormat)
+      VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
     end
-    if (AIN64W.WS-LGL-CST-END-DT != H2-IVD-RFRL-DTLS.LGL-CST-END-DT)
-  	  AIN64W1.WS-LGL-END-DT-CHANGED = "Y";
+    /*  */
+    WCM00P2-TO-CEP01A();
+    /*  */
+  end
+  /*  */
+  if (SR-AIN64-RECIN is endOfFile && AIN64W1.WS-FIRST-IND == "Y")
+    VDBCONTROL.UMSQLCODE = 0;
+    VDBCONTROL.UPROC-OBJ = "SR-AIN64-RECIN";
+    VDBCONTROL.UPROC-NM = "AIN64P9-SCAN-INPUT";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.UMSGINS[1] = " ";
+    VMESSAGE.UMSGINS[2] = "AIN64A";
+    VMESSAGE.UMSGCODE = "GEN0274";
+    VDBCONTROL.UEZESQRRM = "NO DATA FOUND";
+    VMESSAGE.UMSGCODE-JCL-ERR = 8;
+    /*  */
+    WCM00P2-TO-CEP01A();
+    /*  */
+  end
+  /*  */
+  AIN64W1.WS-FIRST-IND = "N";
+end
+
+// end AIN64P9-SCAN-INPUT
+
+// WRITE TRACKING RECORD
+Function AIN64P9-TRACK()
+  set VSTRREC4 empty;
+  AIN64W1.WS-TRACK-TEXT1 = " ";
+  AIN64W1.WS-TRACK-TEXT2 = " ";
+  /*  */
+  set H2-PERSON empty;
+  H2-PERSON.UPI = AIN64W1.WS-CHILD-UPI;
+  /*  */
+  AIN64P9-PER-S01();
+  /*  */
+  VSTRREC4.USTRING = H2-PERSON.FRST-NM;
+  VSTRREC4.UCONCAT = H2-PERSON.LST-NM;
+  VSTRREC4.USTRLEN = 16;
+  VSTRREC4.UCONLEN = 20;
+  /*  */
+  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
+  /*  */
+  if (AIN64W1.WS-LGL-BEG-DT-CHANGED == "Y")
+    AIN64W1.WS-TEXT1 = "DCFS OPENING LEGAL CUSTODY DATE CHANGED ";
+    AIN64W1.WS-TEXT-DATE1 = AIN64W.WS-LGL-CST-BEG-DT;
+    AIN64W1.WS-TEXT2 = " FOR CHILD ";
+    AIN64W1.WS-CHILD-NAME1 = VSTRREC4.USTRING;
+    /*  */
+    PDCM-CASE-TRACKING.PDCM-UPI = AIN64W1.WS-NCP-UPI;
+    PDCM-CASE-TRACKING.PDCM-CASE-SUFFIX = AIN64W1.WS-NCP-CASE-SUFFIX;
+    PDCM-CASE-TRACKING.PDCM-MSG-TYPE = "19S";
+    PDCM-CASE-TRACKING.PDCM-PARTICIPANT = " ";
+    /*  */
+    PDCM-CASE-TRACKING.PDCM-TEXT1 = AIN64W1.WS-TRACK-TEXT1;
+    /*  */
+    call "DCM08A" (VDBCONTROL, VMESSAGE, GNOMADS, G-IV-D, PDCM-CASE-TRACKING) {isNoRefresh = yes};
+    /*  */
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
     end
   end
   /*  */
-  // here is where the code is needed for -idc-s01
-  set H2-IVD-CASE empty;
-  H2-IVD-CASE.NCP-UPI = AIN64W1.WS-NCP-UPI;
+  if (AIN64W1.WS-LGL-END-DT-CHANGED == "Y")
+    AIN64W1.WS-TEXT3 = "DCFS ENDING LEGAL CUSTODY DATE CHANGED ";
+    AIN64W1.WS-TEXT-DATE2 = AIN64W.WS-LGL-CST-BEG-DT;
+    AIN64W1.WS-TEXT4 = " FOR CHILD ";
+    AIN64W1.WS-CHILD-NAME2 = VSTRREC4.USTRING;
+    /*  */
+    PDCM-CASE-TRACKING.PDCM-UPI = AIN64W1.WS-NCP-UPI;
+    PDCM-CASE-TRACKING.PDCM-CASE-SUFFIX = AIN64W1.WS-NCP-CASE-SUFFIX;
+    PDCM-CASE-TRACKING.PDCM-MSG-TYPE = "19S";
+    PDCM-CASE-TRACKING.PDCM-PARTICIPANT = " ";
+    /*  */
+    PDCM-CASE-TRACKING.PDCM-TEXT1 = AIN64W1.WS-TRACK-TEXT2;
+    /*  */
+    call "DCM08A" (VDBCONTROL, VMESSAGE, GNOMADS, G-IV-D, PDCM-CASE-TRACKING) {isNoRefresh = yes};
   /*  */
-  AIN64P9-IDC-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-  	WCM00P2-TO-CEP01A();
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
+    end
+  end
+end
+
+// end AIN64P9-TRACK
+
+// PROCESS TO CHECK DCFS RECORD
+Function AIN64P9-VALIDATE()
+  if (AIN64W.WS-REC-TYPE != "A" && 
+  AIN64W.WS-REC-TYPE != "D" && 
+  AIN64W.WS-REC-TYPE != "M")
+    AIN64W2.WS-ERROR-CODE = "DT01";
+    AIN64W1.WS-GOOD-REC = "N";
   end
   /*  */
-  set H2-2-FAM-DRF empty;
-  H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-  H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-  /*  */
-  AIN64P9-FMI-S01();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-  	WCM00P2-TO-CEP01A();
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-CHILD-DCFS-NUM not numeric)
+      AIN64W2.WS-ERROR-CODE = "DT06";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
   end
-  /*  */ 
-  if (sysVar.sqlData.sqlcode == 100)
-  	if (AIN64W1.WS-RFRL-EXISTS == "Y")
-  	  /*  */
-  	  AIN64P9-MIN-MOD();
-  	  /*  */
-  	  AIN64P9-TRACK();
-  	  /*  */
-  	  if (AIN64W1.WS-LGL-BEG-DT-CHANGED == "Y" ||
-  	      AIN64W1.WS-LGL-END-DT-CHANGED == "Y")
-  	    /*  */
-  	    AIN64P9-ALERT();
-  	    /*  */
-  	  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-DCFS-NUM not numeric)
+      AIN64W2.WS-ERROR-CODE = "DT07";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-REC-TYPE == "A")
+      if (AIN64W.WS-NCP-DCFS-NUM is numeric)
+        AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
+        set H2-2-FAM-RES empty;
+        H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
+        H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
+        set H2-2-FAM-DRF empty;
+        H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
+        H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
+        /*  */
+        AIN64P9-RES-S02();
+        /*  */
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        /*  */
+        if (sysVar.sqlData.sqlcode == 0)
+          AIN64W2.WS-ERROR-CODE = "DT10";
+          AIN64W1.WS-GOOD-REC = "N";
+        end
+      else
+        AIN64W2.WS-ERROR-CODE = "DT07";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-LGL-CST-BEG-DT == "0001-01-01" || 
+    AIN64W.WS-LGL-CST-BEG-DT == "9999-12-31")
+      AIN64W2.WS-ERROR-CODE = "DT44";
+      AIN64W1.WS-GOOD-REC = "N";
+    else
+      VDTSREC.UDATYY = AIN64W.WS-LGL-CST-BEG-CCYY;
+      VDTSREC.UDATMM = AIN64W.WS-LGL-CST-BEG-MM;
+      VDTSREC.UDATDD = AIN64W.WS-LGL-CST-BEG-DD;
+      /*  */
+      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+      /*  */
+      if (VCONTROL.URC != 0)
+        AIN64W2.WS-ERROR-CODE = "DT45";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        AIN64W.WS-LGL-CST-BEG-CCYY = VDTSREC.UDATYY;
+        AIN64W.WS-LGL-CST-BEG-MM = VDTSREC.UDATMM;
+        AIN64W.WS-LGL-CST-BEG-DD = VDTSREC.UDATDD;
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-REC-TYPE == "M")
+      if (AIN64W.WS-NCP-DCFS-NUM is numeric)
+        AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
+        set H2-2-FAM-RES empty;
+        H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
+        H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
+        set H2-2-FAM-DRF empty;
+        H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
+        H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
+        /*  */
+        AIN64P9-RES-S02();
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        /*  */
+        if (sysVar.sqlData.sqlcode == 100)
+          AIN64W2.WS-ERROR-CODE = "DT03";
+          AIN64W1.WS-GOOD-REC = "N";
+        end
+      else
+        AIN64W2.WS-ERROR-CODE = "DT07";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-REC-TYPE == "D")
+      if (AIN64W.WS-NCP-DCFS-NUM is numeric)
+        AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
+        set H2-2-FAM-RES empty;
+        H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
+        H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
+        set H2-2-FAM-DRF empty;
+        H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
+        H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;  
+        /*  */
+        AIN64P9-RES-S02();
+        /*  */
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        /*  */
+        if (sysVar.sqlData.sqlcode == 100)
+          AIN64W2.WS-ERROR-CODE = "DT04";
+          AIN64W1.WS-GOOD-REC = "N";
+        end
+      else
+        AIN64W2.WS-ERROR-CODE = "DT07";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    set H2-FAM-CASE empty;
+    H2-FAM-CASE.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
+    /*  */
+    AIN64P9-FAM-S01();
+    /*  */
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
+    end
+    /*  */
+    if (sysVar.sqlData.sqlcode == 100)
+      AIN64W2.WS-ERROR-CODE = "DT08";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    VDTSREC.UDATYY = AIN64W.WS-REFER-CCYY;
+    VDTSREC.UDATMM = AIN64W.WS-REFER-MM;
+    VDTSREC.UDATDD = AIN64W.WS-REFER-DD;
+    /*  */
+    call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+    /*  */
+    if (VCONTROL.URC != 0)
+      AIN64W2.WS-ERROR-CODE = "DT11";
+      AIN64W1.WS-GOOD-REC = "N";
+    else
+      AIN64W.WS-REFER-CCYY = VDTSREC.UDATYY;
+      AIN64W.WS-REFER-MM = VDTSREC.UDATMM;
+      AIN64W.WS-REFER-DD = VDTSREC.UDATDD;
+    end
+  end
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    VDTSREC.UDATYY = AIN64W.WS-CS-ORDR-CCYY;
+    VDTSREC.UDATMM = AIN64W.WS-CS-ORDR-MM;
+    VDTSREC.UDATDD = AIN64W.WS-CS-ORDR-DD;
+    /*  */
+    call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+    /*  */
+    if (VCONTROL.URC != 0)
+      AIN64W2.WS-ERROR-CODE = "DT12";
+      AIN64W1.WS-GOOD-REC = "N";
+    else
+      AIN64W.WS-CS-ORDR-CCYY = VDTSREC.UDATYY;
+      AIN64W.WS-CS-ORDR-MM = VDTSREC.UDATMM;
+      AIN64W.WS-CS-ORDR-DD = VDTSREC.UDATDD;
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-SSN != " ")
+      if (AIN64W.WS-NCP-SSN not numeric)
+        AIN64W2.WS-ERROR-CODE = "DT13";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-LAST-NAME == " " || 
+    AIN64W.WS-NCP-LAST-NAME == "UNKNOWN")
+      AIN64W2.WS-ERROR-CODE = "DT14";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-FIRST-NAME == " " || 
+    AIN64W.WS-NCP-FIRST-NAME == "UNKNOWN")
+      AIN64W2.WS-ERROR-CODE = "DT15";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-MID-NAME != " ")
+      if (AIN64W.WS-NCP-MID-NAME == "UNKNOWN")
+        AIN64W2.WS-ERROR-CODE = "DT16";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-MODIFIER != " ")
+      if (AIN64W.WS-NCP-MODIFIER == "UNK")
+        AIN64W2.WS-ERROR-CODE = "DT16";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        set H2-CODE-TBL empty;
+        H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-MODIFIER;
+        H2-CODE-TBL.CODE-TBL-TYP = "NAMEMOD";
+        /*  */
+        AIN64P9-CDT-S01();
+        /*  */
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        /*  */
+        if (sysVar.sqlData.sqlcode != 0)
+          AIN64W2.WS-ERROR-CODE = "DT17";
+          AIN64W1.WS-GOOD-REC = "N";
+        end
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-STREET-DIR != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-STREET-DIR;
+      H2-CODE-TBL.CODE-TBL-TYP = "STRETDIR";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT18";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-STREET-TYPE != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-STREET-TYPE;
+      H2-CODE-TBL.CODE-TBL-TYP = "STRTTYPE";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT19";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-CITY == " " && 
+    AIN64W.WS-NCP-ZIP-CODE != " ")
+      AIN64W2.WS-ERROR-CODE = "DT20";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-STATE != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-STATE;
+      H2-CODE-TBL.CODE-TBL-TYP = "ST_CNTRY";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT21";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-CITY != " " && 
+    AIN64W.WS-NCP-ZIP-CODE == " ")
+      AIN64W2.WS-ERROR-CODE = "DT22";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-STATE != " ")
+      if (AIN64W.WS-NCP-STATE == "NV")
+        set H2-CODE-TBL empty;
+        H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-ZIP-CODE;
+        H2-CODE-TBL.CODE-TBL-TYP = "ZIPCODE";
+        /*  */
+        AIN64P9-CDT-S01();
+        /*  */
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        /*  */
+        if (sysVar.sqlData.sqlcode != 0)
+          AIN64W2.WS-ERROR-CODE = "DT23";
+          AIN64W1.WS-GOOD-REC = "N";
+        end
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-PHONE != " ")
+      if (AIN64W.WS-NCP-PHONE not numeric)
+        AIN64W2.WS-ERROR-CODE = "DT24";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-RACE != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-RACE;
+      H2-CODE-TBL.CODE-TBL-TYP = "ETHNICTY";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT25";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-SEX != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-SEX;
+      H2-CODE-TBL.CODE-TBL-TYP = "SEXCD";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT26";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    else
+      AIN64W2.WS-ERROR-CODE = "DT26";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-HAIR != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-HAIR;
+      H2-CODE-TBL.CODE-TBL-TYP = "HAIRCLR";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT27";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-EYES != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-EYES;
+      H2-CODE-TBL.CODE-TBL-TYP = "EYECLR";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT28";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-WEIGHT != " ")
+      if (AIN64W.WS-NCP-WEIGHT not numeric)
+        AIN64W2.WS-ERROR-CODE = "DT29";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        AIN64W1.WS-NCP-WEIGHT-NMB = AIN64W.WS-NCP-WEIGHT;
+      end
+    else
+      AIN64W1.WS-NCP-WEIGHT-NMB = 000;
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-HEIGHT != " ")
+      if (AIN64W.WS-NCP-HEIGHT not numeric)
+        AIN64W2.WS-ERROR-CODE = "DT30";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        AIN64W1.WS-NCP-HEIGHT-NMB = AIN64W.WS-NCP-HEIGHT;
+      end
+    else
+      AIN64W1.WS-NCP-HEIGHT-NMB = 000;
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-DISABLED != " ")
+      if (AIN64W.WS-NCP-DISABLED != "Y" && 
+      AIN64W.WS-NCP-DISABLED != "N")
+        AIN64W2.WS-ERROR-CODE = "DT31";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-BIRTH-ST != " ")
+      set H2-CODE-TBL empty;
+      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-BIRTH-ST;
+      H2-CODE-TBL.CODE-TBL-TYP = "ST_CNTRY";
+      /*  */
+      AIN64P9-CDT-S01();
+      /*  */
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      /*  */
+      if (sysVar.sqlData.sqlcode != 0)
+        AIN64W2.WS-ERROR-CODE = "DT32";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-NCP-DOB != " ")
+      VDTSREC.UDATYY = AIN64W.WS-DOB-CCYY;
+      VDTSREC.UDATMM = AIN64W.WS-DOB-MM;
+      VDTSREC.UDATDD = AIN64W.WS-DOB-DD;
+      /*  */
+      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+      /*  */
+      if (VCONTROL.URC != 0)
+        AIN64W2.WS-ERROR-CODE = "DT33";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        AIN64W.WS-DOB-CCYY = VDTSREC.UDATYY;
+        AIN64W.WS-DOB-MM = VDTSREC.UDATMM;
+        AIN64W.WS-DOB-DD = VDTSREC.UDATDD;
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-PARENTS-EVER-MARRIED != " ")
+      if (AIN64W.WS-PARENTS-EVER-MARRIED != "Y" && 
+      AIN64W.WS-PARENTS-EVER-MARRIED != "N" && 
+      AIN64W.WS-PARENTS-EVER-MARRIED != "U")
+        AIN64W2.WS-ERROR-CODE = "DT34";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-DT-OF-MARRIAGE != " ")
+      VDTSREC.UDATYY = AIN64W.WS-MARRIAGE-CCYY;
+      VDTSREC.UDATMM = AIN64W.WS-MARRIAGE-MM;
+      VDTSREC.UDATDD = AIN64W.WS-MARRIAGE-DD;
+      /*  */
+      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+      /*  */
+      if (VCONTROL.URC != 0)
+        AIN64W2.WS-ERROR-CODE = "DT35";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        AIN64W.WS-MARRIAGE-CCYY = VDTSREC.UDATYY;
+        AIN64W.WS-MARRIAGE-MM = VDTSREC.UDATMM;
+        AIN64W.WS-MARRIAGE-DD = VDTSREC.UDATDD;
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-CURRENTLY-MARRIED != " ")
+      if (AIN64W.WS-CURRENTLY-MARRIED != "Y" && 
+      AIN64W.WS-CURRENTLY-MARRIED != "N" && 
+      AIN64W.WS-CURRENTLY-MARRIED != "U")
+        AIN64W2.WS-ERROR-CODE = "DT37";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-DT-OF-DIVORCE != " ")
+      VDTSREC.UDATYY = AIN64W.WS-DIVORCE-CCYY;
+      VDTSREC.UDATMM = AIN64W.WS-DIVORCE-MM;
+      VDTSREC.UDATDD = AIN64W.WS-DIVORCE-DD;
+      /*  */
+      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+      /*  */
+      if (VCONTROL.URC != 0)
+        AIN64W2.WS-ERROR-CODE = "DT38";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        AIN64W.WS-DIVORCE-CCYY = VDTSREC.UDATYY;
+        AIN64W.WS-DIVORCE-MM = VDTSREC.UDATMM;
+        AIN64W.WS-DIVORCE-DD = VDTSREC.UDATDD;
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-DCFS-SRVC-OFC-WRKR == " ")
+      AIN64W2.WS-ERROR-CODE = "DT40";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-DCFS-SRVC-OFC-PHN == " ")
+      AIN64W2.WS-ERROR-CODE = "DT41";
+      AIN64W1.WS-GOOD-REC = "N";
+    else
+      if (AIN64W.WS-DCFS-SRVC-OFC-PHN not numeric)
+        AIN64W2.WS-ERROR-CODE = "DT42";
+        AIN64W1.WS-GOOD-REC = "N";
+      end
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+    if (AIN64W.WS-DCFS-SRVC-OFC-CD == " ")
+      AIN64W2.WS-ERROR-CODE = "DT43";
+      AIN64W1.WS-GOOD-REC = "N";
+    end
+  end
+  /*  */
+  if (AIN64W1.WS-GOOD-REC == "Y")
+  	if (AIN64W.WS-LGL-CST-END-DT == "9999-12-31")
   	else
-  	  /*  */
-  	  AIN64P9-MOD-DATA();
-  	  /*  */
-  	  AIN64P9-TRACK();
-  	  /*  */
-  	end
-  else
-  	if (sysVar.sqlData.sqlcode == 0)
-  	  set H2-REFERRAL empty;
-  	  H2-REFERRAL.ICI = H2-2-FAM-DRF.T2-ICI;
-  	  if (AIN64W1.WS-RFRL-EXISTS == "Y")
-  	  	/*  */
-  	  	AIN64P9-MIN-MOD();
-  	  	/*  */
-  	  	AIN64P9-TRACK();
-  	  	/*  */
-  	  	if (AIN64W1.WS-LGL-BEG-DT-CHANGED == "Y" ||
-  	  	    AIN64W1.WS-LGL-END-DT-CHANGED == "Y")
-  	  	  /*  */
-  	  	  AIN64P9-ALERT();
-  	  	  /*  */
-  	  	end
-  	  else
-  	  	/*  */
-  	  	AIN64P9-MOD-DATA();
-  	  	/*  */
-  	  	AIN64P9-TRACK();
-  	  	/*  */
-  	  end 	
-  	end		
-  end 
+      VDTSREC.UDATYY = AIN64W.WS-LGL-CST-END-CCYY;
+      VDTSREC.UDATMM = AIN64W.WS-LGL-CST-END-MM;
+      VDTSREC.UDATDD = AIN64W.WS-LGL-CST-END-DD;
+      /*  */
+      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+      /*  */
+      if (VCONTROL.URC != 0)
+        AIN64W2.WS-ERROR-CODE = "DT46";
+        AIN64W1.WS-GOOD-REC = "N";
+      else
+        AIN64W.WS-LGL-CST-END-CCYY = VDTSREC.UDATYY;
+        AIN64W.WS-LGL-CST-END-MM = VDTSREC.UDATMM;
+        AIN64W.WS-LGL-CST-END-DD = VDTSREC.UDATDD;
+      end
+    end
+  end
 end
+// end AIN64P9-VALIDATE
 
-//end of AIN64P9-MODIFY
-
-// READS TWNPERSON_ADRS_HST
-Function AIN64P9-PAH-S01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-PERSON-ADRS-HST";
-  VDBCONTROL.UPROC-NM = "AIN64P9-PAH-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-PERSON-ADRS-HST";
+// WRITES RECORDS
+Function AIN64P9-WRITE-OUT()
+  SR-AIN64-RECOUT.OUTPUT-DATA = AIN64W2.WS-OUTPUT-DATA;
   /*  */
   try
-    get H2-PERSON-ADRS-HST
-      with #sql{
-        select RSDN_CNTY_CD
-        from TWNPERSON_ADRS_HST T1
-	     --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.UPI = :UPI
-          AND T1.ADR_TYPE IN ('CR','RA')
-          AND T1.PRD_BEG_TS = (SELECT MAX(T2.PRD_BEG_TS)
-              FROM TWNPERSON_ADRS_HST T2
-              WHERE T2.UPI = T1.UPI
-                AND T2.ADR_TYPE IN ('CR','RA'))
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into RSDN-CNTY-CD ;
+    add SR-AIN64-RECOUT ;
   end
   /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  if (SR-AIN64-RECOUT is ioError)
+    VDBCONTROL.UPROC-OBJ = "SR-AIN64-RECOUT";
+    VDBCONTROL.UPROC-NM = "AIN64P9-WRITE-OUT";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    VMESSAGE.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = VMESSAGE.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = sysVar.transferName;
+    VDBCONTROL.UMSQLCODE = 0;
+    
+    /*  */
+    WCM00P2-TO-CEP01A();
   end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
 end
 
-// end AIN64P9-PAH-S01
+Record AIN64W type basicRecord
+  10 WS-INPUT-DATA char(350) ; 
+    15 WS-REC-TYPE char(1) ; 
+    15 WS-CHILD-DCFS-NUM char(9) ; 
+    15 WS-NCP-DCFS-NUM char(9) ; 
+    15 WS-REFERRAL-DATE char(10) ; 
+      20 WS-REFER-CCYY char(4) ; 
+      20 * char(1) ; 
+      20 WS-REFER-MM char(2) ; 
+      20 * char(1) ; 
+      20 WS-REFER-DD char(2) ; 
+    15 WS-CS-ORDR-FILEDT char(10) ; 
+      20 WS-CS-ORDR-CCYY char(4) ; 
+      20 * char(1) ; 
+      20 WS-CS-ORDR-MM char(2) ; 
+      20 * char(1) ; 
+      20 WS-CS-ORDR-DD char(2) ; 
+    15 WS-NCP-SSN char(9) ; 
+    15 WS-NCP-LAST-NAME char(21) ; 
+    15 WS-NCP-FIRST-NAME char(16) ; 
+    15 WS-NCP-MID-NAME char(16) ; 
+    15 WS-NCP-MODIFIER char(3) ; 
+    15 WS-NCP-STREET-NUMBER char(8) ; 
+    15 WS-NCP-STREET-DIR char(2) ; 
+    15 WS-NCP-STREET-NAME char(25) ; 
+    15 WS-NCP-STREET-TYPE char(4) ; 
+    15 WS-NCP-APARTMENT-NMB char(5) ; 
+    15 WS-NCP-OTHER char(25) ; 
+    15 WS-NCP-CITY char(20) ; 
+    15 WS-NCP-STATE char(3) ; 
+    15 WS-NCP-ZIP-CODE char(11) ; 
+    15 WS-NCP-PHONE char(10) ; 
+    15 WS-NCP-RACE char(1) ; 
+    15 WS-NCP-SEX char(1) ; 
+    15 WS-NCP-HAIR char(2) ; 
+    15 WS-NCP-EYES char(2) ; 
+    15 WS-NCP-WEIGHT char(3) ; 
+    15 WS-NCP-HEIGHT char(3) ; 
+    15 WS-NCP-DISABLED char(1) ; 
+    15 WS-NCP-BIRTH-CITY char(20) ; 
+    15 WS-NCP-BIRTH-ST char(3) ; 
+    15 WS-NCP-DOB char(10) ; 
+      20 WS-DOB-CCYY char(4) ; 
+      20 * char(1) ; 
+      20 WS-DOB-MM char(2) ; 
+      20 * char(1) ; 
+      20 WS-DOB-DD char(2) ; 
+    15 WS-PARENTS-EVER-MARRIED char(1) ; 
+    15 WS-DT-OF-MARRIAGE char(10) ; 
+      20 WS-MARRIAGE-CCYY char(4) ; 
+      20 * char(1) ; 
+      20 WS-MARRIAGE-MM char(2) ; 
+      20 * char(1) ; 
+      20 WS-MARRIAGE-DD char(2) ; 
+    15 WS-CURRENTLY-MARRIED char(1) ; 
+    15 WS-DT-OF-DIVORCE char(10) ; 
+      20 WS-DIVORCE-CCYY char(4) ; 
+      20 * char(1) ; 
+      20 WS-DIVORCE-MM char(2) ; 
+      20 * char(1) ; 
+      20 WS-DIVORCE-DD char(2) ; 
+    15 WS-DCFS-SRVC-OFC-WRKR char(8) ; 
+    15 WS-DCFS-SRVC-OFC-PHN char(10) ; 
+    15 WS-DCFS-SRVC-OFC-CD char(2) ; 
+    15 WS-LGL-CST-BEG-DT char(10) ; 
+      20 WS-LGL-CST-BEG-CCYY char(4) ; 
+      20 * char(1) ; 
+      20 WS-LGL-CST-BEG-MM char(2) ; 
+      20 * char(1) ; 
+      20 WS-LGL-CST-BEG-DD char(2) ; 
+    15 WS-LGL-CST-END-DT char(10) ; 
+      20 WS-LGL-CST-END-CCYY char(4) ; 
+      20 * char(1) ; 
+      20 WS-LGL-CST-END-MM char(2) ; 
+      20 * char(1) ; 
+      20 WS-LGL-CST-END-DD char(2) ; 
+    15 * char(25) ; 
+end
+
+// end AIN64W
+
+Record AIN64W1 type basicRecord
+  10 WS-CHILD-DCFS-NMB num(9) ; 
+  10 WS-NCP-DCFS-NMB num(9) ; 
+  10 WS-GOOD-REC char(1) ; 
+  10 WS-FIRST-IND char(1) ; 
+  10 WS-RFRL-EXISTS char(1) ; 
+  10 WS-MAX-NCP-SQNC-NMB smallint ; 
+  10 WS-NEXT-NCP-SQNC-NMB smallint ; 
+  10 WS-NCP-WEIGHT-NMB num(3) ; 
+  10 WS-NCP-HEIGHT-NMB num(3) ; 
+  10 WS-NCP-UPI decimal(9) ; 
+  10 WS-CHILD-UPI decimal(9) ; 
+  10 WS-ICI decimal(9) ; 
+  10 WS-APPL-UPI decimal(9) ;
+  10 WS-CST-UPI decimal(9) ;
+  10 WS-NCP-CASE-SUFFIX char(1) ; 
+  10 WS-LGL-BEG-DT-CHANGED char(1) ; 
+  10 WS-LGL-END-DT-CHANGED char(1) ; 
+  10 WS-TRACK-TEXT1 char(98) ; 
+    15 WS-TEXT1 char(40) ; 
+    15 WS-TEXT-DATE1 char(10) ; 
+    15 WS-TEXT2 char(11) ; 
+    15 WS-CHILD-NAME1 char(37) ; 
+  10 WS-TRACK-TEXT2 char(97) ; 
+    15 WS-TEXT3 char(39) ; 
+    15 WS-TEXT-DATE2 char(10) ; 
+    15 WS-TEXT4 char(11) ; 
+    15 WS-CHILD-NAME2 char(37) ; 
+  10 WS-PROC-DATE char(10) ; 
+    15 WS-PROC-DT-CC char(2) ; 
+    15 WS-PROC-DT-YY char(2) ; 
+    15 WS-PROC-DASH1 char(1) ; 
+    15 WS-PROC-DT-MM char(2) ; 
+    15 WS-PROC-DASH2 char(1) ; 
+    15 WS-PROC-DT-DD char(2) ; 
+  10 WS-WORK-DATE char(8) ; 
+    15 WS-WORK-CCYY char(4) ; 
+    15 WS-WORK-MM char(2) ; 
+    15 WS-WORK-DD char(2) ; 
+  10 WS-TEMP-DATE char(10) ; 
+    15 WS-TEMP-CCYY char(4) ; 
+      20 WS-TEMP-CCYY-NUM num(4) ; 
+        25 WS-TEMP-CC char(2) ; 
+          30 WS-TEMP-CC-NUM num(2) ; 
+        25 WS-TEMP-YY char(2) ; 
+          30 WS-TEMP-YY-NUM num(2) ; 
+    15 WS-TEMP-FIL1 char(1) ; 
+    15 WS-TEMP-MM char(2) ; 
+      20 WS-TEMP-MM-NUM num(2) ; 
+    15 WS-TEMP-FIL2 char(1) ; 
+    15 WS-TEMP-DD char(2) ; 
+      20 WS-TEMP-DD-NUM num(2) ; 
+  10 WS-PREV-DATE num(8) ; 
+    15 WS-PREV-CCYY num(4) ; 
+      20 WS-PREV-CC num(2) ; 
+        25 WS-PREV-CC-C char(2) ; 
+      20 WS-PREV-YY num(2) ; 
+        25 WS-PREV-YY-C char(2) ; 
+    15 WS-PREV-MM num(2) ; 
+      20 WS-PREV-MM-C char(2) ; 
+    15 WS-PREV-DD num(2) ; 
+      20 WS-PREV-DD-C char(2) ; 
+  10 WS-LAST-DATE char(10) ; 
+    15 WS-LAST-DATE-CC char(2) ; 
+    15 WS-LAST-DATE-YY char(2) ; 
+    15 WS-LAST-DATE-FIL1 char(1) ; 
+    15 WS-LAST-DATE-MM char(2) ; 
+    15 WS-LAST-DATE-FIL2 char(1) ; 
+    15 WS-LAST-DATE-DD char(2) ; 
+  10 WS-REM1 num(4) ; 
+  10 WS-REM2 num(4) ; 
+  10 WS-REM3 num(4) ; 
+  10 WS-TEMP-REF-DATE char(10) ; 
+    15 WS-TEMP-REF-CCYY char(4) ; 
+      20 WS-TEMP-REF-CC char(2) ; 
+      20 WS-TEMP-REF-YY char(2) ; 
+    15 WS-TEMP-REF-FIL1 char(1) ; 
+    15 WS-TEMP-REF-MM char(2) ; 
+    15 WS-TEMP-REF-FIL2 char(1) ; 
+    15 WS-TEMP-REF-DD char(2) ; 
+  10 WS-EMAN-DATE char(10) ; 
+    15 WS-EMAN-DATE-CCYY char(4) ; 
+      20 WS-EMAN-DATE-CCNUM num(4) ; 
+    15 WS-EMAN-FIL1 char(1) ; 
+    15 WS-EMAN-DATE-MM char(2) ; 
+      20 WS-EMAN-DATE-MMNUM num(2) ; 
+    15 WS-EMAN-FIL2 char(1) ; 
+    15 WS-EMAN-DATE-DD char(2) ; 
+  10 WS-RFRL-ADDED char(1) ;
+  10 WS-FROM char(3); 
+end
+
+// end AIN64W1
+
+Record AIN64W2 type basicRecord
+  10 WS-OUTPUT-DATA char(350) ; 
+    15 WS-REC-TYPE char(1) ; 
+    15 WS-CHILD-DCFS-NUM char(9) ; 
+    15 WS-NCP-DCFS-NUM char(9) ; 
+    15 WS-REFERRAL-DATE char(10) ; 
+    15 WS-CS-ORDR-FILEDT char(10) ; 
+    15 WS-NCP-SSN char(9) ; 
+    15 WS-NCP-LAST-NAME char(21) ; 
+    15 WS-NCP-FIRST-NAME char(16) ; 
+    15 WS-NCP-MID-NAME char(16) ; 
+    15 WS-NCP-MODIFIER char(3) ; 
+    15 WS-NCP-STREET-NUMBER char(8) ; 
+    15 WS-NCP-STREET-DIR char(2) ; 
+    15 WS-NCP-STREET-NAME char(25) ; 
+    15 WS-NCP-STREET-TYPE char(4) ; 
+    15 WS-NCP-APARTMENT-NMB char(5) ; 
+    15 WS-NCP-OTHER char(25) ; 
+    15 WS-NCP-CITY char(20) ; 
+    15 WS-NCP-STATE char(3) ; 
+    15 WS-NCP-ZIP-CODE char(11) ; 
+    15 WS-NCP-PHONE char(10) ; 
+    15 WS-NCP-RACE char(1) ; 
+    15 WS-NCP-SEX char(1) ; 
+    15 WS-NCP-HAIR char(2) ; 
+    15 WS-NCP-EYES char(2) ; 
+    15 WS-NCP-WEIGHT num(3) ; 
+    15 WS-NCP-HEIGHT num(3) ; 
+    15 WS-NCP-DISABLED char(1) ; 
+    15 WS-NCP-BIRTH-CITY char(20) ; 
+    15 WS-NCP-BIRTH-ST char(3) ; 
+    15 WS-NCP-DOB char(10) ; 
+    15 WS-PARENTS-EVER-MARRIED char(1) ; 
+    15 WS-DT-OF-MARRIAGE char(10) ; 
+    15 WS-CURRENTLY-MARRIED char(1) ; 
+    15 WS-DT-OF-DIVORCE char(10) ; 
+    15 WS-DCFS-SRVC-OFC-WRKR char(8) ; 
+    15 WS-DCFS-SRVC-OFC-PHN char(10) ; 
+    15 WS-DCFS-SRVC-OFC-CD char(2) ; 
+    15 WS-LGL-CST-BEG-DT char(10) ; 
+    15 WS-LGL-CST-END-DT char(10) ; 
+    15 WS-ERROR-CODE char(4) ; 
+    15 * char(21) ; 
+end
+
+// end HA-CNET-TRN-HDR
+
+Record SR-AIN64-RECIN type serialRecord  {
+  fileName = "INFILE"
+  }
+  10 INPUT-DATA char(350) ; 
+end
+
+// end SR-AIN64-RECIN
+
+Record SR-AIN64-RECOUT type serialRecord  {
+  fileName = "OUTFILE"
+  }
+  10 OUTPUT-DATA char(350) ; 
+end // end AIN64A
