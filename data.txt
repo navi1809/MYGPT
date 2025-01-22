@@ -1,1597 +1,2106 @@
-// READS TWNPERSON
-Function AIN64P9-PER-S01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-PERSON";
-  VDBCONTROL.UPROC-NM = "AIN64P9-PER-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-  /*  */
-  try
-    get H2-PERSON
-      with #sql{
-        select FRST_NM,
-          LST_NM
-        from TWNPERSON T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.UPI = :UPI
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into FRST-NM,
-           LST-NM ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
+package IVA_Batch;
+import egl.core.*;
+import CommonMigratedParts.*;
+import DataTables.*;
+//*** PROGRAM=AMA12A ****
+// COMPONENT NAME: AMA12A Ongoing Termination Reason Stats by
+// Aid Code - B===============
+// 
+// DESCRIPTION:
+// ============
+// Statistical report of BLIND intake
+// cases which had a termination action
+// during the report month with details
+// by aid code and termination reason
+// 
+// 
+// ***********************
+Program AMA12A type basicProgram //VAGen Info - main batch program
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
 
-// end AIN64P9-PER-S01
+  // Data Declarations
+  AMA12W AMA12W; // record
+  AMA12W-DET AMA12W-DET; // record
+  AMA12W-FOOTER AMA12W-FOOTER; // record
+  AMA12W-HEAD AMA12W-HEAD; // record
+  AMA12W-SUBH AMA12W-SUBH; // record
+  CEP01W CEP01W; // record
+  FORMATW FORMATW; // record
+  GDW GDW; // record
+  REP-COMMON REP-COMMON; // record
+  REP-DATE REP-DATE; // record
+  REP-EOFNOF REP-EOFNOF; // record
+  SR-132REP-RECOUT SR-132REP-RECOUT; // record
+  SR-AMA12-RECIN SR-AMA12-RECIN; // record
+  SR-AMA44-RECIN SR-AMA44-RECIN; // record
+  VDBCOMMON VDBCOMMON; // record
+  VDBCONTROL VDBCONTROL; // record
+  VMESSAGE VMESSAGE; // record
 
-// READS TWNPERSON
-Function AIN64P9-PER-S02()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-PERSON";
-  VDBCONTROL.UPROC-NM = "AIN64P9-PER-S02";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-  /*  */
-  try
-    get H2-PERSON singleRow
-      with #sql{
-        select UPI
-        from TWNPERSON T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.SSN = :SSN
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into UPI ;
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
+
+  // Use Declarations
+  use VDB00T1 {deleteAfterUse = yes}; // table
+
+  function main()
+    // VAGen Info - initialization needed for migration
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    AMA12P9-MAIN: AMA12P9-MAIN();
+  end // end main
+end // end AMA12A
+
+
+// CALCULATE REPORT TOTALS
+Function AMA12P9-ACUM-DET()
+  /* total*/
+  AMA12W.WS-TERM-CNT-SUB-TOTAL-BL = AMA12W.WS-TERM-CNT-EM3 + AMA12W.WS-TERM-CNT-IN3 +   AMA12W.WS-TERM-CNT-SI3 + AMA12W.WS-TERM-CNT-PK3 +   AMA12W.WS-TERM-CNT-KB3 +   AMA12W.WS-TERM-CNT-WB3 + AMA12W.WS-TERM-CNT-GC3 +   AMA12W.WS-TERM-CNT-SS3 + AMA12W.WS-TERM-CNT-HD3 +   AMA12W.WS-TERM-CNT-HG3 + AMA12W.WS-TERM-CNT-CM3;
+   /* Begin change for wi# 15116- Ted*/
+   /* Hendricks*/
+  AMA12W.WS-TERM-CNT-SUB-TOTAL-MB = AMA12W.WS-TERM-CNT-QM3 +   AMA12W.WS-TERM-CNT-SL3 + AMA12W.WS-TERM-CNT-QD3 +    AMA12W.WS-TERM-CNT-QI3 + AMA12W.WS-TERM-CNT-QJ3;
+
+                                   /* End change for wi# 15116- Ted*/
+  AMA12W.WS-TERM-CNT-GR-TOTAL = AMA12W.WS-TERM-CNT-SUB-TOTAL-BL + AMA12W.WS-TERM-CNT-SUB-TOTAL-MB;
+
+
+  /* TOTAL FOR FOOTER*/
+  AMA12W.WS-TERM-CNT-AC-TOT-EM3 = AMA12W.WS-TERM-CNT-AC-TOT-EM3   + AMA12W.WS-TERM-CNT-EM3;
+  AMA12W.WS-TERM-CNT-AC-TOT-IN3 = AMA12W.WS-TERM-CNT-AC-TOT-IN3   + AMA12W.WS-TERM-CNT-IN3;
+  AMA12W.WS-TERM-CNT-AC-TOT-SI3 = AMA12W.WS-TERM-CNT-AC-TOT-SI3   + AMA12W.WS-TERM-CNT-SI3;
+  AMA12W.WS-TERM-CNT-AC-TOT-PK3 = AMA12W.WS-TERM-CNT-AC-TOT-PK3   + AMA12W.WS-TERM-CNT-PK3;
+  AMA12W.WS-TERM-CNT-AC-TOT-KB3 = AMA12W.WS-TERM-CNT-AC-TOT-KB3   + AMA12W.WS-TERM-CNT-KB3;
+  AMA12W.WS-TERM-CNT-AC-TOT-WB3 = AMA12W.WS-TERM-CNT-AC-TOT-WB3   + AMA12W.WS-TERM-CNT-WB3;
+  AMA12W.WS-TERM-CNT-AC-TOT-GC3 = AMA12W.WS-TERM-CNT-AC-TOT-GC3   + AMA12W.WS-TERM-CNT-GC3;
+  AMA12W.WS-TERM-CNT-AC-TOT-SS3 = AMA12W.WS-TERM-CNT-AC-TOT-SS3   + AMA12W.WS-TERM-CNT-SS3;
+  AMA12W.WS-TERM-CNT-AC-TOT-HD3 = AMA12W.WS-TERM-CNT-AC-TOT-HD3   + AMA12W.WS-TERM-CNT-HD3;
+  AMA12W.WS-TERM-CNT-AC-TOT-HG3 = AMA12W.WS-TERM-CNT-AC-TOT-HG3   + AMA12W.WS-TERM-CNT-HG3;
+  AMA12W.WS-TERM-CNT-AC-TOT-CM3 = AMA12W.WS-TERM-CNT-AC-TOT-CM3   + AMA12W.WS-TERM-CNT-CM3;
+  AMA12W.WS-TERM-CNT-SUB-AC-TOT-BL = AMA12W.WS-TERM-CNT-SUB-AC-TOT-BL   + AMA12W.WS-TERM-CNT-SUB-TOTAL-BL;
+  AMA12W.WS-TERM-CNT-AC-TOT-QM3 = AMA12W.WS-TERM-CNT-AC-TOT-QM3   + AMA12W.WS-TERM-CNT-QM3;
+  AMA12W.WS-TERM-CNT-AC-TOT-SL3 = AMA12W.WS-TERM-CNT-AC-TOT-SL3   + AMA12W.WS-TERM-CNT-SL3;
+
+  /* Begin change for WI# 15116- Ted Hendricks*/
+
+  AMA12W.WS-TERM-CNT-AC-TOT-QI3 = AMA12W.WS-TERM-CNT-AC-TOT-QI3   + AMA12W.WS-TERM-CNT-QI3;
+  AMA12W.WS-TERM-CNT-AC-TOT-QJ3 = AMA12W.WS-TERM-CNT-AC-TOT-QJ3   + AMA12W.WS-TERM-CNT-QJ3;
+
+  /* End   change for WI# 15116- Ted Hendricks*/
+
+  AMA12W.WS-TERM-CNT-AC-TOT-QD3 = AMA12W.WS-TERM-CNT-AC-TOT-QD3   + AMA12W.WS-TERM-CNT-QD3;
+  AMA12W.WS-TERM-CNT-SUB-AC-TOT-MB = AMA12W.WS-TERM-CNT-SUB-AC-TOT-MB   + AMA12W.WS-TERM-CNT-SUB-TOTAL-MB;
+  AMA12W.WS-TERM-CNT-GR-AC-TOT = AMA12W.WS-TERM-CNT-GR-AC-TOT   + AMA12W.WS-TERM-CNT-GR-TOTAL;
+end // end AMA12P9-ACUM-DET
+
+
+Function AMA12P9-ACUM-DOF-F()
+  /* ************** wi 16615 start ******************************************/
+  AMA12W.WS-AMA12-INDEX = 1;
+  while (AMA12W.WS-AMA12-INDEX <= 9)
+    if (AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] == "Y")
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-EM3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-EM3       + AMA12W.WS-DOFC-TERM-CNT-EM3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-IN3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-IN3       + AMA12W.WS-DOFC-TERM-CNT-IN3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SI3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SI3       + AMA12W.WS-DOFC-TERM-CNT-SI3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-PK3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-PK3       + AMA12W.WS-DOFC-TERM-CNT-PK3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-KB3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-KB3       + AMA12W.WS-DOFC-TERM-CNT-KB3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-WB3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-WB3       + AMA12W.WS-DOFC-TERM-CNT-WB3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-GC3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-GC3       + AMA12W.WS-DOFC-TERM-CNT-GC3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SS3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SS3       + AMA12W.WS-DOFC-TERM-CNT-SS3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HD3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HD3       + AMA12W.WS-DOFC-TERM-CNT-HD3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HG3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HG3       + AMA12W.WS-DOFC-TERM-CNT-HG3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-CM3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-CM3       + AMA12W.WS-DOFC-TERM-CNT-CM3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-BL = AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-BL       + AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QM3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QM3       + AMA12W.WS-DOFC-TERM-CNT-QM3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SL3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SL3       + AMA12W.WS-DOFC-TERM-CNT-SL3[WS-AMA12-INDEX];
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QI3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QI3       + AMA12W.WS-DOFC-TERM-CNT-QI3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QJ3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QJ3       + AMA12W.WS-DOFC-TERM-CNT-QJ3[WS-AMA12-INDEX];
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+      AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QD3 = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QD3       + AMA12W.WS-DOFC-TERM-CNT-QD3[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-MB = AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-MB       + AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX];
+      AMA12W.WS-DOFC-TERM-CNT-GR-AC-TOT = AMA12W.WS-DOFC-TERM-CNT-GR-AC-TOT       + AMA12W.WS-DOFC-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX];
+    end
+    AMA12W.WS-AMA12-INDEX = AMA12W.WS-AMA12-INDEX + 1;
   end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
+  /* ************** wi 16615 end   ******************************************/
+end // end AMA12P9-ACUM-DOF-F
 
-// end AIN64P9-PER-S02
 
-// READS TWNPERSON
-Function AIN64P9-PER-S03()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-PERSON";
-  VDBCONTROL.UPROC-NM = "AIN64P9-PER-S03";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-  /*  */
-  try
-    get H2-PERSON singleRow
-      with #sql{
-        select DOB
-        from TWNPERSON T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.UPI = :AIN64W1.WS-CHILD-UPI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into DOB ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-PER-S03
-
-// PROCESS DCFS FLAT FILE
-Function AIN64P9-PROC-DATA()
-  AIN64W.WS-INPUT-DATA = SR-AIN64-RECIN.INPUT-DATA;
-  AIN64W2.WS-ERROR-CODE = " ";
-  AIN64W1.WS-GOOD-REC = "Y";
-  AIN64W2.WS-OUTPUT-DATA = AIN64W.WS-INPUT-DATA;
-  /*  */
-  AIN64P9-VALIDATE();
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "N")
-    /*  */
-    AIN64P9-WRITE-OUT();
-    /*  */
-    AIN64W2.WS-OUTPUT-DATA = " ";
-    AIN64W1.WS-GOOD-REC = "Y";
+Function AMA12P9-ACUM-DOFC()
+  /* *************** wi 16615 start *****************************************/
+  /* accumulate figures for different offices report*/
+  if (AMA12W.WS-PREV-CLSRE-RSN-CD == "1")
+    AMA12W.WS-AMA12-INDEX = 1;
+    AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+    AMA12W.WS-DOFC-REC-FND = "Y";
   else
-    AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
-    if (AIN64W.WS-REC-TYPE == "A")
-      AIN64P9-ADD();
+    if (AMA12W.WS-PREV-CLSRE-RSN-CD == "2")
+      AMA12W.WS-AMA12-INDEX = 2;
+      AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+      AMA12W.WS-DOFC-REC-FND = "Y";
     else
-      if (AIN64W.WS-REC-TYPE == "M")
-        AIN64P9-MODIFY();
+      if (AMA12W.WS-PREV-CLSRE-RSN-CD == "3")
+        AMA12W.WS-AMA12-INDEX = 3;
+        AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+        AMA12W.WS-DOFC-REC-FND = "Y";
       else
-        if (AIN64W.WS-REC-TYPE == "D")
-          AIN64P9-DELETE();
+        if (AMA12W.WS-PREV-CLSRE-RSN-CD == "4")
+          AMA12W.WS-AMA12-INDEX = 4;
+          AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+          AMA12W.WS-DOFC-REC-FND = "Y";
+        else
+          if (AMA12W.WS-PREV-CLSRE-RSN-CD == "5")
+            AMA12W.WS-AMA12-INDEX = 5;
+            AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+            AMA12W.WS-DOFC-REC-FND = "Y";
+          else
+            if (AMA12W.WS-PREV-CLSRE-RSN-CD == "6")
+              AMA12W.WS-AMA12-INDEX = 6;
+              AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+              AMA12W.WS-DOFC-REC-FND = "Y";
+            else
+              if (AMA12W.WS-PREV-CLSRE-RSN-CD == "7")
+                AMA12W.WS-AMA12-INDEX = 7;
+                AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+                AMA12W.WS-DOFC-REC-FND = "Y";
+              else
+                if (AMA12W.WS-PREV-CLSRE-RSN-CD == "8")
+                  AMA12W.WS-AMA12-INDEX = 8;
+                  AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+                  AMA12W.WS-DOFC-REC-FND = "Y";
+                else
+                  if (AMA12W.WS-PREV-CLSRE-RSN-CD == "9")
+                    AMA12W.WS-AMA12-INDEX = 9;
+                    AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+                    AMA12W.WS-DOFC-REC-FND = "Y";
+                  end
+                end
+              end
+            end
+          end
         end
       end
     end
   end
-end
 
-// end AIN64P9-PROC-DATA
+  if (AMA12W.WS-DOFC-REC-FND == "Y")
+    AMA12W.WS-DOFC-REC-FND = "N";
 
-// INSERTS RECS INTO TWNREFERRAL
-Function AIN64P9-REF-I01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-REFERRAL";
-  VDBCONTROL.UPROC-NM = "AIN64P9-REF-I01";
-  VDBCONTROL.UPROC-OPT = "INSERT";
-  VDBCONTROL.UPROC-OBJ = "H2-REFERRAL";
-  /*  */
-  try
-    add H2-REFERRAL
-      with #sql{
-        insert into TWNREFERRAL 
-        (ICI, NCP_SQNC_NMB, RFRL_DT, RFRL_STS,
-          IVD_OFFICE, CRTN_FAME_OFFICE, CRTN_FAME_WRKR,
-          FRM_4000_EXISTS, FRM_4000_RCVD_DT,
-          RCVD_IVD_WRKR, RFR_BACK_DT, RFR_BACK_RSN,
-          RFR_BACK_IVD_WRKR, RESOLUTION_DT,
-          RESOLV_IVD_WRKR, CRTN_TS, DECLINE_DT,
-          DECLINE_RSN, DECLINE_IVD_WRKR, DECLINE_OFC_CD)
-        values (:ICI, :NCP-SQNC-NMB, :RFRL-DT, :RFRL-STS,
-          :IVD-OFFICE, :CRTN-FAME-OFFICE, :CRTN-FAME-WRKR,
-          :FRM-4000-EXISTS, :FRM-4000-RCVD-DT,
-          :RCVD-IVD-WRKR, :RFR-BACK-DT, :RFR-BACK-RSN,
-          :RFR-BACK-IVD-WRKR, :RESOLUTION-DT,
-          :RESOLV-IVD-WRKR, :CRTN-TS, :DECLINE-DT,
-          :DECLINE-RSN, :DECLINE-IVD-WRKR, :DECLINE-OFC-CD)
-      } ;
+    AMA12W.WS-DOFC-TERM-RSN[WS-AMA12-INDEX] = AMA12W.WS-TERM-RSN-TRUNC;
+    AMA12W.WS-DOFC-TERM-CNT-EM3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-EM3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-EM3;
+    AMA12W.WS-DOFC-TERM-CNT-IN3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-IN3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-IN3;
+    AMA12W.WS-DOFC-TERM-CNT-SI3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-SI3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SI3;
+    AMA12W.WS-DOFC-TERM-CNT-PK3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-PK3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-PK3;
+    AMA12W.WS-DOFC-TERM-CNT-KB3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-KB3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-KB3;
+    AMA12W.WS-DOFC-TERM-CNT-WB3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-WB3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-WB3;
+    AMA12W.WS-DOFC-TERM-CNT-GC3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-GC3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-GC3;
+    AMA12W.WS-DOFC-TERM-CNT-SS3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-SS3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SS3;
+    AMA12W.WS-DOFC-TERM-CNT-HD3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-HD3[WS-AMA12-INDEX]     + AMA12W.WS-TERM-CNT-HD3;
+    AMA12W.WS-DOFC-TERM-CNT-HG3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-HG3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-HG3;
+    AMA12W.WS-DOFC-TERM-CNT-CM3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-CM3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-CM3;
+    AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SUB-TOTAL-BL;
+    AMA12W.WS-DOFC-TERM-CNT-QM3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-QM3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QM3;
+    AMA12W.WS-DOFC-TERM-CNT-SL3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-SL3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SL3;
+
+  /* Begin change for wi# 15116- Ted Hendricks*/
+
+    AMA12W.WS-DOFC-TERM-CNT-QI3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-QI3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QI3;
+    AMA12W.WS-DOFC-TERM-CNT-QJ3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-QJ3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QJ3;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+    AMA12W.WS-DOFC-TERM-CNT-QD3[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-QD3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QD3;
+    AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX]     + AMA12W.WS-TERM-CNT-SUB-TOTAL-MB;
+    AMA12W.WS-DOFC-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX] = AMA12W.WS-DOFC-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-GR-TOTAL;
+    AMA12W.WS-AMA12-INDEX = 0;
   end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-REF-I01
-
-// READS TWNREFERRAL
-Function AIN64P9-REF-S01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-REFERRAL";
-  VDBCONTROL.UPROC-NM = "AIN64P9-REF-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-REFERRAL";
-  /*  */
-  try
-    get H2-REFERRAL
-      with #sql{
-        select MAX(NCP_SQNC_NMB)
-        from TWNREFERRAL T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = :AIN64W1.WS-ICI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into AIN64W1.WS-MAX-NCP-SQNC-NMB ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-REF-S01
-
-// UPDATES TWNREFERRAL
-Function AIN64P9-REF-U01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-REFERRAL";
-  VDBCONTROL.UPROC-NM = "AIN64P9-REF-U01";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-REFERRAL";
-  /*  */
-  try
-    execute update 
-      #sql{
-        UPDATE
-          TWNREFERRAL T1
-        SET
-          RFRL_STS = 'D'
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE ICI = :AIN64W1.WS-ICI
-          AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
-      }
-      for H2-REFERRAL ; // model = update
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-REF-U01
-
-// DELETES TWNRESOLUTION RECORDS
-Function AIN64P9-RES-D01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-RESOLUTION";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RES-D01";
-  VDBCONTROL.UPROC-OPT = "DELETE";
-  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
-  /*  */
-  try
-    execute delete 
-      #sql{
-        DELETE FROM
-          TWNRESOLUTION T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE ICI = :AIN64W1.WS-ICI
-          AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
-      }
-      for H2-RESOLUTION ; // model = delete
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RES-D01
-
-// ADDS RECS TO TWNRESOLUTION
-Function AIN64P9-RES-I01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-RESOLUTION";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RES-I01";
-  VDBCONTROL.UPROC-OPT = "INSERT";
-  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
-  /*  */
-  try
-    add H2-RESOLUTION ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RES-I01
-
-// READS TWNRESOLUTION
-Function AIN64P9-RES-S01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-RESOLUTION";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RES-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
-  /*  */
-  try
-    get H2-RESOLUTION
-      with #sql{
-        select DCFS_NCP_ID,
-          SSN,
-          ICI
-        from TWNRESOLUTION T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.DCFS_NCP_ID = :DCFS-NCP-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-        FOR FETCH ONLY
-      }
-      into DCFS-NCP-ID,
-           SSN, 
-           AIN64W1.WS-ICI ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RES-S01
-
-// READS TWNRESOLUTION
-Function AIN64P9-RES-S02()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.USQLREC = "H2-2-FAM-RES";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RES-S02";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-2-FAM-RES";
-  /*  */
-  try
-    get H2-2-FAM-RES
-      with #sql{
-        select T2.ICI,
-               T2.DCFS_NCP_ID,
-               'RES'
-        from TWNFAM_CASE T1,
-             TWNRESOLUTION T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        where T1.ICI = T2.ICI
-        and   T1.IVE_CASE_ID = :H2-2-FAM-RES.IVE-CASE-ID
-        and   T2.DCFS_NCP_ID = :H2-2-FAM-RES.DCFS-NCP-ID
-        union
-        select T2.ICI,
-               T2.DCFS_NCP_ID,
-               'RFL'
-        from TWNFAM_CASE T1,
-             TWNIVD_RFRL_DTLS T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        where T1.ICI = T2.ICI
-        and   T1.IVE_CASE_ID = :H2-2-FAM-DRF.IVE-CASE-ID
-        and   T2.DCFS_NCP_ID = :H2-2-FAM-DRF.DCFS-NCP-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-        FOR FETCH ONLY
-      }
-      into AIN64W1.WS-ICI,
-           DCFS-NCP-ID,
-           AIN64W1.WS-FROM ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == -811)
-  	sysVar.sqlData.sqlcode = 0;
-  	AIN64W1.WS-From = "BTH";
-  end
-  
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RES-S02
+  /* *************** wi 16615 end   *****************************************/
+end // end AMA12P9-ACUM-DOFC
 
 
-// UPDATES TWNRESOLUTION
-Function AIN64P9-RES-U01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-RESOLUTION";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RES-U01";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-RESOLUTION";
-  /*  */
-  try
-    execute update 
-      #sql{
-        UPDATE
-          TWNRESOLUTION T1
-        SET
-          SSN=:SSN,
-          LST_NM=:LST-NM,
-          FRST_NM=:FRST-NM,
-          MID_NM=:MID-NM,
-          MODFR=:MODFR,
-          HM_PHN_NMB=:HM-PHN-NMB,
-          ETHNC_CD=:ETHNC-CD,
-          SEX_CD=:SEX-CD,
-          PLACE_OF_BIRTH=:PLACE-OF-BIRTH,
-          BIRTH_PLACE_CD=:BIRTH-PLACE-CD,
-          DOB=:DOB,
-          DCFS_NCP_ID=:DCFS-NCP-ID,
-          DCFS_CSORDR_FILEDT=:DCFS-CSORDR-FILEDT,
-          DCFS_SRVC_OFC_WRKR=:DCFS-SRVC-OFC-WRKR,
-          DCFS_SRVC_OFC_PHN=:DCFS-SRVC-OFC-PHN,
-          DCFS_SRVC_OFC_CD=:DCFS-SRVC-OFC-CD,
-          LGL_CST_BEG_DT=:LGL-CST-BEG-DT,
-          LGL_CST_END_DT=:LGL-CST-END-DT
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE ICI = :AIN64W1.WS-ICI
-          AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
-      }
-      for H2-RESOLUTION ; // model = update
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RES-U01
-
-// DELETES TWNRFRL_ADRS RECORDS
-Function AIN64P9-RFA-D01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-RFRL-ADRS";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RFA-D01";
-  VDBCONTROL.UPROC-OPT = "DELETE";
-  VDBCONTROL.UPROC-OBJ = "H2-RFRL-ADRS";
-  /*  */
-  try
-    execute delete 
-      #sql{
-        DELETE FROM
-          TWNRFRL_ADRS T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.ICI = :AIN64W1.WS-ICI
-          AND T1.NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
-      }
-      for H2-RFRL-ADRS ; // model = delete
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RFA-D01
-
-// ADDS RECS TO TWNRFRL_ADRS
-Function AIN64P9-RFA-I01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-RFRL-ADRS";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RFA-I01";
-  VDBCONTROL.UPROC-OPT = "INSERT";
-  VDBCONTROL.UPROC-OBJ = "H2-RFRL-ADRS";
-  /*  */
-  try
-    add H2-RFRL-ADRS ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RFA-I01
-
-// UPDATES TWNRFRL_ADRS RECORDS
-Function AIN64P9-RFA-U01()
-  WDB00PI();
-  /*  */
-  VDBCOMMON.UAPPLNAM = "AIN64A";
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.USQLREC = "H2-RFRL-ADRS";
-  VDBCONTROL.UPROC-NM = "AIN64P9-RFA-U01";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-RFRL-ADRS";
-  /*  */
-  try
-    execute update 
-      #sql{
-        UPDATE
-          TWNRFRL_ADRS T1
-        SET
-          HOUSE_NMB=:HOUSE-NMB,
-          STR_DIR=:STR-DIR,
-          STR_NM=:STR-NM,
-          STR_TYPE=:STR-TYPE,
-          APT_NMB=:APT-NMB,
-          OTH_ADDR=:OTH-ADDR,
-          CITY=:CITY,
-          ST_CD=:ST-CD,
-          ZIP_CD=:ZIP-CD
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE ICI = :AIN64W1.WS-ICI
-          AND NCP_SQNC_NMB = :AIN64W1.WS-MAX-NCP-SQNC-NMB
-      }
-      for H2-RFRL-ADRS ; // model = update
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end
-
-// end AIN64P9-RFA-U01
-
-// READ RECORDS
-Function AIN64P9-SCAN-INPUT()
-  VGVar.handleHardIOErrors = 1;
-  /*  */
-  try
-    get next SR-AIN64-RECIN ;
-  end
-  /*  */
-  if (SR-AIN64-RECIN is ioError && SR-AIN64-RECIN not endOfFile)
-    VDBCONTROL.UPROC-OBJ = "SR-AIN64-RECIN";
-    VDBCONTROL.UPROC-NM = "AIN64P9-SCAN-INPUT";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    VMESSAGE.WS-ERR-CD = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = VMESSAGE.WS-ERR-LAST-FOUR;
-    VMESSAGE.UMSGINS[2] = sysVar.transferName;
-    VDBCONTROL.UMSQLCODE = 0;
-    if (SR-AIN64-RECIN is invalidFormat)
-      VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+// ACCUM FIGURES FOR STWIDE REPT
+Function AMA12P9-ACUM-ST()
+  /* accumulate figures for state wide report*/
+  if (AMA12W.WS-PREV-CLSRE-RSN-CD == "1")
+    AMA12W.WS-AMA12-INDEX = 1;
+    AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+    AMA12W.WS-ST-REC-FND = "Y";
+  else
+    if (AMA12W.WS-PREV-CLSRE-RSN-CD == "2")
+      AMA12W.WS-AMA12-INDEX = 2;
+      AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+      AMA12W.WS-ST-REC-FND = "Y";
+    else
+      if (AMA12W.WS-PREV-CLSRE-RSN-CD == "3")
+        AMA12W.WS-AMA12-INDEX = 3;
+        AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+        AMA12W.WS-ST-REC-FND = "Y";
+      else
+        if (AMA12W.WS-PREV-CLSRE-RSN-CD == "4")
+          AMA12W.WS-AMA12-INDEX = 4;
+          AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+          AMA12W.WS-ST-REC-FND = "Y";
+        else
+          if (AMA12W.WS-PREV-CLSRE-RSN-CD == "5")
+            AMA12W.WS-AMA12-INDEX = 5;
+            AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+            AMA12W.WS-ST-REC-FND = "Y";
+          else
+            if (AMA12W.WS-PREV-CLSRE-RSN-CD == "6")
+              AMA12W.WS-AMA12-INDEX = 6;
+              AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+              AMA12W.WS-ST-REC-FND = "Y";
+            else
+              if (AMA12W.WS-PREV-CLSRE-RSN-CD == "7")
+                AMA12W.WS-AMA12-INDEX = 7;
+                AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+                AMA12W.WS-ST-REC-FND = "Y";
+              else
+                if (AMA12W.WS-PREV-CLSRE-RSN-CD == "8")
+                  AMA12W.WS-AMA12-INDEX = 8;
+                  AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+                  AMA12W.WS-ST-REC-FND = "Y";
+                else
+                  if (AMA12W.WS-PREV-CLSRE-RSN-CD == "9")
+                    AMA12W.WS-AMA12-INDEX = 9;
+                    AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] = "Y";
+                    AMA12W.WS-ST-REC-FND = "Y";
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
     end
-    /*  */
+  end
+
+  if (AMA12W.WS-ST-REC-FND == "Y")
+    AMA12W.WS-ST-REC-FND = "N";
+    AMA12W.WS-ST-TERM-RSN[WS-AMA12-INDEX] = AMA12W.WS-TERM-RSN-TRUNC;
+    AMA12W.WS-ST-TERM-CNT-EM3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-EM3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-EM3;
+    AMA12W.WS-ST-TERM-CNT-IN3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-IN3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-IN3;
+    AMA12W.WS-ST-TERM-CNT-SI3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-SI3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SI3;
+    AMA12W.WS-ST-TERM-CNT-PK3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-PK3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-PK3;
+    AMA12W.WS-ST-TERM-CNT-KB3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-KB3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-KB3;
+    AMA12W.WS-ST-TERM-CNT-WB3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-WB3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-WB3;
+    AMA12W.WS-ST-TERM-CNT-GC3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-GC3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-GC3;
+    AMA12W.WS-ST-TERM-CNT-SS3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-SS3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SS3;
+    AMA12W.WS-ST-TERM-CNT-HD3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-HD3[WS-AMA12-INDEX]     + AMA12W.WS-TERM-CNT-HD3;
+    AMA12W.WS-ST-TERM-CNT-HG3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-HG3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-HG3;
+    AMA12W.WS-ST-TERM-CNT-CM3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-CM3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-CM3;
+    AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SUB-TOTAL-BL;
+    AMA12W.WS-ST-TERM-CNT-QM3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-QM3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QM3;
+    AMA12W.WS-ST-TERM-CNT-SL3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-SL3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-SL3;
+
+  /* Begin change for wi# 15116- Ted Hendricks*/
+
+    AMA12W.WS-ST-TERM-CNT-QI3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-QI3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QI3;
+    AMA12W.WS-ST-TERM-CNT-QJ3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-QJ3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QJ3;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+    AMA12W.WS-ST-TERM-CNT-QD3[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-QD3[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-QD3;
+    AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX]     + AMA12W.WS-TERM-CNT-SUB-TOTAL-MB;
+    AMA12W.WS-ST-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX] = AMA12W.WS-ST-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX] +     AMA12W.WS-TERM-CNT-GR-TOTAL;
+    AMA12W.WS-AMA12-INDEX = 0;
+  end
+end // end AMA12P9-ACUM-ST
+
+
+// ACCUM FIGS FOR STWIDE FOOTER
+Function AMA12P9-ACUM-STFOT()
+  AMA12W.WS-AMA12-INDEX = 1;
+  while (AMA12W.WS-AMA12-INDEX <= 9)
+    if (AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] == "Y")
+      AMA12W.WS-TERM-CNT-AC-TOT-EM3 = AMA12W.WS-TERM-CNT-AC-TOT-EM3       + AMA12W.WS-ST-TERM-CNT-EM3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-IN3 = AMA12W.WS-TERM-CNT-AC-TOT-IN3       + AMA12W.WS-ST-TERM-CNT-IN3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-SI3 = AMA12W.WS-TERM-CNT-AC-TOT-SI3       + AMA12W.WS-ST-TERM-CNT-SI3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-PK3 = AMA12W.WS-TERM-CNT-AC-TOT-PK3       + AMA12W.WS-ST-TERM-CNT-PK3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-KB3 = AMA12W.WS-TERM-CNT-AC-TOT-KB3       + AMA12W.WS-ST-TERM-CNT-KB3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-WB3 = AMA12W.WS-TERM-CNT-AC-TOT-WB3       + AMA12W.WS-ST-TERM-CNT-WB3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-GC3 = AMA12W.WS-TERM-CNT-AC-TOT-GC3       + AMA12W.WS-ST-TERM-CNT-GC3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-SS3 = AMA12W.WS-TERM-CNT-AC-TOT-SS3       + AMA12W.WS-ST-TERM-CNT-SS3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-HD3 = AMA12W.WS-TERM-CNT-AC-TOT-HD3       + AMA12W.WS-ST-TERM-CNT-HD3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-HG3 = AMA12W.WS-TERM-CNT-AC-TOT-HG3       + AMA12W.WS-ST-TERM-CNT-HG3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-CM3 = AMA12W.WS-TERM-CNT-AC-TOT-CM3       + AMA12W.WS-ST-TERM-CNT-CM3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-SUB-AC-TOT-BL = AMA12W.WS-TERM-CNT-SUB-AC-TOT-BL       + AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-QM3 = AMA12W.WS-TERM-CNT-AC-TOT-QM3       + AMA12W.WS-ST-TERM-CNT-QM3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-SL3 = AMA12W.WS-TERM-CNT-AC-TOT-SL3       + AMA12W.WS-ST-TERM-CNT-SL3[WS-AMA12-INDEX];
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+      AMA12W.WS-TERM-CNT-AC-TOT-QI3 = AMA12W.WS-TERM-CNT-AC-TOT-QI3       + AMA12W.WS-ST-TERM-CNT-QI3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-AC-TOT-QJ3 = AMA12W.WS-TERM-CNT-AC-TOT-QJ3       + AMA12W.WS-ST-TERM-CNT-QJ3[WS-AMA12-INDEX];
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+      AMA12W.WS-TERM-CNT-AC-TOT-QD3 = AMA12W.WS-TERM-CNT-AC-TOT-QD3       + AMA12W.WS-ST-TERM-CNT-QD3[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-SUB-AC-TOT-MB = AMA12W.WS-TERM-CNT-SUB-AC-TOT-MB       + AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX];
+      AMA12W.WS-TERM-CNT-GR-AC-TOT = AMA12W.WS-TERM-CNT-GR-AC-TOT       + AMA12W.WS-ST-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX];
+    end
+    AMA12W.WS-AMA12-INDEX = AMA12W.WS-AMA12-INDEX + 1;
+  end
+end // end AMA12P9-ACUM-STFOT
+
+
+// APPL   ADDITIONAL PROCESSING
+Function AMA12P9-APPLSPEC()
+  /* cbsi start*/
+  /* control break check*/
+  if ((AMA12W.WS-PREV-OFC-CD != SR-AMA44-RECIN.PCE-OFC-CD))
+    if (AMA12W.WS-CLSRE-REC-FND == "Y")
+      AMA12W.WS-PREV-AID-CD = SR-AMA44-RECIN.PCE-AID-CD;
+      AMA12P9-ACUM-DET();
+
+    /* ************** wi 16615 start ****************************************/
+      AMA12P9-ACUM-DOFC();
+    /* ************** wi 16615 end   ****************************************/
+
+      AMA12P9-ACUM-ST();
+      AMA12P9-POP-DET();
+    /* perform process to print the details*/
+      AMA12P9-PRN-DETAIL();
+      AMA12W.WS-TERM-RSN = SR-AMA44-RECIN.PCE-RSN;
+      AMA12W.WS-CLSRE-REC-FND = "N";
+    end
+    if (AMA12W.WS-PB-REC-FND == "Y")
+      AMA12P9-POP-FOOTER();
+      AMA12P9-PRN-FOOTER();
+      AMA12W.WS-PB-REC-FND = "N";
+    end
+    /* reset all total variables*/
+
+  /* ************** wi 16615 start ******************************************/
+    if (AMA12W.WS-DOFC-PRN-IND == "Y")
+      AMA12P9-DOFC-PRN();
+      AMA12P9-INIT-DOF-T();
+      AMA12P9-INIT-DOF-F();
+      AMA12W.WS-DOFC-PRN-IND = "N";
+    end
+  /* ************** wi 16615 end   ******************************************/
+
+    AMA12P9-INIT-TOT();
+    AMA12P9-INIT-FOTOT();
+    AMA12W.WS-PREV-OFC-CD = SR-AMA44-RECIN.PCE-OFC-CD;
+    AMA12W.WS-PREV-CASLD-ID = SR-AMA44-RECIN.PCE-CASLD-ID;
+    AMA12W.WS-PREV-CLSRE-RSN-CD = SR-AMA44-RECIN.PCE-RSN-CD;
+    AMA12W.WS-OFC-NM = SR-AMA44-RECIN.PCE-OFC-NM;
+    REP-COMMON.WS-NEW-PAGE = "Y";
+  else
+    if ((AMA12W.WS-PREV-CASLD-ID != SR-AMA44-RECIN.PCE-CASLD-ID))
+      if (AMA12W.WS-CLSRE-REC-FND == "Y")
+        AMA12P9-ACUM-DET();
+
+    /* ************** wi 16615 start ****************************************/
+        AMA12P9-ACUM-DOFC();
+    /* ************** wi 16615 end   ****************************************/
+
+        AMA12P9-ACUM-ST();
+        AMA12P9-POP-DET();
+    /* perform process to print the details*/
+        AMA12P9-PRN-DETAIL();
+        AMA12W.WS-TERM-RSN = SR-AMA44-RECIN.PCE-RSN;
+        AMA12W.WS-CLSRE-REC-FND = "N";
+      end
+      if (AMA12W.WS-PB-REC-FND == "Y")
+        AMA12P9-POP-FOOTER();
+        AMA12P9-PRN-FOOTER();
+        AMA12W.WS-PB-REC-FND = "N";
+      end
+    /* reset all total variables*/
+      AMA12P9-INIT-TOT();
+      AMA12P9-INIT-FOTOT();
+      AMA12W.WS-PREV-CASLD-ID = SR-AMA44-RECIN.PCE-CASLD-ID;
+      AMA12W.WS-PREV-CLSRE-RSN-CD = SR-AMA44-RECIN.PCE-RSN-CD;
+      REP-COMMON.WS-NEW-PAGE = "Y";
+    else
+      if ((AMA12W.WS-PREV-CLSRE-RSN-CD != SR-AMA44-RECIN.PCE-RSN-CD))
+        if (AMA12W.WS-CLSRE-REC-FND == "Y")
+          AMA12P9-ACUM-DET();
+
+    /* ************** wi 16615 start ****************************************/
+          AMA12P9-ACUM-DOFC();
+    /* ************** wi 16615 end   ****************************************/
+
+          AMA12P9-ACUM-ST();
+          AMA12P9-POP-DET();
+    /* perform process to print the details*/
+          AMA12P9-PRN-DETAIL();
+          AMA12W.WS-TERM-RSN = SR-AMA44-RECIN.PCE-RSN;
+          AMA12W.WS-CLSRE-REC-FND = "N";
+        end
+        AMA12P9-INIT-TOT();
+        AMA12W.WS-PREV-CLSRE-RSN-CD = SR-AMA44-RECIN.PCE-RSN-CD;
+      end
+    end
+  end
+
+  AMA12P9-CHK-AIDCD();
+
+  if (AMA12W.WS-CLSRE-REC-FND == "Y")
+    AMA12W.WS-PREV-CLSRE-RSN-CD = SR-AMA44-RECIN.PCE-RSN-CD;
+    AMA12W.WS-TERM-RSN = SR-AMA44-RECIN.PCE-RSN;
+  end
+  /* cbsi end*/
+end // end AMA12P9-APPLSPEC
+
+
+// CHECK AID CODES
+Function AMA12P9-CHK-AIDCD()
+
+   /* Begin change for WI# 15116- Ted Hendricks*/
+   /* ** Change up here so max nexting level not reached below ***/
+
+  if (SR-AMA44-RECIN.PCE-AID-CD == "QI3")
+    AMA12W.WS-TERM-CNT-QI3 = AMA12W.WS-TERM-CNT-QI3 + 1;
+    AMA12W.WS-REC-FOUND = "Y";
+    AMA12W.WS-CLSRE-REC-FND = "Y";
+    AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+    AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+  else
+    if (SR-AMA44-RECIN.PCE-AID-CD == "QJ3")
+      AMA12W.WS-TERM-CNT-QJ3 = AMA12W.WS-TERM-CNT-QJ3 + 1;
+      AMA12W.WS-REC-FOUND = "Y";
+      AMA12W.WS-CLSRE-REC-FND = "Y";
+      AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+      AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+    end
+  end
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  if (SR-AMA44-RECIN.PCE-AID-CD == "EM3")
+    AMA12W.WS-TERM-CNT-EM3 = AMA12W.WS-TERM-CNT-EM3 + 1;
+    AMA12W.WS-REC-FOUND = "Y";
+    AMA12W.WS-CLSRE-REC-FND = "Y";
+    AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+    AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+  else
+    if (SR-AMA44-RECIN.PCE-AID-CD == "IN3")
+      AMA12W.WS-TERM-CNT-IN3 = AMA12W.WS-TERM-CNT-IN3 + 1;
+      AMA12W.WS-REC-FOUND = "Y";
+      AMA12W.WS-CLSRE-REC-FND = "Y";
+      AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+      AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+    else
+      if (SR-AMA44-RECIN.PCE-AID-CD == "SI3")
+        AMA12W.WS-TERM-CNT-SI3 = AMA12W.WS-TERM-CNT-SI3 + 1;
+        AMA12W.WS-REC-FOUND = "Y";
+        AMA12W.WS-CLSRE-REC-FND = "Y";
+        AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+        AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+      else
+        if (SR-AMA44-RECIN.PCE-AID-CD == "PK3" || 
+        SR-AMA44-RECIN.PCE-AID-CD == "AD3" || 
+        SR-AMA44-RECIN.PCE-AID-CD == "WW3" || 
+        SR-AMA44-RECIN.PCE-AID-CD == "WS3" || 
+        SR-AMA44-RECIN.PCE-AID-CD == "SU3")
+          AMA12W.WS-TERM-CNT-PK3 = AMA12W.WS-TERM-CNT-PK3 + 1;
+          AMA12W.WS-REC-FOUND = "Y";
+          AMA12W.WS-CLSRE-REC-FND = "Y";
+          AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+          AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+        else
+          if (SR-AMA44-RECIN.PCE-AID-CD == "KB3")
+            AMA12W.WS-TERM-CNT-KB3 = AMA12W.WS-TERM-CNT-KB3 + 1;
+            AMA12W.WS-REC-FOUND = "Y";
+            AMA12W.WS-CLSRE-REC-FND = "Y";
+            AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+            AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+          else
+            if (SR-AMA44-RECIN.PCE-AID-CD == "WB3")
+              AMA12W.WS-TERM-CNT-WB3 = AMA12W.WS-TERM-CNT-WB3 + 1;
+              AMA12W.WS-REC-FOUND = "Y";
+              AMA12W.WS-CLSRE-REC-FND = "Y";
+              AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+              AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+            else
+              if (SR-AMA44-RECIN.PCE-AID-CD == "GC3")
+                AMA12W.WS-TERM-CNT-GC3 = AMA12W.WS-TERM-CNT-GC3 + 1;
+                AMA12W.WS-REC-FOUND = "Y";
+                AMA12W.WS-CLSRE-REC-FND = "Y";
+                AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+              else
+                if (SR-AMA44-RECIN.PCE-AID-CD == "SS3")
+                  AMA12W.WS-TERM-CNT-SS3 = AMA12W.WS-TERM-CNT-SS3 + 1;
+                  AMA12W.WS-REC-FOUND = "Y";
+                  AMA12W.WS-CLSRE-REC-FND = "Y";
+                  AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                  AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+                else
+                  if (SR-AMA44-RECIN.PCE-AID-CD == "HD3")
+                    AMA12W.WS-TERM-CNT-HD3 = AMA12W.WS-TERM-CNT-HD3 + 1;
+                    AMA12W.WS-REC-FOUND = "Y";
+                    AMA12W.WS-CLSRE-REC-FND = "Y";
+                    AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                    AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+                  else
+                    if (SR-AMA44-RECIN.PCE-AID-CD == "HG3")
+                      AMA12W.WS-TERM-CNT-HG3 = AMA12W.WS-TERM-CNT-HG3 + 1;
+                      AMA12W.WS-REC-FOUND = "Y";
+                      AMA12W.WS-CLSRE-REC-FND = "Y";
+                      AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                      AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+                    else
+                      if (SR-AMA44-RECIN.PCE-AID-CD == "CM3")
+                        AMA12W.WS-TERM-CNT-CM3 = AMA12W.WS-TERM-CNT-CM3 + 1;
+                        AMA12W.WS-REC-FOUND = "Y";
+                        AMA12W.WS-CLSRE-REC-FND = "Y";
+                        AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                        AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+                      else
+                        if (SR-AMA44-RECIN.PCE-AID-CD == "QM3")
+                          AMA12W.WS-TERM-CNT-QM3 = AMA12W.WS-TERM-CNT-QM3 +                           1;
+                          AMA12W.WS-REC-FOUND = "Y";
+                          AMA12W.WS-CLSRE-REC-FND = "Y";
+                          AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                          AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+                        else
+                          if (SR-AMA44-RECIN.PCE-AID-CD == "SL3")
+                            AMA12W.WS-TERM-CNT-SL3 = AMA12W.WS-TERM-CNT-SL3                             + 1;
+                            AMA12W.WS-REC-FOUND = "Y";
+                            AMA12W.WS-CLSRE-REC-FND = "Y";
+                            AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                            AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+                          else
+                            if (SR-AMA44-RECIN.PCE-AID-CD == "QD3")
+                              AMA12W.WS-TERM-CNT-QD3 = AMA12W.WS-TERM-CNT-QD3                               + 1;
+                              AMA12W.WS-REC-FOUND = "Y";
+                              AMA12W.WS-CLSRE-REC-FND = "Y";
+                              AMA12W.WS-PB-REC-FND = "Y";
+   /* **************** wi 16615 start ***************************************/
+                              AMA12W.WS-DOFC-PRN-IND = "Y";
+   /* **************** wi 16615 end   ***************************************/
+                            end
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end // end AMA12P9-CHK-AIDCD
+
+
+// END PROCESS
+Function AMA12P9-CLOS-PARA()
+  /* cbsi start*/
+  exit program;
+  /* cbsi end*/
+end // end AMA12P9-CLOS-PARA
+
+
+Function AMA12P9-DOFC-POP()
+  /* ************** wi 16615 start ******************************************/
+  AMA12W-DET.S-TERM-RSN = AMA12W.WS-DOFC-TERM-RSN[WS-AMA12-INDEX];
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-EM3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-EM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-IN3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-IN3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-SI3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-PK3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-PK3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-KB3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-KB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-WB3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-WB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-GC3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-GC3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-SS3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SS3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-HD3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-HD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-HG3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-HG3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-CM3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-CM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX];
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-SUB-TOTAL-BL = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-QM3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-SL3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SL3 = FORMATW.OUTPUT-CHAR;
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-QI3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-QJ3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QJ3 = FORMATW.OUTPUT-CHAR;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-QD3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX];
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-SUB-TOTAL-MB = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX];
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-GR-TOTAL = FORMATW.OUTPUT-CHAR;
+  /* cbsi end*/
+  /* ************** wi 16615 end   ******************************************/
+end // end AMA12P9-DOFC-POP
+
+
+Function AMA12P9-DOFC-PRN()
+  /* ************** wi 16615 start ******************************************/
+  AMA12P9-ACUM-DOF-F();
+  AMA12P9-PRN-HEAD(); /* print the header details*/
+  AMA12W.WS-OFC-NM1 = AMA12W.WS-OFC-NM;
+  AMA12P9-PRN-SUBH();
+  REP-COMMON.WS-NEW-PAGE = "N";
+  AMA12W.WS-AMA12-INDEX = 1;
+  while (AMA12W.WS-AMA12-INDEX <= 38)
+    if (AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] == "Y")
+      AMA12P9-DOFC-POP();
+      AMA12P9-PRN-DETAIL();
+    end
+    AMA12W.WS-AMA12-INDEX = AMA12W.WS-AMA12-INDEX + 1;
+  end
+  AMA12P9-POP-DOFC-F();
+  AMA12P9-PRN-FOOTER();
+  /* ************** wi 16615 end   ******************************************/
+end // end AMA12P9-DOFC-PRN
+
+
+// FORMAT REPORT FIELDS
+Function AMA12P9-FORMAT4()
+  FORMATW.LENGTH = 4;
+  FORMATW.DEC-COUNT = 0;
+  FORMATW.FORMAT-FLAG = "N";
+  FORMATW.DOLLAR-FLAG = "N";
+  REPP9-FORMAT-PROC();
+end // end AMA12P9-FORMAT4
+
+
+// FORMAT REPORT FIELDS
+Function AMA12P9-FORMAT5()
+  FORMATW.LENGTH = 5;
+  FORMATW.DEC-COUNT = 0;
+  FORMATW.FORMAT-FLAG = "N";
+  FORMATW.DOLLAR-FLAG = "N";
+  REPP9-FORMAT-PROC();
+end // end AMA12P9-FORMAT5
+
+
+Function AMA12P9-INIT-DOF-F()
+  /* ************** wi 16615 start ******************************************/
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-EM3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-IN3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SI3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-PK3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-KB3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-WB3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-GC3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SS3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HD3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HG3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-CM3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-BL = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QM3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SL3 = 0;
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QI3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QJ3 = 0;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QD3 = 0;
+  AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-MB = 0;
+  AMA12W.WS-DOFC-TERM-CNT-GR-AC-TOT = 0;
+  /* ************** wi 16615 end   ******************************************/
+end // end AMA12P9-INIT-DOF-F
+
+
+Function AMA12P9-INIT-DOF-T()
+  /* *************** wi 16615 start *****************************************/
+
+  AMA12W.WS-AMA12-INDEX = 1;
+  while (AMA12W.WS-AMA12-INDEX <= 38)
+
+    AMA12W.WS-DOFC-CLSRE-REC-FND[WS-AMA12-INDEX] = "N";
+    AMA12W.WS-DOFC-TERM-RSN[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-EM3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-IN3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-SI3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-PK3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-KB3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-WB3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-GC3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-SS3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-HD3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-HG3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-CM3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-QM3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-SL3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-QI3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-QJ3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-QD3[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-DOFC-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX] = 0;
+    AMA12W.WS-AMA12-INDEX = AMA12W.WS-AMA12-INDEX + 1;
+
+  end
+  /* *************** wi 16615 end   *****************************************/
+end // end AMA12P9-INIT-DOF-T
+
+
+// INITIALIZE FOOTER TOTALS
+Function AMA12P9-INIT-FOTOT()
+  AMA12W.WS-TERM-CNT-AC-TOT-EM3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-IN3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-SI3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-PK3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-KB3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-WB3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-GC3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-SS3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-HD3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-HG3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-CM3 = 0;
+  AMA12W.WS-TERM-CNT-SUB-AC-TOT-BL = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-QM3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-SL3 = 0;
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+  AMA12W.WS-TERM-CNT-AC-TOT-QI3 = 0;
+  AMA12W.WS-TERM-CNT-AC-TOT-QJ3 = 0;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  AMA12W.WS-TERM-CNT-AC-TOT-QD3 = 0;
+  AMA12W.WS-TERM-CNT-SUB-AC-TOT-MB = 0;
+  AMA12W.WS-TERM-CNT-GR-AC-TOT = 0;
+end // end AMA12P9-INIT-FOTOT
+
+
+// INTIALIZE VARIABLES
+Function AMA12P9-INIT-PARA()
+  /* cbsi start*/
+  /* perform process to initialize all additional records*/
+  AMA12P9-SET-EMPTY();
+  /* set all report variables to initial values*/
+  /* ws-page-no      - current printing page number*/
+  /* ws-line-no      - current page line no*/
+  /* ws-new-page     - a new page indicator*/
+  /* ws-max-no-lines - lineage for a standard report frame*/
+
+  REP-COMMON.WS-PAGE-NO = 0;
+  REP-COMMON.WS-LINE-NO = 1;
+  REP-COMMON.WS-NEW-PAGE = "Y";
+  AMA12W.WS-FIRST-TM-IND = "Y";
+  AMA12W.WS-REC-FOUND = "N";
+  AMA12W.WS-CLSRE-REC-FND = "N";
+  /* ***************** wi 16615 start ***************************************/
+  AMA12W.WS-DOFC-PRN-IND = "N";
+  /* ***************** wi 16615 end   ***************************************/
+  AMA12W.WS-PB-REC-FND = "N";
+  REP-COMMON.WS-MAX-NO-LINES = 56;
+
+  /* set standard header variables*/
+
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  REP-COMMON.WS-DT = GDW.DTL; /* current date*/
+  REP-COMMON.WS-YEAR = REP-COMMON.WS-YY;
+  REP-COMMON.WS-MONTH = REP-COMMON.WS-MM;
+  REP-COMMON.WS-DAY = REP-COMMON.WS-DD;
+  REP-COMMON.WS-F1 = "/";
+  REP-COMMON.WS-F2 = "/";
+  AMA12W-HEAD.UDATE = REP-COMMON.WS-DATE; /* report date*/
+  AMA12W-HEAD.UTIME = VGVar.currentFormattedTime; /* current time*/
+  AMA12W-HEAD.UAPPL = "AMA12A"; /* report name*/
+
+  /* perform process to initialize constants*/
+
+  AMA12P9-INITCON();
+
+  /* perform process to read input parameter file*/
+  /* validate date parameters, mandatory fields for*/
+  /* input records*/
+  AMA12P9-READIP();
+
+  /* perform  process for validation of input parameters*/
+  AMA12P9-VALIDATE();
+
+
+  /* populate application specific header*/
+  AMA12W-HEAD.S-REPYR = AMA12W.WS-RPT-DT-CCYY;
+
+  /* populate  header variables*/
+
+  if ((AMA12W.WS-RPT-MONTH-MM == 01))
+    AMA12W-HEAD.S-REPMTH = "   JANUARY,";
+  else
+    if ((AMA12W.WS-RPT-MONTH-MM == 02))
+      AMA12W-HEAD.S-REPMTH = "  FEBRUARY,";
+    else
+      if ((AMA12W.WS-RPT-MONTH-MM == 03))
+        AMA12W-HEAD.S-REPMTH = "     MARCH,";
+      else
+        if ((AMA12W.WS-RPT-MONTH-MM == 04))
+          AMA12W-HEAD.S-REPMTH = "     APRIL,";
+        else
+          if ((AMA12W.WS-RPT-MONTH-MM == 05))
+            AMA12W-HEAD.S-REPMTH = "       MAY,";
+          else
+            if ((AMA12W.WS-RPT-MONTH-MM == 06))
+              AMA12W-HEAD.S-REPMTH = "      JUNE,";
+            else
+              if ((AMA12W.WS-RPT-MONTH-MM == 07))
+                AMA12W-HEAD.S-REPMTH = "      JULY,";
+              else
+                if ((AMA12W.WS-RPT-MONTH-MM == 08))
+                  AMA12W-HEAD.S-REPMTH = "    AUGUST,";
+                else
+                  if ((AMA12W.WS-RPT-MONTH-MM == 09))
+                    AMA12W-HEAD.S-REPMTH = " SEPTEMBER,";
+                  else
+                    if ((AMA12W.WS-RPT-MONTH-MM == 10))
+                      AMA12W-HEAD.S-REPMTH = "   OCTOBER,";
+                    else
+                      if ((AMA12W.WS-RPT-MONTH-MM == 11))
+                        AMA12W-HEAD.S-REPMTH = "  NOVEMBER,";
+                      else
+                        if ((AMA12W.WS-RPT-MONTH-MM == 12))
+                          AMA12W-HEAD.S-REPMTH = "  DECEMBER,";
+                        end /* end of if rpt-month = 12*/
+                      end /* end of if rpt-month = 11*/
+                    end /* end of if rpt-month = 10*/
+                  end /* end of if rpt-month = 09*/
+                end /* end of if rpt-month = 08*/
+              end /* end of if rpt-month = 07*/
+            end /* end of if rpt-month = 06*/
+          end /* end of if rpt-month = 05*/
+        end /* end of if rpt-month = 04*/
+      end /* end of if rpt-month = 03*/
+    end /* end of if rpt-month = 02*/
+  end /* end of if rpt-month = 01*/
+
+  /* cbsi end*/
+end // end AMA12P9-INIT-PARA
+
+
+// INTIALIZE TOTALS
+Function AMA12P9-INIT-TOT()
+  AMA12W.WS-TERM-CNT-EM3 = 0;
+  AMA12W.WS-TERM-CNT-IN3 = 0;
+  AMA12W.WS-TERM-CNT-SI3 = 0;
+  AMA12W.WS-TERM-CNT-PK3 = 0;
+  AMA12W.WS-TERM-CNT-KB3 = 0;
+  AMA12W.WS-TERM-CNT-WB3 = 0;
+  AMA12W.WS-TERM-CNT-GC3 = 0;
+  AMA12W.WS-TERM-CNT-SS3 = 0;
+  AMA12W.WS-TERM-CNT-HD3 = 0;
+  AMA12W.WS-TERM-CNT-HG3 = 0;
+  AMA12W.WS-TERM-CNT-CM3 = 0;
+  AMA12W.WS-TERM-CNT-SUB-TOTAL-BL = 0;
+  AMA12W.WS-TERM-CNT-QM3 = 0;
+  AMA12W.WS-TERM-CNT-SL3 = 0;
+  AMA12W.WS-TERM-CNT-QI3 = 0;
+  AMA12W.WS-TERM-CNT-QJ3 = 0;
+  AMA12W.WS-TERM-CNT-QD3 = 0;
+  AMA12W.WS-TERM-CNT-SUB-TOTAL-MB = 0;
+  AMA12W.WS-TERM-CNT-GR-TOTAL = 0;
+end // end AMA12P9-INIT-TOT
+
+
+// INITIALIZE CONSTANTS
+Function AMA12P9-INITCON()
+  /* this process intialises all the reports constants*/
+  AMA12W-HEAD.CONSTANT1 = "PAGE-NBR";
+  AMA12W-HEAD.CONSTANT2 = "STATE";
+  AMA12W-HEAD.CONSTANT3 = "OF";
+  AMA12W-HEAD.CONSTANT4 = "NEVADA";
+  AMA12W-HEAD.CONSTANT5 = "DATE";
+  AMA12W-HEAD.CONSTANT6 = "ONGOING";
+  AMA12W-HEAD.CONSTANT7 = "TERMINATION";
+  AMA12W-HEAD.CONSTANT8 = "REASON";
+  AMA12W-HEAD.CONSTANT9 = "STATISTICS";
+  AMA12W-HEAD.CONSTANT10 = "BY";
+  AMA12W-HEAD.CONSTANT11 = "AID";
+  AMA12W-HEAD.CONSTANT12 = "CODE";
+  AMA12W-HEAD.CONSTANT13 = "-";
+  AMA12W-HEAD.CONSTANT14 = "BLIND";
+  AMA12W-HEAD.CONSTANT15 = "TIME";
+  AMA12W-HEAD.CONSTANT16 = "MONTH";
+  AMA12W-HEAD.CONSTANT17 = "OF";
+  AMA12W-HEAD.CONSTANT18 = ":";
+  AMA12W-SUBH.CONSTANT1 = "LEVEL";
+  AMA12W-SUBH.CONSTANT2 = "REASON";
+  AMA12W-SUBH.CONSTANT3 = "<----------------------------";
+  AMA12W-SUBH.CONSTANT4 = "-----BLIND------------------";
+  AMA12W-SUBH.CONSTANT5 = "--------------><------------MED";
+  AMA12W-SUBH.CONSTANT6 = "BEN----------->";
+  AMA12W-SUBH.CONSTANT7B = "PK3/AD3/";
+  AMA12W-SUBH.CONSTANT7 = "SUB";
+  AMA12W-SUBH.CONSTANT8 = "SUB";
+  AMA12W-SUBH.CONSTANT9 = "GRAND";
+  AMA12W-SUBH.CONSTANT10 = "EM3";
+  AMA12W-SUBH.CONSTANT11 = "IN3";
+  AMA12W-SUBH.CONSTANT12 = "SI3";
+  AMA12W-SUBH.CONSTANT13 = "WW3/WS3/SU3";
+  AMA12W-SUBH.CONSTANT14 = "KB3";
+  AMA12W-SUBH.CONSTANT15 = "WB3";
+  AMA12W-SUBH.CONSTANT16 = "GC3";
+  AMA12W-SUBH.CONSTANT17 = "SS3";
+  AMA12W-SUBH.CONSTANT18 = "HD3";
+  AMA12W-SUBH.CONSTANT19 = "HG3";
+  AMA12W-SUBH.CONSTANT20 = "CM3";
+  AMA12W-SUBH.CONSTANT21 = "TOTAL";
+  AMA12W-SUBH.CONSTANT22 = "QM3";
+  AMA12W-SUBH.CONSTANT23 = "SL3";
+  AMA12W-SUBH.CONSTANT24 = "QI3";
+  AMA12W-SUBH.CONSTANT25 = "QJ3";
+  AMA12W-SUBH.CONSTANT26 = "QD3";
+  AMA12W-SUBH.CONSTANT27 = "TOTAL";
+  AMA12W-SUBH.CONSTANT28 = "TOTAL";
+  AMA12W-FOOTER.CONSTANT1 = "------------------------------------";
+  AMA12W-FOOTER.CONSTANT2 = "------------------------------------";
+  AMA12W-FOOTER.CONSTANT3 = "------------------------------------";
+  AMA12W-FOOTER.CONSTANT4 = "------------------------";
+  AMA12W-FOOTER.CONSTANT5 = "***";
+  AMA12W-FOOTER.CONSTANT6 = "TOTAL";
+end // end AMA12P9-INITCON
+
+
+// REPORTS MAIN PARA
+Function AMA12P9-MAIN()
+  /* cbsi start*/
+
+  /* perform process to initialize variables*/
+  AMA12P9-INIT-PARA();
+
+  /* perform process to print the report*/
+  AMA12P9-PRINT-PARA();
+
+  /* perform process to close the application*/
+  AMA12P9-CLOS-PARA();
+
+  /* cbsi end*/
+end // end AMA12P9-MAIN
+
+
+// POPULATING REPORT DETAILS
+Function AMA12P9-POP-DET()
+  /* cbsi start*/
+  /* move retrieved variables to output record*/
+  AMA12W-DET.S-TERM-RSN = AMA12W.WS-TERM-RSN-TRUNC;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-EM3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-EM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-IN3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-IN3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-SI3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-PK3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-PK3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-KB3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-KB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-WB3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-WB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-GC3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-GC3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-SS3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SS3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-HD3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-HD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-HG3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-HG3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-CM3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-CM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-SUB-TOTAL-BL;
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-SUB-TOTAL-BL = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-QM3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-SL3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SL3 = FORMATW.OUTPUT-CHAR;
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-QI3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-QJ3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QJ3 = FORMATW.OUTPUT-CHAR;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-QD3;
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-SUB-TOTAL-MB;
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-SUB-TOTAL-MB = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-GR-TOTAL;
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-GR-TOTAL = FORMATW.OUTPUT-CHAR;
+  /* cbsi end*/
+end // end AMA12P9-POP-DET
+
+
+Function AMA12P9-POP-DOFC-F()
+  /* ************** wi 16615 start ******************************************/
+  /* cbsi start*/
+  /* move retrieved variables to output record*/
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-EM3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-EM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-IN3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-IN3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SI3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-SI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-PK3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-PK3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-KB3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-KB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-WB3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-WB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-GC3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-GC3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SS3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-SS3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HD3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-HD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-HG3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-HG3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-CM3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-CM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-BL;
+  AMA12P9-FORMAT5();
+  AMA12W-FOOTER.S-TERM-CNT-SUB-AC-TOT-BL = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QM3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-SL3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-SL3 = FORMATW.OUTPUT-CHAR;
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QI3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QJ3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QJ3 = FORMATW.OUTPUT-CHAR;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-AC-TOT-QD3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-SUB-AC-TOT-MB;
+  AMA12P9-FORMAT5();
+  AMA12W-FOOTER.S-TERM-CNT-SUB-AC-TOT-MB = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-DOFC-TERM-CNT-GR-AC-TOT;
+  AMA12P9-FORMAT5();
+  AMA12W-FOOTER.S-TERM-CNT-GR-AC-TOT = FORMATW.OUTPUT-CHAR;
+  /* ************** wi 16615 end   ******************************************/
+end // end AMA12P9-POP-DOFC-F
+
+
+// POPULATE REPORT FOOTER
+Function AMA12P9-POP-FOOTER()
+  /* cbsi start*/
+  /* move retrieved variables to output record*/
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-EM3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-EM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-IN3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-IN3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-SI3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-SI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-PK3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-PK3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-KB3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-KB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-WB3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-WB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-GC3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-GC3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-SS3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-SS3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-HD3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-HD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-HG3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-HG3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-CM3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-CM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-SUB-AC-TOT-BL;
+  AMA12P9-FORMAT5();
+  AMA12W-FOOTER.S-TERM-CNT-SUB-AC-TOT-BL = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-QM3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-SL3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-SL3 = FORMATW.OUTPUT-CHAR;
+
+   /* Begin change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-QI3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-QJ3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QJ3 = FORMATW.OUTPUT-CHAR;
+
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-AC-TOT-QD3;
+  AMA12P9-FORMAT4();
+  AMA12W-FOOTER.S-TERM-CNT-AC-TOT-QD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-SUB-AC-TOT-MB;
+  AMA12P9-FORMAT5();
+  AMA12W-FOOTER.S-TERM-CNT-SUB-AC-TOT-MB = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-TERM-CNT-GR-AC-TOT;
+  AMA12P9-FORMAT5();
+  AMA12W-FOOTER.S-TERM-CNT-GR-AC-TOT = FORMATW.OUTPUT-CHAR;
+end // end AMA12P9-POP-FOOTER
+
+
+// PROCESS TO PRINT THE REPORT
+Function AMA12P9-PRINT-PARA()
+  /* cbsi start*/
+  AMA12P9-SCAN();
+
+  if (SR-AMA44-RECIN is ioError)
+    AMA12P9-PRN-HEAD();
+    REP132P9-NRF-PROC();
+    AMA12P9-CLOS-PARA();
+  end
+
+  /* print all the details retrieved from the data base*/
+  while (SR-AMA44-RECIN not ioError)
+
+    if (SR-AMA44-RECIN.PCE-PRGM-CASE-STS == "T")
+      if (AMA12W.WS-FIRST-TM-IND == "Y")
+        AMA12W.WS-PREV-OFC-CD = SR-AMA44-RECIN.PCE-OFC-CD;
+        AMA12W.WS-PREV-CASLD-ID = SR-AMA44-RECIN.PCE-CASLD-ID;
+        AMA12W.WS-PREV-CLSRE-RSN-CD = SR-AMA44-RECIN.PCE-RSN-CD;
+        AMA12W.WS-TERM-RSN = SR-AMA44-RECIN.PCE-RSN;
+        AMA12W.WS-OFC-NM = SR-AMA44-RECIN.PCE-OFC-NM;
+        AMA12W.WS-FIRST-TM-IND = "N";
+      end
+    /* perform processing specific to the application*/
+      AMA12P9-APPLSPEC();
+
+    end
+    /* perform process to scan the cursor*/
+    AMA12P9-SCAN();
+  end /* end of while loop*/
+
+  if (AMA12W.WS-REC-FOUND == "Y")
+    if (AMA12W.WS-CLSRE-REC-FND == "Y")
+      AMA12W.WS-TERM-RSN = SR-AMA44-RECIN.PCE-RSN;
+      AMA12P9-ACUM-DET();
+
+  /* ************** wi 16615 start ******************************************/
+      AMA12P9-ACUM-DOFC();
+  /* ************** wi 16615 end   ******************************************/
+
+      AMA12P9-ACUM-ST();
+  /* print details for last record*/
+  /* perform process to populate the details*/
+      AMA12P9-POP-DET();
+  /* perform process to print detail screen*/
+      AMA12P9-PRN-DETAIL();
+    end
+    if (AMA12W.WS-PB-REC-FND == "Y")
+      AMA12P9-POP-FOOTER();
+      AMA12P9-PRN-FOOTER();
+    end
+    AMA12P9-INIT-TOT();
+    AMA12P9-INIT-FOTOT();
+
+  /* ************** wi 16615 start ******************************************/
+    if (AMA12W.WS-DOFC-PRN-IND == "Y")
+      AMA12P9-DOFC-PRN();
+      AMA12W.WS-DOFC-PRN-IND = "N";
+    end
+  /* ************** wi 16615 end   ******************************************/
+
+    AMA12P9-ST-PRN();
+  /* check if footer and end of report line can fit in the same page*/
+    AMA12W.WS-REM-LINES = REP-COMMON.WS-MAX-NO-LINES -     REP-COMMON.WS-LINE-NO;
+
+    if ((AMA12W.WS-REM-LINES < 2))
+    /* set print control character to form feed*/
+      AMA12P9-PRN-HEAD(); /* print header details*/
+    end
+  /* print end of report*/
+    REP132P9-EOR-PROC();
+  /* perform termination process*/
+    AMA12P9-CLOS-PARA();
+  end
+
+  AMA12P9-PRN-HEAD();
+  REP132P9-NRF-PROC();
+  /* cbsi end*/
+end // end AMA12P9-PRINT-PARA
+
+
+// PRINT REPORT DETAIL
+Function AMA12P9-PRN-DETAIL()
+  /* cbsi start*/
+  if ((REP-COMMON.WS-NEW-PAGE == "Y"))
+    AMA12P9-PRN-HEAD(); /* print the header details*/
+    AMA12P9-PRN-SUBH(); /* print the subheader*/
+    REP-COMMON.WS-NEW-PAGE = "N"; /* reset new page  indicator*/
+  end
+  if (REP-COMMON.WS-LINE-NO > REP-COMMON.WS-MAX-NO-LINES)
+    AMA12P9-PRN-HEAD();
+    AMA12P9-PRN-SUBH();
+  end
+  SR-132REP-RECOUT.UFIELD = AMA12W-DET.LINE1;
+  WR-132REP-OUT-FILE();
+  /* reset control character*/
+  SR-132REP-RECOUT.PRNT-CC = " ";
+  /* cbsi end*/
+end // end AMA12P9-PRN-DETAIL
+
+
+// PRINT REPORT FOOTER
+Function AMA12P9-PRN-FOOTER()
+  /* cbsi start*/
+  REP-COMMON.WS-REM1 = REP-COMMON.WS-MAX-NO-LINES - REP-COMMON.WS-LINE-NO;
+  if (REP-COMMON.WS-REM1 < 2)
+    AMA12P9-PRN-HEAD();
+    AMA12P9-PRN-SUBH();
+  end
+  SR-132REP-RECOUT.PRNT-CC = " ";
+  SR-132REP-RECOUT.UFIELD = AMA12W-FOOTER.LINE1;
+  WR-132REP-OUT-FILE();
+  /* leave 1 line before printing curr line*/
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  SR-132REP-RECOUT.UFIELD = AMA12W-FOOTER.LINE2;
+  WR-132REP-OUT-FILE();
+  /* cbsi end*/
+end // end AMA12P9-PRN-FOOTER
+
+
+// PRINT REPORT HEADER
+Function AMA12P9-PRN-HEAD()
+  /* cbsi start*/
+  /* increment page-no*/
+  REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
+
+  if (REP-COMMON.WS-PAGE-NO > 1)
+    SR-132REP-RECOUT.PRNT-CC = "1";
+  end
+  /* move page-no to header variable*/
+  AMA12W-HEAD.UPAGE = REP-COMMON.WS-PAGE-NO-3-4;
+
+  /* move each line of header to map and print*/
+  SR-132REP-RECOUT.UFIELD = AMA12W-HEAD.LINE1;
+  WR-132REP-OUT-FILE();
+
+  /* reset control character*/
+  SR-132REP-RECOUT.PRNT-CC = " ";
+
+  SR-132REP-RECOUT.UFIELD = AMA12W-HEAD.LINE2;
+  WR-132REP-OUT-FILE();
+  if (AMA12W-HEAD.LINE3 != " ")
+    SR-132REP-RECOUT.UFIELD = AMA12W-HEAD.LINE3;
+    WR-132REP-OUT-FILE();
+  end
+  /* cbsi end*/
+end // end AMA12P9-PRN-HEAD
+
+
+// PRINT REPORT SUBHEADER
+Function AMA12P9-PRN-SUBH()
+  /* cbsi start*/
+  AMA12W.WS-LEVEL-OFC-NM = AMA12W.WS-OFC-NM-TRUNC;
+  AMA12W.WS-LEVEL-CASLD-ID = AMA12W.WS-PREV-CASLD-ID;
+  AMA12W-SUBH.S-LEVEL = AMA12W.WS-LEVEL;
+  /* reset control character*/
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  SR-132REP-RECOUT.UFIELD = AMA12W-SUBH.LINE1;
+  WR-132REP-OUT-FILE();
+
+  /* set control character to skip one line before printing curr line*/
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  SR-132REP-RECOUT.UFIELD = AMA12W-SUBH.LINE2;
+  WR-132REP-OUT-FILE();
+
+  /* reset control character*/
+  SR-132REP-RECOUT.PRNT-CC = " ";
+  SR-132REP-RECOUT.UFIELD = AMA12W-SUBH.LINE3;
+  WR-132REP-OUT-FILE();
+
+  SR-132REP-RECOUT.UFIELD = AMA12W-SUBH.LINE4;
+  WR-132REP-OUT-FILE();
+
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  /* cbsi end*/
+end // end AMA12P9-PRN-SUBH
+
+
+// PROCESS TO READ INPUT FILE
+Function AMA12P9-READIP()
+  /* CBSI START*/
+  VDBCONTROL.UPROC-NM = "AMA12P9-READIP";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "SR-AMA12-RECIN";
+  try
+    get next SR-AMA12-RECIN ;
+  end
+  /* check if any i/o error has occured*/
+  if (SR-AMA12-RECIN is ioError && SR-AMA12-RECIN not endOfFile)
+     /* return error code to indicate abnormal ending*/
+    VMESSAGE.UMSGCODE-JCL-ERR = 10;
+    AMA12W.WS-EZERT8 = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AMA12W.WS-EZERT8-LAST4;
     WCM00P2-TO-CEP01A();
-    /*  */
   end
-  /*  */
-  if (SR-AIN64-RECIN is endOfFile && AIN64W1.WS-FIRST-IND == "Y")
-    VDBCONTROL.UMSQLCODE = 0;
-    VDBCONTROL.UPROC-OBJ = "SR-AIN64-RECIN";
-    VDBCONTROL.UPROC-NM = "AIN64P9-SCAN-INPUT";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    VMESSAGE.UMSGINS[1] = " ";
-    VMESSAGE.UMSGINS[2] = "AIN64A";
-    VMESSAGE.UMSGCODE = "GEN0274";
-    VDBCONTROL.UEZESQRRM = "NO DATA FOUND";
-    VMESSAGE.UMSGCODE-JCL-ERR = 8;
-    /*  */
+  if (SR-AMA12-RECIN is endOfFile)
+    VMESSAGE.UMSGCODE-JCL-ERR = 10;
+    AMA12W.WS-EZERT8 = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AMA12W.WS-EZERT8-LAST4;
     WCM00P2-TO-CEP01A();
-    /*  */
   end
-  /*  */
-  AIN64W1.WS-FIRST-IND = "N";
-end
+  /* cbsi end*/
+end // end AMA12P9-READIP
 
-// end AIN64P9-SCAN-INPUT
 
-// WRITE TRACKING RECORD
-Function AIN64P9-TRACK()
-  set VSTRREC4 empty;
-  AIN64W1.WS-TRACK-TEXT1 = " ";
-  AIN64W1.WS-TRACK-TEXT2 = " ";
-  /*  */
-  set H2-PERSON empty;
-  H2-PERSON.UPI = AIN64W1.WS-CHILD-UPI;
-  /*  */
-  AIN64P9-PER-S01();
-  /*  */
-  VSTRREC4.USTRING = H2-PERSON.FRST-NM;
-  VSTRREC4.UCONCAT = H2-PERSON.LST-NM;
-  VSTRREC4.USTRLEN = 16;
-  VSTRREC4.UCONLEN = 20;
-  /*  */
-  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
-  /*  */
-  if (AIN64W1.WS-LGL-BEG-DT-CHANGED == "Y")
-    AIN64W1.WS-TEXT1 = "DCFS OPENING LEGAL CUSTODY DATE CHANGED ";
-    AIN64W1.WS-TEXT-DATE1 = AIN64W.WS-LGL-CST-BEG-DT;
-    AIN64W1.WS-TEXT2 = " FOR CHILD ";
-    AIN64W1.WS-CHILD-NAME1 = VSTRREC4.USTRING;
-    /*  */
-    PDCM-CASE-TRACKING.PDCM-UPI = AIN64W1.WS-NCP-UPI;
-    PDCM-CASE-TRACKING.PDCM-CASE-SUFFIX = AIN64W1.WS-NCP-CASE-SUFFIX;
-    PDCM-CASE-TRACKING.PDCM-MSG-TYPE = "19S";
-    PDCM-CASE-TRACKING.PDCM-PARTICIPANT = " ";
-    /*  */
-    PDCM-CASE-TRACKING.PDCM-TEXT1 = AIN64W1.WS-TRACK-TEXT1;
-    /*  */
-    call "DCM08A" (VDBCONTROL, VMESSAGE, GNOMADS, G-IV-D, PDCM-CASE-TRACKING) {isNoRefresh = yes};
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-LGL-END-DT-CHANGED == "Y")
-    AIN64W1.WS-TEXT3 = "DCFS ENDING LEGAL CUSTODY DATE CHANGED ";
-    AIN64W1.WS-TEXT-DATE2 = AIN64W.WS-LGL-CST-BEG-DT;
-    AIN64W1.WS-TEXT4 = " FOR CHILD ";
-    AIN64W1.WS-CHILD-NAME2 = VSTRREC4.USTRING;
-    /*  */
-    PDCM-CASE-TRACKING.PDCM-UPI = AIN64W1.WS-NCP-UPI;
-    PDCM-CASE-TRACKING.PDCM-CASE-SUFFIX = AIN64W1.WS-NCP-CASE-SUFFIX;
-    PDCM-CASE-TRACKING.PDCM-MSG-TYPE = "19S";
-    PDCM-CASE-TRACKING.PDCM-PARTICIPANT = " ";
-    /*  */
-    PDCM-CASE-TRACKING.PDCM-TEXT1 = AIN64W1.WS-TRACK-TEXT2;
-    /*  */
-    call "DCM08A" (VDBCONTROL, VMESSAGE, GNOMADS, G-IV-D, PDCM-CASE-TRACKING) {isNoRefresh = yes};
-  /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-  end
-end
-
-// end AIN64P9-TRACK
-
-// PROCESS TO CHECK DCFS RECORD
-Function AIN64P9-VALIDATE()
-  if (AIN64W.WS-REC-TYPE != "A" && 
-  AIN64W.WS-REC-TYPE != "D" && 
-  AIN64W.WS-REC-TYPE != "M")
-    AIN64W2.WS-ERROR-CODE = "DT01";
-    AIN64W1.WS-GOOD-REC = "N";
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-CHILD-DCFS-NUM not numeric)
-      AIN64W2.WS-ERROR-CODE = "DT06";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-DCFS-NUM not numeric)
-      AIN64W2.WS-ERROR-CODE = "DT07";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-REC-TYPE == "A")
-      if (AIN64W.WS-NCP-DCFS-NUM is numeric)
-        AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
-        set H2-2-FAM-RES empty;
-        H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-        H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-        set H2-2-FAM-DRF empty;
-        H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-        H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-        /*  */
-        AIN64P9-RES-S02();
-        /*  */
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-        /*  */
-        if (sysVar.sqlData.sqlcode == 0)
-          AIN64W2.WS-ERROR-CODE = "DT10";
-          AIN64W1.WS-GOOD-REC = "N";
-        end
-      else
-        AIN64W2.WS-ERROR-CODE = "DT07";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-LGL-CST-BEG-DT == "0001-01-01" || 
-    AIN64W.WS-LGL-CST-BEG-DT == "9999-12-31")
-      AIN64W2.WS-ERROR-CODE = "DT44";
-      AIN64W1.WS-GOOD-REC = "N";
-    else
-      VDTSREC.UDATYY = AIN64W.WS-LGL-CST-BEG-CCYY;
-      VDTSREC.UDATMM = AIN64W.WS-LGL-CST-BEG-MM;
-      VDTSREC.UDATDD = AIN64W.WS-LGL-CST-BEG-DD;
-      /*  */
-      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-      /*  */
-      if (VCONTROL.URC != 0)
-        AIN64W2.WS-ERROR-CODE = "DT45";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        AIN64W.WS-LGL-CST-BEG-CCYY = VDTSREC.UDATYY;
-        AIN64W.WS-LGL-CST-BEG-MM = VDTSREC.UDATMM;
-        AIN64W.WS-LGL-CST-BEG-DD = VDTSREC.UDATDD;
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-REC-TYPE == "M")
-      if (AIN64W.WS-NCP-DCFS-NUM is numeric)
-        AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
-        set H2-2-FAM-RES empty;
-        H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-        H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-        set H2-2-FAM-DRF empty;
-        H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-        H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-        /*  */
-        AIN64P9-RES-S02();
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-        /*  */
-        if (sysVar.sqlData.sqlcode == 100)
-          AIN64W2.WS-ERROR-CODE = "DT03";
-          AIN64W1.WS-GOOD-REC = "N";
-        end
-      else
-        AIN64W2.WS-ERROR-CODE = "DT07";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-REC-TYPE == "D")
-      if (AIN64W.WS-NCP-DCFS-NUM is numeric)
-        AIN64W1.WS-NCP-DCFS-NMB = AIN64W.WS-NCP-DCFS-NUM;
-        set H2-2-FAM-RES empty;
-        H2-2-FAM-RES.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-        H2-2-FAM-RES.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-        set H2-2-FAM-DRF empty;
-        H2-2-FAM-DRF.DCFS-NCP-ID = AIN64W1.WS-NCP-DCFS-NMB;
-        H2-2-FAM-DRF.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;  
-        /*  */
-        AIN64P9-RES-S02();
-        /*  */
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-        /*  */
-        if (sysVar.sqlData.sqlcode == 100)
-          AIN64W2.WS-ERROR-CODE = "DT04";
-          AIN64W1.WS-GOOD-REC = "N";
-        end
-      else
-        AIN64W2.WS-ERROR-CODE = "DT07";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    set H2-FAM-CASE empty;
-    H2-FAM-CASE.IVE-CASE-ID = AIN64W.WS-CHILD-DCFS-NUM;
-    /*  */
-    AIN64P9-FAM-S01();
-    /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    /*  */
-    if (sysVar.sqlData.sqlcode == 100)
-      AIN64W2.WS-ERROR-CODE = "DT08";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    VDTSREC.UDATYY = AIN64W.WS-REFER-CCYY;
-    VDTSREC.UDATMM = AIN64W.WS-REFER-MM;
-    VDTSREC.UDATDD = AIN64W.WS-REFER-DD;
-    /*  */
-    call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-    /*  */
-    if (VCONTROL.URC != 0)
-      AIN64W2.WS-ERROR-CODE = "DT11";
-      AIN64W1.WS-GOOD-REC = "N";
-    else
-      AIN64W.WS-REFER-CCYY = VDTSREC.UDATYY;
-      AIN64W.WS-REFER-MM = VDTSREC.UDATMM;
-      AIN64W.WS-REFER-DD = VDTSREC.UDATDD;
-    end
-  end
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    VDTSREC.UDATYY = AIN64W.WS-CS-ORDR-CCYY;
-    VDTSREC.UDATMM = AIN64W.WS-CS-ORDR-MM;
-    VDTSREC.UDATDD = AIN64W.WS-CS-ORDR-DD;
-    /*  */
-    call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-    /*  */
-    if (VCONTROL.URC != 0)
-      AIN64W2.WS-ERROR-CODE = "DT12";
-      AIN64W1.WS-GOOD-REC = "N";
-    else
-      AIN64W.WS-CS-ORDR-CCYY = VDTSREC.UDATYY;
-      AIN64W.WS-CS-ORDR-MM = VDTSREC.UDATMM;
-      AIN64W.WS-CS-ORDR-DD = VDTSREC.UDATDD;
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-SSN != " ")
-      if (AIN64W.WS-NCP-SSN not numeric)
-        AIN64W2.WS-ERROR-CODE = "DT13";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-LAST-NAME == " " || 
-    AIN64W.WS-NCP-LAST-NAME == "UNKNOWN")
-      AIN64W2.WS-ERROR-CODE = "DT14";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-FIRST-NAME == " " || 
-    AIN64W.WS-NCP-FIRST-NAME == "UNKNOWN")
-      AIN64W2.WS-ERROR-CODE = "DT15";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-MID-NAME != " ")
-      if (AIN64W.WS-NCP-MID-NAME == "UNKNOWN")
-        AIN64W2.WS-ERROR-CODE = "DT16";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-MODIFIER != " ")
-      if (AIN64W.WS-NCP-MODIFIER == "UNK")
-        AIN64W2.WS-ERROR-CODE = "DT16";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        set H2-CODE-TBL empty;
-        H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-MODIFIER;
-        H2-CODE-TBL.CODE-TBL-TYP = "NAMEMOD";
-        /*  */
-        AIN64P9-CDT-S01();
-        /*  */
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-        /*  */
-        if (sysVar.sqlData.sqlcode != 0)
-          AIN64W2.WS-ERROR-CODE = "DT17";
-          AIN64W1.WS-GOOD-REC = "N";
-        end
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-STREET-DIR != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-STREET-DIR;
-      H2-CODE-TBL.CODE-TBL-TYP = "STRETDIR";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT18";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-STREET-TYPE != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-STREET-TYPE;
-      H2-CODE-TBL.CODE-TBL-TYP = "STRTTYPE";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT19";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-CITY == " " && 
-    AIN64W.WS-NCP-ZIP-CODE != " ")
-      AIN64W2.WS-ERROR-CODE = "DT20";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-STATE != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-STATE;
-      H2-CODE-TBL.CODE-TBL-TYP = "ST_CNTRY";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT21";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-CITY != " " && 
-    AIN64W.WS-NCP-ZIP-CODE == " ")
-      AIN64W2.WS-ERROR-CODE = "DT22";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-STATE != " ")
-      if (AIN64W.WS-NCP-STATE == "NV")
-        set H2-CODE-TBL empty;
-        H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-ZIP-CODE;
-        H2-CODE-TBL.CODE-TBL-TYP = "ZIPCODE";
-        /*  */
-        AIN64P9-CDT-S01();
-        /*  */
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-        /*  */
-        if (sysVar.sqlData.sqlcode != 0)
-          AIN64W2.WS-ERROR-CODE = "DT23";
-          AIN64W1.WS-GOOD-REC = "N";
-        end
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-PHONE != " ")
-      if (AIN64W.WS-NCP-PHONE not numeric)
-        AIN64W2.WS-ERROR-CODE = "DT24";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-RACE != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-RACE;
-      H2-CODE-TBL.CODE-TBL-TYP = "ETHNICTY";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT25";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-SEX != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-SEX;
-      H2-CODE-TBL.CODE-TBL-TYP = "SEXCD";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT26";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    else
-      AIN64W2.WS-ERROR-CODE = "DT26";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-HAIR != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-HAIR;
-      H2-CODE-TBL.CODE-TBL-TYP = "HAIRCLR";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT27";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-EYES != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-EYES;
-      H2-CODE-TBL.CODE-TBL-TYP = "EYECLR";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT28";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-WEIGHT != " ")
-      if (AIN64W.WS-NCP-WEIGHT not numeric)
-        AIN64W2.WS-ERROR-CODE = "DT29";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        AIN64W1.WS-NCP-WEIGHT-NMB = AIN64W.WS-NCP-WEIGHT;
-      end
-    else
-      AIN64W1.WS-NCP-WEIGHT-NMB = 000;
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-HEIGHT != " ")
-      if (AIN64W.WS-NCP-HEIGHT not numeric)
-        AIN64W2.WS-ERROR-CODE = "DT30";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        AIN64W1.WS-NCP-HEIGHT-NMB = AIN64W.WS-NCP-HEIGHT;
-      end
-    else
-      AIN64W1.WS-NCP-HEIGHT-NMB = 000;
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-DISABLED != " ")
-      if (AIN64W.WS-NCP-DISABLED != "Y" && 
-      AIN64W.WS-NCP-DISABLED != "N")
-        AIN64W2.WS-ERROR-CODE = "DT31";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-BIRTH-ST != " ")
-      set H2-CODE-TBL empty;
-      H2-CODE-TBL.CODE-TBL-CD = AIN64W.WS-NCP-BIRTH-ST;
-      H2-CODE-TBL.CODE-TBL-TYP = "ST_CNTRY";
-      /*  */
-      AIN64P9-CDT-S01();
-      /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-      /*  */
-      if (sysVar.sqlData.sqlcode != 0)
-        AIN64W2.WS-ERROR-CODE = "DT32";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-NCP-DOB != " ")
-      VDTSREC.UDATYY = AIN64W.WS-DOB-CCYY;
-      VDTSREC.UDATMM = AIN64W.WS-DOB-MM;
-      VDTSREC.UDATDD = AIN64W.WS-DOB-DD;
-      /*  */
-      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-      /*  */
-      if (VCONTROL.URC != 0)
-        AIN64W2.WS-ERROR-CODE = "DT33";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        AIN64W.WS-DOB-CCYY = VDTSREC.UDATYY;
-        AIN64W.WS-DOB-MM = VDTSREC.UDATMM;
-        AIN64W.WS-DOB-DD = VDTSREC.UDATDD;
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-PARENTS-EVER-MARRIED != " ")
-      if (AIN64W.WS-PARENTS-EVER-MARRIED != "Y" && 
-      AIN64W.WS-PARENTS-EVER-MARRIED != "N" && 
-      AIN64W.WS-PARENTS-EVER-MARRIED != "U")
-        AIN64W2.WS-ERROR-CODE = "DT34";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-DT-OF-MARRIAGE != " ")
-      VDTSREC.UDATYY = AIN64W.WS-MARRIAGE-CCYY;
-      VDTSREC.UDATMM = AIN64W.WS-MARRIAGE-MM;
-      VDTSREC.UDATDD = AIN64W.WS-MARRIAGE-DD;
-      /*  */
-      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-      /*  */
-      if (VCONTROL.URC != 0)
-        AIN64W2.WS-ERROR-CODE = "DT35";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        AIN64W.WS-MARRIAGE-CCYY = VDTSREC.UDATYY;
-        AIN64W.WS-MARRIAGE-MM = VDTSREC.UDATMM;
-        AIN64W.WS-MARRIAGE-DD = VDTSREC.UDATDD;
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-CURRENTLY-MARRIED != " ")
-      if (AIN64W.WS-CURRENTLY-MARRIED != "Y" && 
-      AIN64W.WS-CURRENTLY-MARRIED != "N" && 
-      AIN64W.WS-CURRENTLY-MARRIED != "U")
-        AIN64W2.WS-ERROR-CODE = "DT37";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-DT-OF-DIVORCE != " ")
-      VDTSREC.UDATYY = AIN64W.WS-DIVORCE-CCYY;
-      VDTSREC.UDATMM = AIN64W.WS-DIVORCE-MM;
-      VDTSREC.UDATDD = AIN64W.WS-DIVORCE-DD;
-      /*  */
-      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-      /*  */
-      if (VCONTROL.URC != 0)
-        AIN64W2.WS-ERROR-CODE = "DT38";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        AIN64W.WS-DIVORCE-CCYY = VDTSREC.UDATYY;
-        AIN64W.WS-DIVORCE-MM = VDTSREC.UDATMM;
-        AIN64W.WS-DIVORCE-DD = VDTSREC.UDATDD;
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-DCFS-SRVC-OFC-WRKR == " ")
-      AIN64W2.WS-ERROR-CODE = "DT40";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-DCFS-SRVC-OFC-PHN == " ")
-      AIN64W2.WS-ERROR-CODE = "DT41";
-      AIN64W1.WS-GOOD-REC = "N";
-    else
-      if (AIN64W.WS-DCFS-SRVC-OFC-PHN not numeric)
-        AIN64W2.WS-ERROR-CODE = "DT42";
-        AIN64W1.WS-GOOD-REC = "N";
-      end
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-    if (AIN64W.WS-DCFS-SRVC-OFC-CD == " ")
-      AIN64W2.WS-ERROR-CODE = "DT43";
-      AIN64W1.WS-GOOD-REC = "N";
-    end
-  end
-  /*  */
-  if (AIN64W1.WS-GOOD-REC == "Y")
-  	if (AIN64W.WS-LGL-CST-END-DT == "9999-12-31")
-  	else
-      VDTSREC.UDATYY = AIN64W.WS-LGL-CST-END-CCYY;
-      VDTSREC.UDATMM = AIN64W.WS-LGL-CST-END-MM;
-      VDTSREC.UDATDD = AIN64W.WS-LGL-CST-END-DD;
-      /*  */
-      call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-      /*  */
-      if (VCONTROL.URC != 0)
-        AIN64W2.WS-ERROR-CODE = "DT46";
-        AIN64W1.WS-GOOD-REC = "N";
-      else
-        AIN64W.WS-LGL-CST-END-CCYY = VDTSREC.UDATYY;
-        AIN64W.WS-LGL-CST-END-MM = VDTSREC.UDATMM;
-        AIN64W.WS-LGL-CST-END-DD = VDTSREC.UDATDD;
-      end
-    end
-  end
-end
-// end AIN64P9-VALIDATE
-
-// WRITES RECORDS
-Function AIN64P9-WRITE-OUT()
-  SR-AIN64-RECOUT.OUTPUT-DATA = AIN64W2.WS-OUTPUT-DATA;
-  /*  */
+// FILE SCAN
+Function AMA12P9-SCAN()
+  /* cbsi start*/
+  VDBCONTROL.UPROC-NM = "AMA12P9-SCAN";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "SR-AMA44-RECIN";
   try
-    add SR-AIN64-RECOUT ;
+    get next SR-AMA44-RECIN ;
   end
-  /*  */
-  if (SR-AIN64-RECOUT is ioError)
-    VDBCONTROL.UPROC-OBJ = "SR-AIN64-RECOUT";
-    VDBCONTROL.UPROC-NM = "AIN64P9-WRITE-OUT";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    VMESSAGE.WS-ERR-CD = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = VMESSAGE.WS-ERR-LAST-FOUR;
-    VMESSAGE.UMSGINS[2] = sysVar.transferName;
-    VDBCONTROL.UMSQLCODE = 0;
-    
-    /*  */
+  /* check if any i/o error has occured*/
+  if (SR-AMA44-RECIN is ioError && SR-AMA44-RECIN not endOfFile)
+     /* return error code to indicate abnormal ending*/
+    VMESSAGE.UMSGCODE-JCL-ERR = 10;
+    AMA12W.WS-EZERT8 = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AMA12W.WS-EZERT8-LAST4;
     WCM00P2-TO-CEP01A();
   end
-end
+end // end AMA12P9-SCAN
 
-Record AIN64W type basicRecord
-  10 WS-INPUT-DATA char(350) ; 
-    15 WS-REC-TYPE char(1) ; 
-    15 WS-CHILD-DCFS-NUM char(9) ; 
-    15 WS-NCP-DCFS-NUM char(9) ; 
-    15 WS-REFERRAL-DATE char(10) ; 
-      20 WS-REFER-CCYY char(4) ; 
-      20 * char(1) ; 
-      20 WS-REFER-MM char(2) ; 
-      20 * char(1) ; 
-      20 WS-REFER-DD char(2) ; 
-    15 WS-CS-ORDR-FILEDT char(10) ; 
-      20 WS-CS-ORDR-CCYY char(4) ; 
-      20 * char(1) ; 
-      20 WS-CS-ORDR-MM char(2) ; 
-      20 * char(1) ; 
-      20 WS-CS-ORDR-DD char(2) ; 
-    15 WS-NCP-SSN char(9) ; 
-    15 WS-NCP-LAST-NAME char(21) ; 
-    15 WS-NCP-FIRST-NAME char(16) ; 
-    15 WS-NCP-MID-NAME char(16) ; 
-    15 WS-NCP-MODIFIER char(3) ; 
-    15 WS-NCP-STREET-NUMBER char(8) ; 
-    15 WS-NCP-STREET-DIR char(2) ; 
-    15 WS-NCP-STREET-NAME char(25) ; 
-    15 WS-NCP-STREET-TYPE char(4) ; 
-    15 WS-NCP-APARTMENT-NMB char(5) ; 
-    15 WS-NCP-OTHER char(25) ; 
-    15 WS-NCP-CITY char(20) ; 
-    15 WS-NCP-STATE char(3) ; 
-    15 WS-NCP-ZIP-CODE char(11) ; 
-    15 WS-NCP-PHONE char(10) ; 
-    15 WS-NCP-RACE char(1) ; 
-    15 WS-NCP-SEX char(1) ; 
-    15 WS-NCP-HAIR char(2) ; 
-    15 WS-NCP-EYES char(2) ; 
-    15 WS-NCP-WEIGHT char(3) ; 
-    15 WS-NCP-HEIGHT char(3) ; 
-    15 WS-NCP-DISABLED char(1) ; 
-    15 WS-NCP-BIRTH-CITY char(20) ; 
-    15 WS-NCP-BIRTH-ST char(3) ; 
-    15 WS-NCP-DOB char(10) ; 
-      20 WS-DOB-CCYY char(4) ; 
-      20 * char(1) ; 
-      20 WS-DOB-MM char(2) ; 
-      20 * char(1) ; 
-      20 WS-DOB-DD char(2) ; 
-    15 WS-PARENTS-EVER-MARRIED char(1) ; 
-    15 WS-DT-OF-MARRIAGE char(10) ; 
-      20 WS-MARRIAGE-CCYY char(4) ; 
-      20 * char(1) ; 
-      20 WS-MARRIAGE-MM char(2) ; 
-      20 * char(1) ; 
-      20 WS-MARRIAGE-DD char(2) ; 
-    15 WS-CURRENTLY-MARRIED char(1) ; 
-    15 WS-DT-OF-DIVORCE char(10) ; 
-      20 WS-DIVORCE-CCYY char(4) ; 
-      20 * char(1) ; 
-      20 WS-DIVORCE-MM char(2) ; 
-      20 * char(1) ; 
-      20 WS-DIVORCE-DD char(2) ; 
-    15 WS-DCFS-SRVC-OFC-WRKR char(8) ; 
-    15 WS-DCFS-SRVC-OFC-PHN char(10) ; 
-    15 WS-DCFS-SRVC-OFC-CD char(2) ; 
-    15 WS-LGL-CST-BEG-DT char(10) ; 
-      20 WS-LGL-CST-BEG-CCYY char(4) ; 
-      20 * char(1) ; 
-      20 WS-LGL-CST-BEG-MM char(2) ; 
-      20 * char(1) ; 
-      20 WS-LGL-CST-BEG-DD char(2) ; 
-    15 WS-LGL-CST-END-DT char(10) ; 
-      20 WS-LGL-CST-END-CCYY char(4) ; 
-      20 * char(1) ; 
-      20 WS-LGL-CST-END-MM char(2) ; 
-      20 * char(1) ; 
-      20 WS-LGL-CST-END-DD char(2) ; 
-    15 * char(25) ; 
-end
 
-// end AIN64W
+// INITIALIZE ALL RECORDS
+Function AMA12P9-SET-EMPTY()
+  /* cbsi start*/
+  set REP-COMMON empty;
+  set REP-EOFNOF empty;
+  set REP-DATE empty;
+  set AMA12W-DET empty;
+  set AMA12W-HEAD empty;
+  set AMA12W-SUBH empty;
+  set AMA12W-FOOTER empty;
+  set VMESSAGE empty;
+  set CEP01W empty;
+  set VDBCONTROL empty;
+  set VDBCOMMON empty;
+  set FORMATW empty;
+  set AMA12W empty;
 
-Record AIN64W1 type basicRecord
-  10 WS-CHILD-DCFS-NMB num(9) ; 
-  10 WS-NCP-DCFS-NMB num(9) ; 
-  10 WS-GOOD-REC char(1) ; 
-  10 WS-FIRST-IND char(1) ; 
-  10 WS-RFRL-EXISTS char(1) ; 
-  10 WS-MAX-NCP-SQNC-NMB smallint ; 
-  10 WS-NEXT-NCP-SQNC-NMB smallint ; 
-  10 WS-NCP-WEIGHT-NMB num(3) ; 
-  10 WS-NCP-HEIGHT-NMB num(3) ; 
-  10 WS-NCP-UPI decimal(9) ; 
-  10 WS-CHILD-UPI decimal(9) ; 
-  10 WS-ICI decimal(9) ; 
-  10 WS-APPL-UPI decimal(9) ;
-  10 WS-CST-UPI decimal(9) ;
-  10 WS-NCP-CASE-SUFFIX char(1) ; 
-  10 WS-LGL-BEG-DT-CHANGED char(1) ; 
-  10 WS-LGL-END-DT-CHANGED char(1) ; 
-  10 WS-TRACK-TEXT1 char(98) ; 
-    15 WS-TEXT1 char(40) ; 
-    15 WS-TEXT-DATE1 char(10) ; 
-    15 WS-TEXT2 char(11) ; 
-    15 WS-CHILD-NAME1 char(37) ; 
-  10 WS-TRACK-TEXT2 char(97) ; 
-    15 WS-TEXT3 char(39) ; 
-    15 WS-TEXT-DATE2 char(10) ; 
-    15 WS-TEXT4 char(11) ; 
-    15 WS-CHILD-NAME2 char(37) ; 
-  10 WS-PROC-DATE char(10) ; 
-    15 WS-PROC-DT-CC char(2) ; 
-    15 WS-PROC-DT-YY char(2) ; 
-    15 WS-PROC-DASH1 char(1) ; 
-    15 WS-PROC-DT-MM char(2) ; 
-    15 WS-PROC-DASH2 char(1) ; 
-    15 WS-PROC-DT-DD char(2) ; 
-  10 WS-WORK-DATE char(8) ; 
-    15 WS-WORK-CCYY char(4) ; 
-    15 WS-WORK-MM char(2) ; 
-    15 WS-WORK-DD char(2) ; 
-  10 WS-TEMP-DATE char(10) ; 
-    15 WS-TEMP-CCYY char(4) ; 
-      20 WS-TEMP-CCYY-NUM num(4) ; 
-        25 WS-TEMP-CC char(2) ; 
-          30 WS-TEMP-CC-NUM num(2) ; 
-        25 WS-TEMP-YY char(2) ; 
-          30 WS-TEMP-YY-NUM num(2) ; 
-    15 WS-TEMP-FIL1 char(1) ; 
-    15 WS-TEMP-MM char(2) ; 
-      20 WS-TEMP-MM-NUM num(2) ; 
-    15 WS-TEMP-FIL2 char(1) ; 
-    15 WS-TEMP-DD char(2) ; 
-      20 WS-TEMP-DD-NUM num(2) ; 
-  10 WS-PREV-DATE num(8) ; 
-    15 WS-PREV-CCYY num(4) ; 
-      20 WS-PREV-CC num(2) ; 
-        25 WS-PREV-CC-C char(2) ; 
-      20 WS-PREV-YY num(2) ; 
-        25 WS-PREV-YY-C char(2) ; 
-    15 WS-PREV-MM num(2) ; 
-      20 WS-PREV-MM-C char(2) ; 
-    15 WS-PREV-DD num(2) ; 
-      20 WS-PREV-DD-C char(2) ; 
-  10 WS-LAST-DATE char(10) ; 
-    15 WS-LAST-DATE-CC char(2) ; 
-    15 WS-LAST-DATE-YY char(2) ; 
-    15 WS-LAST-DATE-FIL1 char(1) ; 
-    15 WS-LAST-DATE-MM char(2) ; 
-    15 WS-LAST-DATE-FIL2 char(1) ; 
-    15 WS-LAST-DATE-DD char(2) ; 
-  10 WS-REM1 num(4) ; 
-  10 WS-REM2 num(4) ; 
-  10 WS-REM3 num(4) ; 
-  10 WS-TEMP-REF-DATE char(10) ; 
-    15 WS-TEMP-REF-CCYY char(4) ; 
-      20 WS-TEMP-REF-CC char(2) ; 
-      20 WS-TEMP-REF-YY char(2) ; 
-    15 WS-TEMP-REF-FIL1 char(1) ; 
-    15 WS-TEMP-REF-MM char(2) ; 
-    15 WS-TEMP-REF-FIL2 char(1) ; 
-    15 WS-TEMP-REF-DD char(2) ; 
-  10 WS-EMAN-DATE char(10) ; 
-    15 WS-EMAN-DATE-CCYY char(4) ; 
-      20 WS-EMAN-DATE-CCNUM num(4) ; 
-    15 WS-EMAN-FIL1 char(1) ; 
-    15 WS-EMAN-DATE-MM char(2) ; 
-      20 WS-EMAN-DATE-MMNUM num(2) ; 
-    15 WS-EMAN-FIL2 char(1) ; 
-    15 WS-EMAN-DATE-DD char(2) ; 
-  10 WS-RFRL-ADDED char(1) ;
-  10 WS-FROM char(3); 
-end
 
-// end AIN64W1
+  set SR-AMA12-RECIN empty;
+  set SR-132REP-RECOUT empty;
+  set SR-AMA44-RECIN empty;
+  /* cbsi end*/
+end // end AMA12P9-SET-EMPTY
 
-Record AIN64W2 type basicRecord
-  10 WS-OUTPUT-DATA char(350) ; 
-    15 WS-REC-TYPE char(1) ; 
-    15 WS-CHILD-DCFS-NUM char(9) ; 
-    15 WS-NCP-DCFS-NUM char(9) ; 
-    15 WS-REFERRAL-DATE char(10) ; 
-    15 WS-CS-ORDR-FILEDT char(10) ; 
-    15 WS-NCP-SSN char(9) ; 
-    15 WS-NCP-LAST-NAME char(21) ; 
-    15 WS-NCP-FIRST-NAME char(16) ; 
-    15 WS-NCP-MID-NAME char(16) ; 
-    15 WS-NCP-MODIFIER char(3) ; 
-    15 WS-NCP-STREET-NUMBER char(8) ; 
-    15 WS-NCP-STREET-DIR char(2) ; 
-    15 WS-NCP-STREET-NAME char(25) ; 
-    15 WS-NCP-STREET-TYPE char(4) ; 
-    15 WS-NCP-APARTMENT-NMB char(5) ; 
-    15 WS-NCP-OTHER char(25) ; 
-    15 WS-NCP-CITY char(20) ; 
-    15 WS-NCP-STATE char(3) ; 
-    15 WS-NCP-ZIP-CODE char(11) ; 
-    15 WS-NCP-PHONE char(10) ; 
-    15 WS-NCP-RACE char(1) ; 
-    15 WS-NCP-SEX char(1) ; 
-    15 WS-NCP-HAIR char(2) ; 
-    15 WS-NCP-EYES char(2) ; 
-    15 WS-NCP-WEIGHT num(3) ; 
-    15 WS-NCP-HEIGHT num(3) ; 
-    15 WS-NCP-DISABLED char(1) ; 
-    15 WS-NCP-BIRTH-CITY char(20) ; 
-    15 WS-NCP-BIRTH-ST char(3) ; 
-    15 WS-NCP-DOB char(10) ; 
-    15 WS-PARENTS-EVER-MARRIED char(1) ; 
-    15 WS-DT-OF-MARRIAGE char(10) ; 
-    15 WS-CURRENTLY-MARRIED char(1) ; 
-    15 WS-DT-OF-DIVORCE char(10) ; 
-    15 WS-DCFS-SRVC-OFC-WRKR char(8) ; 
-    15 WS-DCFS-SRVC-OFC-PHN char(10) ; 
-    15 WS-DCFS-SRVC-OFC-CD char(2) ; 
-    15 WS-LGL-CST-BEG-DT char(10) ; 
-    15 WS-LGL-CST-END-DT char(10) ; 
-    15 WS-ERROR-CODE char(4) ; 
-    15 * char(21) ; 
-end
 
-// end HA-CNET-TRN-HDR
+// POP STWIDE REPT DETIALS
+Function AMA12P9-ST-POP-DET()
+  AMA12W-DET.S-TERM-RSN = AMA12W.WS-ST-TERM-RSN[WS-AMA12-INDEX];
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-EM3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-EM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-IN3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-IN3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-SI3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-PK3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-PK3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-KB3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-KB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-WB3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-WB3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-GC3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-GC3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-SS3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SS3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-HD3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-HD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-HG3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-HG3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-CM3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-CM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-BL[WS-AMA12-INDEX];
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-SUB-TOTAL-BL = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-QM3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QM3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-SL3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-SL3 = FORMATW.OUTPUT-CHAR;
 
-Record SR-AIN64-RECIN type serialRecord  {
-  fileName = "INFILE"
-  }
-  10 INPUT-DATA char(350) ; 
-end
+   /* Begin change for wi# 15116- Ted Hendricks*/
 
-// end SR-AIN64-RECIN
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-QI3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QI3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-QJ3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QJ3 = FORMATW.OUTPUT-CHAR;
 
-Record SR-AIN64-RECOUT type serialRecord  {
-  fileName = "OUTFILE"
-  }
-  10 OUTPUT-DATA char(350) ; 
-end // end AIN64A
+   /* End   change for wi# 15116- Ted Hendricks*/
+
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-QD3[WS-AMA12-INDEX];
+  AMA12P9-FORMAT4();
+  AMA12W-DET.S-TERM-CNT-QD3 = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-SUB-TOTAL-MB[WS-AMA12-INDEX];
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-SUB-TOTAL-MB = FORMATW.OUTPUT-CHAR;
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AMA12W.WS-ST-TERM-CNT-GR-TOTAL[WS-AMA12-INDEX];
+  AMA12P9-FORMAT5();
+  AMA12W-DET.S-TERM-CNT-GR-TOTAL = FORMATW.OUTPUT-CHAR;
+  /* cbsi end*/
+end // end AMA12P9-ST-POP-DET
+
+
+// PRINT STWIDE REPORT
+Function AMA12P9-ST-PRN()
+  AMA12P9-ACUM-STFOT();
+  AMA12P9-PRN-HEAD(); /* print the header details*/
+  AMA12W.WS-PREV-CASLD-ID = "STATE";
+  AMA12W.WS-OFC-NM = "WIDE";
+  AMA12P9-PRN-SUBH();
+  REP-COMMON.WS-NEW-PAGE = "N";
+  AMA12W.WS-AMA12-INDEX = 1;
+  while (AMA12W.WS-AMA12-INDEX <= 38)
+    if (AMA12W.WS-ST-CLSRE-REC-FND[WS-AMA12-INDEX] == "Y")
+      AMA12P9-ST-POP-DET();
+      AMA12P9-PRN-DETAIL();
+    end
+    AMA12W.WS-AMA12-INDEX = AMA12W.WS-AMA12-INDEX + 1;
+  end
+  AMA12P9-POP-FOOTER();
+  AMA12P9-PRN-FOOTER();
+end // end AMA12P9-ST-PRN
+
+
+// VALIDATES  INPUT  PARAMETERS
+Function AMA12P9-VALIDATE()
+  if (SR-AMA12-RECIN.RPT-DT not numeric)
+    VMESSAGE.UMSGCODE-JCL-ERR = 10;
+    AMA12W.WS-EZERT8 = "        ";
+    VMESSAGE.UMSGINS[1] = AMA12W.WS-EZERT8-LAST4;
+    VMESSAGE.UMSGCODE = "CEP0043E"; /* INVALID INPUT-PROCESS DATE*/
+    WCM00P2-TO-CEP01A();
+  end
+
+  AMA12W.WS-TOPREC = SR-AMA12-RECIN.TOPREC;
+  /* validation of input month & calculation of start and end date*/
+  REP-DATE.WS-IN-RPT-MM = AMA12W.WS-RPT-MONTH-MM;
+  REP-DATE.WS-IN-RPT-CCYY = AMA12W.WS-RPT-DT-CCYY;
+  REP-DATE.WS-FLAG = "M";
+  REPP9-DATE-PARA();
+  if (REP-DATE.WS-DATE-FLAG == 1)
+    VMESSAGE.UMSGCODE-JCL-ERR = 10;
+    AMA12W.WS-EZERT8 = "        ";
+    VMESSAGE.UMSGINS[1] = AMA12W.WS-EZERT8-LAST4;
+    VMESSAGE.UMSGCODE = "CEP0043E"; /* INVALID INPUT-PROCESS DATE*/
+    WCM00P2-TO-CEP01A();
+  end
+
+  /* move start and end calculate days to your local storage*/
+  AMA12W.WS-RPT-BEG-DT = REP-DATE.WS-START-DATE;
+  AMA12W.WS-RPT-END-DT = REP-DATE.WS-END-DATE;
+  AMA12W.WS-RPT-YEAR = AMA12W.WS-RPT-BEG-DT-CCYY;
+  AMA12W.WS-RPT-MNTH = AMA12W.WS-RPT-BEG-DT-MM;
+end // end AMA12P9-VALIDATE
+
+
+Record AMA12W type basicRecord
+  10 WS-REM-LINES num(3) ; 
+  10 WS-TOPREC char(80) ; 
+    15 WS-RPT-DT num(6) ; 
+      20 WS-RPT-DT-CCYY num(4) ; 
+      20 WS-RPT-MONTH-MM num(2) ; 
+    15 * char(74) ; 
+  10 WS-RPT-BEG-DT char(10) ; 
+    15 WS-RPT-BEG-DT-CCYY num(4) ; 
+    15 WS-RPT-BEG-DT-F1 char(1) ; 
+    15 WS-RPT-BEG-DT-MM num(2) ; 
+    15 WS-RPT-BEG-DT-F2 char(1) ; 
+    15 WS-RPT-BEG-DT-DD num(2) ; 
+  10 WS-RPT-END-DT char(10) ; 
+    15 WS-RPT-END-DT-CCYY num(4) ; 
+    15 WS-RPT-END-DT-F1 char(1) ; 
+    15 WS-RPT-END-DT-MM num(2) ; 
+    15 WS-RPT-END-DT-F2 char(1) ; 
+    15 WS-RPT-END-DT-DD num(2) ; 
+  10 WS-RPT-YEAR smallint ; 
+  10 WS-RPT-MNTH smallint ; 
+  10 WS-PREV-OFC-CD char(2) ; 
+  10 WS-PREV-CLSRE-RSN-CD char(2) ; 
+  10 WS-PREV-AID-CD char(3) ; 
+  10 WS-OFC-NM1 char(37) ; 
+    15 WS-PREV-CASLD-ID char(5) ; 
+    15 WS-OFC-NM char(32) ; 
+      20 WS-OFC-NM-TRUNC char(15) ; 
+      20 WS-OFC-NM-F1 char(17) ; 
+  10 WS-TERM-RSN char(50) ; 
+    15 WS-TERM-RSN-TRUNC char(19) ; 
+    15 WS-TERM-RSN-F1 char(31) ; 
+  10 WS-LEVEL char(20) ; 
+    15 WS-LEVEL-CASLD-ID char(5) ; 
+    15 WS-LEVEL-OFC-NM char(15) ; 
+  10 WS-FIRST-TM-IND char(1) ; 
+  10 WS-AMA12-INDEX num(3) ; 
+  10 WS-REC-FOUND char(1) ; 
+  10 WS-DOFC-REC-FND char(1) ; 
+  10 WS-ST-REC-FND char(1) ; 
+  10 WS-CLSRE-REC-FND char(1) ; 
+  10 WS-DOFC-PRN-IND char(1) ; 
+  10 WS-PB-REC-FND char(1) ; 
+  10 WS-DET char(79) ; 
+    15 WS-TERM-CNT-EM3 num(4) ; 
+    15 WS-TERM-CNT-IN3 num(4) ; 
+    15 WS-TERM-CNT-SI3 num(4) ; 
+    15 WS-TERM-CNT-PK3 num(4) ; 
+    15 WS-TERM-CNT-WB3 num(4) ; 
+    15 WS-TERM-CNT-KB3 num(4) ; 
+    15 WS-TERM-CNT-GC3 num(4) ; 
+    15 WS-TERM-CNT-SS3 num(4) ; 
+    15 WS-TERM-CNT-HD3 num(4) ; 
+    15 WS-TERM-CNT-HG3 num(4) ; 
+    15 WS-TERM-CNT-CM3 num(4) ; 
+    15 WS-TERM-CNT-SUB-TOTAL-BL num(5) ; 
+    15 WS-TERM-CNT-QM3 num(4) ; 
+    15 WS-TERM-CNT-SL3 num(4) ; 
+    15 WS-TERM-CNT-QI3 num(4) ; 
+    15 WS-TERM-CNT-QJ3 num(4) ; 
+    15 WS-TERM-CNT-QD3 num(4) ; 
+    15 WS-TERM-CNT-SUB-TOTAL-MB num(5) ; 
+    15 WS-TERM-CNT-GR-TOTAL num(5) ; 
+  10 WS-DOFC-FO-DET char(79) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-EM3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-IN3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-SI3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-PK3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-WB3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-KB3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-GC3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-SS3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-HD3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-HG3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-CM3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-SUB-AC-TOT-BL num(5) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-QM3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-SL3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-QI3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-QJ3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-AC-TOT-QD3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-SUB-AC-TOT-MB num(5) ; 
+    15 WS-DOFC-TERM-CNT-GR-AC-TOT num(5) ; 
+  10 WS-FO-DET char(79) ; 
+    15 WS-TERM-CNT-AC-TOT-EM3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-IN3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-SI3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-PK3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-WB3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-KB3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-GC3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-SS3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-HD3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-HG3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-CM3 num(4) ; 
+    15 WS-TERM-CNT-SUB-AC-TOT-BL num(5) ; 
+    15 WS-TERM-CNT-AC-TOT-QM3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-SL3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-QI3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-QJ3 num(4) ; 
+    15 WS-TERM-CNT-AC-TOT-QD3 num(4) ; 
+    15 WS-TERM-CNT-SUB-AC-TOT-MB num(5) ; 
+    15 WS-TERM-CNT-GR-AC-TOT num(5) ; 
+  10 WS-DOFC-DET char(99) [38] ; 
+    15 WS-DOFC-CLSRE-REC-FND char(1) ; 
+    15 WS-DOFC-TERM-RSN char(19) ; 
+    15 WS-DOFC-TERM-CNT-EM3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-IN3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-SI3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-PK3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-WB3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-KB3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-GC3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-SS3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-HD3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-HG3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-CM3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-SUB-TOTAL-BL num(5) ; 
+    15 WS-DOFC-TERM-CNT-QM3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-SL3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-QI3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-QJ3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-QD3 num(4) ; 
+    15 WS-DOFC-TERM-CNT-SUB-TOTAL-MB num(5) ; 
+    15 WS-DOFC-TERM-CNT-GR-TOTAL num(5) ; 
+  10 WS-ST-DET char(99) [38] ; 
+    15 WS-ST-CLSRE-REC-FND char(1) ; 
+    15 WS-ST-TERM-RSN char(19) ; 
+    15 WS-ST-TERM-CNT-EM3 num(4) ; 
+    15 WS-ST-TERM-CNT-IN3 num(4) ; 
+    15 WS-ST-TERM-CNT-SI3 num(4) ; 
+    15 WS-ST-TERM-CNT-PK3 num(4) ; 
+    15 WS-ST-TERM-CNT-WB3 num(4) ; 
+    15 WS-ST-TERM-CNT-KB3 num(4) ; 
+    15 WS-ST-TERM-CNT-GC3 num(4) ; 
+    15 WS-ST-TERM-CNT-SS3 num(4) ; 
+    15 WS-ST-TERM-CNT-HD3 num(4) ; 
+    15 WS-ST-TERM-CNT-HG3 num(4) ; 
+    15 WS-ST-TERM-CNT-CM3 num(4) ; 
+    15 WS-ST-TERM-CNT-SUB-TOTAL-BL num(5) ; 
+    15 WS-ST-TERM-CNT-QM3 num(4) ; 
+    15 WS-ST-TERM-CNT-SL3 num(4) ; 
+    15 WS-ST-TERM-CNT-QI3 num(4) ; 
+    15 WS-ST-TERM-CNT-QJ3 num(4) ; 
+    15 WS-ST-TERM-CNT-QD3 num(4) ; 
+    15 WS-ST-TERM-CNT-SUB-TOTAL-MB num(5) ; 
+    15 WS-ST-TERM-CNT-GR-TOTAL num(5) ; 
+  10 WS-EZERT8 num(8) ; 
+    15 WS-EZERT8-FIRST4 char(4) ; 
+    15 WS-EZERT8-LAST4 char(4) ; 
+end // end AMA12W
+
+
+Record AMA12W-DET type basicRecord
+  10 LINE1 char(132) ; 
+    15 S-TERM-RSN char(19) ; 
+    15 FILLER1 char(2) ; 
+    15 S-TERM-CNT-EM3 char(4) ; 
+    15 FILLER2 char(1) ; 
+    15 S-TERM-CNT-IN3 char(4) ; 
+    15 FILLER3 char(1) ; 
+    15 S-TERM-CNT-SI3 char(4) ; 
+    15 FILLER4 char(3) ; 
+    15 S-TERM-CNT-PK3 char(4) ; 
+    15 FILLER5 char(7) ; 
+    15 S-TERM-CNT-KB3 char(4) ; 
+    15 FILLER6 char(1) ; 
+    15 S-TERM-CNT-WB3 char(4) ; 
+    15 FILLER7 char(1) ; 
+    15 S-TERM-CNT-GC3 char(4) ; 
+    15 FILLER8 char(1) ; 
+    15 S-TERM-CNT-SS3 char(4) ; 
+    15 FILLER9 char(1) ; 
+    15 S-TERM-CNT-HD3 char(4) ; 
+    15 FILLER10 char(1) ; 
+    15 S-TERM-CNT-HG3 char(4) ; 
+    15 FILLER11 char(1) ; 
+    15 S-TERM-CNT-CM3 char(4) ; 
+    15 FILLER12 char(3) ; 
+    15 S-TERM-CNT-SUB-TOTAL-BL char(5) ; 
+    15 FILLER13 char(2) ; 
+    15 S-TERM-CNT-QM3 char(4) ; 
+    15 FILLER14 char(1) ; 
+    15 S-TERM-CNT-SL3 char(4) ; 
+    15 FILLER15 char(1) ; 
+    15 S-TERM-CNT-QI3 char(4) ; 
+    15 FILLER16 char(1) ; 
+    15 S-TERM-CNT-QJ3 char(4) ; 
+    15 FILLER17 char(1) ; 
+    15 S-TERM-CNT-QD3 char(4) ; 
+    15 FILLER18 char(1) ; 
+    15 S-TERM-CNT-SUB-TOTAL-MB char(5) ; 
+    15 FILLER19 char(2) ; 
+    15 S-TERM-CNT-GR-TOTAL char(5) ; 
+    15 FILLER20 char(2) ; 
+end // end AMA12W-DET
+
+
+Record AMA12W-FOOTER type basicRecord
+  10 LINE1 char(132) ; 
+    15 CONSTANT1 char(36) ; 
+    15 CONSTANT2 char(36) ; 
+    15 CONSTANT3 char(36) ; 
+    15 CONSTANT4 char(24) ; 
+  10 LINE2 char(132) ; 
+    15 CONSTANT5 char(3) ; 
+    15 FILLER1 char(1) ; 
+    15 CONSTANT6 char(5) ; 
+    15 FILLER2 char(12) ; 
+    15 S-TERM-CNT-AC-TOT-EM3 char(4) ; 
+    15 FILLER3 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-IN3 char(4) ; 
+    15 FILLER4 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-SI3 char(4) ; 
+    15 FILLER5 char(3) ; 
+    15 S-TERM-CNT-AC-TOT-PK3 char(4) ; 
+    15 FILLER6 char(7) ; 
+    15 S-TERM-CNT-AC-TOT-KB3 char(4) ; 
+    15 FILLER7 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-WB3 char(4) ; 
+    15 FILLER8 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-GC3 char(4) ; 
+    15 FILLER9 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-SS3 char(4) ; 
+    15 FILLER10 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-HD3 char(4) ; 
+    15 FILLER11 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-HG3 char(4) ; 
+    15 FILLER12 char(2) ; 
+    15 S-TERM-CNT-AC-TOT-CM3 char(4) ; 
+    15 FILLER13 char(2) ; 
+    15 S-TERM-CNT-SUB-AC-TOT-BL char(5) ; 
+    15 FILLER14 char(2) ; 
+    15 S-TERM-CNT-AC-TOT-QM3 char(4) ; 
+    15 FILLER15 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-SL3 char(4) ; 
+    15 FILLER16 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-QI3 char(4) ; 
+    15 FILLER17 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-QJ3 char(4) ; 
+    15 FILLER18 char(1) ; 
+    15 S-TERM-CNT-AC-TOT-QD3 char(4) ; 
+    15 FILLER19 char(1) ; 
+    15 S-TERM-CNT-SUB-AC-TOT-MB char(5) ; 
+    15 FILLER20 char(2) ; 
+    15 S-TERM-CNT-GR-AC-TOT char(5) ; 
+    15 FILLER21 char(2) ; 
+end // end AMA12W-FOOTER
+
+
+Record AMA12W-HEAD type basicRecord
+  10 LINE1 char(132) ; 
+    15 CONSTANT1 char(8) ; 
+    15 FILLER1 char(1) ; 
+    15 UPAGE char(4) ; 
+    15 FILLER2 char(47) ; 
+    15 CONSTANT2 char(5) ; 
+    15 FILLER3 char(1) ; 
+    15 CONSTANT3 char(2) ; 
+    15 FILLER4 char(1) ; 
+    15 CONSTANT4 char(6) ; 
+    15 FILLER5 char(42) ; 
+    15 CONSTANT5 char(4) ; 
+    15 FILLER6 char(3) ; 
+    15 UDATE char(8) ; 
+  10 LINE2 char(132) ; 
+    15 UAPPL char(8) ; 
+    15 FILLER7 char(31) ; 
+    15 CONSTANT6 char(7) ; 
+    15 FILLER8 char(1) ; 
+    15 CONSTANT7 char(11) ; 
+    15 FILLER9 char(1) ; 
+    15 CONSTANT8 char(6) ; 
+    15 FILLER10 char(1) ; 
+    15 CONSTANT9 char(10) ; 
+    15 FILLER11 char(1) ; 
+    15 CONSTANT10 char(2) ; 
+    15 FILLER12 char(1) ; 
+    15 CONSTANT11 char(3) ; 
+    15 FILLER13 char(1) ; 
+    15 CONSTANT12 char(4) ; 
+    15 FILLER14 char(1) ; 
+    15 CONSTANT13 char(1) ; 
+    15 FILLER15 char(1) ; 
+    15 CONSTANT14 char(5) ; 
+    15 FILLER16 char(21) ; 
+    15 CONSTANT15 char(4) ; 
+    15 FILLER17 char(3) ; 
+    15 UTIME char(8) ; 
+  10 LINE3 char(132) ; 
+    15 FILLER18 char(54) ; 
+    15 CONSTANT16 char(5) ; 
+    15 FILLER19 char(1) ; 
+    15 CONSTANT17 char(2) ; 
+    15 FILLER20 char(1) ; 
+    15 CONSTANT18 char(1) ; 
+    15 FILLER21 char(1) ; 
+    15 S-REPMTH char(11) ; 
+    15 FILLER22 char(1) ; 
+    15 S-REPYR char(4) ; 
+    15 FILLER23 char(51) ; 
+end // end AMA12W-HEAD
+
+
+Record AMA12W-SUBH type basicRecord
+  10 LINE1 char(132) ; 
+    15 CONSTANT1 char(5) ; 
+    15 FILLER1 char(1) ; 
+    15 S-LEVEL char(19) ; 
+    15 FILLER2 char(107) ; 
+  10 LINE2 char(125) ; 
+    15 CONSTANT2 char(6) ; 
+    15 FILLER3 char(14) ; 
+    15 CONSTANT3 char(29) ; 
+    15 CONSTANT4 char(28) ; 
+    15 CONSTANT5 char(31) ; 
+    15 FILLER4 char(1) ; 
+    15 CONSTANT6 char(15) ; 
+    15 FILLER5 char(1) ; 
+  10 LINE3 char(132) ; 
+    15 FILLER6 char(37) ; 
+    15 CONSTANT7B char(8) ; 
+    15 FILLER7B char(42) ; 
+    15 CONSTANT7 char(3) ; 
+    15 FILLER7 char(29) ; 
+    15 CONSTANT8 char(3) ; 
+    15 FILLER8 char(3) ; 
+    15 CONSTANT9 char(5) ; 
+    15 FILLER9 char(2) ; 
+  10 LINE4 char(131) ; 
+    15 FILLER10 char(21) ; 
+    15 CONSTANT10 char(3) ; 
+    15 FILLER11 char(2) ; 
+    15 CONSTANT11 char(3) ; 
+    15 FILLER12 char(2) ; 
+    15 CONSTANT12 char(3) ; 
+    15 FILLER13 char(2) ; 
+    15 CONSTANT13 char(11) ; 
+    15 FILLER14 char(2) ; 
+    15 CONSTANT14 char(3) ; 
+    15 FILLER15 char(2) ; 
+    15 CONSTANT15 char(3) ; 
+    15 FILLER16 char(2) ; 
+    15 CONSTANT16 char(3) ; 
+    15 FILLER17 char(2) ; 
+    15 CONSTANT17 char(3) ; 
+    15 FILLER18 char(2) ; 
+    15 CONSTANT18 char(3) ; 
+    15 FILLER19 char(2) ; 
+    15 CONSTANT19 char(3) ; 
+    15 FILLER20 char(3) ; 
+    15 CONSTANT20 char(3) ; 
+    15 FILLER21 char(3) ; 
+    15 CONSTANT21 char(5) ; 
+    15 FILLER22 char(2) ; 
+    15 CONSTANT22 char(3) ; 
+    15 FILLER23 char(2) ; 
+    15 CONSTANT23 char(3) ; 
+    15 FILLER24 char(2) ; 
+    15 CONSTANT24 char(3) ; 
+    15 FILLER25 char(2) ; 
+    15 CONSTANT25 char(3) ; 
+    15 FILLER26 char(2) ; 
+    15 CONSTANT26 char(3) ; 
+    15 FILLER27 char(2) ; 
+    15 CONSTANT27 char(5) ; 
+    15 FILLER28 char(2) ; 
+    15 CONSTANT28 char(5) ; 
+    15 FILLER29 char(1) ; 
+end // end AMA12W-SUBH
+
+
