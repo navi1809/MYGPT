@@ -1,11 +1,2037 @@
-[10:41:03] 'aw_qc_minify' errored after 191 ms
-[10:41:03] [31mSyntaxError[39m in plugin "[36mterser[39m"
-Message:
-    Unexpected token punc «{», expected punc «,»
-Details:
-    filename: 0
-    line: 13
-    col: 18
-    pos: 293
-    domainEmitter: [object Object]
-    domainThrown: false
+var gulp = require('gulp');
+var dom = require('gulp-dom');
+var ext_replace = require('gulp-ext-replace');
+var less = require('gulp-less');
+var concat = require('gulp-concat');
+var uglify = require('gulp-terser');
+var rename = require('gulp-rename');
+var cssmin = require('gulp-clean-css');
+const promisify = require('util');
+const plumber = require('gulp-plumber');
+const notify = require('gulp-notify');
+var deleteLines = require('gulp-delete-lines');
+var clip = require('gulp-clip-empty-files');
+var flatmap = require('gulp-flatmap');
+var path = require('path'),
+    folders = require('gulp-folders');
+var fileExists = require('file-exists');
+var gulpif = require('gulp-if');
+var replace = require('gulp-replace');
+var removeEmptyLines = require('gulp-remove-empty-lines');
+var inject = require('gulp-inject-string');
+var map  = require('map-stream');
+var ignoreErrors = require('gulp-ignore-errors');
+const debug = require('gulp-debug');
+
+var Jsdestination="../AMPSStaticWeb/src/main/webapp/static/js";
+var JsSource="../AMPSStaticWeb/src/main/webapp/static";
+
+var jspSrcAWT = '../AdminWeb/src/main/webapp/jsp_src';
+var jspDestAWT = '../AdminWeb/src/main/webapp/jsp';
+
+var jspSrcCP = '../CaseProcessingWeb/src/main/webapp/jsp_src';
+var jspDestCP = '../CaseProcessingWeb/src/main/webapp/jsp';
+
+var jspSrcCE = '../CaseEligibilityWeb/src/main/webapp/jsp_src';
+var jspDestCE = '../CaseEligibilityWeb/src/main/webapp/jsp';
+
+var jspDestPR='../PersonResolutionClient/src/main/webapp/WEB-INF/jsp';
+var jspSrcPR = '../PersonResolutionClient/src/main/webapp/WEB-INF/jsp_src';
+
+var jspDestCS='../CaseSearchWeb/src/main/webapp/jsp';
+var jspSrcCS= '../CaseSearchWeb/src/main/webapp/jsp_src';
+
+var jspDestCT='../CaseTaskWeb/src/main/webapp/jsp';
+var jspSrcCT = '../CaseTaskWeb/src/main/webapp/jsp_src';
+
+var jspDestCR='../CaseRegistrationWeb/src/main/webapp/jsp';
+var jspSrcCR = '../CaseRegistrationWeb/src/main/webapp/jsp_src';
+
+var paths = {
+  styles: {
+    src: '../AMPSStaticWeb/src/main/webapp/static/styles_src',
+    dest: '../AMPSStaticWeb/src/main/webapp/static/styles'
+  },
+  scripts: {
+    src: '../AMPSStaticWeb/src/main/webapp/static/js_src/**/*.js',
+    dest: '../AMPSStaticWeb/src/main/webapp/static/js'
+  }
+};
+
+/*
+ * Define our tasks using plain functions
+ */
+function cssCopy() {
+	return gulp.src(JsSource+'/styles_src/include.css')
+       .pipe(gulp.dest(JsSource+'/styles'));
+	
+	return gulp.src([JsSource+'/styles_src/**/*.css','!'+JsSource+'/styles_src/include.css','!'+JsSource+'/styles_src/ampsBaseStyle.css','!'+JsSource+'/styles_src/ampsButtonStyle.css'])
+	.pipe(plumber({errorHandling:notify.onError("Error: <%= error.message =%>")}))
+	.pipe(cssmin({inline: ['none']}))
+	.pipe(gulp.dest(JsSource+'/styles'));
+}
+
+function jsCopy(){
+	return gulp.src(JsSource+'/js_src/**/*.js')
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(uglify().on('error', function(e){
+		// console.log();
+	}))
+	.pipe(gulp.dest(Jsdestination));               
+}
+
+function adminweb_copy(done) {
+	return gulp.src([jspSrcAWT+'/baseHeader.jsp'])
+	.pipe(gulp.dest(jspDestAWT+'/'))
+	.on('end', done);
+}
+
+function adminweb_minify(end) {
+  return gulp.src([jspSrcAWT+'/*.jsp','!'+jspSrcAWT+'/baseHeader.jsp','!'+jspSrcAWT+'/codeMaintenanceConstructs.jsp','!'+jspSrcAWT+'/securityMenuConstructs.jsp'])
+    .pipe(deleteLines({ 'filters': [/script\s+type=["']text\/javascript["']\s+src=/i] }))
+    .pipe(dom(function () {
+      var scripts = this.querySelectorAll('script');
+      result = '';
+      i = scripts.length;
+      while (i--) {
+        result += scripts[i].innerHTML;
+      }
+      return result;
+    }, false))
+    .pipe(ext_replace('.js'))
+    .pipe(clip())
+	.pipe(debug({tile:'Minifying:'}))
+    .pipe(uglify())
+    .pipe(gulp.dest(Jsdestination + '/adminweb/'))
+    .on('end', end);
+}
+
+function adminweb(done) {
+	return gulp.src([jspSrcAWT+'/*.jsp','!'+jspSrcAWT+'/baseHeader.jsp','!'+jspSrcAWT+'/codeMaintenanceConstructs.jsp','!'+jspSrcAWT+'/securityMenuConstructs.jsp'])
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/adminweb/'+filename+'.js');
+		return stream.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestAWT+'/'));
+    })).on('end', done);
+}
+
+function aw_acctmgmt_minify(end) {
+	return gulp.src([jspSrcAWT + '/acctmgmt/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/acctmgmt/'))
+	.on('end', end);
+}
+  
+function aw_acctmgmt() {
+	return gulp.src([jspSrcAWT + '/acctmgmt/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/acctmgmt/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/acctmgmt/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/acctmgmt/'));
+    }));
+}
+
+function aw_acnvmessages_minify(end) {
+	return gulp.src([jspSrcAWT + '/acnvessages/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/acnvessages/'))
+	.on('end', end);
+}
+  
+function aw_acnvmessages() {
+	return gulp.src([jspSrcAWT + '/acnvessages/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/acnvessages/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/acctmgmt/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/acnvessages/'));
+    }));
+}
+
+function aw_adsd_minify(end) {
+	return gulp.src([jspSrcAWT + '/adsd/*.jsp', '!'+jspSrcAWT + '/adsd/adsdConstruct.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify({
+            compress: {
+                conditionals: false, // Disable conditionals optimization
+                dead_code: false, // Disable dead code removal
+                unused: false, // Disable unused variable removal
+                evaluate: false, // Disable constant folding
+                booleans: false, // Disable boolean optimizations
+                loops: false, // Disable loop optimizations
+                hoist_funs: false, // Disable function hoisting
+                if_return: false, // Disable if-return optimizations
+                join_vars: false, // Disable variable joining
+                collapse_vars: false, // Disable variable collapsing
+                reduce_vars: false // Disable variable reducing
+            },
+            mangle: false // Disable variable mangling
+        }))
+	.pipe(gulp.dest(Jsdestination + '/adminweb/adsd/'))
+	.on('end', end);
+}
+  
+function aw_adsd() {
+	return gulp.src([jspSrcAWT + '/adsd/*.jsp', '!'+jspSrcAWT + '/adsd/adsdConstruct.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/adsd/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/adsd/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/adsd/'));
+    }));
+}
+
+function aw_alertcode_minify(end) {
+	return gulp.src([jspSrcAWT + '/alertcode/*.jsp','!'+jspSrcAWT+'/alertcode/ampsInbox.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/alertcode/'))
+	.on('end', end);
+}
+  
+function aw_alertcode() {
+	return gulp.src([jspSrcAWT + '/alertcode/*.jsp','!'+jspSrcAWT+'/alertcode/ampsInbox.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/alertcode/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/alertcode/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/alertcode/'));
+    }));
+}
+
+function aw_announcement_minify(end) {
+	return gulp.src([jspSrcAWT + '/announcement/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/announcement/'))
+	.on('end', end);
+}
+  
+function aw_announcement() {
+	return gulp.src([jspSrcAWT + '/announcement/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/announcement/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/announcement/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/announcement/'));
+    }));
+}
+
+function aw_applmgmt_minify(end) {
+	return gulp.src([jspSrcAWT + '/applmgmt/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/applmgmt/'))
+	.on('end', end);
+}
+  
+function aw_applmgmt() {
+	return gulp.src([jspSrcAWT + '/applmgmt/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/applmgmt/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/applmgmt/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/applmgmt/'));
+    }));
+}
+
+function aw_codemaintain_minify(end) {
+	return gulp.src([jspSrcAWT + '/codeMaintenance/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/codeMaintenance/'))
+	.on('end', end);
+}
+  
+function aw_codemaintain() {
+	return gulp.src([jspSrcAWT + '/codeMaintenance/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/codeMaintenance/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/codeMaintenance/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/codeMaintenance/'));
+    }));
+}
+
+function aw_dashboard_minify(end) {
+	return gulp.src([jspSrcAWT + '/dashboard/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/dashboard/'))
+	.on('end', end);
+}
+  
+function aw_dashboard() {
+	return gulp.src([jspSrcAWT + '/dashboard/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/dashboard/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/dashboard/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/dashboard/'));
+    }));
+}
+
+function aw_errorhandling_minify(end) {
+	return gulp.src([jspSrcAWT + '/errorhandling/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/errorhandling/'))
+	.on('end', end);
+}
+  
+function aw_errorhandling() {
+	return gulp.src([jspSrcAWT + '/errorhandling/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/errorhandling/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/errorhandling/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/errorhandling/'));
+    }));
+}
+
+function aw_mcp_minify(end) {
+	return gulp.src([jspSrcAWT + '/mcp/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/mcp/'))
+	.on('end', end);
+}
+  
+function aw_mcp() {
+	return gulp.src([jspSrcAWT + '/mcp/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/mcp/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/mcp/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/mcp/'));
+    }));
+}
+
+function aw_casetransfer_minify(end) {
+	return gulp.src([jspSrcAWT + '/multipleCaseTransfer/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/multipleCaseTransfer/'))
+	.on('end', end);
+}
+  
+function aw_casetransfer() {
+	return gulp.src([jspSrcAWT + '/multipleCaseTransfer/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/multipleCaseTransfer/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/multipleCaseTransfer/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/multipleCaseTransfer/'));
+    }));
+}
+
+function aw_pebt_minify(end) {
+	return gulp.src([jspSrcAWT + '/pebt/*.jsp', '!'+jspSrcAWT + '/pebt/pebtMyInboxRendertable.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/pebt/'))
+	.on('end', end);
+}
+  
+function aw_pebt() {
+	return gulp.src([jspSrcAWT + '/pebt/*.jsp', '!'+jspSrcAWT + '/pebt/pebtMyInboxRendertable.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/pebt/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/pebt/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/pebt/'));
+    }));
+}
+
+function aw_qc_minify(end) {
+	return gulp.src([jspSrcAWT + '/qc/*.jsp','!'+jspSrcAWT+'/qc/qcHome.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/qc/'))
+	.on('end', end);
+}
+  
+function aw_qc() {
+	return gulp.src([jspSrcAWT + '/qc/*.jsp','!'+jspSrcAWT+'/qc/qcHome.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/qc/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/qc/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/qc/'));
+    }));
+}
+
+function aw_securitymenu_minify(end) {
+	return gulp.src([jspSrcAWT + '/securityMenu/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(debug({tile:'Minifying:'}))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/adminweb/securityMenu/'))
+	.on('end', end);
+}
+ 
+function aw_securitymenu() {
+	return gulp.src([jspSrcAWT + '/securityMenu/*.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/adminweb/securityMenu/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/adminweb/securityMenu/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestAWT+'/securityMenu/'));
+    }));
+}
+
+function cp_jsp_copy() {
+	return gulp.src([jspSrcCP + '/baseHeader.jsp',jspSrcCP + '/commonconstructs.jsp'])
+	.pipe(gulp.dest(jspDestCP));
+}
+
+// function cp_jsp() {
+	// return gulp.src(['!' + jspSrcCP + '/baseHeader.jsp', '!' + jspSrcCP + '/commonconstructs.jsp', jspSrcCP + '/**/*.jsp'])
+        // .pipe(flatmap(function (stream, file) {
+            // var filename = path.parse(file.path).name;
+            // var fileexist = fileExists.sync(Jsdestination + '/caseprocessingweb/' + filename + '.js');
+
+            // return stream
+                // .pipe(gulpif(fileexist, inject.append('<script type="text/javascript" src="/AMPSSStaticWeb/static/js/caseprocessingweb/' + filename + '.js"></script>')))
+                // .pipe(gulpif(fileexist, deleteLines({ 'filters': [/script\s*type=["']text\/javascript["']\s*src=/i] })))
+                // .pipe(gulpif(fileexist, ext_replace('.js')))
+                // .pipe(gulpif(fileexist, uglify()))
+                // .pipe(gulp.dest(Jsdestination + '/caseprocessingweb'));
+        // }))
+        // .pipe(gulp.dest(jspDestCP));
+// }
+
+function cp_jsp() {
+	return gulp.src([jspSrcCP + '/*.jsp','!' + jspSrcCP + '/baseHeader.jsp','!' + jspSrcCP + '/commonconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/caseprocessingweb/'));
+	
+	return gulp.src([jspSrcCP + '/*.jsp','!' + jspSrcCP + '/baseHeader.jsp','!' + jspSrcCP + '/commonconstructs.jsp'])
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination + '/caseprocessingweb/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP));
+	}))
+}
+
+function cp_caseinfo_minify(end) {
+	return gulp.src([jspSrcCP + '/caseinfo/*.jsp','!' + jspSrcCP + '/caseinfo/caseInfoAddressConflictSummary.jsp','!' + jspSrcCP + '/caseinfo/programRequestChangeInformation.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function() {
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+			return result;
+		}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination + '/caseprocessingweb/caseinfo/'))
+	.on('end', end);
+}
+  
+function cp_caseinfo() {
+	return gulp.src([jspSrcCP + '/caseinfo/*.jsp','!' +jspSrcCP+'/caseinfo/caseInfoAddressConflictSummary.jsp','!' + jspSrcCP+
+	'/caseinfo/programRequestChangeInformation.jsp'])
+	.pipe(flatmap(function(stream, file){
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseinfo/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseinfo/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestCP+'/caseinfo/'));
+    }));
+}
+
+function cp_casestatus_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/casestatus/*.jsp','!' +jspSrcCP+'/caseprocessing/casestatus/caseStatusConstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+		}, false))
+		.pipe(ext_replace('.js'))
+		.pipe(clip())
+		.pipe(uglify())
+		.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/casestatus/'))
+		.on('end', end);
+}
+
+function cp_casestatus() {  
+	return gulp.src([jspSrcCP+'/caseprocessing/casestatus/*.jsp','!' +jspSrcCP+'/caseprocessing/casestatus/caseStatusConstructs.jsp'])
+	.pipe(map(function (file, cb) {
+		var filename= path.parse(file.path).name; 
+		var fileexist=fileExists.sync(Jsdestination + '/caseprocessingweb/caseprocessing/casestatus/'+filename+'.js');
+		return gulp.src(jspSrcCP + '/caseprocessing/casestatus/'+filename+'.jsp')
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/casestatus/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/casestatus/'));
+	}));
+}
+
+function cp_casesummary_copy() {
+	return gulp.src([jspSrcCP + '/casesummary/casesummaryconstruts.jsp'])
+	.pipe(gulp.dest(jspDestCP + '/casesummary'));
+}
+		  
+function cp_casesummary_minify(end) {
+	return gulp.src([jspSrcCP +'/casesummary/*.jsp','!' + jspSrcCP + '/casesummary/casesummaryconstruts.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/casesummary/'))
+	.on('end',end);
+}
+  
+function cp_casesummary() {
+	return gulp.src([jspSrcCP +'/casesummary/*.jsp','!' + jspSrcCP + '/casesummary/casesummaryconstruts.jsp'])
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/casesummary/'+filename+'.js');
+		return stream
+			.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/casesummary/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP + '/casesummary'));
+    }));
+}
+
+function cp_dependent_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/dependent/*.jsp','!'+jspSrcCP+'/caseprocessing/dependent/dependentexpenseconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/dependent/'))
+	.on('end', end);
+}
+
+function cp_dependent() {
+	return gulp.src([jspSrcCP+'/caseprocessing/dependent/*.jsp','!'+jspSrcCP+'/caseprocessing/dependent/dependentexpenseconstructs.jsp'])
+		.pipe(map(function (file, cb) {
+		var filename= path.parse(file.path).name; 
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/dependent/'+filename+'.js');
+			
+		return gulp.src(jspSrcCP+'/caseprocessing/dependent/'+filename+'.jsp')
+			.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/dependent/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/dependent/'));
+	}));
+}
+
+function cp_dependent_copy() {
+	return gulp.src([jspSrcCP+'/caseprocessing/dependent/dependentexpenseconstructs.jsp'])
+	.pipe(gulp.dest(jspDestCP+'/caseprocessing/dependent/'));
+}
+
+function cp_dependent_conflict() {
+	return gulp.src(jspSrcCP+'/caseprocessing/dependent/conflict/*.jsp')
+		.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+		.pipe(dom(function(){
+			var scripts = this.querySelectorAll('script'),
+			result = '',
+			i = scripts.length;
+			while (i--) {
+				result += scripts[i].innerHTML;
+			}
+			return result;
+         }, false))
+		.pipe(ext_replace('.js'))
+		.pipe(clip())
+		.pipe(uglify())
+        .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/dependent/conflict/'));
+
+      return gulp.src(jspSrcCP+'/caseprocessing/dependent/conflict/*.jsp')
+		.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/dependent/conflict/'+filename+'.js');
+		return stream
+			.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/dependent/conflict/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/dependent/conflict/'));
+      }));
+}
+
+function cp_dependent_conflict_careExpense_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/dependent/conflict/dependentCareExpense/*.jsp')
+    .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+        }
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/dependent/conflict/dependentCareExpense/'))
+	.on('end', end);
+}
+
+function cp_dependent_conflict_careExpense() {
+    return gulp.src(jspSrcCP+'/caseprocessing/dependent/conflict/dependentCareExpense/*.jsp')
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/dependent/conflict/dependentCareExpense/'+filename+'.js');return stream
+			.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/dependent/conflict/dependentCareExpense/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/dependent/conflict/dependentCareExpense/'));
+    }));
+}
+
+function cp_sche_minify(end) {
+    return gulp.src([jspSrcCP+'/caseprocessing/sche/*.jsp', '!' +jspSrcCP+'/caseprocessing/sche/scheconstructs.jsp'])
+        .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+        .pipe(dom(function(){
+          var scripts = this.querySelectorAll('script'),
+		  result = '',
+		  i = scripts.length;
+		  while (i--) {
+			  result += scripts[i].innerHTML;               
+		  }
+		  return result;
+        }, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/sche/'))
+	.on('end',end);
+}
+
+function cp_sche() {
+	return gulp.src([jspSrcCP+'/caseprocessing/sche/*.jsp','!' +jspSrcCP+'/caseprocessing/sche/scheconstructs.jsp'])
+          .pipe(flatmap(function(stream, file){
+      
+      var  filename= path.parse(file.path).name;
+      var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/sche/'+filename+'.js');
+      return stream
+        .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/sche/' + filename + '.js"></script>'))))
+        .pipe((gulpif(fileexist,removeEmptyLines())))
+        .pipe(gulp.dest(jspDestCP+'/caseprocessing/sche/'));
+    }));
+}
+
+function cp_fedhub_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/fedhub/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result  = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/fedhub/'))
+	.on('end',end);
+}
+function cp_fedhub() {
+	return gulp.src(jspSrcCP+'/caseprocessing/fedhub/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/fedhub/'+filename+'.js');
+		return stream
+			.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/fedhub/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/fedhub/'));
+      }));
+}
+
+function cp_income_copy() {
+	return gulp.src([jspSrcCP + '/caseprocessing/income/incomeconstructs.jsp'])
+	.pipe(gulp.dest(jspDestCP+'/caseprocessing/income/'));
+}
+
+function cp_income_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/income/*.jsp', '!' + jspSrcCP + '/caseprocessing/income/incomeconstructs.jsp'])
+   .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+   .pipe(dom(function(){
+	   var scripts = this.querySelectorAll('script'),
+	   result = '',
+	   i = scripts.length;
+	   while (i--) {
+		  result += scripts[i].innerHTML;
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/'))
+	.on('end', end);
+}
+
+function cp_income() {
+	return gulp.src([jspSrcCP+'/caseprocessing/income/*.jsp','!' + jspSrcCP + '/caseprocessing/income/incomeconstructs.jsp'])
+	.pipe(map(function (file, cb) {
+		var filename= path.parse(file.path).name; 
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/'+filename+'.js');
+		return gulp.src(jspSrcCP+'/caseprocessing/income/'+filename+'.jsp')
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP+'/caseprocessing/income/'));
+	}));
+}
+
+function cp_income_conflict() {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/'));
+
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/conflict/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/income/conflict/'));
+	}));
+}
+
+function cp_income_generalAssistance_minify(end) {
+    return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/generalAssistance/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/generalAssistance/'))
+	.on('end',end);
+}
+
+function cp_income_generalAssistance() {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/generalAssistance/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/generalAssistance/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/conflict/generalAssistance/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/income/conflict/generalAssistance'));
+	}));
+}
+
+function cp_income_jobIncome_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/jobIncome/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/jobIncome/'))
+	.on('end',end);
+}
+
+function cp_income_jobIncome() {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/jobIncome/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/jobIncome/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/conflict/jobIncome/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/income/conflict/jobIncome'));
+	}));
+}
+
+function cp_income_rentalIncome_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/rentalIncome/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/rentalIncome/'))
+	.on('end',end);
+}
+
+function cp_income_rentalIncome() {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/rentalIncome/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/rentalIncome/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/conflict/rentalIncome/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/income/conflict/rentalIncome'));
+	}));
+}
+
+function cp_income_roomBoardIncome_minify(end) {
+    return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/roomBoardIncome/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/roomBoardIncome/'))
+	.on('end',end);
+}
+
+function cp_income_roomBoardIncome() {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/roomBoardIncome/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/roomBoardIncome/'+filename+'.js');
+		return stream
+			.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/conflict/roomBoardIncome/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP + '/caseprocessing/income/conflict/roomBoardIncome'));
+	}));
+}
+
+function cp_income_unearnedIncome_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/unearnedIncome/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/unearnedIncome/'))
+	.on('end',end);
+}
+
+function cp_income_unearnedIncome() {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/unearnedIncome/*.jsp')
+		.pipe(flatmap(function(stream, file){
+			var filename= path.parse(file.path).name;
+			var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/unearnedIncome/'+filename+'.js');
+			return stream
+				.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+				.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/conflict/unearnedIncome/' + filename + '.js"></script>'))))
+				.pipe((gulpif(fileexist,removeEmptyLines())))
+				.pipe(gulp.dest(jspDestCP + '/caseprocessing/income/conflict/unearnedIncome'));
+        }));
+}
+
+function cp_income_otherEarnedIncome_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/otherEarnedIncome/*.jsp')
+		.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+		.pipe(dom(function(){
+			var scripts = this.querySelectorAll('script'), 
+			result = '',
+			i = scripts.length;
+			while (i--) {
+				result += scripts[i].innerHTML;               
+			}
+			return result;
+		}, false))
+		.pipe(ext_replace('.js'))
+		.pipe(clip())
+		.pipe(uglify())
+		.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/otherEarnedIncome/'))
+		.on('end',end);
+}
+function cp_income_otherEarnedIncome() {
+	return gulp.src(jspSrcCP+'/caseprocessing/income/conflict/otherEarnedIncome/*.jsp')
+		.pipe(flatmap(function(stream, file){
+			var  filename= path.parse(file.path).name;
+			var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/income/conflict/otherEarnedIncome/'+filename+'.js');return stream
+				.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+				.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/income/conflict/otherEarnedIncome/' + filename + '.js"></script>'))))
+				.pipe((gulpif(fileexist,removeEmptyLines())))
+				.pipe(gulp.dest(jspDestCP + '/caseprocessing/income/conflict/otherEarnedIncome'));
+		}));
+}
+
+function cp_medical_copy() {
+	return gulp.src([jspSrcCP + '/caseprocessing/medical/medicalconstructs.jsp'])
+	.pipe(gulp.dest(jspDestCP+'/caseprocessing/medical/'));
+}
+
+function cp_medical_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/medical/*.jsp', '!' +  jspSrcCP + '/caseprocessing/medical/medicalconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/medical/'))
+	.on('end', end);
+}
+
+function cp_medical() {
+	return gulp.src([jspSrcCP+'/caseprocessing/medical/*.jsp', '!' +  jspSrcCP + '/caseprocessing/medical/medicalconstructs.jsp'])
+	.pipe(map(function (file, cb) {
+		var filename= path.parse(file.path).name; 
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/medical/'+filename+'.js')
+		return gulp.src(jspSrcCP+'/caseprocessing/medical/'+filename+'.jsp')
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/medical/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP+'/caseprocessing/medical/'));
+	}));		
+}
+  
+function cp_medical_conflict() {
+	return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/'));
+
+    return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/*.jsp')
+       .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/'+filename+'.js');
+		return stream.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/medical/conflict/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/medical/conflict/'));
+        }));
+}
+
+function cp_medical_conflict_groupLivingArrangement_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/groupLivingArrangement/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/groupLivingArrangement/'))
+	.on('end',end);
+}
+
+function cp_medical_conflict_groupLivingArrangement() {
+	return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/groupLivingArrangement/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/groupLivingArrangement/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/medical/conflict/groupLivingArrangement/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/medical/conflict/groupLivingArrangement'));
+	}));
+}
+
+function cp_medical_conflict_medicalInsurance_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/medicalInsurance/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(ignoreErrors())
+	.pipe(uglify().on('error', function(e){console.log(e);}))
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/medicalInsurance/'))
+	.on('end',end);
+}
+
+function cp_medical_conflict_medicalInsurance(){
+    return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/medicalInsurance/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/medicalInsurance/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/medical/conflict/medicalInsurance/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/medical/conflict/medicalInsurance'));
+	}));
+}
+
+function cp_medical_conflict_medicalExpense_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/medicalExpense/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result  = '',
+		i = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(ignoreErrors())
+	.pipe(uglify().on('error', function(e){console.log(e);}))
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/medicalExpense/'))
+	.on('end',end);
+}
+
+function cp_medical_conflict_medicalExpense() {
+	return gulp.src(jspSrcCP+'/caseprocessing/medical/conflict/medicalExpense/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/medical/conflict/medicalExpense/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/medical/conflict/medicalExpense/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/medical/conflict/medicalExpense'));
+	}));
+}
+
+function cp_member_copy() {
+	return gulp.src([jspSrcCP + '/caseprocessing/member/memberconstructs.jsp'])
+	.pipe(gulp.dest(jspDestCP+'/caseprocessing/member/'));
+}
+
+function cp_member_conflict_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/member/conflict/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/member/conflict/'))
+	.on('end',end);
+}
+function cp_member_conflict() {
+	return gulp.src(jspSrcCP+'/caseprocessing/member/conflict/*.jsp')
+	.pipe(flatmap(function(stream, file){
+		var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/member/conflict/'+filename+'.js');
+		return stream.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/member/conflict/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/member/conflict/'));
+	}));
+}
+
+function cp_member_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/member/*.jsp', '!' + jspSrcCP + '/caseprocessing/member/memberconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/member/'))
+	.on('end', end);
+}
+
+function cp_member() {
+	return gulp.src([jspSrcCP+'/caseprocessing/member/*.jsp', '!' + jspSrcCP + '/caseprocessing/member/memberconstructs.jsp'])
+	.pipe(map(function (file, cb) {
+		var filename= path.parse(file.path).name; 
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/member/'+filename+'.js');
+		return gulp.src(jspSrcCP+'/caseprocessing/member/'+filename+'.jsp')
+			.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/member/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/member/'));
+	}));
+}
+
+function cp_memberdemographics_copy() {
+	return gulp.src([jspSrcCP +'/caseprocessing/memberdemographics/memberdemographicsconstructs.jsp'])
+	.pipe(gulp.dest(jspDestCP+'/caseprocessing/memberdemographics/'));
+}
+
+function cp_memberdemographics_conflict() {
+	return gulp.src(jspSrcCP+'/caseprocessing/memberdemographics/conflict/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/memberdemographics/conflict/'));
+	
+	return gulp.src(jspSrcCP+'/caseprocessing/memberdemographics/conflict/*.jsp')
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/memberdemographics/conflict/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/memberdemographics/conflict/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/memberdemographics/conflict/'));
+	}));
+}
+
+function cp_memberdemographics_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/memberdemographics/*.jsp', '!' + jspSrcCP +'/caseprocessing/memberdemographics/memberdemographicsconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]
+                    }))
+       .pipe(dom(function(){
+         var scripts = this.querySelectorAll('script'), 
+                 result  = '',
+                 i       = scripts.length;
+             while (i--) {
+                           result += scripts[i].innerHTML;               
+        }
+             return result;
+         }, false))
+           .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+        .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/memberdemographics/'))
+		.on('end', end);
+}
+function cp_memberdemographics() {
+	return gulp.src([jspSrcCP+'/caseprocessing/memberdemographics/*.jsp', '!' + jspSrcCP +'/caseprocessing/memberdemographics/memberdemographicsconstructs.jsp'])
+		 .pipe(map(function (file, cb) {
+             var filename= path.parse(file.path).name; 
+             var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/memberdemographics/'+filename+'.js');
+             return gulp.src(jspSrcCP+'/caseprocessing/memberdemographics/'+filename+'.jsp')
+
+              .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+              .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/memberdemographics/' + filename + '.js"></script>'))))
+              .pipe((gulpif(fileexist,removeEmptyLines())))
+              .pipe(gulp.dest(jspDestCP+'/caseprocessing/memberdemographics/'));
+          }));
+}
+
+function cp_memberdemographics_conflict_alienRefugee_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/memberdemographics/conflict/alienRefugee/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/memberdemographics/conflict/alienRefugee/'))
+	.on('end',end);
+}
+
+function cp_memberdemographics_conflict_alienRefugee() {
+	return gulp.src(jspSrcCP+'/caseprocessing/memberdemographics/conflict/alienRefugee/*.jsp')
+       .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/memberdemographics/conflict/alienRefugee/'+filename+'.js');
+        return stream.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/memberdemographics/conflict/alienRefugee/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+            .pipe(gulp.dest(jspDestCP + '/caseprocessing/memberdemographics/conflict/alienRefugee/'));
+        }));
+}
+
+function cp_parent_copy() {
+	return gulp.src([jspSrcCP + '/caseprocessing/parent/parentconstructs.jsp'])
+	.pipe(gulp.dest(jspDestCP+'/caseprocessing/parent/'));
+}
+
+function cp_parent_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/parent/*.jsp', '!' + jspSrcCP + '/caseprocessing/parent/parentconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'),
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+            .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/parent/'))
+		   .on('end', end);
+}
+
+function cp_parent() {   
+	return gulp.src([jspSrcCP+'/caseprocessing/parent/*.jsp','!' + jspSrcCP + 'caseprocessing/parent/parentconstructs.jsp'])
+	.pipe(map(function (file, cb) {
+		var filename= path.parse(file.path).name;
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/parent/'+filename+'.js');
+		return gulp.src(jspSrcCP+'/caseprocessing/parent/'+filename+'.jsp')
+              .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+              .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/parent/' + filename + '.js"></script>'))))
+              .pipe((gulpif(fileexist,removeEmptyLines())))
+              .pipe(gulp.dest(jspDestCP+'/caseprocessing/parent/'));
+          }));
+}
+
+function cp_parent_conflict() {
+	return gulp.src(jspSrcCP+'/caseprocessing/parent/conflict/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+            .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/parent/conflict/'));
+
+    return gulp.src(jspSrcCP+'/caseprocessing/parent/conflict/*.jsp')
+     .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/parent/conflict/'+filename+'.js');
+                 return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/parent/conflict/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                // .pipe((gulpif(fileexist,ext_replace('.jsp'))))
+              .pipe(gulp.dest(jspDestCP + '/caseprocessing/parent/conflict/'));
+        }));
+}
+
+function cp_rd_minify(end) {
+	return gulp.src(['!' +jspSrcCP+'/caseprocessing/rd/redconstruts.jsp',jspSrcCP+'/caseprocessing/rd/*.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'),
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+              .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/rd/'))
+           .on('end',end);
+}
+
+function cp_rd() {
+	return gulp.src([jspSrcCP+'/caseprocessing/rd/*.jsp', '!' +jspSrcCP+'/caseprocessing/rd/redconstruts.jsp'])
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/rd/'+filename+'.js');
+         return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/rd/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                .pipe(gulp.dest(jspDestCP+'/caseprocessing/rd/'));
+        }));
+}
+
+function cp_resource_copy() {
+	return gulp.src([jspSrcCP +'/caseprocessing/resource/resourceconstructs.jsp'])
+      .pipe(gulp.dest(jspDestCP+'/caseprocessing/resource/'));
+}
+function cp_resource_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/resource/*.jsp', '!' + jspSrcCP +'/caseprocessing/resource/resourceconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'),
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+             .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/'))
+		   .on('end', end);
+}
+function cp_resource() {  
+	return gulp.src([jspSrcCP+'/caseprocessing/resource/*.jsp', '!' + jspSrcCP +'/caseprocessing/resource/resourceconstructs.jsp'])
+      .pipe(map(function (file, cb) {
+             var filename= path.parse(file.path).name; 
+             var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/'+filename+'.js');
+			 return gulp.src(jspSrcCP+'/caseprocessing/resource/'+filename+'.jsp')
+              .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+              .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/' + filename + '.js"></script>'))))
+              .pipe((gulpif(fileexist,removeEmptyLines())))
+              .pipe(gulp.dest(jspDestCP+'/caseprocessing/resource/'));
+
+          }));
+}
+
+function cp_resource_conflict() {
+    return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+          .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/'));
+
+    return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/*.jsp')
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/'+filename+'.js');
+          return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/conflict/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                // .pipe((gulpif(fileexist,ext_replace('.jsp'))))
+              .pipe(gulp.dest(jspDestCP + '/caseprocessing/resource/conflict/'));
+        }));
+}
+
+function cp_resource_conflict_financialResource_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/financialResource/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+             .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/financialResource/'))
+           .on('end',end);
+}
+function cp_resource_conflict_financialResource() {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/financialResource/*.jsp')
+      .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/financialResource/'+filename+'.js');
+         return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/conflict/financialResource/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+             .pipe(gulp.dest(jspDestCP + '/caseprocessing/resource/conflict/financialResource/'));
+        }));
+}
+
+function cp_resource_conflict_lifeBurialResource_minify(end) {
+    return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/lifeBurialResource/*.jsp')
+          .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+             .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/lifeBurialResource/'))
+           .on('end',end);
+}
+function cp_resource_conflict_lifeBurialResource() {
+    return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/lifeBurialResource/*.jsp')
+       .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/lifeBurialResource/'+filename+'.js');
+                 return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/conflict/lifeBurialResource/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                 .pipe(gulp.dest(jspDestCP + '/caseprocessing/resource/conflict/lifeBurialResource/'));
+        }));
+}
+
+function cp_resource_conflict_otherResourceDetail_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/otherResourceDetail/*.jsp')
+          .pipe(deleteLines({
+                             'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]
+                    }))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+          .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+          .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/otherResourceDetail/'))
+          .on('end',end);
+}
+function cp_resource_conflict_otherResourceDetail() {
+    return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/otherResourceDetail/*.jsp')
+      .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/otherResourceDetail/'+filename+'.js');
+             return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/conflict/otherResourceDetail/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                // .pipe((gulpif(fileexist,ext_replace('.jsp'))))
+                 .pipe(gulp.dest(jspDestCP + '/caseprocessing/resource/conflict/otherResourceDetail/'));
+        }));
+}
+
+function cp_resource_conflict_propertyResource_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/propertyResource/*.jsp')
+          .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+            .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/propertyResource/'))
+           .on('end',end);
+}
+function cp_resource_conflict_propertyResource() {
+    return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/propertyResource/*.jsp')
+      .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/propertyResource/'+filename+'.js');
+		return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/conflict/propertyResource/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                  .pipe(gulp.dest(jspDestCP + '/caseprocessing/resource/conflict/propertyResource/'));
+        }));
+}
+
+function cp_resource_conflict_transferred_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/transferred/*.jsp')
+          .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+           .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/transferred/'))
+           .on('end',end);
+}
+function cp_resource_conflict_transferred() {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/transferred/*.jsp')
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/transferred/'+filename+'.js');
+                return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/conflict/transferred/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                  .pipe(gulp.dest(jspDestCP + '/caseprocessing/resource/conflict/transferred/'));
+        }));
+}
+
+function cp_resource_conflict_vehicleResource_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/vehicleResource/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'), 
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/vehicleResource/'))
+           .on('end',end);
+}
+function cp_resource_conflict_vehicleResource() {
+	return gulp.src(jspSrcCP+'/caseprocessing/resource/conflict/vehicleResource/*.jsp')
+   .pipe(flatmap(function(stream, file){
+	   var  filename= path.parse(file.path).name;
+	   var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/resource/conflict/vehicleResource/'+filename+'.js');
+	   return stream.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/resource/conflict/vehicleResource/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/resource/conflict/vehicleResource/'));
+	}));
+}
+
+function cp_shelterexpense_copy() {
+	return gulp.src([jspSrcCP +'/caseprocessing/shelterexpense/shelterexpenseconstructs.jsp'])
+      .pipe(gulp.dest(jspDestCP+'/caseprocessing/shelterexpense/'));
+}
+
+function cp_shelterexpense_minify(end) {
+	return gulp.src([jspSrcCP+'/caseprocessing/shelterexpense/*.jsp','!'+jspSrcCP +'/caseprocessing/shelterexpense/shelterexpenseconstructs.jsp'])
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+		var scripts = this.querySelectorAll('script'),
+		result  = '',
+		i       = scripts.length;
+		while (i--) {
+			result += scripts[i].innerHTML;               
+		}
+		return result;
+	}, false))
+	.pipe(ext_replace('.js'))
+	.pipe(clip())
+	.pipe(uglify())
+	.pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/'))
+	.on('end', end);
+}
+function cp_shelterexpense() {
+	return gulp.src([jspSrcCP+'/caseprocessing/shelterexpense/*.jsp','!'+jspSrcCP +'/caseprocessing/shelterexpense/shelterexpenseconstructs.jsp'])
+	.pipe(map(function (file, cb) {
+		var filename= path.parse(file.path).name; 
+		var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/'+filename+'.js');
+		return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/'+filename+'.jsp')
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+			.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/shelterexpense/' + filename + '.js"></script>'))))
+			.pipe((gulpif(fileexist,removeEmptyLines())))
+			.pipe(gulp.dest(jspDestCP+'/caseprocessing/shelterexpense/'));
+	}));
+}
+
+function cp_shelterexpense_conflict() {
+	return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/*.jsp')
+          .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+           .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/'));
+
+    return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/*.jsp')
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/'+filename+'.js');
+              return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/shelterexpense/conflict/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+             .pipe(gulp.dest(jspDestCP + '/caseprocessing/shelterexpense/conflict/'));
+        }));
+}
+      
+function cp_shelterexpense_conflict_homeOwnerExpense_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/homeOwnerExpense/*.jsp')
+          .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+             .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/homeOwnerExpense/'))
+           .on('end',end);
+}
+function cp_shelterexpense_conflict_homeOwnerExpense() {
+	return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/homeOwnerExpense/*.jsp')
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/homeOwnerExpense/'+filename+'.js');
+		return stream
+		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/shelterexpense/conflict/homeOwnerExpense/' + filename + '.js"></script>'))))
+		.pipe((gulpif(fileexist,removeEmptyLines())))
+		.pipe(gulp.dest(jspDestCP + '/caseprocessing/shelterexpense/conflict/homeOwnerExpense/'));
+        }));
+}
+      
+function cp_shelterexpense_conflict_rentalExpense_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/rentalExpense/*.jsp')
+     .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+             .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/rentalExpense/'))
+           .on('end',end);
+}
+function cp_shelterexpense_conflict_rentalExpense() {
+	return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/rentalExpense/*.jsp')
+          .pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/rentalExpense/'+filename+'.js');
+        return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/shelterexpense/conflict/rentalExpense/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                 .pipe(gulp.dest(jspDestCP + '/caseprocessing/shelterexpense/conflict/rentalExpense/'));
+        }));
+}
+
+function cp_shelterexpense_conflict_utilityExpense_minify(end) {
+	return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/utilityExpense/*.jsp')
+	.pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+	.pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'), 
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+             .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/utilityExpense/'))
+           .on('end',end);
+}
+function cp_shelterexpense_conflict_utilityExpense() {
+	return gulp.src(jspSrcCP+'/caseprocessing/shelterexpense/conflict/utilityExpense/*.jsp')
+	.pipe(flatmap(function(stream, file){
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/shelterexpense/conflict/utilityExpense/'+filename+'.js');
+      return stream
+                 .pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+                 .pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/shelterexpense/conflict/utilityExpense/' + filename + '.js"></script>'))))
+                 .pipe((gulpif(fileexist,removeEmptyLines())))
+                 .pipe(gulp.dest(jspDestCP + '/caseprocessing/shelterexpense/conflict/utilityExpense/'));
+        }));
+}
+
+function cp_spec_copy() {
+	 return gulp.src([ jspSrcCP+'/caseprocessing/spec/specconstructs.jsp'])
+     .pipe(gulp.dest(jspDestCP+'/caseprocessing/spec/')); 
+}
+
+function cp_spec_minify(end) {
+      return gulp.src([jspSrcCP +'/caseprocessing/spec/*.jsp','!' + jspSrcCP+'/caseprocessing/spec/specconstructs.jsp'])
+          .pipe(deleteLines({'filters': [/<script\s+type=["']text\/javascript["']\s+src=/i]}))
+          .pipe(dom(function(){
+            var scripts = this.querySelectorAll('script'),
+                    result  = '',
+                    i       = scripts.length;
+                while (i--) {
+                              result += scripts[i].innerHTML;               
+                }
+                return result;
+            }, false))
+            .pipe(ext_replace('.js'))
+            .pipe(clip())
+            .pipe(uglify())
+           .pipe(gulp.dest(Jsdestination+'/caseprocessingweb/caseprocessing/spec/'))
+           .on('end',end);
+}
+function cp_spec() {
+	return gulp.src([jspSrcCP +'/caseprocessing/spec/*.jsp','!' + jspSrcCP+'/caseprocessing/spec/specconstructs.jsp'])
+          .pipe(map(function (file, cb) {
+        var  filename= path.parse(file.path).name;
+        var fileexist=fileExists.sync(Jsdestination+'/caseprocessingweb/caseprocessing/spec/'+filename+'.js');
+        return gulp.src(jspSrcCP + '/caseprocessing/spec/'+filename+'.jsp') 
+        		.pipe(gulpif(fileexist,replace(/<script(?!.*(src=)).([\s\S]*?)<\/script>/g, '')))
+        		.pipe((gulpif(fileexist,inject.append('\n<script type="text/javascript" src="/AMPSStaticWeb/static/js/caseprocessingweb/caseprocessing/spec/' + filename + '.js"></script>'))))
+                .pipe((gulpif(fileexist,removeEmptyLines())))
+                .pipe(gulp.dest(jspDestCP+'/caseprocessing/spec/'));  
+        }));
+}
