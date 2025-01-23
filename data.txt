@@ -1,52 +1,539 @@
-SELECT 
-    T1.ICI, 
-    T1.PRGM_CASE_STS, 
-    T1.PRGM_CASE_TYPE, 
-    T1.AID_CD, 
-    T2.BNFT_YR, 
-    T2.BNFT_MTH, 
-    T2.VER_NMB, 
-    T2.WTHDR_TST_RSLT_CD, 
-    T2.APL_DTH_TSTRSL_CD, 
-    T2.RSDN_TST_RSLT_CD, 
-    T2.AGDDIS_ST_TSTRS_CD, 
-    T2.VRF_TST_RSLT_CD, 
-    T2.SSN_TEST_RSLT_CD, 
-    T2.COOP_TEST_RSLT_CD, 
-    T2.MRF_COMP_TSTRSL_CD, 
-    T3.OFC_CD AS PCE_OFC_CD, 
-    T3.CASLD_ID AS PCE_CASLD_ID, 
-    T4.OFC_NM AS PCE_OFC_NM, 
-    T3.CASLD_EFF_DT, 
-    T5.LST_BU_CNSD AS BU_NMB, 
-    T6.RSRCS_TST_RSLT_CD, 
-    T6.GRS_INC_TST_RSLTCD 
-FROM 
-    TWNPRGM_CASE_HSTRY T1, 
-    TWNELIG_VERSION T2, 
-    TWNFAM_CASELD_CASE T3, 
-    TWNOFFICE T4, 
-    TWNELG_VER_MBR T5, 
-    TWNELG_BDGT_UNIT T6 
-WHERE 
-    T1.ICI = T2.ICI 
-    AND T2.LST_POSTD_VER_IND = 'Y' 
-    AND T1.ICI = T3.ICI 
-    AND T3.OFC_CD = T4.OFC_CD 
-    AND T1.ICI = T5.ICI 
-    AND T5.PRGM_CASE_TYPE = T1.PRGM_CASE_TYPE 
-    AND T5.BNFT_YR = T2.BNFT_YR 
-    AND T5.BNFT_MTH = T2.BNFT_MTH 
-    AND T5.VER_NMB = T2.VER_NMB 
-    AND T5.ICI = T6.ICI 
-    AND T6.PRGM_CASE_TYPE = T1.PRGM_CASE_TYPE 
-    AND T6.BNFT_YR = T2.BNFT_YR 
-    AND T6.BNFT_MTH = T2.BNFT_MTH 
-    AND T6.VER_NMB = T2.VER_NMB 
-    AND T6.BU_NMB = T5.LST_BU_CNSD 
-    AND T1.PRGM_CASE_TYPE = 'MA' 
-    AND T1.PRGM_CASE_STS IN ('T', 'D') 
-    AND T1.PRD_BEG_DT <= :PRD-BEG-DT 
-    AND T1.PRD_END_DT >= :PRD-END-DT 
-    AND T2.BNFT_MTH = :BNFT-MTH 
-    AND T2.BNFT_YR = :BNFT-YR;
+package IVA_Batch;
+import egl.core.*;
+import CommonMigratedParts.*;
+import DataTables.*;
+//*** PROGRAM=AIF31A ****
+// This Application reads a flat input file AIF31A.INPUT
+// An AIF31A.INPUT row contains the following
+// Field Description     Size Type Location
+// MEDICAID BILLING NUMBER 11 Char 01-11
+// FROM YYYYMM             06 Char 12-17
+// TO YYYYMM               06 Char 18-23
+// CASE/DEMO FLAG          01 Char 24
+// EVM, EVR &PER are perused to determine validity of the MED#
+// and case eligibility between the FROM/TO dates (Inclusive)
+// When discrepancies are found, they are reported in flat
+// output file AIF31A.OUTPUT.  Valid MED# and dates are
+// put on the TWNMMIS.TRIGGER file for processing and passing
+// eligibility details to MMIS.  The CASE/DEMO details will be
+// generated as well if AIF31A.INPUT, pos 24 contains "Y".
+// /* == Change Log =========================================
+// /* -- WI 1436 ---------------------------------------------
+// /* 2011-08-01 - WI - 1436 K.Laine
+// /* Problem: When to year/month comes in as 9999-12, program
+// /*          reports every single month up to December 9999
+// /* Solution: Limit evaluation of elibility date range to
+// /*         not go beyond 1 year from the current year-month.
+// /* ========================================================
+// ***********************
+Program AIF31A type basicProgram //VAGen Info - main batch program
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
+
+  // Data Declarations
+  AIF31W AIF31W; // record
+  BDATEREC BDATEREC; // record
+  CEP01W CEP01W; // record
+  GDW GDW; // record
+  H2-3-EVM-EVR-PER H2-3-EVM-EVR-PER; // record
+  H2-MMIS-TRIGGER H2-MMIS-TRIGGER; // record
+  H2-PERSON H2-PERSON; // record
+  SR-AIF31-INREC SR-AIF31-INREC; // record
+  SR-AIF31-OUTREC SR-AIF31-OUTREC; // record
+  VDBCOMMON VDBCOMMON; // record
+  VDBCONTROL VDBCONTROL; // record
+  VMESSAGE VMESSAGE; // record
+
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
+
+  // Use Declarations
+  use VDB00T1 {deleteAfterUse = yes}; // table
+
+  function main()
+    // VAGen Info - initialization needed for migration
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    AIF31-LOOP1-MAIN: AIF31-LOOP1-MAIN();
+  end // end main
+end // end AIF31A
+
+
+// WRITE OUTPUT FILE
+Function AIF31-ADD-ERROR()
+  move MR-MEDICAID-ID to ME-MEDICAID-ID withV60Compat;
+  move MR-MIN-YYYYMM to ME-MIN-YYYYMM withV60Compat;
+  move MR-MAX-YYYYMM to ME-MAX-YYYYMM withV60Compat;
+  VGVar.handleHardIOErrors = 1;
+  try
+    add SR-AIF31-OUTREC ;
+  end
+  if (SR-AIF31-OUTREC is ioError)
+    VDBCONTROL.UPROC-NM = "AIF31-ADD-ERROR";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF31-OUTREC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    WS-EZERT8-SPLIT = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = WS-EZERT8-5-8;
+    VMESSAGE.UMSGINS[2] = "AIF31A";
+    if (SR-AIF31-OUTREC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF31-OUTREC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF31-OUTREC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+  ME-ERROR-MSG = " ";
+end // end AIF31-ADD-ERROR
+
+
+Function AIF31-ADD-TRGR()
+  H2-MMIS-TRIGGER.ICI = H2-3-EVM-EVR-PER.ICI;
+  WS-ICI = H2-3-EVM-EVR-PER.ICI;
+  H2-MMIS-TRIGGER.UPI = H2-3-EVM-EVR-PER.UPI;
+  H2-MMIS-TRIGGER.PRGM-CASE-TYPE = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+  WS-PRGM-CASE-TYPE = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+  H2-MMIS-TRIGGER.BNFT-MTH = H2-3-EVM-EVR-PER.BNFT-MTH;
+  H2-MMIS-TRIGGER.BNFT-YR = H2-3-EVM-EVR-PER.BNFT-YR;
+  if (SR-AIF31-INREC.MR-CASE-DEMO-FLAG == "Y")
+    H2-MMIS-TRIGGER.CASE-FLAG = "Y";
+    H2-MMIS-TRIGGER.DEMO-FLAG = "Y";
+  else
+    H2-MMIS-TRIGGER.CASE-FLAG = "N";
+    H2-MMIS-TRIGGER.DEMO-FLAG = "N";
+  end
+  H2-MMIS-TRIGGER.STATUS-FLAG = "Y";
+  VDBCONTROL.UPROC-NM = "AIF31-ADD-TRGR";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  VDBCONTROL.UPROC-OBJ = "H2-MMIS-TRIGGER";
+  VDBCOMMON.USQLREC = "H2-MMIS-TRIGGER";
+  try
+    add H2-MMIS-TRIGGER
+      with #sql{
+        insert into TWNMMIS_TRIGGER
+        (ACTN_TS, ICI, UPI, INSU_PLICY_NMB,
+          PRGM_CASE_TYPE, BNFT_MTH, BNFT_YR, DEMO_FLAG,
+          PENDING_FLAG, CASE_FLAG)
+        values (CURRENT TIMESTAMP, :ICI, :UPI, :INSU-PLICY-NMB,
+          :PRGM-CASE-TYPE, :BNFT-MTH, :BNFT-YR, :DEMO-FLAG,
+          :PENDING-FLAG, :CASE-FLAG)
+      } ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIF31A";
+end // end AIF31-ADD-TRGR
+
+
+Function AIF31-LOOP1-MAIN()
+  /* -- WI 1436 --------------------------------------------------------*/
+  /* 2011-08-01 - WI - 1436 K.Laine*/
+  /* Problem: When to year/month comes in as 9999-12, program*/
+  /* reports every single month up to December 9999 !*/
+  /* Solution: Limit evaluation of elibility date range to not go*/
+  /* beyond 1 year from the current year-month.*/
+  /* -- WI 1436 --------------------------------------------------------*/
+  /* ---- INITIALIZATION ------------------------------------------------*/
+  set AIF31W empty;
+  set SR-AIF31-INREC empty;
+  set H2-MMIS-TRIGGER empty;
+  set SR-AIF31-OUTREC empty;
+  set H2-PERSON empty;
+  set H2-3-EVM-EVR-PER empty;
+
+  /* ---- Format Current Date -------------------------------------------*/
+  WCM00P3-FETCHBDTS();
+  AIF31W.WS-CURRENT-YYYYMMDD = BDATEREC.BDATE-PROCESS-DATE;
+  /* -- WI 1436 --------------------------------------------------------*/
+  AIF31W.WS-CURRENT-YYYY-PLUS-1-YEAR = WS-CURRENT-YYYY + 1;
+  AIF31W.WS-CURRENT-YYYY-LESS-20-YEARS = WS-CURRENT-YYYY - 20;
+  AIF31W.WS-CUR-YYYY-PLUS-2-MONTHS = WS-CURRENT-YYYY;
+  WS-CUR-MM-PLUS-2-MONTHS = AIF31W.WS-CURRENT-MM + 2;
+  if (AIF31W.WS-CUR-MM-PLUS-2-MONTHS > 12)
+    WS-CUR-YYYY-PLUS-2-MONTHS = WS-CUR-YYYY-PLUS-2-MONTHS + 1;
+    WS-CUR-MM-PLUS-2-MONTHS = WS-CUR-MM-PLUS-2-MONTHS - 12;
+  end
+  /* -- WI 1436 --------------------------------------------------------*/
+
+  /* ---- Read first input record ---------------------------------------*/
+  AIF31-SCAN-DRIVER();
+
+  /* ---- MAIN LOOP -----------------------------------------------------*/
+  while (sysVar.errorCode == "00000000")
+
+    /* ---- Validate the INPUT RECORD -----------------------------------*/
+    ME-ERROR-MSG = "OK                                                          ";
+    AIF31-VALIDATE();
+    if (ME-ERROR-MSG == "OK")
+      /* ---- Loop thru months writing TWNMMIS_TRIGGER records ----------*/
+      AIF31-LOOP2-DATES();
+      if (ME-ERROR-MSG == "OK")
+        AIF31-ADD-ERROR();
+      end
+    end
+
+    /* ---- Read next input record --------------------------------------*/
+    AIF31-SCAN-DRIVER();
+  end
+end // end AIF31-LOOP1-MAIN
+
+
+Function AIF31-LOOP2-DATES()
+  /* ---- Loop from Begin Month thru End Month ----------------------*/
+  while (WS-COMPARE-YYYYMM <= WS-MAX-YYYYMM)
+    if (H2-3-EVM-EVR-PER.BNFT-YR == WS-COMPARE-YYYY
+     && H2-3-EVM-EVR-PER.BNFT-MTH == WS-COMPARE-MM)
+      if (WS-PRGM-CASE-TYPE != "  ")
+        /* ---- Multiple Cases for a single Month -------------------*/
+        ME-ERROR-MSG-1-21 = "MULTIPLE CASE YYYYMM=";
+        move WS-COMPARE-YYYYMM to ME-ERROR-MSG-22-28 withV60Compat;
+        move WS-PRGM-CASE-TYPE to ME-ERROR-MSG-29-30 withV60Compat;
+        move WS-ICI to ME-ERROR-MSG-32-40 withV60Compat;
+        ME-ERROR-MSG-42-43 = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+        ME-ERROR-MSG-45-53 = H2-3-EVM-EVR-PER.ICI;
+        AIF31-ADD-ERROR();
+      end
+    else
+      /* ---- Date Mismatch between COMPARE-DATE & TWNELIG DATE -----*/
+      while (WS-COMPARE-YYYYMM <= WS-MAX-YYYYMM
+       && (H2-3-EVM-EVR-PER.BNFT-MTH != WS-COMPARE-MM
+       || H2-3-EVM-EVR-PER.BNFT-YR != WS-COMPARE-YYYY))
+        if (WS-PRGM-CASE-TYPE == "  ")
+          ME-ERROR-MSG-1-21 = "NO ELIGIBLITY YYYYMM=";
+          move WS-COMPARE-YYYYMM to ME-ERROR-MSG-22-28 withV60Compat;
+          AIF31-ADD-ERROR();
+        end
+        WS-COMPARE-MM = WS-COMPARE-MM + 1;
+        if (WS-COMPARE-MM == 13)
+          WS-COMPARE-YYYY = WS-COMPARE-YYYY + 1;
+          WS-COMPARE-MM = 1;
+        end
+        WS-PRGM-CASE-TYPE = "  ";
+      end
+    end
+    /* ---- Get Next TWNELIG row ------------------------------------*/
+    if (WS-S02-SQCOD == 0)
+      AIF31-ADD-TRGR();
+      AIF31-SCAN-S02();
+      if (WS-S02-SQCOD != 0)
+        H2-3-EVM-EVR-PER.BNFT-YR = 9999;
+        H2-3-EVM-EVR-PER.BNFT-MTH = 99;
+      end
+    end
+  end
+end // end AIF31-LOOP2-DATES
+
+
+Function AIF31-NUMFAIL()
+  NUMERIC-FLAG = "N";
+end // end AIF31-NUMFAIL
+
+
+Function AIF31-NUMPASS()
+  NUMERIC-FLAG = "Y";
+end // end AIF31-NUMPASS
+
+
+Function AIF31-SCAN-DRIVER()
+  try
+    get next SR-AIF31-INREC ;
+  end
+
+  if (SR-AIF31-INREC is ioError && SR-AIF31-INREC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF31-SCAN-DRIVER";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF31-INREC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.UMSGINS[2] = "AIF31A";
+    AIF31W.WS-EZERT8-SPLIT = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF31W.WS-EZERT8-5-8;
+
+    if (SR-AIF31-INREC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF31-INREC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF31-INREC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end /* ** end check for record found*/
+end // end AIF31-SCAN-DRIVER
+
+
+Function AIF31-SCAN-S02()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCONTROL.UPROC-NM = "AIF31-SCAN-S02";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "H2-3-EVM-EVR-PER";
+  VDBCOMMON.USQLREC = "H2-3-EVM-EVR-PER";
+  try
+    get next H2-3-EVM-EVR-PER ;
+  end
+  WS-S02-SQCOD = sysVar.sqlData.sqlcode;
+  AIF31-SQL-ERROR();
+end // end AIF31-SCAN-S02
+
+
+Function AIF31-SELECT-S01()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCONTROL.UPROC-NM = "AIF31-READ-S01";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  try
+    get H2-PERSON singleRow
+      with #sql{
+        select UPI
+        from TWNPERSON T1
+        WHERE T1.MEDIC_BLNG_SQ_NMB = :MEDIC-BLNG-SQ-NMB
+         AND T1.SSN NOT LIKE '999%'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into UPI ;
+  end
+  WS-S01-SQCOD = sysVar.sqlData.sqlcode;
+  AIF31-SQL-ERROR();
+end // end AIF31-SELECT-S01
+
+
+Function AIF31-SETINQ-S02()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCONTROL.UPROC-NM = "AIF31-SETINQ-S02";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCONTROL.UPROC-OBJ = "H2-3-EVM-EVR-PER";
+  VDBCOMMON.USQLREC = "H2-3-EVM-EVR-PER";
+  try
+    open AIF31-SETINQ-S02_RSI01
+      with #sql{
+        select T1.ICI, T1.PRGM_CASE_TYPE, T1.BNFT_YR, T1.BNFT_MTH, T1.UPI
+        from twnelg_ver_mbr T1,
+             twnelig_version T2,
+             twnperson T3
+        WHERE T3.MEDIC_BLNG_SQ_NMB = :WS-MEDICAID-ID-PK
+        AND T1.ELIG_CD NOT IN ('3','9')
+        AND T1.PRGM_CASE_TYPE NOT IN ('FS','FP','TN','TP','TL','TC','SG')
+        AND ((T1.BNFT_YR >= :WS-MIN-YYYY-BIN AND T1.BNFT_YR <= :WS-MAX-YYYY-BIN)
+        AND NOT (T1.BNFT_YR = :WS-MIN-YYYY-BIN AND T1.BNFT_MTH < :WS-MIN-MM-BIN)
+        AND NOT (T1.BNFT_YR = :WS-MAX-YYYY-BIN AND T1.BNFT_MTH > :WS-MAX-MM-BIN))
+        AND T2.ICI = T1.ICI
+        AND T2.PRGM_CASE_TYPE = T1.PRGM_CASE_TYPE
+        AND T2.BNFT_YR = T1.BNFT_YR
+        AND T2.BNFT_MTH = T1.BNFT_MTH
+        AND T2.VER_NMB = T1.VER_NMB
+        AND T2.LST_POSTD_VER_IND = 'Y'
+        AND T3.UPI = T1.UPI
+        ORDER BY T1.BNFT_YR, T1.BNFT_MTH, T1.PRGM_CASE_TYPE
+      }      
+      into ICI, PRGM-CASE-TYPE, BNFT-YR, BNFT-MTH, UPI
+      for H2-3-EVM-EVR-PER ;
+  end
+  WS-S02-SQCOD = sysVar.sqlData.sqlcode;
+  AIF31-SQL-ERROR();
+end // end AIF31-SETINQ-S02
+
+
+Function AIF31-SQL-ERROR()
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIF31A";
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC >= 104)
+    if (VDBCOMMON.USQLNUM == 811)
+      ME-ERROR-MSG = "MULTIPLE SSN'S DETECTED FOR BILLING NUMBER";
+      AIF31-ADD-ERROR();
+    else
+  /* --------------------------------- NEW ERROR CAPTURE ROUTINE --*/
+      ME-ERROR-MSG-1-28 = "UNEXPECTED SQL ERROR: CASE= ";
+      move WS-ICI to ME-ERROR-MSG-32-40 withV60Compat;
+      ME-ERROR-MSG-42-43 = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+      ME-ERROR-MSG-45-53 = H2-3-EVM-EVR-PER.ICI;
+      AIF31-ADD-ERROR();
+  /* --------------------------------- NEW ERROR CAPTURE ROUTINE --*/
+      WCM00P2-TO-CEP01A();
+    end
+  end
+end // end AIF31-SQL-ERROR
+
+
+Function AIF31-VALIDATE()
+  /* ---- VALIDATE the MEDICAID number ----------------------------------*/
+  if (MR-MEDICAID-ID is numeric)
+    AIF31-NUMPASS();
+  else
+    AIF31-NUMFAIL();
+  end
+  if (NUMERIC-FLAG != "Y")
+    ME-ERROR-MSG = "MEDICAID NUMBER MUST BE 11 DIGITS LONG";
+    AIF31-ADD-ERROR();
+  else
+    move MR-MEDICAID-ID to WS-MEDICAID-ID withV60Compat;
+    move WS-MEDICAID-ID to WS-MEDICAID-ID-PK withV60Compat;
+    H2-PERSON.MEDIC-BLNG-SQ-NMB = WS-MEDICAID-ID;
+    /* ---- LOOK UP the MEDICAID NUMBER -----------------------------------*/
+    AIF31-SELECT-S01();
+    if (WS-S01-SQCOD == 100)
+      ME-ERROR-MSG = "MEDICAID NUMBER NOT FOUND ON FILE";
+      AIF31-ADD-ERROR();
+    end
+  end
+
+  /* ---- VALIDATE the FROM and TO date ---------------------------------*/
+  WS-MIN-YYYY = 9999;
+  WS-MAX-YYYY = 9999;
+  WS-MIN-MM = 99;
+  WS-MAX-MM = 99;
+
+  if (MR-MIN-YYYYMM == "    ")
+    move WS-CURRENT-YYYY to MR-MIN-YYYY withV60Compat;
+  end
+  if (MR-MIN-MM == "  ")
+    move WS-CURRENT-MM to MR-MIN-MM withV60Compat;
+  end
+  if (MR-MIN-YYYYMM is numeric)
+    AIF31-NUMPASS();
+  else
+    AIF31-NUMFAIL();
+  end
+  if (NUMERIC-FLAG != "Y")
+    ME-ERROR-MSG = "MINIMUM YEAR/MONTH MUST BE YYYYMM FORMAT";
+    AIF31-ADD-ERROR();
+  else
+    if (MR-MIN-YYYY > WS-CURRENT-YYYY-PLUS-1-YEAR
+     || MR-MIN-YYYY < WS-CURRENT-YYYY-LESS-20-YEARS)
+      move WS-CURRENT-YYYYMMDD to WS-MIN-YYYYMM withV60Compat;
+      move WS-CURRENT-YYYYMMDD to MR-MIN-YYYYMM withV60Compat;
+    else
+      move MR-MIN-YYYYMM to WS-MIN-YYYYMM withV60Compat;
+    end
+    if (WS-MIN-MM < 1 || WS-MIN-MM > 12)
+      ME-ERROR-MSG = "MONTHS OF MINIMUM-YYYYMM ARE INVALID";
+      AIF31-ADD-ERROR();
+    end
+  end
+
+  if (MR-MAX-YYYY == "    "
+   || MR-MAX-YYYY == "0000")
+    move MR-MIN-YYYY to MR-MAX-YYYY withV60Compat;
+  end
+  if (MR-MAX-MM == "  "
+   || MR-MAX-MM == "00")
+    move MR-MIN-MM to MR-MAX-MM withV60Compat;
+  end
+  if (MR-MAX-YYYYMM is numeric)
+    AIF31-NUMPASS();
+  else
+    AIF31-NUMFAIL();
+  end
+  if (NUMERIC-FLAG != "Y")
+    ME-ERROR-MSG = "MAXIMUM YEAR/MONTH MUST BE YYYYMM FORMAT";
+    AIF31-ADD-ERROR();
+  else
+  /* -- WI 1436 --------------------------------------------------------*/
+    if (MR-MAX-YYYY > WS-CURRENT-YYYY-PLUS-1-YEAR
+     || MR-MAX-YYYY < WS-CURRENT-YYYY-LESS-20-YEARS)
+      move WS-CUR-YYYYMM-PLUS-2-MONTHS to WS-MAX-YYYYMM withV60Compat;
+      move WS-CUR-YYYYMM-PLUS-2-MONTHS to MR-MAX-YYYYMM withV60Compat;
+    else
+      move MR-MAX-YYYYMM to WS-MAX-YYYYMM withV60Compat;
+    end
+  /* -- WI 1436 --------------------------------------------------------*/
+    if (WS-MAX-MM < 1 || WS-MAX-MM > 12)
+      ME-ERROR-MSG = "MONTHS OF MAXIMUM-YYYYMM ARE INVALID";
+      AIF31-ADD-ERROR();
+    end
+  end
+
+  if (WS-MAX-YYYY != 9999
+   && WS-MIN-YYYY != 9999)
+    if (WS-MAX-YYYY < WS-MIN-YYYY
+     || (WS-MAX-YYYY == WS-MIN-YYYY
+     && WS-MAX-MM < WS-MIN-MM))
+      ME-ERROR-MSG = "MAXIMUM-YYYYMM IS LESS THAN MINIMUM-YYYYMM";
+      AIF31-ADD-ERROR();
+    end
+  end
+
+  if (ME-ERROR-MSG != "OK")
+    return;
+  end
+
+  move MR-MIN-YYYY to WS-COMPARE-YYYY withV60Compat;
+  move MR-MIN-MM to WS-COMPARE-MM withV60Compat;
+  move WS-MAX-YYYY to WS-MAX-YYYY-BIN withV60Compat;
+  move WS-MAX-MM to WS-MAX-MM-BIN withV60Compat;
+  move WS-MIN-YYYY to WS-MIN-YYYY-BIN withV60Compat;
+  move WS-MIN-MM to WS-MIN-MM-BIN withV60Compat;
+
+  /* ---- LOOK UP the PLANS WITHIN the DATE RANGE -----------------------*/
+  AIF31-SETINQ-S02();
+  if (WS-S02-SQCOD == 0)
+    AIF31-SCAN-S02();
+  end
+  if (WS-S02-SQCOD != 0)
+    ME-ERROR-MSG = "NO ELIGIBLE MONTHS WITHIN DATE RANGE";
+    AIF31-ADD-ERROR();
+  end
+end // end AIF31-VALIDATE
+
+
+Record AIF31W type basicRecord
+  10 WS-S01-SQCOD smallint ; 
+  10 WS-S02-SQCOD smallint ; 
+  10 NUMERIC-FLAG char(1) ; 
+  10 WS-EZERT8-SPLIT char(8) ; 
+  10 WS-EZERT8-1-4 char(4) ; 
+  10 WS-EZERT8-5-8 char(4) ; 
+  10 WS-CURRENT-YYYYMMDD char(8) ; 
+    15 WS-CURRENT-YYYY num(4) ; 
+    15 WS-CURRENT-MM num(2) ; 
+    15 WS-CURRENT-DD num(2) ; 
+  10 WS-CURRENT-YYYY-PLUS-1-YEAR num(4) ; 
+  10 WS-CURRENT-YYYY-LESS-20-YEARS num(4) ; 
+  10 WS-CUR-YYYYMM-PLUS-2-MONTHS char(6) ; 
+    15 WS-CUR-YYYY-PLUS-2-MONTHS num(4) ; 
+    15 WS-CUR-MM-PLUS-2-MONTHS num(2) ; 
+  10 WS-COMPARE-YYYYMM char(6) ; 
+    15 WS-COMPARE-YYYY num(4) ; 
+    15 WS-COMPARE-MM num(2) ; 
+  10 WS-MIN-YYYYMM char(6) ; 
+    15 WS-MIN-YYYY num(4) ; 
+    15 WS-MIN-MM num(2) ; 
+  10 WS-MAX-YYYYMM char(6) ; 
+    15 WS-MAX-YYYY num(4) ; 
+    15 WS-MAX-MM num(2) ; 
+  10 WS-MIN-YYYY-BIN smallint ; 
+  10 WS-MIN-MM-BIN smallint ; 
+  10 WS-MAX-YYYY-BIN smallint ; 
+  10 WS-MAX-MM-BIN smallint ; 
+  10 WS-MEDICAID-ID num(11) ; 
+  10 WS-MEDICAID-ID-BIN bigint ; 
+  10 WS-MEDICAID-ID-PK decimal(11) ; 
+  10 WS-PRGM-CASE-TYPE char(2) ; 
+  10 WS-ICI num(9) ; 
+  10 WS-VAR01 smallint ; 
+  10 WS-VAR02 smallint ; 
+end // end AIF31W
+
+
