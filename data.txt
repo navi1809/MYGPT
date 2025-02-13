@@ -1,78 +1,168 @@
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-<%/******************************************************************************************
-Name: DcPageHeaderWithNoScript.jsp	Created By: Nidhi Gupta		Created on: 04/27/2003
-Purpose: Header about the case information
-Modification Logs: -
-Modified By 			Date				Reason & description
-********************************************************************************************/%>
+import org.apache.commons.io.FileUtils;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-<%@page import="gov.illinois.fw.management.referencetables.*" %>
-<jsp:useBean id="caseNumber" class="gov.illinois.ies.presentation.view.pageelements.CaseNumber" scope="application"/>
-<jsp:useBean id="iqCaseName" class="gov.illinois.ies.presentation.view.pageelements.IqCaseName" scope="application"/>
-<jsp:useBean id="dcMode" class="gov.illinois.ies.presentation.view.pageelements.DcMode" scope="application"/>
-<jsp:useBean id="dcAction" class="gov.illinois.ies.presentation.view.pageelements.DcAction" scope="application"/>
-<jsp:useBean id="caseStatus" class="gov.illinois.ies.presentation.view.pageelements.CaseStatus" scope="application"/>
-<jsp:useBean id="DCCHResults_item" class="gov.illinois.ies.business.entities.cases.VDcCaseIndividualsCargo" scope="request"/> 
-<%@page import="gov.illinois.ies.business.rules.dc.util.*"%>
-<%
-String dbCaseAction = (DCCHResults_item.getUserActionCd() == null)? "":ReferenceTableManager.getValueByColumn(true,"CASEACTION",DCCHResults_item.getUserActionCd(),"Description") ;
-StringBuffer midName = new StringBuffer();
-if(DCCHResults_item.getMidName() != null) {
-	if(DCCHResults_item.getMidName().length() > 1) {
-		midName.append(DCCHResults_item.getMidName().substring(0,1));
-	}else{
-		midName.append(DCCHResults_item.getMidName());
-	}
+public class JspParserEnhanced {
+
+	private static final Pattern FORM_FIELD_PATTERN = Pattern.compile("<(input|select|textarea).*?(name\\s*=\\s*[\"'](.*?)[\"']).*?(type\\s*=\\s*[\"'](.*?)[\"'])?.*?>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+	private static final Pattern MODEL_PATTERN = Pattern.compile("<%@\\s*page\\s+.*?import\\s*=\\s*[\"'](.*?)[\"'].*?%>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+	private static final Pattern DISPLAY_CONDITION_PATTERN = Pattern.compile("<c:if\\s+test\\s*=\\s*[\"'](.*?)[\"'].*?>(.*?)</c:if>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+
+
+    public static JspData parse(File jspFile) throws IOException {
+        String jspContent = FileUtils.readFileToString(jspFile, "UTF-8");
+        return parse(jspContent);
+    }
+
+    public static JspData parse(String jspContent) {
+        List<FormField> formFields = new ArrayList<>();
+        Matcher formFieldMatcher = FORM_FIELD_PATTERN.matcher(jspContent);
+
+        while (formFieldMatcher.find()) {
+            String name = formFieldMatcher.group(3);
+            String type = formFieldMatcher.group(5);
+            if (type == null) {
+                if (formFieldMatcher.group(1).equalsIgnoreCase("textarea")) {
+                    type = "textarea";
+                } else if (formFieldMatcher.group(1).equalsIgnoreCase("select")) {
+                    type = "select";
+                }
+            }
+
+            String displayCondition = extractDisplayCondition(jspContent, formFieldMatcher.start(), formFieldMatcher.end());
+            formFields.add(new FormField(type, name, displayCondition));
+        }
+
+        List<String> models = new ArrayList<>();
+        Matcher modelMatcher = MODEL_PATTERN.matcher(jspContent);
+        while (modelMatcher.find()) {
+            String[] imports = modelMatcher.group(1).split(",");
+            for (String importStr : imports) {
+                models.add(importStr.trim());
+            }
+        }
+
+        return new JspData(formFields, models);
+    }
+
+    private static String extractDisplayCondition(String jspContent, int start, int end) {
+        Matcher displayConditionMatcher = DISPLAY_CONDITION_PATTERN.matcher(jspContent);
+        while (displayConditionMatcher.find()) {
+            if (displayConditionMatcher.start() < end && displayConditionMatcher.end() > start) {
+                return displayConditionMatcher.group(1);
+            }
+        }
+        return null;
+    }
+
+
+    public static void processJspFiles(File sourceFolder, File outputFolder) throws IOException {
+        if (!sourceFolder.isDirectory()) {
+            throw new IllegalArgumentException("Source folder must be a directory.");
+        }
+        if (!outputFolder.exists()) {
+            outputFolder.mkdirs();
+        }
+
+        File[] jspFiles = sourceFolder.listFiles((dir, name) -> name.endsWith(".jsp"));
+        if (jspFiles == null) return;
+
+        for (File jspFile : jspFiles) {
+            JspData jspData = parse(jspFile);
+            writeDataToExcel(jspData, new File(outputFolder, jspFile.getName().replace(".jsp", ".xlsx")));
+        }
+    }
+
+
+    private static void writeDataToExcel(JspData jspData, File outputFile) throws IOException {
+        try (Workbook workbook = new XSSFWorkbook(); FileOutputStream outputStream = new FileOutputStream(outputFile)) {
+            Sheet formFieldsSheet = workbook.createSheet("Form Fields");
+            createHeaderRow(formFieldsSheet, new String[]{"Type", "Name", "Display Condition"});
+            int rowNum = 1;
+            for (FormField formField : jspData.getFormFields()) {
+                Row row = formFieldsSheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(formField.getType());
+                row.createCell(1).setCellValue(formField.getName());
+                row.createCell(2).setCellValue(formField.getDisplayCondition());
+            }
+
+            Sheet modelsSheet = workbook.createSheet("Models");
+            createHeaderRow(modelsSheet, new String[]{"Model"});
+            rowNum = 1;
+            for (String model : jspData.getModels()) {
+                Row row = modelsSheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(model);
+            }
+            workbook.write(outputStream);
+        }
+    }
+
+    private static void createHeaderRow(Sheet sheet, String[] headers) {
+        Row headerRow = sheet.createRow(0);
+        CellStyle style = sheet.getWorkbook().createCellStyle();
+        Font font = sheet.getWorkbook().createFont();
+        font.setBold(true);
+        style.setFont(font);
+
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(style);
+            sheet.autoSizeColumn(i);
+        }
+    }
+
+    public static class JspData {
+        private final List<FormField> formFields;
+        private final List<String> models;
+
+        public JspData(List<FormField> formFields, List<String> models) {
+            this.formFields = formFields;
+            this.models = models;
+        }
+
+        public List<FormField> getFormFields() { return formFields; }
+        public List<String> getModels() { return models; }
+    }
+
+    public static class FormField {
+        private final String type;
+        private final String name;
+        private final String displayCondition;
+
+        public FormField(String type, String name, String displayCondition) {
+            this.type = type;
+            this.name = name;
+            this.displayCondition = displayCondition;
+        }
+
+        public String getType() { return type; }
+        public String getName() { return name; }
+        public String getDisplayCondition() { return displayCondition; }
+    }
+
+
+
+
+    public static void main(String[] args) throws IOException {
+        File sourceFolder = new File("C:/Users/namaddireddy/workspace/AMPS-Modernization-latest/CaseTaskWeb/src/main/webapp/jsp/casetask/common"); // Replace with your source folder
+        File outputFolder = new File("C:/Users/namaddireddy/outputGen"); // Replace with your output folder
+
+        processJspFiles(sourceFolder, outputFolder);
+
+        System.out.println("JSP processing complete.  Excel files created in: " + outputFolder.getAbsolutePath());
+    }
 }
-%>
-<% String caseNumber12 = (DCCHResults_item.getT1CaseNum() == 0)? "":String.valueOf(DCCHResults_item.getT1CaseNum());%>
-
-<div class="bodytitleArea">	 
-		<table width="723" height = "31" border="0" cellspacing="0" cellpadding="0" class="pageHeaderTable">
-		  <tr class = "pageHeaderTableBody"> 			
-		    <td  width="300" style="VERTICAL-ALIGN: TOP;"> 
-		     <span class = "pageHeaderLabels" > <TL:FWLabelTag bean="<%=iqCaseName%>"/> </span> <br>
-		     <%= (DCCHResults_item.getLastName() == null)? "": DCCHResults_item.getLastName() + " "  %>
-			 <%=null!= DCCHResults_item.getSufxName() ? ReferenceTableManager.getValueByColumn(true,"NAMESUFFIX",DCCHResults_item.getSufxName(),"DESCRIPTION") + ",": "" %>  <br>
-		     <%= (DCCHResults_item.getFirstName() == null)? "": DCCHResults_item.getFirstName() + " " +  midName.toString() %>  
-		    </td>
-			 <td width="148" style="VERTICAL-ALIGN: TOP;"> <span class = "pageHeaderLabels"> <TL:FWLabelTag bean="<%=caseNumber%>"/> </span> <br>
-		      <%-- Added for ILIES-133963 starts --%>
-		      <%if(request.getAttribute("IQVCPreadonly") != null){ %>
-		      <%= request.getAttribute("CASE_NUMBER") %>
-		      <%} else if(caseNumber12 != ""){ %>
-		      <%-- Added for ILIES-133963 ends --%>
-		        	<TL:FWHyperLinkTag casenum="<%=caseNumber12 %>" linkAnchor="<%= caseNumber12 %>" popupWidth="800" popupHeight="600" linkspanText="Y" />
-		       			 <%} %> 
-		    </td>	
-	
- 
-
-		<%-- //Code commented  by KKC  in DEV4 w.r.t BRGUS00048736
-		<td width="243" > 
-      <span class = "pageHeaderLabels" > <TL:FWLabelTag bean="<%=dcMode%>"  /></span>
-	<%= (DCCHResults_item.getCaseModeCd() == null)? "":ReferenceTableManager.getValueByColumn(true,"CASEMODE",DCCHResults_item.getCaseModeCd(),"Description") %> 
-    </td>--%>
-
-	<td width="148" style="VERTICAL-ALIGN: TOP;">
-      <span class = "pageHeaderLabels" > <TL:FWLabelTag bean="<%=dcAction%>"/></span> <br>
-	<%= (DCCHResults_item.getUserActionCd() == null)? ReferenceTableManager.getValueByColumn(true,"CASEMODE",DCCHResults_item.getCaseModeCd(),"Description") : ReferenceTableManager.getValueByColumn(true,"CASEACTION",DCCHResults_item.getUserActionCd(),"Description") %> 
-    </td>
-    <td width="115" style="VERTICAL-ALIGN: TOP;"> 
-          <span class = "pageHeaderLabels" > <TL:FWLabelTag bean="<%=caseStatus%>"/></span> <br>
-    	<%= (DCCHResults_item.getCaseStatusCd() == null)? "":ReferenceTableManager.getValueByColumn(true,"DICASESTATUS",DCCHResults_item.getCaseStatusCd(),"Description") %> 
-    </td>
- </tr>
-</table>
-</div>
- 	
-<input type = "hidden" name= "dbCaseAction" id= "dbCaseAction" value='<%=dbCaseAction %>' />
-<input type = "hidden" name = "caseMode" id = "caseMode" value='<%=(request!=null)?(String)request.getAttribute(DcConstants.CASE_MODE):new String("")%>' />
-<input type = "hidden" name = "caseAction" id = "caseAction" value='<%=(request!=null)?(String)request.getAttribute("caseAction"):new String("")%>' />
-<input type = "hidden" name = "conversionMode" id = "conversionMode" value='<%=DcConstants.MODE_CONVERSION%>' />
-
-<%-- code added by KKC w.r.t BRGUS00063483--%>
-<INPUT type = "hidden" name = "cvMismatch" id = "cvMismatch" value ='<%=(request!=null)?(String)request.getAttribute(DcConstants.IS_CV_MISMATCH):new String("")%>' />
-
-
-<%@ include file="/includes/ArGenerateCorrespondence.jsp"%>  
