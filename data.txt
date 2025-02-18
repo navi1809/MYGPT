@@ -1,72 +1,86 @@
-function displayWaiversSearchResults() {
-	//debugger;
-	$('#waiversSearchResults').hide();
-	$('#statusUpdateSearchResults').hide();
-	$('#adsdStatusSubmitSucessMessages').empty();
-	var messageList = [];
-	var rangeTo = $('#waiverDateRangeTo').val();
-	var rangeFrom = $('#waiverDateRangeFrom').val();
-	if((rangeTo.length > 0 || rangeFrom.length > 0) && (rangeTo.length == 0 || rangeFrom.length == 0)){
-		messageList.push("BOTH THE FROM AND TO DATES MUST BE ENTERED FOR REFERRAL COMPLETED.")
-	}
-	if(checkAndShowCustomErrorMsg(messageList, "adsdStatusSubmitSucessMessages")) {
-	return true;
-	}
-	
-	showWait();
-	$.ajax({
-		type : "POST",
-		url : "searchAgencyWaivers",
-		data : $("#waiversForm").serializeArray(),
-		success : function(data, status, xhr) {
-			//debugger;
-			var ct = xhr.getResponseHeader("content-type") || "";
-			if (ct.indexOf('json') > -1) {
-			updateScreenForJSONResponse(data, status, xhr,
-					'adsdStatusSubmitSucessMessages', '', false);
-			}else{
-				if (data.length < 1000) {
-					var json = JSON.parse(data);
-					var messageList= json.response.messages;
-					if(messageList[0].includes('Your search criteria will return')){
-						showWaiverSimpleDialog(messageList[0],"searchAgencyWaivers",'waiversForm','waiversSearchResults');
-					}else{
-						displayResults(json, 'errormessages', '', false);
-					}
-					return;
-				}
-				else {
-					$('#waiversSearchResults').show();
-					$("#waiversSearchResults").html(data);
-				}
-				var waiversSearchTable = $("#waiversSearchResultsSummaryTable").DataTable();
-					if(! waiversSearchTable.data().any()){
-						$('#completedRefExportToExcelBtn').attr("disabled", true);
-					}else{
-						$('#completedRefExportToExcelBtn').attr("disabled", false);
-					}
-				}
-			$.unblockUI();
-		},
-		error : function(xhr, ajaxOptions, thrownError) {
-			var msg = [ "Technical Error : " + xhr.status + '-'
-					+ xhr.statusText ];
-			var errors = displayeMessage(msg, 'red');
-			$('#waiverSearchErrorMessages',
-					findContainerForm(currentElement)).html(errors);
-			$.unblockUI();
-		}
-	});
+import java.io.*;
+import java.util.*;
+import java.util.regex.*;
+import org.apache.commons.io.FileUtils;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+public class JspParserEnhanced {
+    // Patterns to extract form elements and labels
+    private static final Pattern ELEMENT_PATTERN = Pattern.compile(
+            "<(input|select|textarea|button|label|span|div).*?(name|id|for)?=\\\"(.*?)\\\".*?>",
+            Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+
+    public static void main(String[] args) throws IOException {
+        File sourceFolder = new File("/path/to/jsp/folder"); // Update with actual path
+        File outputFile = new File("/path/to/output/metadata.xlsx");
+        
+        List<JspData> jspDataList = new ArrayList<>();
+        processJspFiles(sourceFolder, jspDataList);
+        writeDataToExcel(jspDataList, outputFile);
+        
+        System.out.println("JSP metadata extraction complete. Output: " + outputFile.getAbsolutePath());
+    }
+
+    private static void processJspFiles(File folder, List<JspData> jspDataList) throws IOException {
+        for (File file : Objects.requireNonNull(folder.listFiles())) {
+            if (file.isDirectory()) {
+                processJspFiles(file, jspDataList); // Recursive call for subdirectories
+            } else if (file.getName().endsWith(".jsp")) {
+                jspDataList.add(parseJsp(file));
+            }
+        }
+    }
+
+    private static JspData parseJsp(File jspFile) throws IOException {
+        String content = FileUtils.readFileToString(jspFile, "UTF-8");
+        List<String> elements = new ArrayList<>();
+        Matcher matcher = ELEMENT_PATTERN.matcher(content);
+
+        while (matcher.find()) {
+            elements.add(matcher.group(1) + " - " + matcher.group(3)); // Element type & name/id
+        }
+        return new JspData(jspFile.getName(), jspFile.getAbsolutePath(), elements);
+    }
+
+    private static void writeDataToExcel(List<JspData> jspDataList, File outputFile) throws IOException {
+        try (Workbook workbook = new XSSFWorkbook(); FileOutputStream fos = new FileOutputStream(outputFile)) {
+            Sheet sheet = workbook.createSheet("JSP Metadata");
+            Row headerRow = sheet.createRow(0);
+            String[] headers = {"Filename", "Path", "Element Details"};
+            
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                CellStyle style = workbook.createCellStyle();
+                Font font = workbook.createFont();
+                font.setBold(true);
+                style.setFont(font);
+                cell.setCellStyle(style);
+                sheet.autoSizeColumn(i);
+            }
+            
+            int rowNum = 1;
+            for (JspData data : jspDataList) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(data.filename);
+                row.createCell(1).setCellValue(data.path);
+                row.createCell(2).setCellValue(String.join(", ", data.elements));
+            }
+            
+            workbook.write(fos);
+        }
+    }
+
+    static class JspData {
+        String filename;
+        String path;
+        List<String> elements;
+
+        JspData(String filename, String path, List<String> elements) {
+            this.filename = filename;
+            this.path = path;
+            this.elements = elements;
+        }
+    }
 }
-
-
-
-Uncaught SyntaxError: Unexpected token '<', ..."
- 
-<div id="w"... is not valid JSON
-    at JSON.parse (<anonymous>)
-    at Object.success (eval at <anonymous> (jquery-1.8.2.js:14:4943), <anonymous>:1:149561)
-    at c (jquery-1.8.2.js:14:7852)
-    at Object.fireWith [as resolveWith] (jquery-1.8.2.js:14:8631)
-    at C (jquery-1.8.2.js:21:41436)
-    at XMLHttpRequest.r (jquery-1.8.2.js:21:46465)
