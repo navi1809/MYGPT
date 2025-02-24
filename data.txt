@@ -2,47 +2,50 @@ package IVA_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=AIF38A ****
-// *
-// COMPONENT NAME: AIF38A
-// ===============
-// *
-// DESCRIPTION:
-// ============
-// THIS BATCH PROGRAM RECEIVES AN INTERFACE FILE FROM DHCFP WITH CLIENT BUY-IN DATA
-// THE RESPONSIBILITY FOR THE BUY-IN PROCESS IS BEING TRANSFERRED FROM DWSS TO DHCFP. 
-// AFTER THIS TRANSFER, DHCFP WILL SEND A FILE LISTING CLIENTS THAT HAVE RECEIVED MEDICARE AT SOME TIME.
-// THIS PROGRAM WILL PROCESS THAT FILE AND STORE THE DATA IN A DB TABLE FROM WHICH REPORTS CAN BE GENERATED.
-// SEE WORK ITEM 3547.
+//*** PROGRAM=AIF31A ****
+// This Application reads a flat input file AIF31A.INPUT
+// An AIF31A.INPUT row contains the following
+// Field Description     Size Type Location
+// MEDICAID BILLING NUMBER 11 Char 01-11
+// FROM YYYYMM             06 Char 12-17
+// TO YYYYMM               06 Char 18-23
+// CASE/DEMO FLAG          01 Char 24
+// EVM, EVR &PER are perused to determine validity of the MED#
+// and case eligibility between the FROM/TO dates (Inclusive)
+// When discrepancies are found, they are reported in flat
+// output file AIF31A.OUTPUT.  Valid MED# and dates are
+// put on the TWNMMIS.TRIGGER file for processing and passing
+// eligibility details to MMIS.  The CASE/DEMO details will be
+// generated as well if AIF31A.INPUT, pos 24 contains "Y".
+// /* == Change Log =========================================
+// /* -- WI 1436 ---------------------------------------------
+// /* 2011-08-01 - WI - 1436 K.Laine
+// /* Problem: When to year/month comes in as 9999-12, program
+// /*          reports every single month up to December 9999
+// /* Solution: Limit evaluation of elibility date range to
+// /*         not go beyond 1 year from the current year-month.
+// /* ========================================================
 // ***********************
-// 
-
-program AIF38A type BasicProgram //VAGen Info - main batch program
+Program AIF31A type basicProgram //VAGen Info - main batch program
   {
   includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
   throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
-  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes, 
-  inputRecord = VWORKSTOR
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
   }
-	
+
   // Data Declarations
-  AIF38W AIF38W; // record
-  AIF38W1 AIF38W1; // record
-  AIF38W2 AIF38W2; // record
-  AIF38W3 AIF38W3; // record
+  AIF31W AIF31W; // record
   BDATEREC BDATEREC; // record
   CEP01W CEP01W; // record
-  FORMATW FORMATW; // record
   GDW GDW; // record
-  GNOMADS GNOMADS; // record
-  SR-BUYIN-MDCR-EXT-IN SR-BUYIN-MDCR-EXT-IN; // record
-  SR-BUYIN-MDCR-EXT-OUT SR-BUYIN-MDCR-EXT-OUT; // record
-  H2-BUYIN-MDCR-EXT H2-BUYIN-MDCR-EXT; // record
-  H-TCDTS1 H-TCDTS1; //record
+  H2-3-EVM-EVR-PER H2-3-EVM-EVR-PER; // record
+  H2-MMIS-TRIGGER H2-MMIS-TRIGGER; // record
+  H2-PERSON H2-PERSON; // record
+  SR-AIF31-INREC SR-AIF31-INREC; // record
+  SR-AIF31-OUTREC SR-AIF31-OUTREC; // record
   VDBCOMMON VDBCOMMON; // record
   VDBCONTROL VDBCONTROL; // record
   VMESSAGE VMESSAGE; // record
-  VWORKSTOR VWORKSTOR ; // record
 
   // VAGen Info - items needed for migration
   VAGen_EZESYS char(8);
@@ -56,1191 +59,481 @@ program AIF38A type BasicProgram //VAGen Info - main batch program
   function main()
     // VAGen Info - initialization needed for migration
     VAGen_EZESYS = VGLib.getVAGSysType();
-    AIF38P1-MAIN-PROC: AIF38P1-MAIN-PROC();
+    AIF31-LOOP1-MAIN: AIF31-LOOP1-MAIN();
   end // end main
-end // end AIF38A
+end // end AIF31A
 
 
-// Main process for the appl
-Function AIF38P1-MAIN-PROC()
-  /* *******************************************************/
-  /* This process controls the flow of the application   **/
-  /* *******************************************************/
-  /*  */
-  AIF38Q9-GET-REGION();
-//  if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING AIF38P1-MAIN-PROC" );
-//  end	
-	// INITIALIZE VARIABLES
-  set AIF38W empty;
-  set AIF38W1 empty;
-  set AIF38W2 empty;
-  set AIF38W3 empty;
-  set H2-BUYIN-MDCR-EXT empty;
-  set SR-BUYIN-MDCR-EXT-IN empty;
-  set SR-BUYIN-MDCR-EXT-OUT empty;
-
-  AIF38W.LOW-DATE = "0001-01-01";
-  AIF38W.INPUT-HIGH-DATE = "22991231";
-  AIF38W.OUTPUT-HIGH-DATE = "9999-12-31";
-  
-  AIF38P4-GET-RCVD-DATE();
-
-  AIF38P9-READ-PROC();
-  
-end // end AIF38P1-MAIN-PROC
-
-
-Function AIF38P4-GET-RCVD-DATE()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING AIF38P4-GET-RCVD-DATE" );
-//  end	
-	
-  WCM00P3-FETCHBDTS();
-
-  SET WS-RCVD-DT EMPTY;
-
-  AIF38W.WS-RCVD-DT-CC = BDATEREC.BDATE-PROCESS-DATE-CC;
-  AIF38W.WS-RCVD-DT-YY = BDATEREC.BDATE-PROCESS-DATE-YY;
-  AIF38W.WS-RCVD-DT-MM = BDATEREC.BDATE-PROCESS-DATE-MM;
-  AIF38W.WS-RCVD-DT-DD = BDATEREC.BDATE-PROCESS-DATE-DD;
-  AIF38W.WS-RCVD-DT-HYPH1 = "-";
-  AIF38W.WS-RCVD-DT-HYPH2 = "-";
-
-end // end AIF38P4-GET-DATE
-
-function AIF38P9-READ-PROC()
-/*  */
-/* Perform the process to read the buy-in medicare extract interface file*/
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-READ-PROC");
-//        SysLib.writeStdout("READ FIRST FILE ");
-//    end
-    AIF38Q-RD-IN-FLE();
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("FIRST RECORD " + SR-BUYIN-MDCR-EXT-IN.REC-TYPE +
-//                        SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID);
-//    end
-    /* BATCH ERROR CHECKING - PASS 8 IF NO RECS*/
-    if(sysVar.errorCode != "00000000")
-        VMESSAGE.UMSGCODE-JCL-ERR = 8;
-        VDBCONTROL.UPROC-NM = "AIF38Q-RD-IN-FLE";
-        VDBCONTROL.UPROC-OBJ = "SR-BUYIN-MDCR-EXT-IN";
-        VDBCONTROL.UPROC-OPT = "SCAN";
-
-        AIF38W.WS-ERR-CD = sysVar.errorCode;
-        VMESSAGE.UMSGINS[1] = AIF38W.WS-ERR-LAST-FOUR;
-        VMESSAGE.UMSGINS[2] = "AIF38A";
-        WCM00P2-TO-CEP01A();
-    end
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING WHILE LOOP ");
-//    end
-	AIF38W.WS-PREV-MED-ID = "";
-    while(sysVar.errorCode == "00000000")
-//        if(AIF38W.WS-ENV != "NOMADS")
-//            SysLib.writeStdout("CURRENT REC TYPE " + SR-BUYIN-MDCR-EXT-IN.REC-TYPE);
-//            SysLib.writeStdout("CURRENT MED ID " + SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID);
-//        end
-        if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "B INFO" ||
-           SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "T INFO" ||
-           SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "HICN  " ||
-           SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART A" ||
-           SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART B" ||
-           SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART C" ||
-           SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART D" ||
-            SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PT PBP")
-
-//            if(AIF38W.WS-ENV != "NOMADS")
-//                SysLib.writeStdout("PREV-MED-ID = " + AIF38W.WS-PREV-MED-ID);
-//                SysLib.writeStdout("SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID = " + SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID);
-//            end
-            if(AIF38W.WS-PREV-MED-ID == "")
-                AIF38P9-NEW-MED-ID();
-            else
-                if(AIF38W.WS-PREV-MED-ID == SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID)
-                    AIF38P9-PROC-REC-TYPE();
-                else
-                    if(AIF38W.WS-SQL-OUTPUT-IND == "I")
-                        AIF38P9-INSERT-DATA();
-                    end
-                    if(AIF38W.WS-SQL-OUTPUT-IND == "U")
-                        AIF38P9-UPDATE-DATA();
-                    end
-                    set AIF38W1 empty;
-                    set AIF38W2 empty;
-                    set AIF38W3 empty;
-                    AIF38P9-NEW-MED-ID();
-                end
-            end
-        end
-        AIF38Q-RD-IN-FLE();
-    end // end While
-    
-    if(AIF38W.WS-SQL-OUTPUT-IND == "I")
-        AIF38P9-INSERT-DATA();
-    end
-    if(AIF38W.WS-SQL-OUTPUT-IND == "U")
-        AIF38P9-UPDATE-DATA();
-    end
-end // end AIF38P9-READ-PROC
-
-function AIF38P9-NEW-MED-ID()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING NEW-MED-ID()" );
-//	end	
-	// ERROR PROCESS
-	if(SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID == " ")
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "MED-ID";
-    	SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-PREV-MED-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "MED-ID IS BLANK - PREV-MED-ID      ";
-        AIF38P9-WRITE-DTL();
-	end
-	AIF38W.WS-PREV-MED-ID =	SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-	AIF38W.WS-KEY-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-	AIF38P9-GET-H2-REC();
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("VDBCONTROL.URC " + VDBCONTROL.URC);
-//  		SysLib.writeStdout("H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB " + H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB);
-//  		SysLib.writeStdout("H2-BUYIN-MDCR-EXT.RCVD-DT " + H2-BUYIN-MDCR-EXT.RCVD-DT);
-//	end	
-	IF (VDBCONTROL.URC == 0)
-		AIF38W.WS-SQL-OUTPUT-IND = "U";
-	else
-		AIF38P9-INIT-T-B-HICN();
-		AIF38W.WS-SQL-OUTPUT-IND = "I";
-	end
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("AIF38W.WS-SQL-OUTPUT-IND = " + AIF38W.WS-SQL-OUTPUT-IND);
-//	end	
-	AIF38P9-INIT-PARTS-DATA();
-
-	AIF38W.WS-HICN-ACT-IND = "";
-	AIF38W.WS-HICN-INACT-IND = "";
-	AIF38W.WS-ACTV-MEDCR-CLM-NUM = "";
-	AIF38W.WS-INACTV-MEDCR-CLM-NUM = "";
-	
-	AIF38P9-PROC-REC-TYPE();
-end // end	NEW-MED-ID()
-
-// Initialize the H2 record for the B Info, T Info and HICN data
-function AIF38P9-INIT-T-B-HICN()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING INIT-T-B-HICN()" );
-//	end	
-	set H2-BUYIN-MDCR-EXT empty;
-	AIF38W.WS-KEY-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-	H2-BUYIN-MDCR-EXT.RCVD-DT = AIF38W.WS-RCVD-DT;
-	H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB = AIF38W.WS-KEY-MEDIC-BLNG-SQ-NMB;
-	H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB = "";
-	H2-BUYIN-MDCR-EXT.OLD-MEDCR-CLM-NUM = "";
-    H2-BUYIN-MDCR-EXT.MDCR-ACTIVE = "";
-	H2-BUYIN-MDCR-EXT.B-SSN = "";
-    H2-BUYIN-MDCR-EXT.B-LST-NM = "";
-    H2-BUYIN-MDCR-EXT.B-FRST-NM = "";
-    H2-BUYIN-MDCR-EXT.B-MID-NM = "";
-    H2-BUYIN-MDCR-EXT.B-NAM-SUFFIX = "";
-    H2-BUYIN-MDCR-EXT.B-DOB = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.B-DEATH-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.B-SEX-CD = "";
-    H2-BUYIN-MDCR-EXT.T-SSN = "";
-    H2-BUYIN-MDCR-EXT.T-LST-NM = "";
-    H2-BUYIN-MDCR-EXT.T-FRST-NM = "";
-    H2-BUYIN-MDCR-EXT.T-MID-NM = "";
-    H2-BUYIN-MDCR-EXT.T-NAM-SUFFIX = "";
-    H2-BUYIN-MDCR-EXT.T-DOB = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.T-DEATH-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.T-SEX-CD = "";
-    H2-BUYIN-MDCR-EXT.RAILRD-RTRMT = "";
-	
-end // end INIT-T-B-HICN()
-
-function AIF38P9-INIT-PARTS-DATA()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING INIT-PARTS-DATA()" );
-//	end
-    H2-BUYIN-MDCR-EXT.PART-A-BEG-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PART-A-END-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.FREE-PART-A-IND = "";
-    H2-BUYIN-MDCR-EXT.PART-B-BEG-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PART-B-END-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PART-C-BEG-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PART-C-END-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PART-C-CNTRCT-NMB = "";
-    H2-BUYIN-MDCR-EXT.PART-D-BEG-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PART-D-END-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PT-PBP-BEG-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PT-PBP-END-DT = AIF38W.LOW-DATE;
-    H2-BUYIN-MDCR-EXT.PT-PBP-CNTRCT-NMB = "";
-    H2-BUYIN-MDCR-EXT.PT-PBP-PLAN-MNB = "";
-    H2-BUYIN-MDCR-EXT.PT-PBP-SPEC-NDS = "";
-end // end INIT-PARTS-DATA()
-
-
-
-function AIF38P9-PROC-REC-TYPE()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING PROC-REC-TYPE()" );
-//  	end	
-
-	H2-BUYIN-MDCR-EXT.RCVD-DT = AIF38W.WS-RCVD-DT;
-	
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "B INFO")
-        AIF38P9-SET-B-INFO();
-    end
-
-    // POPULATE T-INFO DEMO 
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "T INFO")
-        AIF38P9-SET-T-INFO();
-    end
-    
-    // set H2 record valuses for HICN
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "HICN  ")
-    	AIF38P9-SET-HICN();
-	end
-
-    // set H2 record valuses for PART-A
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART A")
-        AIF38P9-SET-PART-A();
-    end
-
-    // set H2 record values for PART-B
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART B")
-        AIF38P9-SET-PART-B();
-    end
-    
-    // set H2 record values for PART-C
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART C")
-        AIF38P9-SET-PART-C();
-    end
-
-    // set H2 record values for PART-D
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PART D")
-        AIF38P9-SET-PART-D();
-    end
-
-    // set H2 record values for PT-PBP
-    if(SR-BUYIN-MDCR-EXT-IN.REC-TYPE == "PT PBP")
-        AIF38P9-SET-PART-PBP();
-    end
-end // end AIF38P9-PROC-REC-TYPE())
-
-function AIF38P9-SET-B-INFO()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-SET-B-INFO");
-//    end
-
-    AIF38W1.WS-BT-INFO-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W1.WS-BT-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W1.WS-BT-INFO-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
-
-    H2-BUYIN-MDCR-EXT.B-SSN = AIF38W1.WS-BT-INFO-SSN;
-    H2-BUYIN-MDCR-EXT.B-LST-NM = AIF38W1.WS-BT-INFO-LST-NM;
-    H2-BUYIN-MDCR-EXT.B-FRST-NM = AIF38W1.WS-BT-INFO-FRST-NM;
-    H2-BUYIN-MDCR-EXT.B-MID-NM = AIF38W1.WS-BT-INFO-MID-INIT;
-    H2-BUYIN-MDCR-EXT.B-NAM-SUFFIX = AIF38W1.WS-BT-NM-SFFX;
-
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W1.WS-BT-INFO-DOB;
-    // ERROR PROCESS
-    if(AIF38W1.WS-BT-INFO-DOB == " ")
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "DATE  ";
-    	SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-KEY-MEDICAID-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "DATE IS BLANK - DOB                ";
-        AIF38P9-WRITE-DTL();
-	end
-    AIF38P9-TRANSFORM-DATES();
-
-    H2-BUYIN-MDCR-EXT.B-DOB = AIF38W.WS-DATE;
-
-    if(AIF38W1.WS-BT-INFO-DEATH-DT == "0       ")
-        AIF38W1.WS-BT-INFO-DEATH-DT = "00010101";
-    end
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W1.WS-BT-INFO-DEATH-DT;
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("AIF38W1.WS-BT-INFO-DEATH-DT " + AIF38W1.WS-BT-INFO-DEATH-DT);
-//        SysLib.writeStdout("AIF38W.WS-TEMP-DT " + AIF38W.WS-TEMP-DT);
-//    end
-    // ERROR PROCESS
-    if(AIF38W1.WS-BT-INFO-DEATH-DT == " ")
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "DATE  ";
-    	SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-KEY-MEDICAID-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "DATE IS BLANK - DOD                ";
-        AIF38P9-WRITE-DTL();
-	end
-    AIF38P9-TRANSFORM-DATES();
-
-    H2-BUYIN-MDCR-EXT.B-DEATH-DT = AIF38W.WS-DATE;
-   
-    H2-BUYIN-MDCR-EXT.B-SEX-CD = AIF38W1.WS-BT-INFO-SEX-CD;
-	set AIF38W1 empty;
-end // end AIF38P9-SET-B-INFO()
-
-function AIF38P9-SET-T-INFO()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-SET-T-INFO");
-//    end
-
-    AIF38W1.WS-BT-INFO-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W1.WS-BT-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W1.WS-BT-INFO-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
-
-    H2-BUYIN-MDCR-EXT.T-SSN = AIF38W1.WS-BT-INFO-SSN;
-    H2-BUYIN-MDCR-EXT.T-LST-NM = AIF38W1.WS-BT-INFO-LST-NM;
-    H2-BUYIN-MDCR-EXT.T-FRST-NM = AIF38W1.WS-BT-INFO-FRST-NM;
-    H2-BUYIN-MDCR-EXT.T-MID-NM = AIF38W1.WS-BT-INFO-MID-INIT;
-    H2-BUYIN-MDCR-EXT.T-NAM-SUFFIX = AIF38W1.WS-BT-NM-SFFX;
-
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W1.WS-BT-INFO-DOB;
-    // ERROR PROCESS
-    if(AIF38W1.WS-BT-INFO-DOB == " ")
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "DATE  ";
-    	SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-KEY-MEDICAID-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "DATE IS BLANK - DOB                ";
-        AIF38P9-WRITE-DTL();
-	end
-    AIF38P9-TRANSFORM-DATES();
-
-    H2-BUYIN-MDCR-EXT.T-DOB = AIF38W.WS-DATE;
-
-    if(AIF38W1.WS-BT-INFO-DEATH-DT == "0       ")
-        AIF38W1.WS-BT-INFO-DEATH-DT = "00010101";
-    end
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W1.WS-BT-INFO-DEATH-DT;
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("AIF38W1.WS-BT-INFO-DEATH-DT " + AIF38W1.WS-BT-INFO-DEATH-DT);
-//        SysLib.writeStdout("AIF38W.WS-TEMP-DT " + AIF38W.WS-TEMP-DT);
-//    end
-    // ERROR PROCESS
-    if(AIF38W1.WS-BT-INFO-DEATH-DT == " ")
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "DATE  ";
-    	SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-KEY-MEDICAID-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "DATE IS BLANK - DOD                ";
-        AIF38P9-WRITE-DTL();
-	end
-    AIF38P9-TRANSFORM-DATES();
-
-    H2-BUYIN-MDCR-EXT.T-DEATH-DT = AIF38W.WS-DATE;
-    H2-BUYIN-MDCR-EXT.T-SEX-CD = AIF38W1.WS-BT-INFO-SEX-CD;
-	set AIF38W1 empty;
-end // end AIF38P9-SET-T-INFO()	
-
-function AIF38P9-SET-HICN()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING SET-HICN()" );
-//	end
-
-    AIF38W2.WS-HICN-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W2.WS-HICN-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W2.WS-HICN-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
-	IF (AIF38W2.WS-HICN-MDCR-ACTIVE == "Y")
-        AIF38W.WS-HICN-ACT-IND = "Y";
-        AIF38W.WS-ACTV-MEDCR-CLM-NUM = AIF38W2.WS-HICN-MEDCR-CLM-NMB;
-    END    
-    IF (AIF38W2.WS-HICN-MDCR-ACTIVE == "N")
-        AIF38W.WS-HICN-INACT-IND = "Y";
-        AIF38W.WS-INACTV-MEDCR-CLM-NUM = AIF38W2.WS-HICN-MEDCR-CLM-NMB;
-    END
-    H2-BUYIN-MDCR-EXT.RAILRD-RTRMT = WS-HICN-RAILRD-RTRMT;    
-end
-
-function AIF38P9-SET-PART-A()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-SET-PART-DATA");
-//    end
-
-    AIF38W3.WS-PARTS-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W3.WS-PARTS-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W3.WS-PARTS-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
-
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-BEG-DT;
-    AIF38P9-TRANSFORM-DATES();
-
-    H2-BUYIN-MDCR-EXT.PART-A-BEG-DT = AIF38W.WS-DATE;
-    // if input high date is 22991231 -- this will transform high date to 9999-12-31
-    if(AIF38W3.WS-PARTS-END-DT == AIF38W.INPUT-HIGH-DATE)
-        H2-BUYIN-MDCR-EXT.PART-A-END-DT = AIF38W.OUTPUT-HIGH-DATE;
-    else
-        set AIF38W.WS-TEMP-DT EMPTY;
-        set AIF38W.WS-DATE EMPTY;
-        AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-END-DT;
-        AIF38P9-TRANSFORM-DATES();
-        H2-BUYIN-MDCR-EXT.PART-A-END-DT = AIF38W.WS-DATE;
-    end
-    H2-BUYIN-MDCR-EXT.FREE-PART-A-IND = AIF38W3.WS-FREE-PARTA-IND;
-    set AIF38W3 empty;
-end // end AIF38P9-SET-PART-A()
-
-function AIF38P9-SET-PART-B()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-SET-PART-B");
-//    end
-
-    AIF38W3.WS-PARTS-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W3.WS-PARTS-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W3.WS-PARTS-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
-
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-BEG-DT;
-    AIF38P9-TRANSFORM-DATES();
-
-    H2-BUYIN-MDCR-EXT.PART-B-BEG-DT = AIF38W.WS-DATE;
-    // if input high date is 22991231 -- this will transform high date to 9999-12-31
-    if(AIF38W3.WS-PARTS-END-DT == AIF38W.INPUT-HIGH-DATE)
-        H2-BUYIN-MDCR-EXT.PART-B-END-DT = AIF38W.OUTPUT-HIGH-DATE;
-    else
-        set AIF38W.WS-TEMP-DT EMPTY;
-        set AIF38W.WS-DATE EMPTY;
-        AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-END-DT;
-        AIF38P9-TRANSFORM-DATES();
-        H2-BUYIN-MDCR-EXT.PART-B-END-DT = AIF38W.WS-DATE;
-    end
-    set AIF38W3 empty;
-end	// end AIF38P9-SET-PART-B()
-
-function AIF38P9-SET-PART-C()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-SET-PART-C");
-//    end
-
-    AIF38W3.WS-PARTS-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W3.WS-PARTS-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W3.WS-PARTS-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
-	
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-BEG-DT;
-    AIF38P9-TRANSFORM-DATES();
-    H2-BUYIN-MDCR-EXT.PART-C-BEG-DT = AIF38W.WS-DATE;
-    // if input high date is 22991231 -- this will transform high date to 9999-12-31
-    if(AIF38W3.WS-PARTS-END-DT == AIF38W.INPUT-HIGH-DATE)
-        H2-BUYIN-MDCR-EXT.PART-C-END-DT = AIF38W.OUTPUT-HIGH-DATE;
-    else
-        set AIF38W.WS-TEMP-DT EMPTY;
-        set AIF38W.WS-DATE EMPTY;
-        AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-END-DT;
-        AIF38P9-TRANSFORM-DATES();
-        H2-BUYIN-MDCR-EXT.PART-C-END-DT = AIF38W.WS-DATE;
-    end
-    H2-BUYIN-MDCR-EXT.PART-C-CNTRCT-NMB = AIF38W3.WS-PART-CNTRCT;
-    set AIF38W3 empty;
-end	// end AIF38P9-SET-PART-C()
-
-function AIF38P9-SET-PART-D()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-SET-PART-D");
-//    end
-
-    AIF38W3.WS-PARTS-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W3.WS-PARTS-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W3.WS-PARTS-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
-
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-BEG-DT;
-    AIF38P9-TRANSFORM-DATES();
-    H2-BUYIN-MDCR-EXT.PART-D-BEG-DT = AIF38W.WS-DATE;
-    // if input high date is 22991231 -- this will transform high date to 9999-12-31
-    if(AIF38W3.WS-PARTS-END-DT == AIF38W.INPUT-HIGH-DATE)
-        H2-BUYIN-MDCR-EXT.PART-D-END-DT = AIF38W.OUTPUT-HIGH-DATE;
-    else
-        set AIF38W.WS-TEMP-DT EMPTY;
-        set AIF38W.WS-DATE EMPTY;
-        AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-END-DT;
-        AIF38P9-TRANSFORM-DATES();
-        H2-BUYIN-MDCR-EXT.PART-D-END-DT = AIF38W.WS-DATE;
-    end
-    set AIF38W3 empty;
-end	// end AIF38P9-SET-PART-D()
-
-function AIF38P9-SET-PART-PBP()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING AIF38P9-SET-PART-PBP" );
-//  	end	
-
-    AIF38W3.WS-PARTS-REC-TYPE = SR-BUYIN-MDCR-EXT-IN.REC-TYPE;
-    AIF38W3.WS-PARTS-MEDICAID-ID = SR-BUYIN-MDCR-EXT-IN.MEDICAID-ID;
-    AIF38W3.WS-PARTS-REC-DTL = SR-BUYIN-MDCR-EXT-IN.BUYIN-MDCR-EXT-DTL;
- 
-    set AIF38W.WS-TEMP-DT EMPTY;
-    set AIF38W.WS-DATE EMPTY;
-    AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-BEG-DT;
-    AIF38P9-TRANSFORM-DATES();
-    H2-BUYIN-MDCR-EXT.PT-PBP-BEG-DT = AIF38W.WS-DATE;
-    // if input high date is 22991231 -- this will transform high date to 9999-12-31
-    if(AIF38W3.WS-PARTS-END-DT == AIF38W.INPUT-HIGH-DATE)
-        H2-BUYIN-MDCR-EXT.PT-PBP-END-DT = AIF38W.OUTPUT-HIGH-DATE;
-    else
-        set AIF38W.WS-TEMP-DT EMPTY;
-        set AIF38W.WS-DATE EMPTY;
-        AIF38W.WS-TEMP-DT = AIF38W3.WS-PARTS-END-DT;
-        AIF38P9-TRANSFORM-DATES();
-        H2-BUYIN-MDCR-EXT.PT-PBP-END-DT = AIF38W.WS-DATE;
-    end
-
-    H2-BUYIN-MDCR-EXT.PT-PBP-CNTRCT-NMB = AIF38W3.WS-PART-CNTRCT;
-    H2-BUYIN-MDCR-EXT.PT-PBP-PLAN-MNB = AIF38W3.WS-PARTPBP-PLAN-NMB ;
-    H2-BUYIN-MDCR-EXT.PT-PBP-SPEC-NDS = AIF38W3.WS-PARTPBP-SPEC-NDS;
-    set AIF38W3 empty;
-end	// end AIF38P9-SET-PART-PBP()	
-
-function AIF38P9-TRANSFORM-DATES()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING AIF38P9-TRANSFORM-DATES");
-//        SysLib.writeStdout("AIF38W.WS-TEMP-DT-CCYY " + AIF38W.WS-TEMP-DT-CCYY);
-//        SysLib.writeStdout("AIF38W.WS-TEMP-DT-CC " + AIF38W.WS-TEMP-DT-CC);
-//        SysLib.writeStdout("AIF38W.WS-TEMP-DT-YY " + AIF38W.WS-TEMP-DT-YY);
-//        SysLib.writeStdout("AIF38W.WS-TEMP-DT-MM " + AIF38W.WS-TEMP-DT-MM);
-//        SysLib.writeStdout("AIF38W.WS-TEMP-DT-DD " + AIF38W.WS-TEMP-DT-DD);
-//    end
-    AIF38W.WS-VALID-DT-IND = "N";
-    if(AIF38W.WS-TEMP-DT is numeric)
-        if(AIF38W.WS-TEMP-DT-CCYY > 0 && AIF38W.WS-TEMP-DT-CCYY < 3000)
-            if(AIF38W.WS-TEMP-DT-MM > 0 && AIF38W.WS-TEMP-DT-MM < 13)
-                if(AIF38W.WS-TEMP-DT-DD > 0 && AIF38W.WS-TEMP-DT-DD < 32)
-                    // transform 8 char date format to 10 char date format	
-                    AIF38W.WS-DATE-CCYY = AIF38W.WS-TEMP-DT-CCYY;
-                    AIF38W.WS-DATE-MM = AIF38W.WS-TEMP-DT-MM;
-                    AIF38W.WS-DATE-DD = AIF38W.WS-TEMP-DT-DD;
-                    AIF38W.WS-DATE-HYPH1 = "-";
-                    AIF38W.WS-DATE-HYPH2 = "-";
-                    AIF38W.WS-VALID-DT-IND = "Y";
-                end
-            end
-        end
-    end
-    if(AIF38W.WS-VALID-DT-IND == "N")
-        // ERROR PROCESS
-        SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "DATE  ";
-        SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-KEY-MEDICAID-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "PROBLEM WITH DATE                  ";
-        AIF38P9-WRITE-DTL();
-
-        AIF38W.WS-DATE = AIF38W.LOW-DATE;
-    end
-
-end
-
-function AIF38P9-INSERT-DATA()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING INSERT-DATA" );
-//  		SysLib.writeStdout("MEDICAID-ID" + H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB);
-//  		SysLib.writeStdout("MEDICARE-ID" + H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB);
-//  		SysLib.writeStdout("MEDCR-ACTV-IND " + AIF38W2.WS-HICN-MDCR-ACTIVE);
-//	end	
-    if(AIF38W.WS-HICN-ACT-IND == "Y")
-        H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB = AIF38W.WS-ACTV-MEDCR-CLM-NUM;
-        H2-BUYIN-MDCR-EXT.MDCR-ACTIVE = "Y";
-        H2-BUYIN-MDCR-EXT.OLD-MEDCR-CLM-NUM = " ";
-    end
-    if(AIF38W.WS-HICN-INACT-IND == "Y")
-        if(AIF38W.WS-HICN-ACT-IND == " ")
-            H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB = AIF38W.WS-INACTV-MEDCR-CLM-NUM;
-            H2-BUYIN-MDCR-EXT.MDCR-ACTIVE = "N";
-        else
-        	H2-BUYIN-MDCR-EXT.OLD-MEDCR-CLM-NUM = AIF38W.WS-INACTV-MEDCR-CLM-NUM;
-        end
-            
-    end
-    // ERROR PROCESS
-    if(H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB == " ")
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "MDCRNM";
-    	SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-KEY-MEDICAID-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "MEDCR-CLM-NMB IS BLANK - INSERT    ";
-        AIF38P9-WRITE-DTL();
-//        if (AIF38W.WS-ENV != "NOMADS")
-//  			SysLib.writeStdout("SR-BUYIN-MDCR-EXT-OUT.REC-TYPE " + SR-BUYIN-MDCR-EXT-OUT.REC-TYPE);
-//  			SysLib.writeStdout("SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID " + AIF38W.WS-KEY-MEDIC-BLNG-SQ-NMB);
-//  			SysLib.writeStdout("SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL " 
-//  				+ SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL);
-//		end	
-    end
-    
-    
-    if(AIF38W.WS-HICN-ACT-IND == "Y" || AIF38W.WS-HICN-INACT-IND == "Y")
-        if(H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB != " ")
-            if(H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB > 0)
-                AIF38P9-INSERT-H2-BUYIN-MDCR-EXT();
-            end    
-        end
-    end
-end
-
-function AIF38P9-UPDATE-DATA()
-//    if(AIF38W.WS-ENV != "NOMADS")
-//        SysLib.writeStdout("ENTERING UPDATE-DATA");
-//        SysLib.writeStdout("MEDICAID-ID" + H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB);
-//        SysLib.writeStdout("MEDICARE-ID" + H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB);
-//        SysLib.writeStdout("MEDCR-ACTV-IND" + AIF38W2.WS-HICN-MDCR-ACTIVE);
-//    end
-    if(AIF38W.WS-HICN-ACT-IND == "Y")
-        H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB = AIF38W.WS-ACTV-MEDCR-CLM-NUM;
-        H2-BUYIN-MDCR-EXT.MDCR-ACTIVE = "Y";
-    end
-    if(AIF38W.WS-HICN-INACT-IND == "Y")
-        if(AIF38W.WS-HICN-ACT-IND == "")
-            H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB = AIF38W.WS-INACTV-MEDCR-CLM-NUM;
-            H2-BUYIN-MDCR-EXT.MDCR-ACTIVE = "N";
-        else
-            H2-BUYIN-MDCR-EXT.OLD-MEDCR-CLM-NUM = AIF38W.WS-INACTV-MEDCR-CLM-NUM;
-        end
-    end
-    // ERROR PROCESS
-    if(H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB == " ")
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "MDCRNM";
-        SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = AIF38W.WS-KEY-MEDICAID-ID;
-        SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "MEDCR-CLM-NMB IS BLANK - UPDATE    ";
-        AIF38P9-WRITE-DTL();
-    end
-    if(H2-BUYIN-MDCR-EXT.MEDCR-CLM-NMB != " ")
-        AIF38P9-UPDATE-H2-BUYIN-MDCR-EXT();
-    end
-end
-
-function AIF38P9-GET-H2-REC()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING AIF38P9-GET-H2-REC" );
-//  	end	
-  VDBCOMMON.USQLREC = "H2-BUYIN-MDCR-EXT";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-NM = "AIF38P9-GET-H2-REC";
-  VDBCONTROL.UPROC-OBJ = "H2-BUYIN-MDCR-EXT";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    get H2-BUYIN-MDCR-EXT
-      with #sql{
-        select 	MEDIC_BLNG_SQ_NMB
-        	,MEDCR_CLM_NMB
-        	,OLD_MEDCR_CLM_NUM
-        	,RCVD_DT
-        	,MDCR_ACTIVE
-        	,B_SSN
-        	,B_LST_NM
-        	,B_FRST_NM
-        	,B_MID_NM
-        	,B_NAM_SUFFIX
-        	,B_DOB
-        	,B_DEATH_DT
-        	,B_SEX_CD
-        	,T_SSN
-        	,T_LST_NM
-        	,T_FRST_NM
-        	,T_MID_NM
-        	,T_NAM_SUFFIX
-        	,T_DOB  
-        	,T_DEATH_DT
-        	,T_SEX_CD
-        	,RAILRD_RTRMT
-        	,PART_A_BEG_DT
-        	,PART_A_END_DT
-        	,FREE_PART_A_IND
-        	,PART_B_BEG_DT
-        	,PART_B_END_DT
-        	,PART_C_BEG_DT
-        	,PART_C_END_DT
-        	,PART_C_CNTRCT_NMB
-        	,PART_D_BEG_DT
-        	,PART_D_END_DT 
-        	,PT_PBP_BEG_DT 
-        	,PT_PBP_END_DT
-        	,PT_PBP_CNTRCT_NMB
-        	,PT_PBP_PLAN_MNB
-        	,PT_PBP_SPEC_NDS
-        from TWNBUYIN_MDCR_EXT T1
-        where
-        MEDIC_BLNG_SQ_NMB = :WS-KEY-MEDIC-BLNG-SQ-NMB
-      }
-      into MEDIC-BLNG-SQ-NMB 
-   		,MEDCR-CLM-NMB
-       	,OLD-MEDCR-CLM-NUM
-       	,RCVD-DT
-       	,MDCR-ACTIVE
-       	,B-SSN
-       	,B-LST-NM
-       	,B-FRST-NM
-       	,B-MID-NM
-       	,B-NAM-SUFFIX
- 		,B-DOB
-     	,B-DEATH-DT
-        ,B-SEX-CD
-        ,T-SSN
-        ,T-LST-NM
-        ,T-FRST-NM
-        ,T-MID-NM
-        ,T-NAM-SUFFIX
-        ,T-DOB
-        ,T-DEATH-DT
-        ,T-SEX-CD
-        ,RAILRD-RTRMT
-        ,PART-A-BEG-DT
-        ,PART-A-END-DT
-        ,FREE-PART-A-IND
-        ,PART-B-BEG-DT
-        ,PART-B-END-DT
-        ,PART-C-BEG-DT
-        ,PART-C-END-DT
-        ,PART-C-CNTRCT-NMB
-        ,PART-D-BEG-DT
-        ,PART-D-END-DT
-        ,PT-PBP-BEG-DT
-        ,PT-PBP-END-DT
-        ,PT-PBP-CNTRCT-NMB
-        ,PT-PBP-PLAN-MNB
-        ,PT-PBP-SPEC-NDS; 
-  end
-  AIF38P9-SQLCD();
- 
-end // end AIF38P9-GET-H2-REC()
-
-FUNCTION AIF38P9-INSERT-H2-BUYIN-MDCR-EXT()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING AIF38P9-INSERT-H2-BUYIN-MDCR-EXT" );
-//  	end	
-  /* Perform standard database application initialization*/
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIF38A";
-  VDBCOMMON.USQLREC = "H2-BUYIN-MDCR-EXT";
-  VDBCONTROL.UPROC-OBJ = "H2-BUYIN-MDCR-EXT";
-  VDBCONTROL.UPROC-NM = "AIF38P9-INSERT-H2-BUYIN-MDCR-EXT";
-  VDBCONTROL.UPROC-OPT = "ADD";
-  try
-    add H2-BUYIN-MDCR-EXT
-      with #sql{
-        insert into TWNBUYIN_MDCR_EXT
-        (MEDIC_BLNG_SQ_NMB 
-        ,MEDCR_CLM_NMB 
-        ,OLD_MEDCR_CLM_NUM
-        ,RCVD_DT
-        ,MDCR_ACTIVE 
-        ,B_SSN
-        ,B_LST_NM
-        ,B_FRST_NM
-        ,B_MID_NM
-        ,B_NAM_SUFFIX
-        ,B_DOB
-        ,B_DEATH_DT
-        ,B_SEX_CD
-        ,T_SSN
-        ,T_LST_NM
-        ,T_FRST_NM
-        ,T_MID_NM
-        ,T_NAM_SUFFIX
-        ,T_DOB
-        ,T_DEATH_DT
-        ,T_SEX_CD
-        ,RAILRD_RTRMT
-        ,PART_A_BEG_DT
-        ,PART_A_END_DT
-        ,FREE_PART_A_IND
-        ,PART_B_BEG_DT
-        ,PART_B_END_DT
-        ,PART_C_BEG_DT
-        ,PART_C_END_DT
-        ,PART_C_CNTRCT_NMB
-        ,PART_D_BEG_DT
-        ,PART_D_END_DT 
-        ,PT_PBP_BEG_DT 
-        ,PT_PBP_END_DT
-        ,PT_PBP_CNTRCT_NMB
-        ,PT_PBP_PLAN_MNB
-        ,PT_PBP_SPEC_NDS
-        )
-        values 
-        (:MEDIC-BLNG-SQ-NMB
-        ,:MEDCR-CLM-NMB
-        ,:OLD-MEDCR-CLM-NUM
-        ,:RCVD-DT
-        ,:MDCR-ACTIVE
-        ,:B-SSN
-        ,:B-LST-NM
-        ,:B-FRST-NM
-        ,:B-MID-NM
-        ,:B-NAM-SUFFIX
-        ,:B-DOB
-        ,:B-DEATH-DT
-        ,:B-SEX-CD
-        ,:T-SSN
-        ,:T-LST-NM
-        ,:T-FRST-NM
-        ,:T-MID-NM
-        ,:T-NAM-SUFFIX
-        ,:T-DOB
-        ,:T-DEATH-DT
-        ,:T-SEX-CD
-        ,:RAILRD-RTRMT
-        ,:PART-A-BEG-DT
-        ,:PART-A-END-DT
-        ,:FREE-PART-A-IND
-        ,:PART-B-BEG-DT
-        ,:PART-B-END-DT
-        ,:PART-C-BEG-DT
-        ,:PART-C-END-DT
-        ,:PART-C-CNTRCT-NMB
-        ,:PART-D-BEG-DT
-        ,:PART-D-END-DT
-        ,:PT-PBP-BEG-DT
-        ,:PT-PBP-END-DT
-        ,:PT-PBP-CNTRCT-NMB
-        ,:PT-PBP-PLAN-MNB
-        ,:PT-PBP-SPEC-NDS
-		)
-      } ;
-  end
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    	SysLib.writeStdout("sysVar.sqlData.sqlcode " + sysVar.sqlData.sqlcode);
-//	end
-  // ERROR PROCESS
-  if (sysVar.sqlData.sqlcode != 0)
-  	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "INSERT";
-  	SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB;
-  	SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "ERROR ON TWNBUYIN_MDCR_EXT INSERT  ";
-		AIF38P9-WRITE-DTL();
-  end
-  AIF38Q9-SQLERR-WR();
-END
-
-FUNCTION AIF38P9-UPDATE-H2-BUYIN-MDCR-EXT()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING AIF38P9-UPDATE-H2-BUYIN-MDCR-EXT" );
-//  	end	
-  WDB00PI();
-  VDBCONTROL.UPROC-NM = "AIF38P9-UPDATE-H2-BUYIN-MDCR-EXT";
-  VDBCOMMON.USQLREC = "H2-BUYIN-MDCR-EXT";
-  VDBCONTROL.UPROC-OBJ = "H2-BUYIN-MDCR-EXT";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-   
-  try
-    execute 
-      #sql{
-        UPDATE TWNBUYIN_MDCR_EXT 
-        SET  MEDIC_BLNG_SQ_NMB = :MEDIC-BLNG-SQ-NMB
-        	,MEDCR_CLM_NMB = :MEDCR-CLM-NMB
-        	,OLD_MEDCR_CLM_NUM = :OLD-MEDCR-CLM-NUM
-	        ,RCVD_DT = :RCVD-DT
-	        ,MDCR_ACTIVE = :MDCR-ACTIVE	        
-	        ,B_SSN = :B-SSN
-	        ,B_LST_NM = :B-LST-NM
-    	    ,B_FRST_NM = :B-FRST-NM
-	        ,B_MID_NM = :B-MID-NM
-	        ,B_NAM_SUFFIX = :B-NAM-SUFFIX
-	        ,B_DOB = :B-DOB
-	        ,B_DEATH_DT = :B-DEATH-DT
-	        ,B_SEX_CD = :B-SEX-CD
-	        ,T_SSN = :T-SSN
-	        ,T_LST_NM = :T-LST-NM
-    	    ,T_FRST_NM = :T-FRST-NM
-	        ,T_MID_NM = :T-MID-NM
-	        ,T_NAM_SUFFIX = :T-NAM-SUFFIX
-	        ,T_DOB = :T-DOB
-	        ,T_DEATH_DT = :T-DEATH-DT
-	        ,T_SEX_CD = :T-SEX-CD
-	        ,RAILRD_RTRMT = :RAILRD-RTRMT
-	        ,PART_A_BEG_DT = :PART-A-BEG-DT
-	        ,PART_A_END_DT = :PART-A-END-DT
-	        ,FREE_PART_A_IND = :FREE-PART-A-IND
-	        ,PART_B_BEG_DT = :PART-B-BEG-DT
-	        ,PART_B_END_DT = :PART-B-END-DT
-	        ,PART_C_BEG_DT = :PART-C-BEG-DT
-	        ,PART_C_END_DT = :PART-C-END-DT
-	        ,PART_C_CNTRCT_NMB = :PART-C-CNTRCT-NMB
-	        ,PART_D_BEG_DT = :PART-D-BEG-DT
-	        ,PART_D_END_DT = :PART-D-END-DT 
-	        ,PT_PBP_BEG_DT = :PT-PBP-BEG-DT
-	        ,PT_PBP_END_DT = :PT-PBP-END-DT
-	        ,PT_PBP_CNTRCT_NMB = :PT-PBP-CNTRCT-NMB
-	        ,PT_PBP_PLAN_MNB = :PT-PBP-PLAN-MNB
- 	        ,PT_PBP_SPEC_NDS = :PT-PBP-SPEC-NDS
-        WHERE MEDIC_BLNG_SQ_NMB = :MEDIC-BLNG-SQ-NMB
-      }
-      for H2-BUYIN-MDCR-EXT ;  
-  end
-    // ERROR PROCESS 
-// 	if (AIF38W.WS-ENV != "NOMADS")
-//    	SysLib.writeStdout("sysVar.sqlData.sqlcode " + sysVar.sqlData.sqlcode);
-//	end
-    if (sysVar.sqlData.sqlcode != 0)
-    	SR-BUYIN-MDCR-EXT-OUT.REC-TYPE = "UPDATE";
-  		SR-BUYIN-MDCR-EXT-OUT.MEDICAID-ID = H2-BUYIN-MDCR-EXT.MEDIC-BLNG-SQ-NMB;
-  	 	SR-BUYIN-MDCR-EXT-OUT.BUYIN-MDCR-EXT-DTL = "ERROR ON TWNBUYIN_MDCR_EXT UPDATE  ";
-		AIF38P9-WRITE-DTL();
-  	end
-    AIF38Q9-SQLERR-WR();
-END
-
-// Read the Input file from buyin medicare extract from DHCFP
-Function AIF38Q-RD-IN-FLE()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//    SysLib.writeStdout("ENTERING AIF38Q-RD-IN-FLE" );
-//  	end	
+// WRITE OUTPUT FILE
+Function AIF31-ADD-ERROR()
+  move MR-MEDICAID-ID to ME-MEDICAID-ID withV60Compat;
+  move MR-MIN-YYYYMM to ME-MIN-YYYYMM withV60Compat;
+  move MR-MAX-YYYYMM to ME-MAX-YYYYMM withV60Compat;
   VGVar.handleHardIOErrors = 1;
-  /* *******************************************************/
-  /* This process is to read the file from buyin medicare extract         **/
-  /* *******************************************************/
-  /*  */
   try
-    get next SR-BUYIN-MDCR-EXT-IN ;
+    add SR-AIF31-OUTREC ;
   end
-  /*  */
-  /* If error occured on reading the file*/
-  /*  */
-  if (SR-BUYIN-MDCR-EXT-IN is ioError && SR-BUYIN-MDCR-EXT-IN not endOfFile)
-    VDBCONTROL.UPROC-NM = "AIF38P9-RD-IN-FLE";
-    VDBCONTROL.UPROC-OBJ = "SR-BUYIN-MDCR-EXT-IN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    AIF38W.WS-ERR-CD = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = AIF38W.WS-ERR-LAST-FOUR;
-    VMESSAGE.UMSGINS[2] = "AIF38A";
-       /* the following conditions are added to move the corresponding*/
-       /* error message*/
-       /*  */
-    if (SR-BUYIN-MDCR-EXT-IN is fileNotAvailable)
+  if (SR-AIF31-OUTREC is ioError)
+    VDBCONTROL.UPROC-NM = "AIF31-ADD-ERROR";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF31-OUTREC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    WS-EZERT8-SPLIT = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = WS-EZERT8-5-8;
+    VMESSAGE.UMSGINS[2] = "AIF31A";
+    if (SR-AIF31-OUTREC is fileNotAvailable)
       VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
     else
-      if (SR-BUYIN-MDCR-EXT-IN is fileNotFound)
-        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND" ;
+      if (SR-AIF31-OUTREC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
       else
-        if (SR-BUYIN-MDCR-EXT-IN is invalidFormat)
+        if (SR-AIF31-OUTREC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+  ME-ERROR-MSG = " ";
+end // end AIF31-ADD-ERROR
+
+
+Function AIF31-ADD-TRGR()
+  H2-MMIS-TRIGGER.ICI = H2-3-EVM-EVR-PER.ICI;
+  WS-ICI = H2-3-EVM-EVR-PER.ICI;
+  H2-MMIS-TRIGGER.UPI = H2-3-EVM-EVR-PER.UPI;
+  H2-MMIS-TRIGGER.PRGM-CASE-TYPE = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+  WS-PRGM-CASE-TYPE = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+  H2-MMIS-TRIGGER.BNFT-MTH = H2-3-EVM-EVR-PER.BNFT-MTH;
+  H2-MMIS-TRIGGER.BNFT-YR = H2-3-EVM-EVR-PER.BNFT-YR;
+  if (SR-AIF31-INREC.MR-CASE-DEMO-FLAG == "Y")
+    H2-MMIS-TRIGGER.CASE-FLAG = "Y";
+    H2-MMIS-TRIGGER.DEMO-FLAG = "Y";
+  else
+    H2-MMIS-TRIGGER.CASE-FLAG = "N";
+    H2-MMIS-TRIGGER.DEMO-FLAG = "N";
+  end
+  H2-MMIS-TRIGGER.STATUS-FLAG = "Y";
+  VDBCONTROL.UPROC-NM = "AIF31-ADD-TRGR";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  VDBCONTROL.UPROC-OBJ = "H2-MMIS-TRIGGER";
+  VDBCOMMON.USQLREC = "H2-MMIS-TRIGGER";
+  try
+    add H2-MMIS-TRIGGER
+      with #sql{
+        insert into TWNMMIS_TRIGGER
+        (ACTN_TS, ICI, UPI, INSU_PLICY_NMB,
+          PRGM_CASE_TYPE, BNFT_MTH, BNFT_YR, DEMO_FLAG,
+          PENDING_FLAG, CASE_FLAG)
+        values (CURRENT TIMESTAMP, :ICI, :UPI, :INSU-PLICY-NMB,
+          :PRGM-CASE-TYPE, :BNFT-MTH, :BNFT-YR, :DEMO-FLAG,
+          :PENDING-FLAG, :CASE-FLAG)
+      } ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIF31A";
+end // end AIF31-ADD-TRGR
+
+
+Function AIF31-LOOP1-MAIN()
+  /* -- WI 1436 --------------------------------------------------------*/
+  /* 2011-08-01 - WI - 1436 K.Laine*/
+  /* Problem: When to year/month comes in as 9999-12, program*/
+  /* reports every single month up to December 9999 !*/
+  /* Solution: Limit evaluation of elibility date range to not go*/
+  /* beyond 1 year from the current year-month.*/
+  /* -- WI 1436 --------------------------------------------------------*/
+  /* ---- INITIALIZATION ------------------------------------------------*/
+  set AIF31W empty;
+  set SR-AIF31-INREC empty;
+  set H2-MMIS-TRIGGER empty;
+  set SR-AIF31-OUTREC empty;
+  set H2-PERSON empty;
+  set H2-3-EVM-EVR-PER empty;
+
+  /* ---- Format Current Date -------------------------------------------*/
+  WCM00P3-FETCHBDTS();
+  AIF31W.WS-CURRENT-YYYYMMDD = BDATEREC.BDATE-PROCESS-DATE;
+  /* -- WI 1436 --------------------------------------------------------*/
+  AIF31W.WS-CURRENT-YYYY-PLUS-1-YEAR = WS-CURRENT-YYYY + 1;
+  AIF31W.WS-CURRENT-YYYY-LESS-20-YEARS = WS-CURRENT-YYYY - 20;
+  AIF31W.WS-CUR-YYYY-PLUS-2-MONTHS = WS-CURRENT-YYYY;
+  WS-CUR-MM-PLUS-2-MONTHS = AIF31W.WS-CURRENT-MM + 2;
+  if (AIF31W.WS-CUR-MM-PLUS-2-MONTHS > 12)
+    WS-CUR-YYYY-PLUS-2-MONTHS = WS-CUR-YYYY-PLUS-2-MONTHS + 1;
+    WS-CUR-MM-PLUS-2-MONTHS = WS-CUR-MM-PLUS-2-MONTHS - 12;
+  end
+  /* -- WI 1436 --------------------------------------------------------*/
+
+  /* ---- Read first input record ---------------------------------------*/
+  AIF31-SCAN-DRIVER();
+
+  /* ---- MAIN LOOP -----------------------------------------------------*/
+  while (sysVar.errorCode == "00000000")
+
+    /* ---- Validate the INPUT RECORD -----------------------------------*/
+    ME-ERROR-MSG = "OK                                                          ";
+    AIF31-VALIDATE();
+    if (ME-ERROR-MSG == "OK")
+      /* ---- Loop thru months writing TWNMMIS_TRIGGER records ----------*/
+      AIF31-LOOP2-DATES();
+      if (ME-ERROR-MSG == "OK")
+        AIF31-ADD-ERROR();
+      end
+    end
+
+    /* ---- Read next input record --------------------------------------*/
+    AIF31-SCAN-DRIVER();
+  end
+end // end AIF31-LOOP1-MAIN
+
+
+Function AIF31-LOOP2-DATES()
+  /* ---- Loop from Begin Month thru End Month ----------------------*/
+  while (WS-COMPARE-YYYYMM <= WS-MAX-YYYYMM)
+    if (H2-3-EVM-EVR-PER.BNFT-YR == WS-COMPARE-YYYY
+     && H2-3-EVM-EVR-PER.BNFT-MTH == WS-COMPARE-MM)
+      if (WS-PRGM-CASE-TYPE != "  ")
+        /* ---- Multiple Cases for a single Month -------------------*/
+        ME-ERROR-MSG-1-21 = "MULTIPLE CASE YYYYMM=";
+        move WS-COMPARE-YYYYMM to ME-ERROR-MSG-22-28 withV60Compat;
+        move WS-PRGM-CASE-TYPE to ME-ERROR-MSG-29-30 withV60Compat;
+        move WS-ICI to ME-ERROR-MSG-32-40 withV60Compat;
+        ME-ERROR-MSG-42-43 = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+        ME-ERROR-MSG-45-53 = H2-3-EVM-EVR-PER.ICI;
+        AIF31-ADD-ERROR();
+      end
+    else
+      /* ---- Date Mismatch between COMPARE-DATE & TWNELIG DATE -----*/
+      while (WS-COMPARE-YYYYMM <= WS-MAX-YYYYMM
+       && (H2-3-EVM-EVR-PER.BNFT-MTH != WS-COMPARE-MM
+       || H2-3-EVM-EVR-PER.BNFT-YR != WS-COMPARE-YYYY))
+        if (WS-PRGM-CASE-TYPE == "  ")
+          ME-ERROR-MSG-1-21 = "NO ELIGIBLITY YYYYMM=";
+          move WS-COMPARE-YYYYMM to ME-ERROR-MSG-22-28 withV60Compat;
+          AIF31-ADD-ERROR();
+        end
+        WS-COMPARE-MM = WS-COMPARE-MM + 1;
+        if (WS-COMPARE-MM == 13)
+          WS-COMPARE-YYYY = WS-COMPARE-YYYY + 1;
+          WS-COMPARE-MM = 1;
+        end
+        WS-PRGM-CASE-TYPE = "  ";
+      end
+    end
+    /* ---- Get Next TWNELIG row ------------------------------------*/
+    if (WS-S02-SQCOD == 0)
+      AIF31-ADD-TRGR();
+      AIF31-SCAN-S02();
+      if (WS-S02-SQCOD != 0)
+        H2-3-EVM-EVR-PER.BNFT-YR = 9999;
+        H2-3-EVM-EVR-PER.BNFT-MTH = 99;
+      end
+    end
+  end
+end // end AIF31-LOOP2-DATES
+
+
+Function AIF31-NUMFAIL()
+  NUMERIC-FLAG = "N";
+end // end AIF31-NUMFAIL
+
+
+Function AIF31-NUMPASS()
+  NUMERIC-FLAG = "Y";
+end // end AIF31-NUMPASS
+
+
+Function AIF31-SCAN-DRIVER()
+  try
+    get next SR-AIF31-INREC ;
+  end
+
+  if (SR-AIF31-INREC is ioError && SR-AIF31-INREC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF31-SCAN-DRIVER";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF31-INREC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.UMSGINS[2] = "AIF31A";
+    AIF31W.WS-EZERT8-SPLIT = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF31W.WS-EZERT8-5-8;
+
+    if (SR-AIF31-INREC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF31-INREC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF31-INREC is invalidFormat)
           VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
         end /* ** end check for format mismatch*/
       end /* ** end check for file not found*/
     end /* ** end check for file not available*/
     WCM00P2-TO-CEP01A();
-  end
-end // end AIF38Q-RD-IN-FLE
+  end /* ** end check for record found*/
+end // end AIF31-SCAN-DRIVER
 
-function AIF38Q9-GET-REGION()
-	    set H-TCDTS1 empty;
-    H-TCDTS1.CODE-TBL-TYP = "ENVIRONS";
-    H-TCDTS1.CODE-TBL-CD = "ENV";
-    call "TCDTS1A"(VDBCONTROL, VMESSAGE, H-TCDTS1);
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    if(VDBCONTROL.URC == 0)
-//    	SysLib.writeStdout("ENVIRONMENT =  " + H-TCDTS1.CODE-DESC);
-        AIF38W.WS-ENV = H-TCDTS1.CODE-DESC;
-    end
-end
 
-function AIF38P9-SQLCD()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING AIF38P9-SQLCD " );
-//  		SysLib.writeStdout("sysVar.sqlData.sqlcode = " + sysVar.sqlData.sqlcode);
-//	end	
-    if(sysVar.sqlData.sqlcode == 0 || sysVar.sqlData.sqlcode == 100)
-        VDBCONTROL.URC = sysVar.sqlData.sqlcode;
-    else
-        VDBCOMMON.UAPPLNAM = "AIF38A";
-        VDBCONTROL.UACCTYP = "R";
-        VDBCOMMON.UNRF = "Y";
-        VDBCOMMON.UDUP = "N";
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-        end
-        AIF38Q9-SQLERR-RD();
-    end
-end // END AIF38P9-SQLCD()
-
-// PROCESS SQL ERRORS
-Function AIF38Q9-SQLERR-RD()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING AIF38Q9-SQLERR-RD" );
-//	end	
+Function AIF31-SCAN-S02()
+  WDB00PI();
   VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIF38A";
+  VDBCONTROL.UPROC-NM = "AIF31-SCAN-S02";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "H2-3-EVM-EVR-PER";
+  VDBCOMMON.USQLREC = "H2-3-EVM-EVR-PER";
+  try
+    get next H2-3-EVM-EVR-PER ;
+  end
+  WS-S02-SQCOD = sysVar.sqlData.sqlcode;
+  AIF31-SQL-ERROR();
+end // end AIF31-SCAN-S02
+
+
+Function AIF31-SELECT-S01()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCONTROL.UPROC-NM = "AIF31-READ-S01";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  try
+    get H2-PERSON singleRow
+      with #sql{
+        select UPI
+        from TWNPERSON T1
+        WHERE T1.MEDIC_BLNG_SQ_NMB = :MEDIC-BLNG-SQ-NMB
+         AND T1.SSN NOT LIKE '999%'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into UPI ;
+  end
+  WS-S01-SQCOD = sysVar.sqlData.sqlcode;
+  AIF31-SQL-ERROR();
+end // end AIF31-SELECT-S01
+
+
+Function AIF31-SETINQ-S02()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCONTROL.UPROC-NM = "AIF31-SETINQ-S02";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCONTROL.UPROC-OBJ = "H2-3-EVM-EVR-PER";
+  VDBCOMMON.USQLREC = "H2-3-EVM-EVR-PER";
+  try
+    open AIF31-SETINQ-S02_RSI01
+      with #sql{
+        select T1.ICI, T1.PRGM_CASE_TYPE, T1.BNFT_YR, T1.BNFT_MTH, T1.UPI
+        from twnelg_ver_mbr T1,
+             twnelig_version T2,
+             twnperson T3
+        WHERE T3.MEDIC_BLNG_SQ_NMB = :WS-MEDICAID-ID-PK
+        AND T1.ELIG_CD NOT IN ('3','9')
+        AND T1.PRGM_CASE_TYPE NOT IN ('FS','FP','TN','TP','TL','TC','SG')
+        AND ((T1.BNFT_YR >= :WS-MIN-YYYY-BIN AND T1.BNFT_YR <= :WS-MAX-YYYY-BIN)
+        AND NOT (T1.BNFT_YR = :WS-MIN-YYYY-BIN AND T1.BNFT_MTH < :WS-MIN-MM-BIN)
+        AND NOT (T1.BNFT_YR = :WS-MAX-YYYY-BIN AND T1.BNFT_MTH > :WS-MAX-MM-BIN))
+        AND T2.ICI = T1.ICI
+        AND T2.PRGM_CASE_TYPE = T1.PRGM_CASE_TYPE
+        AND T2.BNFT_YR = T1.BNFT_YR
+        AND T2.BNFT_MTH = T1.BNFT_MTH
+        AND T2.VER_NMB = T1.VER_NMB
+        AND T2.LST_POSTD_VER_IND = 'Y'
+        AND T3.UPI = T1.UPI
+        ORDER BY T1.BNFT_YR, T1.BNFT_MTH, T1.PRGM_CASE_TYPE
+      }      
+      into ICI, PRGM-CASE-TYPE, BNFT-YR, BNFT-MTH, UPI
+      for H2-3-EVM-EVR-PER ;
+  end
+  WS-S02-SQCOD = sysVar.sqlData.sqlcode;
+  AIF31-SQL-ERROR();
+end // end AIF31-SETINQ-S02
+
+
+Function AIF31-SQL-ERROR()
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIF31A";
   VDBCOMMON.UNRF = "Y";
   VDBCOMMON.UDUP = "N";
   WDB00PE-SQLERR();
   if (VDBCONTROL.URC >= 104)
-    VDBCONTROL.UROLLBACK = "Y";
-    VMESSAGE.UMSGCODE-JCL-ERR = 0;
-    WCM00P2-TO-CEP01A();
+    if (VDBCOMMON.USQLNUM == 811)
+      ME-ERROR-MSG = "MULTIPLE SSN'S DETECTED FOR BILLING NUMBER";
+      AIF31-ADD-ERROR();
+    else
+  /* --------------------------------- NEW ERROR CAPTURE ROUTINE --*/
+      ME-ERROR-MSG-1-28 = "UNEXPECTED SQL ERROR: CASE= ";
+      move WS-ICI to ME-ERROR-MSG-32-40 withV60Compat;
+      ME-ERROR-MSG-42-43 = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
+      ME-ERROR-MSG-45-53 = H2-3-EVM-EVR-PER.ICI;
+      AIF31-ADD-ERROR();
+  /* --------------------------------- NEW ERROR CAPTURE ROUTINE --*/
+      WCM00P2-TO-CEP01A();
+    end
   end
-end // end AIF38Q9-SQLERR-RD
+end // end AIF31-SQL-ERROR
 
 
-// PROCESS SQL ERRORS
-Function AIF38Q9-SQLERR-WR()
-//	if (AIF38W.WS-ENV != "NOMADS")
-//  		SysLib.writeStdout("ENTERING AIF38Q9-SQLERR-WR" );
-//	end	
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIF38A";
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UNRF = "N";
-  VDBCOMMON.UDUP = "Y";
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 0)
-    VDBCONTROL.UROLLBACK = "Y";
-    VMESSAGE.UMSGCODE-JCL-ERR = 0;
-    WCM00P2-TO-CEP01A();
+Function AIF31-VALIDATE()
+  /* ---- VALIDATE the MEDICAID number ----------------------------------*/
+  if (MR-MEDICAID-ID is numeric)
+    AIF31-NUMPASS();
+  else
+    AIF31-NUMFAIL();
   end
-end // end AIF38Q9-SQLERR-WR
-
-function AIF38P9-WRITE-DTL()
-    if(AIF38W.WS-ENV != "NOMADS")
-        SysLib.writeStdout("ENTERING AIF38P9-WRITE-DTL");
+  if (NUMERIC-FLAG != "Y")
+    ME-ERROR-MSG = "MEDICAID NUMBER MUST BE 11 DIGITS LONG";
+    AIF31-ADD-ERROR();
+  else
+    move MR-MEDICAID-ID to WS-MEDICAID-ID withV60Compat;
+    move WS-MEDICAID-ID to WS-MEDICAID-ID-PK withV60Compat;
+    H2-PERSON.MEDIC-BLNG-SQ-NMB = WS-MEDICAID-ID;
+    /* ---- LOOK UP the MEDICAID NUMBER -----------------------------------*/
+    AIF31-SELECT-S01();
+    if (WS-S01-SQCOD == 100)
+      ME-ERROR-MSG = "MEDICAID NUMBER NOT FOUND ON FILE";
+      AIF31-ADD-ERROR();
     end
+  end
 
-    try
-        add SR-BUYIN-MDCR-EXT-OUT;
+  /* ---- VALIDATE the FROM and TO date ---------------------------------*/
+  WS-MIN-YYYY = 9999;
+  WS-MAX-YYYY = 9999;
+  WS-MIN-MM = 99;
+  WS-MAX-MM = 99;
+
+  if (MR-MIN-YYYYMM == "    ")
+    move WS-CURRENT-YYYY to MR-MIN-YYYY withV60Compat;
+  end
+  if (MR-MIN-MM == "  ")
+    move WS-CURRENT-MM to MR-MIN-MM withV60Compat;
+  end
+  if (MR-MIN-YYYYMM is numeric)
+    AIF31-NUMPASS();
+  else
+    AIF31-NUMFAIL();
+  end
+  if (NUMERIC-FLAG != "Y")
+    ME-ERROR-MSG = "MINIMUM YEAR/MONTH MUST BE YYYYMM FORMAT";
+    AIF31-ADD-ERROR();
+  else
+    if (MR-MIN-YYYY > WS-CURRENT-YYYY-PLUS-1-YEAR
+     || MR-MIN-YYYY < WS-CURRENT-YYYY-LESS-20-YEARS)
+      move WS-CURRENT-YYYYMMDD to WS-MIN-YYYYMM withV60Compat;
+      move WS-CURRENT-YYYYMMDD to MR-MIN-YYYYMM withV60Compat;
+    else
+      move MR-MIN-YYYYMM to WS-MIN-YYYYMM withV60Compat;
     end
-    if(SR-BUYIN-MDCR-EXT-OUT is ioError)
-        VDBCONTROL.UPROC-NM = "AIF38P9-WRITE-DTL";
-        VDBCONTROL.UPROC-OBJ = "SR-BUYIN-MDCR-EXT-OUT";
-        VDBCONTROL.UPROC-OPT = "ADD";
-        VMESSAGE.UMSGCODE = "        ";
-        VDBCONTROL.UMSQLCODE = 0;
-        AIF38W.WS-ERR-CD = sysVar.errorCode;
-        VMESSAGE.UMSGINS[1] = AIF38W.WS-ERR-FIRST-FOUR;
-        VMESSAGE.UMSGINS[2] = "AIF38A";
-        WCM00P2-TO-CEP01A();
-
+    if (WS-MIN-MM < 1 || WS-MIN-MM > 12)
+      ME-ERROR-MSG = "MONTHS OF MINIMUM-YYYYMM ARE INVALID";
+      AIF31-ADD-ERROR();
     end
-end // end AIF38P9-WRITE-DTL()
+  end
 
-record AIF38W type basicRecord
-    10 WS-RCVD-DT char(10);
-        15 WS-RCVD-DT-CCYY num(4);
-            20 WS-RCVD-DT-CC num(2);
-            20 WS-RCVD-DT-YY num(2);
-        15 WS-RCVD-DT-HYPH1 char(1);
-        15 WS-RCVD-DT-MM num(2);
-        15 WS-RCVD-DT-HYPH2 char(1);
-        15 WS-RCVD-DT-DD num(2);
-    10 WS-PREV-MED-ID CHAR(12);
-	10 WS-ERR-CD char(8) ; 
-    	15 WS-ERR-FIRST-FOUR char(4) ; 
-    	15 WS-ERR-LAST-FOUR char(4) ;
-    10 WS-DATE char(10);
-        15 WS-DATE-CCYY num(4);
-            20 WS-DATE-CC num(2);
-            20 WS-DATE-YY num(2);
-        15 WS-DATE-HYPH1 char(1);
-        15 WS-DATE-MM num(2);
-        15 WS-DATE-HYPH2 char(1);
-        15 WS-DATE-DD num(2);
-    10 WS-TEMP-DT char(8);
-        15 WS-TEMP-DT-CCYY num(4);
-        	20 WS-TEMP-DT-CC num(2);
-            20 WS-TEMP-DT-YY num(2);
-        15 WS-TEMP-DT-MM num(2);
-        15 WS-TEMP-DT-DD num(2);
-     10 LOW-DATE CHAR(10);
-     	15 LOW-DATE-CCYY num(4);
-            20 LOW-DATE-CC num(2);
-            20 LOW-DATE-YY num(2);
-        15 LOW-DATE-HYPH1 char(1);
-        15 LOW-DATE-MM num(2);
-        15 LOW-DATE-HYPH2 char(1);
-        15 LOW-DATE-DD num(2);
-     10 INPUT-HIGH-DATE CHAR(8);
-     	15 INPUT-HIGH-DATE-CCYY num(4);
-            20 INPUT-HIGH-DATE-CC num(2);
-            20 INPUT-HIGH-DATE-YY num(2);
-        15 INPUT-HIGH-DATE-MM num(2);
-        15 INPUT-HIGH-DATE-DD num(2);
-     10 OUTPUT-HIGH-DATE CHAR(10); 
-     	15 OUTPUT-HIGH-DATE-CCYY num(4);
-            20 OUTPUT-HIGH-DATE-CC num(2);
-            20 OUTPUT-HIGH-DATE-YY num(2);
-        15 OUTPUT-HIGH-DATE-HYPH1 char(1);
-        15 OUTPUT-HIGH-DATE-MM num(2);
-        15 OUTPUT-HIGH-DATE-HYPH2 char(1);
-        15 OUTPUT-HIGH-DATE-DD num(2); 
-     10 WS-OLD_HICN-MEDIC-BLNG-SQ-NMB char(12); 
-     10 WS-ENV char(8);
-     10 WS-SQL-OUTPUT-IND char(1);
-     10 WS-KEY-MEDICAID-ID char(12);
-        15 WS-KEY-MEDIC-BLNG-SQ-NMB num(11);
-        15 WS-FILLER char(1);
-     10 WS-ACTV-MEDCR-CLM-NUM char(12);
-     10 WS-INACTV-MEDCR-CLM-NUM char(12);
-     10 WS-HICN-ACT-IND char(1);
-     10 WS-HICN-INACT-IND char(1);
-     10 WS-VALID-DT-IND char(1);
-     
-end // END AIF38W
-	   
-record AIF38W1 type basicRecord
-    05 WS-BT-INFO-REC-TYPE char(6);
-    05 WS-BT-MEDICAID-ID char(12);
-        10 WS-BT-INFO-MEDIC-BLNG-SQ-NMB num(11);
-        10 WS-FILLER char(1);
-    05 WS-BT-INFO-REC-DTL char(66);
-        10 WS-BT-INFO-SSN char(9);
-        10 WS-BT-INFO-LST-NM char(20);
-        10 WS-BT-INFO-FRST-NM char(15);
-        10 WS-BT-INFO-MID-INIT char(1);
-        10 WS-BT-INFO-NAM-SUFFIX char(4);
-        	15 WS-BT-NM-SFFX CHAR(3);
-        	15 WS-BT-NM-SFX-FLR CHAR(1);
-        10 WS-BT-INFO-DOB char(8);
-            15 WS-BT-INFO-DOB-CCYY num(4);
-            15 WS-BT-INFO-DOB-MM num(2);
-            15 WS-BT-INFO-DOB-DD num(2);
-        10 WS-BT-INFO-DEATH-DT char(8);
-            15 WS-BT-INFO-DEATH-DT-CCYY num(4);
-            15 WS-BT-INFO-DEATH-DT-MM num(2);
-            15 WS-BT-INFO-DEATH-DT-DD num(2);
-        10 WS-BT-INFO-SEX-CD char(1);
-end // END AIF38W1
-   
-record AIF38W2 type basicRecord
-    05 WS-HICN-REC-TYPE char(6);
-    05 WS-HICN-MEDICAID-ID char(12);
-    	10 WS-HICN-MEDIC-BLNG-SQ-NMB num(11);
-        10 WS-FILLER char(1);
-    05 WS-HICN-REC-DTL char(14);
-        10 WS-HICN-MEDCR-CLM-NMB char(12);
-        10 WS-HICN-MDCR-ACTIVE char(1);
-        10 WS-HICN-RAILRD-RTRMT char(1);
+  if (MR-MAX-YYYY == "    "
+   || MR-MAX-YYYY == "0000")
+    move MR-MIN-YYYY to MR-MAX-YYYY withV60Compat;
+  end
+  if (MR-MAX-MM == "  "
+   || MR-MAX-MM == "00")
+    move MR-MIN-MM to MR-MAX-MM withV60Compat;
+  end
+  if (MR-MAX-YYYYMM is numeric)
+    AIF31-NUMPASS();
+  else
+    AIF31-NUMFAIL();
+  end
+  if (NUMERIC-FLAG != "Y")
+    ME-ERROR-MSG = "MAXIMUM YEAR/MONTH MUST BE YYYYMM FORMAT";
+    AIF31-ADD-ERROR();
+  else
+  /* -- WI 1436 --------------------------------------------------------*/
+    if (MR-MAX-YYYY > WS-CURRENT-YYYY-PLUS-1-YEAR
+     || MR-MAX-YYYY < WS-CURRENT-YYYY-LESS-20-YEARS)
+      move WS-CUR-YYYYMM-PLUS-2-MONTHS to WS-MAX-YYYYMM withV60Compat;
+      move WS-CUR-YYYYMM-PLUS-2-MONTHS to MR-MAX-YYYYMM withV60Compat;
+    else
+      move MR-MAX-YYYYMM to WS-MAX-YYYYMM withV60Compat;
+    end
+  /* -- WI 1436 --------------------------------------------------------*/
+    if (WS-MAX-MM < 1 || WS-MAX-MM > 12)
+      ME-ERROR-MSG = "MONTHS OF MAXIMUM-YYYYMM ARE INVALID";
+      AIF31-ADD-ERROR();
+    end
+  end
 
-end // END AIF38W2
-     
+  if (WS-MAX-YYYY != 9999
+   && WS-MIN-YYYY != 9999)
+    if (WS-MAX-YYYY < WS-MIN-YYYY
+     || (WS-MAX-YYYY == WS-MIN-YYYY
+     && WS-MAX-MM < WS-MIN-MM))
+      ME-ERROR-MSG = "MAXIMUM-YYYYMM IS LESS THAN MINIMUM-YYYYMM";
+      AIF31-ADD-ERROR();
+    end
+  end
 
-record AIF38W3 type basicRecord
-    05 WS-PARTS-REC-IN char(84);
-        10 WS-PARTS-REC-TYPE char(6);
-        10 WS-PARTS-MEDICAID-ID char(12);
-            15 WS-PARTS-MEDIC-BLNG-SQ-NMB num(11);
-            15 WS-FILLER char(1);
-        10 WS-PARTS-REC-DTL char(66);
-            15 WS-PARTS-BEG-DT char(8);
-            15 WS-PARTS-END-DT char(8);
-            15 WS-PART-CNTRCT char(5);
-                20 WS-FREE-PARTA-IND char(1);
-                20 WS-PARTA-FILLER char(4);
-            15 WS-PARTPBP-PLAN-NMB char(3);
-            15 WS-PARTPBP-SPEC-NDS char(1);
-            15 WS-PART-FILLER char(41);
-end // END AIF38W3       
-   
-Record SR-BUYIN-MDCR-EXT-IN type serialRecord  
-{  fileName = "BYMDEXIN"  }
-  05 BUYIN-MDCR-EXT-IN		CHAR(84);
-	10 REC-TYPE				CHAR(6);
- 	10 MEDICAID-ID   		CHAR(12); 
- 	10 BUYIN-MDCR-EXT-DTL	CHAR(66);  	 
-END 
+  if (ME-ERROR-MSG != "OK")
+    return;
+  end
 
-Record SR-BUYIN-MDCR-EXT-OUT type serialRecord  
-{  fileName = "BYMDEXOT"  }
-  05 BUYIN-MDCR-EXT-OUT		CHAR(84);
-	10 REC-TYPE				CHAR(6);
- 	10 MEDICAID-ID   		CHAR(12); 
- 	10 BUYIN-MDCR-EXT-DTL	CHAR(66);
- 		15 ERROR-TEXT		CHAR(35); 
- 		15 FILLER 			CHAR(31); 
-END 
+  move MR-MIN-YYYY to WS-COMPARE-YYYY withV60Compat;
+  move MR-MIN-MM to WS-COMPARE-MM withV60Compat;
+  move WS-MAX-YYYY to WS-MAX-YYYY-BIN withV60Compat;
+  move WS-MAX-MM to WS-MAX-MM-BIN withV60Compat;
+  move WS-MIN-YYYY to WS-MIN-YYYY-BIN withV60Compat;
+  move WS-MIN-MM to WS-MIN-MM-BIN withV60Compat;
+
+  /* ---- LOOK UP the PLANS WITHIN the DATE RANGE -----------------------*/
+  AIF31-SETINQ-S02();
+  if (WS-S02-SQCOD == 0)
+    AIF31-SCAN-S02();
+  end
+  if (WS-S02-SQCOD != 0)
+    ME-ERROR-MSG = "NO ELIGIBLE MONTHS WITHIN DATE RANGE";
+    AIF31-ADD-ERROR();
+  end
+end // end AIF31-VALIDATE
+
+
+Record AIF31W type basicRecord
+  10 WS-S01-SQCOD smallint ; 
+  10 WS-S02-SQCOD smallint ; 
+  10 NUMERIC-FLAG char(1) ; 
+  10 WS-EZERT8-SPLIT char(8) ; 
+  10 WS-EZERT8-1-4 char(4) ; 
+  10 WS-EZERT8-5-8 char(4) ; 
+  10 WS-CURRENT-YYYYMMDD char(8) ; 
+    15 WS-CURRENT-YYYY num(4) ; 
+    15 WS-CURRENT-MM num(2) ; 
+    15 WS-CURRENT-DD num(2) ; 
+  10 WS-CURRENT-YYYY-PLUS-1-YEAR num(4) ; 
+  10 WS-CURRENT-YYYY-LESS-20-YEARS num(4) ; 
+  10 WS-CUR-YYYYMM-PLUS-2-MONTHS char(6) ; 
+    15 WS-CUR-YYYY-PLUS-2-MONTHS num(4) ; 
+    15 WS-CUR-MM-PLUS-2-MONTHS num(2) ; 
+  10 WS-COMPARE-YYYYMM char(6) ; 
+    15 WS-COMPARE-YYYY num(4) ; 
+    15 WS-COMPARE-MM num(2) ; 
+  10 WS-MIN-YYYYMM char(6) ; 
+    15 WS-MIN-YYYY num(4) ; 
+    15 WS-MIN-MM num(2) ; 
+  10 WS-MAX-YYYYMM char(6) ; 
+    15 WS-MAX-YYYY num(4) ; 
+    15 WS-MAX-MM num(2) ; 
+  10 WS-MIN-YYYY-BIN smallint ; 
+  10 WS-MIN-MM-BIN smallint ; 
+  10 WS-MAX-YYYY-BIN smallint ; 
+  10 WS-MAX-MM-BIN smallint ; 
+  10 WS-MEDICAID-ID num(11) ; 
+  10 WS-MEDICAID-ID-BIN bigint ; 
+  10 WS-MEDICAID-ID-PK decimal(11) ; 
+  10 WS-PRGM-CASE-TYPE char(2) ; 
+  10 WS-ICI num(9) ; 
+  10 WS-VAR01 smallint ; 
+  10 WS-VAR02 smallint ; 
+end // end AIF31W
+
+
