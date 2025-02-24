@@ -1,25 +1,22 @@
-
 package IVA_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=AIN29A ****
-// COMPONENT NAME: AIN29A - NUMIDENT REQUEST
+//*** PROGRAM=AIN30A ****
+// COMPONENT NAME: AIN30A - NUMIDENT RESPONSE
 // ===============
 // 
 // DESCRIPTION:
 // ============
-// The purpose of this main batch application
-// is to provide information to numident to get
-// SSN status of NOMADS persons.
-// 
-// Since there are references to the main processes inside the
-// DB applications, the DB applications have been coded as
-// processes inside the main application itself.
+// UPDATES THE STATUS IN THE TWNPERSON
+// TABLE AND CREATES A  RECORD IN THE TWNNMDT_SSN_VRFDTL. IT
+// ALSO CREATES A RECORD IN TWNALTERNATE_SSN. EACH RECORD
+// PROCESSED IS WRITTEN INTO A  REPORT OUTPUT FILE, WHICH
+// IS FOR PRINTING.
 // 
 // 
 // ***********************
-Program AIN29A type basicProgram //VAGen Info - main batch program
+Program AIN30A type basicProgram //VAGen Info - main batch program
   {
   includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
   throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
@@ -27,29 +24,37 @@ Program AIN29A type basicProgram //VAGen Info - main batch program
   }
 
   // Data Declarations
-  AIN29W AIN29W; // record
-  AIN29W2 AIN29W2; // record
+  AIF25W1 AIF25W1; // record
+  AIN30W AIN30W; // record
+  AIN30W1 AIN30W1; // record
+  AIN30W2 AIN30W2; // record
   BDATEREC BDATEREC; // record
   CEP01W CEP01W; // record
   GDW GDW; // record
-  H2-2-ALN-ALS H2-2-ALN-ALS; // record
+  H-TCDTS1 H-TCDTS1; // record
   H2-2-DCC-SPT H2-2-DCC-SPT; // record
-  H2-2-FTT-PER H2-2-FTT-PER; // record
-  H2-2-LCA-PER H2-2-LCA-PER; // record
-  H2-ALTERNATE-NAME H2-ALTERNATE-NAME; // record
+  H2-3-CMH-FAC-SPT H2-3-CMH-FAC-SPT; // record
   H2-ALTERNATE-SSN H2-ALTERNATE-SSN; // record
-  H2-FAM-TRGR-TBL H2-FAM-TRGR-TBL; // record
+  H2-CASE-LOG H2-CASE-LOG; // record
   H2-IVD-CASE H2-IVD-CASE; // record
   H2-IVD-CASE-CHILD H2-IVD-CASE-CHILD; // record
   H2-IVD-CONTACTS H2-IVD-CONTACTS; // record
   H2-LCTE-ACTVY H2-LCTE-ACTVY; // record
-  SR-Q-SVES-REC SR-Q-SVES-REC; // record
-  VCONTROL VCONTROL; // record
+  H2-NMDT-SSN-VRFDTL H2-NMDT-SSN-VRFDTL; // record
+  H2-PERSON H2-PERSON; // record
+  H2-VRFD-NAMES H2-VRFD-NAMES; // record
+  H3-CASE-MEMBER-HST H3-CASE-MEMBER-HST; // record
+  H3-IVD-CONTACTS H3-IVD-CONTACTS; // record
+  PCALINP PCALINP; // record
+  PDLI54A-PARMS PDLI54A-PARMS; // record
+  SR-Q01F-REC SR-Q01F-REC; // record
+  SR-Q04F-REC SR-Q04F-REC; // record
+  SR-QCON-REC SR-QCON-REC; // record
+  SR-QSIF-REC SR-QSIF-REC; // record
   VDBCOMMON VDBCOMMON; // record
   VDBCONTROL VDBCONTROL; // record
   VMESSAGE VMESSAGE; // record
-  // WI 1513
-  H2-SSN-LOG H2-SSN-LOG; // record
+  VSTRREC7 VSTRREC7; // record
 
   // VAGen Info - items needed for migration
   VAGen_EZESYS char(8);
@@ -63,2094 +68,1740 @@ Program AIN29A type basicProgram //VAGen Info - main batch program
   function main()
     // VAGen Info - initialization needed for migration
     VAGen_EZESYS = VGLib.getVAGSysType();
-    AIN29P9-MAIN-PROC: AIN29P9-MAIN-PROC();
+    AIN30P9-MAIN-PROC: AIN30P9-MAIN-PROC();
   end // end main
-end // end AIN29A
+end // end AIN30A
 
 
-// WRITES TO OUTPUT FILE
-Function AIN29P9-ADD-REC()
-  /* CBSI START*/
-  /*  */
-  /* This process writes the SVES-OP-REC serial record to the SVES-OP-FILE.*/
-  /* Continue in case of Hard errors*/
-  VGVar.handleHardIOErrors = 1;
+// INSERTS DATA IN TWNCASE_LOG
+Function AIN30I1-INSRT-CLOG()
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIN30A";
+  VDBCOMMON.USQLREC = "H2-CASE-LOG";
+  VDBCONTROL.UPROC-OBJ = "H2-CASE-LOG";
+  VDBCONTROL.UPROC-NM = "AIN30I1-INSRT-CLOG";
+  VDBCONTROL.UPROC-OPT = "ADD";
   /*  */
   try
-    add SR-Q-SVES-REC ;
+    add H2-CASE-LOG
+      with #sql{
+        insert into TWNCASE_LOG
+        (ICI, ACTVY_DT, LOG_CRN_TS, PRGM_CASE_TYPE,
+          ACTVY_TM, WRKR_ID, LOG_ENTRY_DESC,
+          LOG_ENTRY_TYPE, CL_ACTVY_DESC)
+        values (:ICI, :ACTVY-DT, :LOG-CRN-TS, :PRGM-CASE-TYPE,
+          CURRENT TIME, :WRKR-ID, :LOG-ENTRY-DESC,
+          :LOG-ENTRY-TYPE, :CL-ACTVY-DESC)
+      } ;
   end
   /*  */
-  /* Check for ABEND.*/
-  if (SR-Q-SVES-REC is ioError)
-    VDBCONTROL.UPROC-NM = "AIN29P9-ADD-REC";
-    VDBCONTROL.UPROC-OBJ = "SR-Q-SVES-REC";
-    VDBCONTROL.UPROC-OPT = "ADD";
+  REPP9-SQL-CHKERR();
+end // end AIN30I1-INSRT-CLOG
 
-    VMESSAGE.UMSGINS[2] = "AIN29A";
-    AIN29W.WS-ERR-CD = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = AIN29W.WS-ERR-LAST-FOUR;
-  /* MOVE 'WRITE ON OUTPUT RECORD FAILED'*/
+
+// ADD RECORD TO REPORT (AIN32A)
+Function AIN30P9-ADD-01-REC()
+  /* -------------------------------------------------------*/
+  /* Build IVA/IVD Discrepancy Report File                 */
+  /* -------------------------------------------------------*/
+  /*  */
+  try
+    add SR-Q01F-REC ;
+  end
+  /*  */
+  if (SR-Q01F-REC is ioError)
+    VDBCONTROL.UPROC-NM = "AIN30P9-ADD-01-REC";
+    VDBCONTROL.UPROC-OBJ = "SR-Q01F-REC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    AIN30W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN30W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN30A";
+   /* the following conditions are added to move the corresponding*/
+   /* error message*/
+   /*  */
+  /* MOVE 'WRITE ON Q01F RECORD FAILED'*/
   /* TO VDBCONTROL.UEZESQRRM;*/
     VDBCONTROL.UMSQLCODE = 0;
-
+  /*  */
+    if (SR-Q01F-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-Q01F-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-Q01F-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
     WCM00P2-TO-CEP01A();
   end
-  AIN29W.WS-DATA-EXISTS = "Y";
   /*  */
-  /* CBSI END*/
-end // end AIN29P9-ADD-REC
+end // end AIN30P9-ADD-01-REC
 
 
-// LUW for DB Access
-Function AIN29P9-CHK-LCT-L1()
-  /* This process serves as the Logical Unit of Work (LUW)*/
-  /* for the Database Operation.*/
-  /* Perform standard database application initialization*/
-  WDB00PI();
-  /*  */
-  /* Initialize:*/
-  /* UACCTYP - Access type (R=read, W=write)*/
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-  /*  */
+// ADD RECORD TO REPORT (AIN57A)
+Function AIN30P9-ADD-04-REC()
+  /* CHANGE HISTORY*/
+  /* --------------------------------------------*/
+  /* DATE           PGR          DESCRIPTION*/
+  /* -------------------------------------------*/
+  /* 01-27-95      TBST184        CREATION*/
+
   /* CBSI START*/
+  try
+    add SR-Q04F-REC ;
+  end
+  if (SR-Q04F-REC is ioError)
+    VDBCONTROL.UPROC-NM = "AIN30P9-ADD-04-REC";
+    VDBCONTROL.UPROC-OBJ = "SR-Q04F-REC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    AIN30W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN30W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN30A";
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
+    /*  */
+  /* MOVE 'WRITE ON Q04F RECORD FAILED'*/
+  /* TO VDBCONTROL.UEZESQRRM;*/
+    VDBCONTROL.UMSQLCODE = 0;
   /*  */
-  /* Initialize SQL ROW record*/
-  set H2-LCTE-ACTVY empty;
-  /*  */
-  /* Perform process to retrieve data*/
-  AIN29P9-CHK-LCT-P1();
-  /*  */
-  /* CBSI END*/
-  /*  */
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-  /* CHECK FOR SQL ABENDS*/
-  if (VDBCONTROL.URC > 104)
+    if (SR-Q04F-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-Q04F-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-Q04F-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
     WCM00P2-TO-CEP01A();
   end
-end // end AIN29P9-CHK-LCT-L1
+
+  /* CBSI END*/
+end // end AIN30P9-ADD-04-REC
 
 
-// Control Retrieve of Data
-Function AIN29P9-CHK-LCT-P1()
-  /* -----------------------------------------------------------*/
-  /*  */
-  /* POPULATE SQL ROW RECORD*/
-  H2-LCTE-ACTVY.UPI = H2-2-FTT-PER.UPI;
-  H2-LCTE-ACTVY.CASE-SUFX = "A";
-  H2-LCTE-ACTVY.LOC-SRC-CD = "NUMID";
-  H2-LCTE-ACTVY.RQST-SQ-NMB = 1;
-  /*  */
-  /* Perform process to retrieve data*/
-  AIN29P9-CHK-LCT-Q1();
-  /*  */
-  /* If data retrieved successfully, continue*/
-  if (VDBCONTROL.URC == 0)
+// ADD RECORD TO CONTROL REC
+Function AIN30P9-ADDCON-REC()
+  try
+    add SR-QCON-REC ;
+  end
+
+  if (SR-QCON-REC is ioError)
+    VDBCONTROL.UPROC-NM = "AIN30P9-ADDCON-REC";
+    VDBCONTROL.UPROC-OBJ = "SR-QCON-REC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    AIN30W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN30W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN30A";
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
     /*  */
-    /* MOVE Y TO INDICATE IT IS ALSO REQUESTED BY IVD*/
-    if (H2-LCTE-ACTVY.INFO-RQSTD-TS != null)
-      AIN29W.WS-CHK-IVD-RQST = "Y";
+  /* MOVE 'WRITE ON CONTROL RECORD FAILED'*/
+  /* TO VDBCONTROL.UEZESQRRM;*/
+    VDBCONTROL.UMSQLCODE = 0;
+  /*  */
+    if (SR-QCON-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-QCON-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-QCON-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end
+  /*  */
+  /* CBSI END*/
+end // end AIN30P9-ADDCON-REC
+
+
+// ALTERNATE SSN CHANGE
+Function AIN30P9-ALTSSN-CHG()
+  /*  */
+  /* NOMADS BEGIN*/
+  /*  */
+  /* fcr triggers are created here if alt-ssn is added per wi13442*/
+  if (H2-PERSON.NCP-FG == "Y")
+    set H2-IVD-CASE empty;
+    H2-IVD-CASE.NCP-UPI = H2-PERSON.UPI;
+    AIN30Q02-S02();
+    if (sysVar.sqlData.sqlcode == 0)
+      AIN30Q02-S02-SCAN();
+      while (sysVar.sqlData.sqlcode == 0)
+        set PDLI54A-PARMS empty;
+        PDLI54A-PARMS.NCP-UPI = H2-IVD-CASE.NCP-UPI;
+        PDLI54A-PARMS.CASE-SUFX = H2-IVD-CASE.CASE-SUFX;
+        PDLI54A-PARMS.PARTICIPANT-UPI = H2-IVD-CASE.NCP-UPI;
+        PDLI54A-PARMS.RECORD-ID = "FP";
+        PDLI54A-PARMS.ACTION-CODE = "C";
+        PDLI54A-PARMS.ALT-SSN-CHG-IND = "Y";
+        call "DLI54A" (VDBCONTROL, VMESSAGE, PDLI54A-PARMS) {isNoRefresh = yes};
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        AIN30Q02-S02-SCAN();
+      end
     end
-    /*  */
-  end /* Data retrieved successfully*/
-end // end AIN29P9-CHK-LCT-P1
-
-
-// INQURY Message Text Data
-Function AIN29P9-CHK-LCT-Q1()
-  /* -----------------------------------------------------------*/
-  /* This process performs an INQUIRY on the Message Text*/
-  /* table to read a row of sample test data.*/
-  /*  */
-  /* Move name of SQL row record used to common record*/
-  VDBCOMMON.USQLREC = "H2-LCTE-ACTVY";
-  VDBCONTROL.UPROC-OBJ = "H2-LCTE-ACTVY";
-  VDBCONTROL.UPROC-NM = "AIN29P9-CHK-LCT-Q1";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  /*  */
-  try
-    get H2-LCTE-ACTVY singleRow
-      with #sql{
-        select MAX(INFO_RQSTD_TS)
-        from TWNLCTE_ACTVY T1
-        WHERE (RQST_SENT_DT = '0001-01-01' OR RQST_SENT_DT IS NULL)
-        AND UPI = :UPI
-        AND CASE_SUFX = :CASE-SUFX
-        AND LOC_SRC_CD = :LOC-SRC-CD
-        AND RQST_SQ_NMB = :RQST-SQ-NMB
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into INFO-RQSTD-TS ;
   end
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  if (H2-PERSON.CST-FG == "Y")
+    set H2-IVD-CASE empty;
+    H2-IVD-CASE.CST-UPI = H2-PERSON.UPI;
+    AIN30Q03-S03();
+    if (sysVar.sqlData.sqlcode == 0)
+      AIN30Q03-S03-SCAN();
+      while (sysVar.sqlData.sqlcode == 0)
+        set PDLI54A-PARMS empty;
+        PDLI54A-PARMS.NCP-UPI = H2-IVD-CASE.NCP-UPI;
+        PDLI54A-PARMS.CASE-SUFX = H2-IVD-CASE.CASE-SUFX;
+        PDLI54A-PARMS.PARTICIPANT-UPI = H2-IVD-CASE.CST-UPI;
+        PDLI54A-PARMS.RECORD-ID = "FP";
+        PDLI54A-PARMS.ACTION-CODE = "C";
+        PDLI54A-PARMS.ALT-SSN-CHG-IND = "Y";
+        call "DLI54A" (VDBCONTROL, VMESSAGE, PDLI54A-PARMS) {isNoRefresh = yes};
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        AIN30Q03-S03-SCAN();
+      end
+    end
   end
-end // end AIN29P9-CHK-LCT-Q1
-
-
-// CREATE CASE TRACKING PROCESS
-Function AIN29P9-CRT-CTP()
-  /* -----------------------PTR 2807 BEGIN--------------------------*/
-  /* Create Case Tracking Process*/
+  if (H2-PERSON.CHD-FG == "Y")
+    set H2-IVD-CASE-CHILD empty;
+    H2-IVD-CASE-CHILD.CHD-UPI = H2-PERSON.UPI;
+    AIN30Q04-S04();
+    if (sysVar.sqlData.sqlcode == 0)
+      AIN30Q04-S04-SCAN();
+      while (sysVar.sqlData.sqlcode == 0)
+        set PDLI54A-PARMS empty;
+        PDLI54A-PARMS.NCP-UPI = H2-IVD-CASE-CHILD.NCP-UPI;
+        PDLI54A-PARMS.CASE-SUFX = H2-IVD-CASE-CHILD.CASE-SUFX;
+        PDLI54A-PARMS.PARTICIPANT-UPI = H2-IVD-CASE-CHILD.CHD-UPI;
+        PDLI54A-PARMS.RECORD-ID = "FP";
+        PDLI54A-PARMS.ACTION-CODE = "C";
+        PDLI54A-PARMS.ALT-SSN-CHG-IND = "Y";
+        call "DLI54A" (VDBCONTROL, VMESSAGE, PDLI54A-PARMS) {isNoRefresh = yes};
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+        AIN30Q04-S04-SCAN();
+      end
+    end
+  end
+  /* fcr triggers are created here if alt-ssn is added per wi13442*/
   /*  */
-  set H2-IVD-CONTACTS empty;
-  H2-IVD-CONTACTS.UPI = AIN29W.WS-CASE-UPI;
-  H2-IVD-CONTACTS.CNTCT-TYPE = "I";
-  H2-IVD-CONTACTS.CASE-FUNC-AREA = " ";
-  H2-IVD-CONTACTS.CASE-SPCFC-IND = "N";
-  AIN29W.WS-TRACK-TEXT = "THIS PERSON HAS BEEN SUBMITTED TO THE NUMIDENT INTERFACE: ";
-
-  H2-IVD-CONTACTS.CNTCT-TXT = AIN29W.WS-TRACK-INFO;
-  H2-IVD-CONTACTS.CASE-SUFX = "A";
-  H2-IVD-CONTACTS.CNTCT-SRC = "NUMID";
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  AIN29W2.WS-CRTD-TS = GDW.TS;
-  AIN29W2.WS-CRTD-DT = AIN29W2.WS-PROCESS-DT;
-  H2-IVD-CONTACTS.CRTD-TS = AIN29W2.WS-CRTD-TS;
+  /* NOMADS END*/
   /*  */
-  H2-2-DCC-SPT.UPI = H2-IVD-CONTACTS.UPI;
-  AIN29P9-S01-PROC();
-  H2-IVD-CONTACTS.WRKR-ID = H2-2-DCC-SPT.NOMADS-USRID;
+end // end AIN30P9-ALTSSN-CHG
 
+
+// BUILD DATA FOR DISCREPANCY REP
+Function AIN30P9-BDR-PROC()
+  /*  */
+  /* BUILD DISCREPANCY REPORT PROCESS*/
+  set H2-PERSON empty;
+  H2-PERSON.UPI = SR-QSIF-REC.SVES-UPI;
+  /*  */
+  AIN30P9-READ-S01();
+  /*  */
+  if (H2-PERSON.IVA-CASE-MBR-FG == "Y")
+    AIN30P9-IVADR-PROC();
+  end
+  /*  */
+  /* PTR 4741 BEGIN*/
+  if (H2-PERSON.NCP-FG == "Y" || 
+  H2-PERSON.CST-FG == "Y" || 
+  H2-PERSON.CHD-FG == "Y")
+  /* PTR 4741 END*/
+    AIN30P9-IVDDR-PROC();
+  end
+  /*  */
+end // end AIN30P9-BDR-PROC
+
+
+// XFER CNTL TO IVA/IVD REPORT
+Function AIN30P9-BR-PROC()
+  /* -------------------------------------------------------*/
+  /* Build Report File.                                    */
+  /* -------------------------------------------------------*/
+  /*  */
+  /* --------------PTR# 2444 CHANGE BEGIN March 14, 1996--------------*/
+  /*  */
+  if (SR-QSIF-REC.SVES-VERIFIED-SSN-DATA == " ")
+    return;
+  end
+  /*  */
+  /* --------------PTR# 2444 CHANGE END   March 14, 1996--------------*/
+  /*  */
+  set H2-PERSON empty;
+  H2-PERSON.UPI = SR-QSIF-REC.SVES-UPI;
+  /*  */
+  AIN30P9-READ-S01();
+  /*  */
+  if (H2-PERSON.IVA-CASE-MBR-FG == "Y")
+    AIN30P9-IVAR-PROC();
+  end
+  /*  */
+  /* PTR 4741 BEGIN*/
+  if (H2-PERSON.NCP-FG == "Y" || 
+  H2-PERSON.CST-FG == "Y" || 
+  H2-PERSON.CHD-FG == "Y")
+  /* PTR 4741 END*/
+    AIN30P9-IVDR-PROC();
+  end
+  /*  */
+end // end AIN30P9-BR-PROC
+
+
+// Check for dup. Contact
+Function AIN30P9-CHK-CON()
   WDB00PI();
-  AIN29P9-INS-I01();
-  VDBCOMMON.UNRF = "N";
-  VDBCOMMON.UDUP = "Y";
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-end // end AIN29P9-CRT-CTP
-
-
-// DELETES FROM TWNFAM_TRGR_TBL
-Function AIN29P9-DEL-PARA()
-  /* CBSI START*/
-  VDBCONTROL.UPROC-OPT = "SQLEXEC";
-  VDBCONTROL.UPROC-NM = "AIN29P9-DEL-PARA";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-TRGR-TBL";
-  VDBCOMMON.USQLREC = "H2-FAM-TRGR-TBL";
-  try
-    execute 
-      #sql{
-         --** INSERT SQL STATEMENT HERE **
-        DELETE FROM TWNFAM_TRGR_TBL
-      }
-      for H2-FAM-TRGR-TBL ; // model = none
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
-  end
-  /*  */
-  /* Set/Reset VDB-common Record for Cursor process*/
-  /* (NRF - No record found , DUP -duplicate rows).*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Execute Common process to Set Vdbcontrol.urc*/
-  WDB00PE-SQLERR();
-  /*  */
-  /* Check For SQL Abends.*/
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end /* End of VDBCONTROL.URC > 104 If check.*/
-  /* CBSI END*/
-end // end AIN29P9-DEL-PARA
-
-
-// DECLARE ALTERNATE NAME CURSOR
-Function AIN29P9-DLR-AN-CSR()
-  /* CBSI START*/
-  /* THIS PROCESS DECLARES A CURSOR FOR THE TWNALTERNATE_NAME TABLE*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-DLR-AN-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-NAME";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  VDBCOMMON.USQLREC = "H2-ALTERNATE-NAME";
-  try
-    open AIN29P9-DLR-AN-CSR_RSI01
-      with #sql{
-        select AKA_LST_NM, AKA_FRST_NM, AKA_MID_NM, AKA_MODFR
-        from TWNALTERNATE_NAME T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE UPI = :UPI
-          AND UPI > 0
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into AKA-LST-NM, AKA-FRST-NM, AKA-MID-NM, AKA-MODFR
-      for H2-ALTERNATE-NAME ;
-  end
-
-  /* CBSI END*/
-end // end AIN29P9-DLR-AN-CSR
-
-
-// DECLARE ALTERNATE CURSOR
-Function AIN29P9-DLR-AS-CSR()
-  /* CBSI START*/
-  /* This process declares CURSOR for TWNALTERNATE_SSN table*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-DLR-AS-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  VDBCOMMON.USQLREC = "H2-ALTERNATE-SSN";
-  try
-    open AIN29P9-DLR-AS-CSR_RSI01
-      with #sql{
-        select ALT_SSN
-        from twnalternate_ssn T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE UPI            = :UPI
-          AND ALT_SSN NOT LIKE '000%'
-          AND UPI            > 0
-         --** INSERT ORDER BY CLAUSE HERE **
-        ORDER BY ALT_SSN
-      }      
-      into ALT-SSN
-      for H2-ALTERNATE-SSN ;
-  end
-  /* CBSI END*/
-end // end AIN29P9-DLR-AS-CSR
-
-
-// DECLARE LCA/PER CURSOR
-Function AIN29P9-DLR-LC-CSR()
-  /* CBSI START*/
-  /* THIS PROCESS DECLARES A CURSOR FOR THE JOIN OF TWNLCTE_ACTVY*/
-  /* AND TWNPERSON TABLE*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-DLR-LC-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-2-LCA-PER";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  try
-    open AIN29P9-DLR-LC-CSR_RSI01
-      with #sql{
-        select T1.UPI,
-            T1.INFO_RQSTD_TS,
-            T2.SSN,
-            T2.LST_NM,
-            T2.FRST_NM,
-            T2.MID_NM,
-            T2.DOB,
-            T2.SEX_CD,
-            T2.NCP_FG,
-            T2.CST_FG,
-            T2.CHD_FG,
-            T2.MODFR
-        from TWNLCTE_ACTVY T1,
-             TWNPERSON T2
-        WHERE
-           (T1.RQST_SENT_DT IS NULL OR
-            T1.RQST_SENT_DT = '0001-01-01')
-            AND DATE(T1.INFO_RQSTD_TS)  <= :AIN29W2.WS-PROCESS-DT
-            AND T1.RQST_SQ_NMB    =  :RQST-SQ-NMB
-            AND T1.LOC_SRC_CD     =  :LOC-SRC-CD
-            AND T1.UPI            =  T2.UPI
-            AND T2.SSN NOT LIKE '777%'
-            AND T2.SSN_VRFN_STS_CD <> 'V'
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        ORDER BY T1.UPI,T1.INFO_RQSTD_TS DESC
-      }      
-      into UPI,
-           INFO-RQSTD-TS,
-           SSN,
-           LST-NM,
-           FRST-NM,
-           MID-NM,
-           DOB,
-           SEX-CD,
-           NCP-FG,
-           CST-FG,
-           CHD-FG,
-           MODFR
-      for H2-2-LCA-PER ;
-  end
-  VDBCOMMON.UNRF = "N";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /* CBSI END*/
-end // end AIN29P9-DLR-LC-CSR
-
-
-// DECLARE ALN/ALS CURSOR
-Function AIN29P9-DLR-SN-CSR()
-  /* CBSI START*/
-  /* THIS PROCESS DECLARES A CURSOR FOR THE JOIN OF TWNALTERNATE_SSN*/
-  /* AND TWNALTERNATE_NAME TABLES*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-DLR-SN-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-2-ALN-ALS";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  VDBCOMMON.USQLREC = "H2-2-ALN-ALS";
-  try
-    open AIN29P9-DLR-SN-CSR_RSI01
-      with #sql{
-        select T2.ALT_SSN,
-            T1.AKA_LST_NM,
-            T1.AKA_FRST_NM,
-            T1.AKA_MID_NM,
-            T1.AKA_MODFR
-        from TWNALTERNATE_NAME T1,
-             TWNALTERNATE_SSN T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T2.UPI = :UPI
-          AND T2.UPI = T1.UPI
-          AND T2.UPI > 0
-          AND T2.ALT_SSN NOT LIKE '000%'
-         --** INSERT ORDER BY CLAUSE HERE **
-        ORDER BY T2.ALT_SSN
-      }      
-      into ALT-SSN,
-           AKA-LST-NM,
-           AKA-FRST-NM,
-           AKA-MID-NM,
-           AKA-MODFR
-      for H2-2-ALN-ALS ;
-  end
-  /* CBSI END*/
-end // end AIN29P9-DLR-SN-CSR
-
-
-// DECALER FTT/PER CURSOR
-Function AIN29P9-DLR-TR-CSR()
-  /* CBSI START*/
-  /*  */
-  /* Declare CURSOR For join of TWNFAM_TRGR_TBL and*/
-  /* TWNPERSON table.*/
-  /*  */
-  VDBCONTROL.UPROC-NM = "AIN29P9-DLR-TR-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-2-FTT-PER";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  VDBCOMMON.USQLREC = "H2-2-FTT-PER";
-  VDBCOMMON.USQLREC = "H2-2-FTT-PER";
-  /*  */
-  try
-    open AIN29P9-DLR-TR-CSR_RSI01
-      with #sql{
-        select T1.UPI,
-            T2.SSN,
-            T2.LST_NM,
-            T2.MID_NM,
-            T2.FRST_NM,
-            T2.MODFR,
-            T2.DOB,
-            T2.SEX_CD
-        from twnfam_trgr_tbl T1,
-             twnperson T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-          WHERE
-            T2.UPI = T1.UPI
-         --** INSERT ORDER BY CLAUSE HERE **
-        ORDER BY T1.UPI
-      }      
-      into UPI,
-           SSN,
-           LST-NM,
-           MID-NM,
-           FRST-NM,
-           MODFR,
-           DOB,
-           SEX-CD
-      for H2-2-FTT-PER ;
-  end
-  /*  */
-  /* CBSI END*/
-end // end AIN29P9-DLR-TR-CSR
-
-
-// SCAN ALTERNATE NAME DATA
-Function AIN29P9-FCH-AN-CSR()
-  /* CBSI START*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-FCH-AN-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-NAME";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCOMMON.USQLREC = "H2-ALTERNATE-NAME";
-  try
-    get next H2-ALTERNATE-NAME ;
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    /* Increment row count on successful retrival*/
-    AIN29W.WS-UROWR-CUR2 = AIN29W.WS-UROWR-CUR2 + 1;
-  end
-  /* CBSI END*/
-end // end AIN29P9-FCH-AN-CSR
-
-
-// SCAN ALTERNATE SSN DATA
-Function AIN29P9-FCH-AS-CSR()
-  /* CBSI START*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-FCH-AS-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCOMMON.USQLREC = "H2-ALTERNATE-SSN";
-  try
-    get next H2-ALTERNATE-SSN ;
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    /* Increment row count on successful retrival*/
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /* CBSI END*/
-end // end AIN29P9-FCH-AS-CSR
-
-
-// SCAN LCA/PER DATA
-Function AIN29P9-FCH-LC-CSR()
-  /* CBSI START*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-FCH-LC-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-2-LCA-PER";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCOMMON.USQLREC = "H2-2-LCA-PER";
-  try
-    get next H2-2-LCA-PER ;
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    /* Increment row count on successful retrival*/
-    AIN29W.WS-UROWR-CUR1 = AIN29W.WS-UROWR-CUR1 + 1;
-  end
-  /* CBSI END*/
-end // end AIN29P9-FCH-LC-CSR
-
-
-// SCAN ALTERNATE NAME /SSN DATA
-Function AIN29P9-FCH-SN-CSR()
-  /* CBSI START*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-FCH-SN-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-2-ALN-ALS";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCOMMON.USQLREC = "H2-2-ALN-ALS";
-  try
-    get next H2-2-ALN-ALS ;
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    /* Increment row count on successful retrival*/
-    AIN29W.WS-UROWR-CUR3 = AIN29W.WS-UROWR-CUR3 + 1;
-  end
-  /* CBSI END*/
-end // end AIN29P9-FCH-SN-CSR
-
-
-// SCAN FTT/PER DATA
-Function AIN29P9-FCH-TR-CSR()
-  /* CBSI START*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-FCH-TR-CSR";
-  VDBCONTROL.UPROC-OBJ = "H2-2-FTT-PER";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCOMMON.USQLREC = "H2-2-FTT-PER";
-  try
-    get next H2-2-FTT-PER ;
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    /* Increment row count on successful retrival*/
-    AIN29W.WS-UROWR-CUR1 = AIN29W.WS-UROWR-CUR1 + 1;
-  end
-  /* CBSI END*/
-end // end AIN29P9-FCH-TR-CSR
-
-
-// INQUIRY on FAM_TRGR_TBL table
-Function AIN29P9-FTT-INQ()
-  /* CBSI START*/
-  VDBCONTROL.UPROC-NM = "AIN29P9-FTT-INQ";
-  VDBCONTROL.UPROC-OBJ = "H2-FAM-TRGR-TBL";
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN30A";
+  VDBCONTROL.UPROC-NM = "AIN30P9-CHK-CON";
+  VDBCONTROL.UPROC-OBJ = "H3-IVD-CONTACTS";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCOMMON.USQLREC = "H2-FAM-TRGR-TBL";
+  VDBCOMMON.USQLREC = "H3-IVD-CONTACTS";
+  /*  */
   try
-    get H2-FAM-TRGR-TBL singleRow
+    get H3-IVD-CONTACTS
       with #sql{
         select UPI
-        from TWNFAM_TRGR_TBL T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-          WHERE
-            UPI = :UPI
+        from TWNIVD_CONTACTS T1
+        WHERE UPI = :H2-IVD-CONTACTS.UPI
+        AND   CASE_SUFX = :H2-IVD-CONTACTS.CASE-SUFX
+        AND   CASE_FUNC_AREA = :H2-IVD-CONTACTS.CASE-FUNC-AREA
+        AND   CNTCT_TYPE = :H2-IVD-CONTACTS.CNTCT-TYPE
+        AND   CNTCT_SRC = :H2-IVD-CONTACTS.CNTCT-SRC
+        AND   CASE_SPCFC_IND = :H2-IVD-CONTACTS.CASE-SPCFC-IND
+        AND   WRKR_ID = :H2-IVD-CONTACTS.WRKR-ID
+        AND   SUBSTR(CNTCT_TXT,1,100) = :AIN30W2.WS-CNTCT-TXT-1
+        AND   SUBSTR(CNTCT_TXT,101,100) = :AIN30W2.WS-CNTCT-TXT-2
+        AND   SUBSTR(CNTCT_TXT,201,85) = :AIN30W2.WS-CNTCT-TXT-3
+        FOR FETCH ONLY
          --** INSERT ORDER BY CLAUSE HERE **
       }
       into UPI ;
   end
-  if (sysVar.sqlData.sqlcode == 0)
-    /* Increment row count on successful retrival*/
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
   /*  */
-  /* Set/Reset VDB-common Record for Cursor process*/
-  /* (NRF - No record found , DUP -duplicate rows).*/
   VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
   /*  */
-  /* Execute Common process to Set Vdbcontrol.urc*/
   WDB00PE-SQLERR();
   /*  */
-  /* Check For SQL Abends.*/
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end /* End of VDBCONTROL.URC > 104 If check.*/
-  /* CBSI END*/
-end // end AIN29P9-FTT-INQ
+end // end AIN30P9-CHK-CON
+
+
+// CHECK SSN HIERARCHY
+Function AIN30P9-CHK-SSN-HR()
+  /*  */
+  /* --------------PTR# 2444 CHANGE BEGIN March 14, 1996--------------*/
+  /*  */
+  /* The SSN is updated using the following hierarchy.*/
+  /* Priority 1 : "V" , "&" , "1" , "*"*/
+  /* Priority 2 : "3"*/
+  /* Priority 3 : '5'*/
+  /*  */
+  AIN30W.WS-UPDATE-FLAG = "N";
+  /*  */
+  if (AIN30W.WS-NOMADS-VERIF-CODE == AIN30W.WS-CHECK-SSN-CD)
+    return;
+  end
+  /*  */
+  if (AIN30W.WS-NOMADS-VERIF-CODE == "V")
+    AIN30W.WS-CHECK-SSN-CD = AIN30W.WS-NOMADS-VERIF-CODE;
+    AIN30W.WS-UPDATE-FLAG = "Y";
+  end
+  /*  */
+  if (AIN30W.WS-NOMADS-VERIF-CODE == "1")
+    if (AIN30W.WS-CHECK-SSN-CD == "3"
+     || AIN30W.WS-CHECK-SSN-CD == "5"
+     || AIN30W.WS-CHECK-SSN-CD == " ")
+      AIN30W.WS-CHECK-SSN-CD = AIN30W.WS-NOMADS-VERIF-CODE;
+      AIN30W.WS-UPDATE-FLAG = "Y";
+    end
+  end
+  /*  */
+  if (AIN30W.WS-NOMADS-VERIF-CODE == "3")
+    if (AIN30W.WS-CHECK-SSN-CD == "5"
+     || AIN30W.WS-CHECK-SSN-CD == " ")
+      AIN30W.WS-CHECK-SSN-CD = AIN30W.WS-NOMADS-VERIF-CODE;
+      AIN30W.WS-UPDATE-FLAG = "Y";
+    end
+  end
+  /*  */
+  if (AIN30W.WS-NOMADS-VERIF-CODE == "5")
+    if (AIN30W.WS-CHECK-SSN-CD == " ")
+      AIN30W.WS-CHECK-SSN-CD = AIN30W.WS-NOMADS-VERIF-CODE;
+      AIN30W.WS-UPDATE-FLAG = "Y";
+    end
+  end
+  /* --------------PTR# 2444 CHANGE END   March 14, 1996--------------*/
+  /*  */
+end // end AIN30P9-CHK-SSN-HR
+
+
+// Convert Verfn Codes
+Function AIN30P9-CON-VER-CD()
+  /* -----------------------------------------------------------------------*/
+  /* The verification codes known to NOMADS are "&" , "*" , "1" , "3" , "5"*/
+  /* "V". The verification codes "M" , "P , "R" , "F" would be converted to*/
+  /* a verification code known to NOMADS. The logic to convert verification*/
+  /* as follows*/
+  /*  */
+  /* According to WI 17972 codes from NUMIDENT such as 'F', 'M', 'P', 'R',*/
+  /* must be converted to 'V'.*/
+  /*  */
+  /* All other verifcation codes not known to NOMADS will be written*/
+  /* into the Numident descrepancy report.*/
+  /* -----------------------------------------------------------------------*/
+  AIN30W.WS-KNOWN-TO-NOMADS-CODE = "Y";
+
+  if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "1" || 
+  SR-QSIF-REC.SVES-VERIFICATION-CODE == "3" || 
+  SR-QSIF-REC.SVES-VERIFICATION-CODE == "5" || 
+  SR-QSIF-REC.SVES-VERIFICATION-CODE == "V")
+    AIN30W.WS-NOMADS-VERIF-CODE = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+  else
+    if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "M" || 
+    SR-QSIF-REC.SVES-VERIFICATION-CODE == "P" || 
+    SR-QSIF-REC.SVES-VERIFICATION-CODE == "R" || 
+    SR-QSIF-REC.SVES-VERIFICATION-CODE == "F")
+      AIN30W.WS-NOMADS-VERIF-CODE = "V";
+    else
+      if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "&")
+        AIN30W.WS-NOMADS-VERIF-CODE = "V";
+        AIN30P9-UP-ALT-SSN();
+      else
+        if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "*")
+          AIN30W.WS-NOMADS-VERIF-CODE = "1";
+          AIN30P9-UP-ALT-SSN();
+        else
+          AIN30W.WS-PROBLEM-DESC = "Unknown code - ";
+          AIN30W.WS-PROBLEM-CODE = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+          AIN30W.WS-CHECK-SSN-CD = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+          AIN30W.WS-KNOWN-TO-NOMADS-CODE = "N";
+          AIN30A-01-CODE-DESC = AIN30W.WS-PROBLEM-CODE-DESC;
+          AIN30P9-BDR-PROC();
+        end
+      end
+    end
+  end
+  /*  */
+end // end AIN30P9-CON-VER-CD
+
+
+// XFER CNTL TO UVA/ IVD ALERT
+Function AIN30P9-CP-PROC()
+  /*  */
+  set H2-PERSON empty;
+  H2-PERSON.UPI = SR-QSIF-REC.SVES-UPI;
+  /*  */
+  AIN30P9-READ-S01();
+  /*  */
+  if (H2-PERSON.IVA-CASE-MBR-FG == "Y")
+  /* PERFORM AIN30P9-IVA-ALERT;   /* WI 24604*/
+    AIN30P9-IVA-S-ALRT(); /* WI 24604*/
+  end
+  /*  */
+  /* PTR 4741 BEGIN*/
+  /* THE CUSTODIAN AND CHILD FLAGS SHOULD ALSO BE CHECKED TO DETERMINE A*/
+  /* IV-D CASE.*/
+  if (H2-PERSON.NCP-FG == "Y" || 
+  H2-PERSON.CST-FG == "Y" || 
+  H2-PERSON.CHD-FG == "Y")
+    /* PERFORM AIN30P9-UPD-LOCATE;*/
+
+    AIN30P9-IVD-ALERT();
+  end
+  /* PTR 4741 END*/
+  /*  */
+end // end AIN30P9-CP-PROC
 
 
 // Create Case Tracking
-Function AIN29P9-GET-NCPUPI()
+Function AIN30P9-CRE-CSETRK()
+  /* ************************************************************************/
+  /* THIS PROCESS CREATES A ROW IN TWNIVD_CONTACTS TABLE*/
+  /* ************************************************************************/
+
+  set H2-IVD-CONTACTS empty;
+  set AIN30W2 empty;
+
+  H2-IVD-CONTACTS.UPI = AIN30W.WS-NCP-UPI;
+  H2-IVD-CONTACTS.CNTCT-SRC = "NUMID";
+  H2-IVD-CONTACTS.CNTCT-TYPE = "I";
+  H2-IVD-CONTACTS.CASE-FUNC-AREA = " ";
+
+  if (AIN30W.WS-NCP-SUFFIX == " ")
+
+    H2-IVD-CONTACTS.CASE-SPCFC-IND = "N";
+    H2-IVD-CONTACTS.CASE-SUFX = "A";
+
+  else
+
+    H2-IVD-CONTACTS.CASE-SPCFC-IND = "Y";
+    H2-IVD-CONTACTS.CASE-SUFX = AIN30W.WS-NCP-SUFFIX;
+    AIN30W.WS-NCP-SUFFIX = " ";
+
+  end
+
+  AIN30W2.WS-CONCAT-TXT = "NUMIDENT HAS RESPONDED ON THE FOLLOWING PERSON: ";
+  AIN30W2.WS-VAR1 = "; SSN: ";
+  AIN30W2.WS-VAR2 = SR-QSIF-REC.SVES-INPUT-SSN;
+  AIN30W2.WS-VAR3 = "NAME: ";
+  AIN30W2.WS-VAR4 = SR-QSIF-REC.SVES-INPUT-SURNAME;
+  AIN30W2.WS-VAR5 = SR-QSIF-REC.SVES-INPUT-GIVEN-NAME;
+  AIN30W2.WS-VAR6 = SR-QSIF-REC.SVES-INPUT-INITIAL;
+// WI 1628 begin
+//  AIN30W2.WS-VAR8 = "; SSN VERIFICATION CODE: ";
+//  AIN30W2.WS-VAR9 = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+// WI 1628 end
+
+  if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "*" || 
+  SR-QSIF-REC.SVES-VERIFICATION-CODE == "&")
+
+    if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "*")
+
+      AIN30W2.WS-VAR10 = " ; CORRECTED VERIFIED SSN: ";
+
+    end
+
+    if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "&")
+
+      AIN30W2.WS-VAR10 = " ; ADDITIONAL VERIFIED SSN(S): ";
+
+    end
+
+    AIN30W2.WS-CNTR = 1;
+
+    while (AIN30W2.WS-CNTR <= 5)
+
+      if (AIN30W2.WS-CNTR != 1 && AIN30W2.WS-ALT-SSN[WS-CNTR] != " ")
+
+        AIN30W2.WS-COMMA[WS-CNTR] = ", ";
+
+      else
+
+        AIN30W2.WS-COMMA[WS-CNTR] = "  ";
+
+      end
+
+      if (SVES-VERIFIED-SSN[WS-CNTR] != " ")
+
+        AIN30W2.WS-ALT-SSN[WS-CNTR] = SVES-VERIFIED-SSN[WS-CNTR];
+
+      else
+
+        AIN30W2.WS-ALT-SSN[WS-CNTR] = " ";
+
+      end
+
+      AIN30W2.WS-CNTR = AIN30W2.WS-CNTR + 1;
+
+    end
+  end
+
+  /* ***********************************************************************/
+  /* WI #27602 -*/
+  /* IF THE NUMIDENT VERF CODE = 3, 4  THE DOB FOR TRACKING IS*/
+  /* TO BE PICKED FROM SVES-VERIFIED-SSN-DATA INSTEAD OF*/
+  /* SVES-DATE-OF-BIRTH. THE DATE OF BIRTH IS VERIFIED THEN MOVED BACK INTO*/
+  /* SR-QSIF-REC.SVES-DATE-OF-BIRTH.*/
+  /* ***********************************************************************/
+
+  if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "3"
+   || SR-QSIF-REC.SVES-VERIFICATION-CODE == "4")
+  /* OR SR-QSIF-REC.SVES-VERIFICATION-CODE = '5';*/
+  /* when code = 5 no corrected DOB is sent: instead it means the name is*/
+  /* not matching*/
+    AIN30W2.WS-VAR11 = " ;CORRECTED DOB: ";
+
+  /* MOVE SVES-DOB-MO TO AIN30W2.WS-DATE-MM;*/
+  /* MOVE SVES-DOB-DY TO AIN30W2.WS-DATE-DD;*/
+  /* MOVE SVES-DOB-YR TO AIN30W2.WS-DATE-CCYY;*/
+  /* MOVE '-' TO AIN30W2.WS-DATE-FILL1;*/
+  /* MOVE '-' TO AIN30W2.WS-DATE-FILL2;*/
+  /* MOVE AIN30W2.WS-DATE TO AIN30W2.WS-DOB;*/
+
+    move SVES-VERIFIED-SSN-DATA to WS-NUMIDENT-VERF-3-DT withV60Compat;
+    AIN30W2.WS-DOB = AIN30W.WS-NUMIDENT-DATE;
+    SVES-DOB-MO = AIN30W.WS-NUMIDENT-DATE-MM;
+    SVES-DOB-DY = AIN30W.WS-NUMIDENT-DATE-DD;
+    SVES-DOB-YR = AIN30W.WS-NUMIDENT-DATE-YY;
+
+  end
+
+  VSTRREC7.UINSTRG = AIN30W2.WS-CONCAT-STR;
+  VSTRREC7.USTRLENGTH = 300;
+
+  call "WST60A" (VSTRREC7);
+
+  AIN30W2.WS-CONCAT-STR = VSTRREC7.UOUTSTRG;
+  H2-IVD-CONTACTS.CNTCT-TXT = AIN30W2.WS-CONCAT-STR;
+
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+
+  AIN30W.WS-PROCESS-TS = GDW.TS;
+  AIN30W.WS-PROCESS-DATE = AIN30W.WS-PROC-DT;
+  H2-IVD-CONTACTS.CRTD-TS = AIN30W.WS-PROCESS-TS;
+  H2-2-DCC-SPT.UPI = H2-IVD-CONTACTS.UPI;
+
+  AIN30P9-S01-PROC();
+
+  H2-IVD-CONTACTS.WRKR-ID = H2-2-DCC-SPT.NOMADS-USRID;
+
+  /* ************************************************************************/
+  /* CHECK FOR IDENTICAL CONTACT (MINUS CRTD_TS); DO NOT ADD IF FOUND,*/
+  /* AND SET CREATE-ALERT-FLAG TO 'N'.*/
+  /* ************************************************************************/
+
+  AIN30W2.WS-CNTCT-TXT = AIN30W2.WS-CONCAT-STR;
+
+  AIN30P9-CHK-CON();
+
+  if (VDBCONTROL.URC >= 104)
+
+    WCM00P2-TO-CEP01A();
+
+  else
+
+    if (VDBCONTROL.URC == 0)
+
+      AIN30W.WS-CRE-ALERT-FG = "N";
+
+    else
+
+      if (VDBCONTROL.URC == 100)
+
+        AIN30P9-TCONIOL1();
+
+        if (VDBCONTROL.URC >= 104)
+
+          WCM00P2-TO-CEP01A();
+
+        end
+      end
+    end
+  end
+
+  /*  */
+end // end AIN30P9-CRE-CSETRK
+
+
+// Create DOD Alert
+Function AIN30P9-DOD-ALERT()
+  /* ******************** WI 21295:WNMLS:2002-08-16 *************************/
+  /* WHEN SR-QSIF-REC.SVES-VERIFICATION-CODE = 'X', A CLOG AND AN ALERT*/
+  /* WILL BE CREATED TO NOTIFY THE WORKER OF THE DATE OF DEATH.*/
+  /* NO ROW WILL BE WRITTEN TO THE REPORT.  THE SSN-VRFN-STS-CD COLUMN*/
+  /* IN TWNPERSON WILL BE UPDATED WITH 'E'. THE SSN-SRC-CD COLUMN IN*/
+  /* TWNPERSON WILL BE UPDATED WITH 'SSA'.*/
+  /* THIS PROCESS IS A CLONE OF AIN30P9-IVA-ALERT WITH SOME MODIFICATIONS*/
+  /* INCLUDING CLOG AND U01 PROCESSING.*/
+  /* ************************************************************************/
+
+  set H2-3-CMH-FAC-SPT empty;
+  H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+  H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-PROC-DT;
+
+  AIN30P9-READ-S03X(); /* GET ALL ICI'S FOR THE UPI*/
+  /*  */
+  if (sysVar.sqlData.sqlcode == 0)
+    AIN30P9-SCAN-S03X();
+    if (sysVar.sqlData.sqlcode == 0)
+      while (sysVar.sqlData.sqlcode == 0)
+
+        AIN30P9-DOD-CLOG();
+
+        PCALINP.PAL-ALERT-CD = 129046;
+        PCALINP.PAL-UPI = H2-3-CMH-FAC-SPT.ICI;
+        PCALINP.PAL-ALERT-ACTION = "C";
+        call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+
+        H2-PERSON.UPI = SR-QSIF-REC.SVES-UPI;
+        H2-PERSON.SSN-VRFN-STS-CD = "E";
+        H2-PERSON.SSN-SRC-CD = "SSA";
+        AIN30P9-U01-PROC();
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+
+        AIN30P9-SCAN-S03X();
+      end
+  /* Changes due to WI 15300 *** Begin*/
+    else
+      AIN30W.WS-CURR-DT = AIN30W.WS-PROC-DT;
+  /* 19228 start: example if ws-proc-dt = 1/30/99 date created*/
+  /* would have been 2/30/99 thus -181*/
+      if (AIN30W.WS-PROC-DT-DD > 28)
+        AIN30W.WS-CURR-DT-DD = 28;
+      end
+  /* 19228 end*/
+      AIN30W.WS-CURR-DT-MM = AIN30W.WS-CURR-DT-MM + 1;
+      if (AIN30W.WS-CURR-DT-MM == 13)
+        AIN30W.WS-CURR-DT-MM = 01;
+        AIN30W.WS-CURR-DT-CCYY = AIN30W.WS-CURR-DT-CCYY + 1;
+      end
+
+      set H2-3-CMH-FAC-SPT empty;
+      H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+      H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-CURR-DT;
+      H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-CURR-DT;
+      H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-CURR-DT;
+  /*  */
+      AIN30P9-READ-S03X();
+      while (sysVar.sqlData.sqlcode == 0)
+        AIN30P9-SCAN-S03X();
+        if (sysVar.sqlData.sqlcode == 0)
+
+          AIN30P9-DOD-CLOG();
+
+          PCALINP.PAL-ALERT-CD = 129046;
+          PCALINP.PAL-UPI = H2-3-CMH-FAC-SPT.ICI;
+          PCALINP.PAL-ALERT-ACTION = "C";
+          call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
+          if (VDBCONTROL.URC > 104)
+            WCM00P2-TO-CEP01A();
+          end
+
+          H2-PERSON.UPI = SR-QSIF-REC.SVES-UPI;
+          H2-PERSON.SSN-VRFN-STS-CD = "E";
+          H2-PERSON.SSN-SRC-CD = "SSA";
+          AIN30P9-U01-PROC();
+          if (VDBCONTROL.URC > 104)
+            WCM00P2-TO-CEP01A();
+          end
+
+        end
+  /* Changes due to WI 15300 *** End*/
+      end
+    end
+  end
+  /*  */
+end // end AIN30P9-DOD-ALERT
+
+
+// BUILD CLOG DATA
+Function AIN30P9-DOD-CLOG()
+  /* ******************** WI 21295:WNMLS:2002-08-16 *************************/
+  /* WHEN SR-QSIF-REC.SVES-VERIFICATION-CODE = 'X', A CLOG*/
+  /* WILL BE CREATED TO NOTIFY THE WORKER OF THE DATE OF DEATH.*/
+  /* ************************************************************************/
+
+  set H2-CASE-LOG empty;
+  AIN30W.WS-CLOG-TS = "0001-01-01-00.00.00.000000"; /* WI 24604*/
+
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  AIN30W.WS-CLOG-TS = GDW.TS;
+
+  H2-CASE-LOG.ICI = H2-3-CMH-FAC-SPT.ICI;
+  H2-CASE-LOG.PRGM-CASE-TYPE = "FS";
+  H2-CASE-LOG.LOG-ENTRY-TYPE = "S";
+  H2-CASE-LOG.WRKR-ID = H2-3-CMH-FAC-SPT.CASLD-ID;
+
+  H2-CASE-LOG.LOG-CRN-TS = AIN30W.WS-CLOG-TS;
+  H2-CASE-LOG.ACTVY-DT = AIN30W.WS-CLOG-DATE;
+  H2-CASE-LOG.ACTVY-TM = AIN30W.WS-CLOG-TIME;
+  AIN30W.WS-CLOG-ACTVY-TEXT = "INDIVIDUAL IS DECEASED, PER SSA - DOD IS ";
+  AIN30W.WS-SVES-VERFD-DATA = SR-QSIF-REC.SVES-VERIFIED-SSN-DATA;
+  AIN30W.WS-CLOG-ACTVY-DOD = AIN30W.WS-SVES-DOD;
+
+  H2-CASE-LOG.CL-ACTVY-DESC = AIN30W.WS-CLOG-ACTVY-DESC;
+  H2-CASE-LOG.LOG-ENTRY-DESC = "ECS ACTION REQUIRED";
+
+  AIN30I1-INSRT-CLOG();
+end // end AIN30P9-DOD-CLOG
+
+
+// Create Case Tracking
+Function AIN30P9-GET-NCPUPI()
   /* ------------------------------------------------------*/
   /* This process retrieves the ncp's upi when the given participant*/
-  /* is a CST or a CHD.  This process created due to WI 14446, not all*/
+  /* is a CST or a CHD.  This process created due to WI 14465, not all*/
   /* IV-D case members where being tracked correctly, and therefore were*/
   /* not being displayed correctly, if at all, on TR01 screen*/
   /* ------------------------------------------------------*/
   /*  */
+  /* WI 18648 - The actual WI referred to above was 14446, which caused*/
+  /* tracking records to be created for ALL cases for the NCP, not just*/
+  /* the one(s) associated with the CST or CHD.  WI 18648 adds suffix*/
+  /* to the case tracking logic.*/
   set H2-IVD-CASE empty;
   set H2-IVD-CASE-CHILD empty;
 
   /* if participant is a custodian, get ncp-upi's of all cases the custodia*/
   /* is on and create case tracking in IVD-CONTACTS table.*/
-  if (H2-2-LCA-PER.CST-FG == "Y")
+  if (H2-PERSON.CST-FG == "Y")
 
-    H2-IVD-CASE.CST-UPI = H2-2-LCA-PER.UPI;
-    AIN29Q05-IDC();
+    H2-IVD-CASE.CST-UPI = H2-PERSON.UPI;
+    AIN30Q05-IDC();
     if (sysVar.sqlData.sqlcode == 0)
-      AIN29Q05-IDC-SCAN();
+      AIN30Q05-IDC-SCAN();
     end
 
     while (sysVar.sqlData.sqlcode == 0)
 
-      AIN29W.WS-CASE-UPI = H2-IVD-CASE.NCP-UPI;
-      AIN29P9-CRT-CTP();
-      AIN29Q05-IDC-SCAN();
+      AIN30W.WS-NCP-UPI = H2-IVD-CASE.NCP-UPI;
+  /* WI 18648 begin*/
+      AIN30W.WS-NCP-SUFFIX = H2-IVD-CASE.CASE-SUFX;
+  /* WI 18648 end*/
+      AIN30P9-CRE-CSETRK();
+      AIN30Q05-IDC-SCAN();
 
     end
   end
 
   /* if participant is a CHILD, get ncp-upi's of all cases the CHILD*/
   /* is on and create case tracking in IVD-CONTACTS table.*/
-  if (H2-2-LCA-PER.CHD-FG == "Y")
+  if (H2-PERSON.CHD-FG == "Y")
 
-    H2-IVD-CASE-CHILD.CHD-UPI = H2-2-LCA-PER.UPI;
-    AIN29Q06-DCC();
+    H2-IVD-CASE-CHILD.CHD-UPI = H2-PERSON.UPI;
+    AIN30Q06-DCC();
     if (sysVar.sqlData.sqlcode == 0)
-      AIN29Q06-DCC-SCAN();
+      AIN30Q06-DCC-SCAN();
     end
 
     while (sysVar.sqlData.sqlcode == 0)
 
-      AIN29W.WS-CASE-UPI = H2-IVD-CASE-CHILD.NCP-UPI;
-      AIN29P9-CRT-CTP();
-      AIN29Q06-DCC-SCAN();
+      AIN30W.WS-NCP-UPI = H2-IVD-CASE-CHILD.NCP-UPI;
+  /* WI 18648 begin*/
+      AIN30W.WS-NCP-SUFFIX = H2-IVD-CASE-CHILD.CASE-SUFX;
+  /* WI 18648 end*/
+      AIN30P9-CRE-CSETRK();
+      AIN30Q06-DCC-SCAN();
 
     end
   end
 
-  if (H2-2-LCA-PER.NCP-FG == "Y")
+  if (H2-PERSON.NCP-FG == "Y")
 
-    AIN29W.WS-CASE-UPI = H2-2-LCA-PER.UPI;
-    AIN29P9-CRT-CTP();
-
-  end
-end // end AIN29P9-GET-NCPUPI
-
-
-// GET-ALTERNATE-SSN-NAME-PROCESS
-Function AIN29P9-GET-SSN-NM()
-  /* ************************************************************************/
-  /* ALL ALTERNATE NAMES WITH PRIMARY SSN NEED TO BE SENT*/
-  /* ************************************************************************/
-
-  H2-ALTERNATE-NAME.UPI = AIN29W.WS-UPI;
-
-  /* ************************************************************************/
-  /* INITIALIZE ROW INCREMENTOR WORKING STORAGE VARIABLE WS-UROWR-CUR 2&3.*/
-  /* THIS IS DONE SINCE VDBCONTROL.UROWR (COMMON DB CONTROL VARIABLE)*/
-  /* IS INITIALIZED FOR BEFORE EVERY CURSOR IS OPENED WHICH AFFECT THE*/
-  /* PREVIOUSLY OPENED CURSORS.*/
-  /* ************************************************************************/
-
-  AIN29W.WS-UROWR-CUR2 = 0;
-  AIN29W.WS-UROWR-CUR3 = 0;
-
-  /* ***********************************************************************/
-  /* PERFORM STANDARD DATABASE APPLICATION INITIALIZATION*/
-  /* ***********************************************************************/
-
-  WDB00PI();
-
-  /* ***********************************************************************/
-  /* INITIALIZE COMMON DB-APPLICATION TYPE AND DB-APPLICATION NAME.*/
-  /* ***********************************************************************/
-
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO DECLARE CURSOR FOR TWNALTERNATE_NAME TABLE*/
-  /* ************************************************************************/
-
-  AIN29P9-DLR-AN-CSR();
-
-  /* ************************************************************************/
-  /* IF NO ERRORS OCCURED*/
-  /* ************************************************************************/
-
-  AIN29W.WS-PA-SQLCD = sysVar.sqlData.sqlcode;
-
-  while (AIN29W.WS-PA-SQLCD == 0)
-
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO SCAN TWNALTERNATE_NAME TABLE*/
-  /* ************************************************************************/
-
-    AIN29P9-FCH-AN-CSR();
-
-    AIN29W.WS-PA-SQLCD = sysVar.sqlData.sqlcode;
-
-    if (AIN29W.WS-PA-SQLCD == 0)
-
-  /* ************************************************************************/
-  /* MOVE SQL-RECORD ROW TO SERIAL RECORD*/
-  /* ************************************************************************/
-  /* MOVE SSN TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-      SR-Q-SVES-REC.SVES-INPUT-SSN = AIN29W.WS-SSN;
-
-  /* ************************************************************************/
-  /* MOVE NAME TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-      SR-Q-SVES-REC.SVES-INPUT-SURNAME = H2-ALTERNATE-NAME.AKA-LST-NM;
-      SR-Q-SVES-REC.SVES-INPUT-GIVEN-NAME = H2-ALTERNATE-NAME.AKA-FRST-NM;
-      AIN29W.WS-MID-NAME = H2-ALTERNATE-NAME.AKA-MID-NM;
-      SR-Q-SVES-REC.SVES-INPUT-INITIAL = AIN29W.WS-INITIAL;
-
-  /* *********************************************************************/
-  /* MOVE PERSON NUMBER TO SERIAL RECORD*/
-  /* *********************************************************************/
-
-      SR-Q-SVES-REC.SVES-PERSON-NR = "PA";
-
-  /* ***********************************************************************/
-  /* WI #27602 SEND '1899-01-01' TO SSA INSTEAD OF LOW/HIGH DATE SO RECORD*/
-  /* WILL BE RETURNED SUCCESSFULLY WITH A VERIFIED SSN.*/
-  /* ***********************************************************************/
-
-      if (AIN29W.WS-DATE == "0001-01-01"
-       || AIN29W.WS-DATE == "9999-12-31")
-
-        AIN29W.WS-DATE = "1899-01-01";
-
-      end
-
-  /* ***********************************************************************/
-  /* MOVE DATE-OF-BIRTH TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-      SR-Q-SVES-REC.SVES-DOB-YR = AIN29W.WS-YR;
-      SR-Q-SVES-REC.SVES-DOB-MO = AIN29W.WS-MO;
-      SR-Q-SVES-REC.SVES-DOB-DY = AIN29W.WS-DY;
-      SR-Q-SVES-REC.SVES-DOB-CC = AIN29W.WS-YR1;
-
-  /* ***********************************************************************/
-  /* MOVE SEX CODE, STATE AGENCY CODE, AND REQUEST TYPE TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-      SR-Q-SVES-REC.SVES-INPUT-SEX = AIN29W.WS-SEX-CD;
-      SR-Q-SVES-REC.SVES-INPUT-STA-AGY-CODE = "029";
-      SR-Q-SVES-REC.SVES-REQUEST-TYPE = "N";
-      SR-Q-SVES-REC.SVES-REQUEST-PROGRAM = "NM";
-
-  /* ************************************************************************/
-  /* MOVE (UPI)CASE_NUMBER TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-      SR-Q-SVES-REC.SVES-CASE-NUMBER = AIN29W.WS-CASE-NUMBER;
-
-  /* ************************************************************************/
-  /* WRITE INTO SERIAL RECORD OUTPUT FILE*/
-  /* ************************************************************************/
-
-      AIN29P9-ADD-REC();
-      
-  /* ************************************************************************/
-  /* WI 1513 WRITE SSN LOG RECORD */
-  /* ************************************************************************/
-      H2-SSN-LOG.SSN = AIN29W.WS-SSN;
-      H2-SSN-LOG.UPI = AIN29W.WS-UPI;
-      
-      AIN29P9-SSN-LOG();
-
-      if (AIN29W.WS-CHK-IVD-RQST == "Y")
-
-        AIN29W.WS-TRACK-LST-NM = H2-ALTERNATE-NAME.AKA-LST-NM;
-        AIN29W.WS-TRACK-FRST-NM = H2-ALTERNATE-NAME.AKA-FRST-NM;
-        AIN29W.WS-TRACK-MID-NM = H2-ALTERNATE-NAME.AKA-MID-NM;
-        AIN29W.WS-TRACK-MODFR = H2-ALTERNATE-NAME.AKA-MODFR;
-        AIN29W.WS-TRACK-SSN = AIN29W.WS-SSN;
-
-        AIN29P9-CRT-CTP();
-
-      end
-    end
-  end
-
-  VDBCONTROL.UROWR = AIN29W.WS-UROWR-CUR2;
-
-  /* ************************************************************************/
-  /* SDT/RESET VDB-COMMON RECORD FOR CURSOR PROCESS*/
-  /* (NRF - NO RECORD FOUND, DUP - DUPLICATE ROWS).*/
-  /* ************************************************************************/
-
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-
-  /* ************************************************************************/
-  /* EXECUTE COMMON PROCESS TO SET VDBCONTROL.URC*/
-  /* ************************************************************************/
-
-  WDB00PE-SQLERR();
-
-  if (VDBCONTROL.URC > 104)
-
-    WCM00P2-TO-CEP01A();
+    AIN30W.WS-NCP-UPI = H2-PERSON.UPI;
+    AIN30P9-CRE-CSETRK();
 
   end
+end // end AIN30P9-GET-NCPUPI
 
-  /* ************************************************************************/
-  /* ALL ALTERNATE_SSN AND ALTERNATE_NAMES COMBINATION NEEDS TO BE SENT*/
-  /* ************************************************************************/
 
-  H2-2-ALN-ALS.UPI = AIN29W.WS-UPI;
-
-  /* ************************************************************************/
-  /* PERFORM STANDARD DATABASE APPLICATION INITIALIZATION*/
-  /* ************************************************************************/
-
-  WDB00PI();
-
-  /* ************************************************************************/
-  /* INITIALIZE COMMON DB-APPLICATION TYPE AND DB-APPLICATION NAME.*/
-  /* ************************************************************************/
-
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO SET CURSOR FOR TWNALTERNATE_SSN AND*/
-  /* TWNALTERNATE_NAME TABLES*/
-  /* ************************************************************************/
-
-  AIN29P9-DLR-SN-CSR();
-
-  AIN29W.WS-AA-SQLCD = sysVar.sqlData.sqlcode;
-
-  while (AIN29W.WS-AA-SQLCD == 0)
-
-    AIN29P9-FCH-SN-CSR();
-
-    AIN29W.WS-AA-SQLCD = sysVar.sqlData.sqlcode;
-
-    if (AIN29W.WS-AA-SQLCD == 0)
-
-  /* ************************************************************************/
-  /* MOVE SQL-RECORD VALUES TO SERIAL RECORD*/
-  /* ************************************************************************/
-  /* MOVE SSN AND NAME TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-      SR-Q-SVES-REC.SVES-INPUT-SSN = H2-2-ALN-ALS.ALT-SSN;
-      SR-Q-SVES-REC.SVES-INPUT-SURNAME = H2-2-ALN-ALS.AKA-LST-NM;
-      SR-Q-SVES-REC.SVES-INPUT-GIVEN-NAME = H2-2-ALN-ALS.AKA-FRST-NM;
-      AIN29W.WS-MID-NAME = H2-2-ALN-ALS.AKA-MID-NM;
-      SR-Q-SVES-REC.SVES-INPUT-INITIAL = AIN29W.WS-INITIAL;
-
-  /* ***********************************************************************/
-  /* WI #27602 SEND '1899-01-01' TO SSA INSTEAD OF LOW/HIGH DATE SO RECORD*/
-  /* WILL BE RETURNED SUCCESSFULLY WITH A VERIFIED SSN.*/
-  /* ***********************************************************************/
-
-      if (AIN29W.WS-DATE == "0001-01-01"
-       || AIN29W.WS-DATE == "9999-12-31")
-
-        AIN29W.WS-DATE = "1899-01-01";
-
-      end
-
-  /* ***********************************************************************/
-  /* MOVE PERSON NUMBER AND DATE-OF BIRTH TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-      SR-Q-SVES-REC.SVES-PERSON-NR = "AA";
-      SR-Q-SVES-REC.SVES-DOB-YR = AIN29W.WS-YR;
-      SR-Q-SVES-REC.SVES-DOB-MO = AIN29W.WS-MO;
-      SR-Q-SVES-REC.SVES-DOB-DY = AIN29W.WS-DY;
-      SR-Q-SVES-REC.SVES-DOB-CC = AIN29W.WS-YR1;
-
-  /* ***********************************************************************/
-  /* MOVE SEX CODE, STATE AGENCY CODE, AND REQUEST TYPE TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-      SR-Q-SVES-REC.SVES-INPUT-SEX = AIN29W.WS-SEX-CD;
-      SR-Q-SVES-REC.SVES-INPUT-STA-AGY-CODE = "029";
-      SR-Q-SVES-REC.SVES-REQUEST-TYPE = "N";
-      SR-Q-SVES-REC.SVES-REQUEST-PROGRAM = "NM";
-
-  /* ***********************************************************************/
-  /* MOVE CASE NUMBER (UPI) TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-      SR-Q-SVES-REC.SVES-CASE-NUMBER = AIN29W.WS-CASE-NUMBER;
-
-  /* ***********************************************************************/
-  /* EXECUTE PROCESS TO WRITE TO SERIAL RECORD FILE*/
-  /* ***********************************************************************/
-	  	
-      AIN29P9-ADD-REC();
-      
-  /* ***********************************************************************/
-  /* WI 1513 EXECUTE PROCESS TO WRITE SSN LOG /
-  /* ***********************************************************************/
-	  H2-SSN-LOG.SSN = H2-2-ALN-ALS.ALT-SSN;
-      H2-SSN-LOG.UPI = H2-2-ALN-ALS.UPI;
-      
-      AIN29P9-SSN-LOG();	
-
-      if (AIN29W.WS-CHK-IVD-RQST == "Y")
-
-        AIN29W.WS-TRACK-LST-NM = H2-2-ALN-ALS.AKA-LST-NM;
-        AIN29W.WS-TRACK-FRST-NM = H2-2-ALN-ALS.AKA-FRST-NM;
-        AIN29W.WS-TRACK-MID-NM = H2-2-ALN-ALS.AKA-MID-NM;
-        AIN29W.WS-TRACK-MODFR = H2-2-ALN-ALS.AKA-MODFR;
-        AIN29W.WS-TRACK-SSN = H2-2-ALN-ALS.ALT-SSN;
-
-        AIN29P9-CRT-CTP();
-
-      end
-    end
-  end
-
-  /* ************************************************************************/
-  /* MOVE THE WORKING STORAGE INCREMENTOR TO VDBCONTROL.UROWR (COMMON RCD)*/
-  /* ************************************************************************/
-
-  VDBCONTROL.UROWR = AIN29W.WS-UROWR-CUR3;
-
-  /* ************************************************************************/
-  /* SET/RESET VDB-COMMON RECORD FRO CURSOR PROCESS*/
-  /* (NRF - NO RECORD FOUND, DUP - DUPLICATE ROWS).*/
-  /* ************************************************************************/
-
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-
-  /* ************************************************************************/
-  /* EXECUTE COMMON PROCESS TO SET VDBCONTROL.URC*/
-  /* ************************************************************************/
-
-  WDB00PE-SQLERR();
-
-  if (VDBCONTROL.URC > 104)
-
-    WCM00P2-TO-CEP01A();
-
-  end
+// ADD NMDT SSN VRFDTL TABLE
+Function AIN30P9-I01-PROC()
   /*  */
-end // end AIN29P9-GET-SSN-NM
-
-
-// this process gets the com dt
-Function AIN29P9-INIT-PARA()
-  /* ******************* CHANGE DUE TO PTR 3106 BEGIN ***********************/
-  /*  */
-  /* Perform the common process which wil get the common dates used in batch*/
-  /* process from the file and populate the bdaterec record structure.*/
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  AIN29W2.WS-CRTD-TS = GDW.TS;
-  /*  */
-  WCM00P3-FETCHBDTS();
-  /*  */
-  AIN29W2.WS-PROC-DT-CC = BDATE-PROCESS-DATE-CC;
-  AIN29W2.WS-PROC-DT-YY = BDATE-PROCESS-DATE-YY;
-  AIN29W2.WS-PROC-DT-SEP-1 = "-";
-  AIN29W2.WS-PROC-DT-MM = BDATE-PROCESS-DATE-MM;
-  AIN29W2.WS-PROC-DT-SEP-2 = "-";
-  AIN29W2.WS-PROC-DT-DD = BDATE-PROCESS-DATE-DD;
-  AIN29W2.WS-CRTD-DT = AIN29W2.WS-PROCESS-DT;
-  AIN29W.WS-DATA-EXISTS = "N";
-  /*  */
-  /* ******************* CHANGE DUE TO PTR 3106 END *************************/
-end // end AIN29P9-INIT-PARA
-
-
-// INSERT IVD CONTACTS
-Function AIN29P9-INS-I01()
-  VDBCONTROL.UPROC-NM = "AIN29P9-INS-I07";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CONTACTS";
+  VDBCONTROL.UPROC-NM = "AIN30P9-I01-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-NMDT-SSN-VRFDTL";
   VDBCONTROL.UPROC-OPT = "ADD";
-  VDBCOMMON.USQLREC = "H2-IVD-CONTACTS";
-  try
-    add H2-IVD-CONTACTS ;
-  end
-end // end AIN29P9-INS-I01
-
-Function AIN29P9-INS-SSNLOG-Q1()
-//WI 1523 Create SSN Log
-	
-  WDB00PI();
-
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  VDBCOMMON.USQLREC = "H2-SSN-LOG";
-  VDBCONTROL.UPROC-NM = "AIN29P9-INS-SSNLOG-Q1";
-  VDBCONTROL.UPROC-OBJ = "H2-SSN-LOG";
-  VDBCONTROL.UPROC-OPT = "ADD";
-
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  try
-    add H2-SSN-LOG
-      with #sql{
-        insert into TWNSSN_LOG
-        (CRTN_TS, NOMADS_USRID, SSN, UPI, 
-          SCRN_ID, REQ_RSN, CALLING_PRGM)
-        values (:GDW.TS, :NOMADS-USRID, :SSN, :UPI,
-          :SCRN-ID,:REQ-RSN, :CALLING-PRGM)
-      } ;
-  end	
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "N";
-  VDBCOMMON.UDUP = "N";
-
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-	
-end	
-	
-
-// GET IVA SSN TO BE SENT TO SSA
-Function AIN29P9-IVA-RQ-DAT()
-  /* ************************************************************************/
-  /* THIS PROCESS REQUESTS FOR SSN VERIFICATION FOR ALL IVA-MEMBERS*/
-  /* ************************************************************************/
-  /* INITIALIZATION OF SQL-RECORD AND SERIAL-RECORD*/
-  /* ************************************************************************/
-
-  set H2-2-FTT-PER empty;
-  set SR-Q-SVES-REC empty;
-  set H2-2-ALN-ALS empty;
-  set H2-ALTERNATE-NAME empty;
-  set H2-ALTERNATE-SSN empty;
-  // WI 1513
-  set H2-SSN-LOG empty;
-
-  /* ************************************************************************/
-  /* INITIALIZE ROW INCREMENTOR WORKING STORAGE VARIABLE WS-UROWR-CUR1*/
-  /* ************************************************************************/
-
-  AIN29W.WS-UROWR-CUR1 = 0;
-
-  /* ************************************************************************/
-  /* PERFORM STANDARD DATABASE APPLICATION INITIALIZATION*/
-  /* ************************************************************************/
-
-  WDB00PI();
-
-  /* ************************************************************************/
-  /* INITIALIZE COMMON DB-APPLICATION TYPE AND DB-APPLICATION NAME.*/
-  /* ************************************************************************/
-
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO DECLARE CURSOR FOR READING ROWS FROM*/
-  /* TWNFAM_TRGR_TBL,TWNPERSON TABLES JOIN.*/
-  /* ************************************************************************/
-
-  AIN29P9-DLR-TR-CSR();
-
-  /* ************************************************************************/
-  /* IF NO ERRORS OCCURED*/
-  /* ************************************************************************/
-
-  AIN29W.WS-PP-SQLCD = sysVar.sqlData.sqlcode;
-
-  /* ******************************************************************/
-  /* EXECUTE PROCESS TO FETCH THE FIRST ROW OF THE DECLARED CURSOR.*/
-  /* ******************************************************************/
-
-  while (AIN29W.WS-PP-SQLCD == 0)
-
-    AIN29P9-FCH-TR-CSR();
-
-    AIN29W.WS-PP-SQLCD = sysVar.sqlData.sqlcode;
-
-    if (AIN29W.WS-PP-SQLCD == 0)
-
-      AIN29W.WS-CHK-IVD-RQST = "N";
-
-      AIN29P9-CHK-LCT-L1();
-
-      AIN29W.WS-SSN = H2-2-FTT-PER.SSN;
-
-      if (AIN29W.WS-SSN3 > "000")
-
-  /* ***********************************************************************/
-  /* MOVE NAME TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-        SR-Q-SVES-REC.SVES-INPUT-SSN = H2-2-FTT-PER.SSN;
-        SR-Q-SVES-REC.SVES-INPUT-SURNAME = H2-2-FTT-PER.LST-NM;
-        AIN29W.WS-MID-NAME = H2-2-FTT-PER.MID-NM;
-        SR-Q-SVES-REC.SVES-INPUT-INITIAL = AIN29W.WS-INITIAL;
-        SR-Q-SVES-REC.SVES-INPUT-GIVEN-NAME = H2-2-FTT-PER.FRST-NM;
-
-  /* ***********************************************************************/
-  /* MOVE DOB TO SERIAL RECORD*/
-  /* ***********************************************************************/
-  /* WI #27602 SEND '1899-01-01' TO SSA INSTEAD OF LOW/HIGH DATE SO RECORD*/
-  /* WILL BE RETURNED SUCCESSFULLY WITH A VERIFIED SSN.*/
-  /* ***********************************************************************/
-
-        if (H2-2-FTT-PER.DOB == "0001-01-01"
-         || H2-2-FTT-PER.DOB == "9999-12-31")
-
-          H2-2-FTT-PER.DOB = "1899-01-01";
-
-        end
-
-        AIN29W.WS-DATE = H2-2-FTT-PER.DOB;
-        SR-Q-SVES-REC.SVES-DOB-YR = AIN29W.WS-YR;
-        SR-Q-SVES-REC.SVES-DOB-MO = AIN29W.WS-MO;
-        SR-Q-SVES-REC.SVES-DOB-DY = AIN29W.WS-DY;
-        SR-Q-SVES-REC.SVES-DOB-CC = AIN29W.WS-YR1;
-
-  /* ***********************************************************************/
-  /* MOVE SEX CODE TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-        SR-Q-SVES-REC.SVES-INPUT-SEX = H2-2-FTT-PER.SEX-CD;
-
-  /* ***********************************************************************/
-  /* MOVE STATE AGENCY CODE AND REQUEST TYPE TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-        SR-Q-SVES-REC.SVES-INPUT-STA-AGY-CODE = "029";
-        SR-Q-SVES-REC.SVES-REQUEST-TYPE = "N";
-        SR-Q-SVES-REC.SVES-REQUEST-PROGRAM = "NM";
-
-  /* ***********************************************************************/
-  /* MOVE UPI, CASE-NUMBER, AND PERSON NUMBER TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-        AIN29W.WS-CASE-UPI = H2-2-FTT-PER.UPI;
-        SR-Q-SVES-REC.SVES-CASE-NUMBER = AIN29W.WS-CASE-NUMBER;
-        SR-Q-SVES-REC.SVES-PERSON-NR = "PP";
-
-  /* ***********************************************************************/
-  /* PERFORM PROCESS TO WRITE RECORD TO OUTPUT FILE.*/
-  /* ***********************************************************************/
-
-        AIN29P9-ADD-REC();
-  /* ***********************************************************************/
-  /* WI 1513  PERFORM PROCESS TO WRITE SSN LOG RECORD */
-  /* ***********************************************************************/
-        H2-SSN-LOG.SSN = H2-2-FTT-PER.SSN;
-        H2-SSN-LOG.UPI = H2-2-FTT-PER.UPI;
-		AIN29P9-SSN-LOG();
-		
-  /* ***********************************************************************/
-  /* IF ALSO REQUESTED BY IVD, PERFORM CASE TRACKING*/
-  /* ***********************************************************************/
-
-        if (AIN29W.WS-CHK-IVD-RQST == "Y")
-
-          AIN29W.WS-TRACK-LST-NM = H2-2-FTT-PER.LST-NM;
-          AIN29W.WS-TRACK-FRST-NM = H2-2-FTT-PER.FRST-NM;
-          AIN29W.WS-TRACK-MID-NM = H2-2-FTT-PER.MID-NM;
-          AIN29W.WS-TRACK-MODFR = H2-2-FTT-PER.MODFR;
-          AIN29W.WS-TRACK-SSN = H2-2-FTT-PER.SSN;
-
-          AIN29P9-CRT-CTP();
-
-        end
-      end
-
-  /* ***********************************************************************/
-  /* MOVE UPI TO SQL-RECORD INCLUDED IN THE WHERE CLAUSE OF SQL.*/
-  /* ***********************************************************************/
-
-      H2-ALTERNATE-SSN.UPI = H2-2-FTT-PER.UPI;
-
-  /* ************************************************************************/
-  /* PERFORM STANDARD DATABASE APPLICATION INITIALIZATION.*/
-  /* ************************************************************************/
-
-      WDB00PI();
-
-  /* ************************************************************************/
-  /* INITIALIZE COMMON DB-APPLICATION TYPE AND DB-APPLICATION NAME.*/
-  /* ************************************************************************/
-
-      VDBCONTROL.UACCTYP = "R";
-      VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO DECLARE CURSOR FOR TWNALTERNATE_SSN TABLE.*/
-  /* ************************************************************************/
-
-      AIN29P9-DLR-AS-CSR();
-
-      AIN29W.WS-AP-SQLCD = sysVar.sqlData.sqlcode;
-
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO FETCH RECORD FROM TWNALTERNATE_SSN TABLE*/
-  /* ************************************************************************/
-
-      while (AIN29W.WS-AP-SQLCD == 0)
-
-        AIN29P9-FCH-AS-CSR();
-
-        AIN29W.WS-AP-SQLCD = sysVar.sqlData.sqlcode;
-
-        if (AIN29W.WS-AP-SQLCD == 0)
-
-  /* ************************************************************************/
-  /* MOVE SQL-RECORD VALUES TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-          AIN29W.WS-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-
-          if (AIN29W.WS-SSN3 > "000")
-
-  /* ************************************************************************/
-  /* MOVE SSN TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-            SR-Q-SVES-REC.SVES-INPUT-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-
-  /* ************************************************************************/
-  /* MOVE NAME TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-            SR-Q-SVES-REC.SVES-INPUT-SURNAME = H2-2-FTT-PER.LST-NM;
-            AIN29W.WS-MID-NAME = H2-2-FTT-PER.MID-NM;
-            SR-Q-SVES-REC.SVES-INPUT-INITIAL = AIN29W.WS-INITIAL;
-            SR-Q-SVES-REC.SVES-INPUT-GIVEN-NAME = H2-2-FTT-PER.FRST-NM;
-
-  /* ************************************************************************/
-  /* MOVE DATE-OF-BIRTH TO SERIAL RECORD*/
-  /* ***********************************************************************/
-  /* WI #27602 SEND '1899-01-01' TO SSA INSTEAD OF LOW/HIGH DATE SO RECORD*/
-  /* WILL BE RETURNED SUCCESSFULLY WITH A VERIFIED SSN.*/
-  /* ***********************************************************************/
-
-            if (H2-2-FTT-PER.DOB == "0001-01-01"
-             || H2-2-FTT-PER.DOB == "9999-12-31")
-
-              H2-2-FTT-PER.DOB = "1899-01-01";
-
-            end
-
-
-            AIN29W.WS-DATE = H2-2-FTT-PER.DOB;
-            SR-Q-SVES-REC.SVES-DOB-YR = AIN29W.WS-YR;
-            SR-Q-SVES-REC.SVES-DOB-MO = AIN29W.WS-MO;
-            SR-Q-SVES-REC.SVES-DOB-DY = AIN29W.WS-DY;
-            SR-Q-SVES-REC.SVES-DOB-CC = AIN29W.WS-YR1;
-
-  /* ************************************************************************/
-  /* MOVE SEX CODE TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-            SR-Q-SVES-REC.SVES-INPUT-SEX = H2-2-FTT-PER.SEX-CD;
-
-  /* ************************************************************************/
-  /* MOVE STATE AGENCY CODE AND REQUEST TYPE TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-            SR-Q-SVES-REC.SVES-INPUT-STA-AGY-CODE = "029";
-            SR-Q-SVES-REC.SVES-REQUEST-TYPE = "N";
-            SR-Q-SVES-REC.SVES-REQUEST-PROGRAM = "NM";
-
-  /* ************************************************************************/
-  /* MOVE UPI, CASE NUMBER, AND PERSON NUMBER TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-            AIN29W.WS-CASE-UPI = H2-2-FTT-PER.UPI;
-            SR-Q-SVES-REC.SVES-CASE-NUMBER = AIN29W.WS-CASE-NUMBER;
-            SR-Q-SVES-REC.SVES-PERSON-NR = "AP";
-
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO WRITE RECORD TO OUTPUT FILE.*/
-  /* ************************************************************************/
-
-            AIN29P9-ADD-REC();
-  /* ************************************************************************/
-  /* EXECUTE PROCESS TO WRITE SSN LOG RECORD */
-  /* ************************************************************************/
-            H2-SSN-LOG.SSN = H2-ALTERNATE-SSN.ALT-SSN;
-            H2-SSN-LOG.UPI = H2-2-FTT-PER.UPI;
-            AIN29P9-SSN-LOG();
-
-  /* ************************************************************************/
-  /* IF ALSO REQUESTED BY IVD, DO CASE TRACKING*/
-  /* ************************************************************************/
-
-            if (AIN29W.WS-CHK-IVD-RQST == "Y")
-
-              AIN29W.WS-TRACK-LST-NM = H2-2-FTT-PER.LST-NM;
-              AIN29W.WS-TRACK-FRST-NM = H2-2-FTT-PER.FRST-NM;
-              AIN29W.WS-TRACK-MID-NM = H2-2-FTT-PER.MID-NM;
-              AIN29W.WS-TRACK-MODFR = H2-2-FTT-PER.MODFR;
-              AIN29W.WS-TRACK-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-
-              AIN29P9-CRT-CTP();
-
-            end
-          end
-        end
-      end
-
-  /* ************************************************************************/
-  /* SET/RESET VDB-COMMON RECORD FOR CURSOR PROCESS*/
-  /* ************************************************************************/
-
-  /* ************************************************************************/
-  /* (NRF - NO RECORD FOUND, DUP - DUPLICATE ROWS).*/
-  /* ************************************************************************/
-
-      VDBCOMMON.UNRF = "1";
-      VDBCOMMON.UDUP = "N";
-
-  /* ************************************************************************/
-  /* EXECUTE COMMON PROCESS TO SET VDBCONTROL.URC*/
-  /* ************************************************************************/
-
-      WDB00PE-SQLERR();
-
-      if (VDBCONTROL.URC > 104)
-
-        WCM00P2-TO-CEP01A();
-
-      end
-
-  /* ************************************************************************/
-  /* MOVE UPI TO FETCH ROW FROM TWNALTERNATE_NAME TABLE*/
-  /* ************************************************************************/
-
-      AIN29W.WS-UPI = H2-2-FTT-PER.UPI;
-
-  /* ************************************************************************/
-  /* MOVE UPI, SEX CODE AND DATE OF BIRTH RETRIEVED TO WORKING STORAGE*/
-  /* AS THESE ARE MOVED TO SERIAL RECORD IN GET-SSN-NAME PROCESS*/
-  /* WHICH IS COMMON TO BOTH IVA AND IVD PROCESSES.*/
-  /* ************************************************************************/
-
-      AIN29W.WS-CASE-UPI = H2-2-FTT-PER.UPI;
-      AIN29W.WS-SEX-CD = H2-2-FTT-PER.SEX-CD;
-      AIN29W.WS-DATE = H2-2-FTT-PER.DOB;
-      AIN29W.WS-TIMESTMP = H2-LCTE-ACTVY.INFO-RQSTD-TS;
-
-  /* ************************************************************************/
-  /* EXECUTE GET-ALTERNATE-SSN-NAME PROCESS*/
-  /* ************************************************************************/
-
-      AIN29P9-GET-SSN-NM();
-
-      if (AIN29W.WS-CHK-IVD-RQST == "Y")
-
-        H2-LCTE-ACTVY.UPI = AIN29W.WS-UPI;
-        H2-LCTE-ACTVY.LOC-SRC-CD = "NUMID";
-        H2-LCTE-ACTVY.CASE-SUFX = "A";
-        H2-LCTE-ACTVY.RQST-SQ-NMB = 1;
-        H2-LCTE-ACTVY.RQST-SENT-DT = "0001-01-01";
-        H2-LCTE-ACTVY.INFO-RQSTD-TS = AIN29W.WS-TIMESTMP;
-
-        AIN29P9-UPD-LCA();
-
-      end
-    end
-  end
-
-  /* ************************************************************************/
-  /* MOVE THE WORKING STORAGE COUNTER TO VDBCONTROL.UROWR (COMMON RCD)*/
-  /* ************************************************************************/
-
-  VDBCONTROL.UROWR = AIN29W.WS-UROWR-CUR1;
-
-  /* ************************************************************************/
-  /* SET/RESET VDB-COMMON RECORD FOR CURSOR PROCESS*/
-  /* ************************************************************************/
-
-  /* ************************************************************************/
-  /* (NRF - NO RECORD FOUND, DUP - DUPLICATE ROWS).*/
-  /* ************************************************************************/
-
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-
-  /* ************************************************************************/
-  /* EXECUTE COMMON PROCESS TO SET VDBCONTROL.URC*/
-  /* ************************************************************************/
-
-  WDB00PE-SQLERR();
-
-  if (VDBCONTROL.URC > 104)
-
-    WCM00P2-TO-CEP01A();
-
-  end
-
+  VDBCOMMON.USQLREC = "H2-NMDT-SSN-VRFDTL";
   /*  */
-end // end AIN29P9-IVA-RQ-DAT
-
-
-// GET IVD SSN TO BE SENT TO SSA
-Function AIN29P9-IVD-RQ-DAT()
-  /* CBSI START*/
+  /* ---------------CHANGES DUE TO PTR # 3100 BEGIN----------------*/
   /*  */
-  /* ***************************BEGIN COMMENT********************************/
-  /* Select all new cases and worker initiated request's requiring to be*/
-  /* sent out on this interface*/
-  /* ***************************END COMMENT********************************/
+  H2-NMDT-SSN-VRFDTL.PROCESS-DT = AIN30W.WS-PROC-DT;
   /*  */
-  /* Initialize SQL-row record's*/
-  set H2-2-LCA-PER empty;
-  set H2-FAM-TRGR-TBL empty;
-  // WI 1513
-  set H2-SSN-LOG empty;
-  /*  */
-  /* Move values which helps in retriving row from LCTE_ACTVY and PERSON.*/
-  /* Move 'NUMIDENT' to location source code*/
-  H2-2-LCA-PER.LOC-SRC-CD = "NUMID";
-  /* ******** CHANGES DUE TO PCF # 271 START ---------- **********/
-  H2-2-LCA-PER.RQST-SENT-DT = "0001-01-01";
-  /* ***/
-  /* ********* CHANGES DUE TO PCF # 271 END ----------***********/
-  H2-2-LCA-PER.CASE-SUFX = "A";
-  H2-2-LCA-PER.RQST-SQ-NMB = 1;
-  /*  */
-  /* Initialize row incrementor working storage variable WS-UROWR-CUR 1&2*/
-  /* This is done since vdbcontrol.urowr (common db control variable)*/
-  /* is initialized for before every cursor is opened which affects the*/
-  /* previosly opened cursor's.*/
-  AIN29W.WS-UROWR-CUR1 = 0;
-  AIN29W.WS-UROWR-CUR2 = 0;
-  /*  */
-  /* Perform standard database application initialization*/
-  WDB00PI();
-  /*  */
-  /* Initialize common DB-Application type and DB-Application Name.*/
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-  /*  */
-  /* Execute process which opens cursor for join of TWNLCTE_ACTVY  and*/
-  /* TWNPERSON table*/
-  AIN29P9-DLR-LC-CSR();
-  /*  */
-  AIN29W.WS-LCA-SQLCD = sysVar.sqlData.sqlcode;
-  /* If No Errors Occured*/
-  /*  */
-  while (AIN29W.WS-LCA-SQLCD == 0)
-  /*  */
-  /* Execute process which scans first row from cursor*/
-    AIN29P9-FCH-LC-CSR();
-  /*  */
-    AIN29W.WS-LCA-SQLCD = sysVar.sqlData.sqlcode;
-    if (AIN29W.WS-LCA-SQLCD == 0)
-      if (H2-2-LCA-PER.UPI != AIN29W.WS-PREV-UPI)
-  /*  */
-  /* *********START PTR 10957**********************/
-        H2-FAM-TRGR-TBL.UPI = H2-2-LCA-PER.UPI;
-        AIN29P9-FTT-INQ();
-        if (sysVar.sqlData.sqlcode == 100)
-
-          AIN29W.WS-CHK-IVD-RQST = "Y";
-      /* Execute SEND-NCP-PROCESS*/
-      /* Note that all are being sent,i.e. ncp, cst, chd*/
-          AIN29P9-SND-NCP-PC();
-        else
-          H2-LCTE-ACTVY.UPI = H2-2-LCA-PER.UPI;
-          H2-LCTE-ACTVY.LOC-SRC-CD = "NUMID";
-          H2-LCTE-ACTVY.CASE-SUFX = "A";
-          H2-LCTE-ACTVY.RQST-SQ-NMB = 1;
-          H2-LCTE-ACTVY.RQST-SENT-DT = "0001-01-01";
-          H2-LCTE-ACTVY.INFO-RQSTD-TS = H2-2-LCA-PER.INFO-RQSTD-TS;
-          AIN29P9-UPD-LCA();
-        end
-  /* *************END PTR 10957**********************/
-        AIN29W.WS-PREV-UPI = H2-2-LCA-PER.UPI;
-      end
-      /*  */
-    end
-  end
-  /*  */
-  /* Execute Common process to Set Vdbcontrol.urc*/
-  WDB00PE-SQLERR();
-  /*  */
-  /* Check For SQL Abends.*/
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end /* End of VDBCONTROL.URC > 104 If check.*/
-end // end AIN29P9-IVD-RQ-DAT
-
-
-// MAIN-PROCESS
-Function AIN29P9-MAIN-PROC()
-  /* CBSI START*/
-  /* This process stands as the MAIN process for AIN29A Application.*/
-  /* This process performs process to provide information to NUMIDENT to*/
-  /* get  SSN status of nomads persons.*/
-
-  /* **************** changes due to ptr 3106 begin *************************/
-
-  AIN29P9-INIT-PARA();
-
-  /* **************** changes due to ptr 3106 end  *************************/
-
-  /* Execute IVA-REQUEST-DATA-PROCESS*/
-  AIN29P9-IVA-RQ-DAT();
-  /*  */
-  /* Execute IVD-REQUEST-DATA-PROCESS*/
-  AIN29P9-IVD-RQ-DAT();
-  /*  */
-  /* Perform standard database application initialization*/
-  WDB00PI();
-  /*  */
-  /* Move Database action type and Database Application to DB-Common record*/
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-  /*  */
-  /* Execute DELETE-PARA (Delete on FAM_TRGR_TBL)*/
-  AIN29P9-DEL-PARA();
-
-  if (AIN29W.WS-DATA-EXISTS == "N")
-
-    VDBCONTROL.UPROC-OBJ = "SR-Q-SVES-REC";
-    VDBCONTROL.UPROC-NM = "AIN29P9-MAIN-PROC";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    VMESSAGE.UMSGINS[1] = " ";
-    VMESSAGE.UMSGINS[2] = "AIN29A";
-    VMESSAGE.UMSGCODE = "AIN3301E";
-    VDBCONTROL.UMSQLCODE = 0;
-    VMESSAGE.UMSGCODE-JCL-ERR = 8;
-
-    WCM00P2-TO-CEP01A();
-
-  end
-  /* AIN29A Application Ends here.*/
-  /* CBSI END*/
-end // end AIN29P9-MAIN-PROC
-
-
-// Read table DCC & SPT
-Function AIN29P9-S01-PROC()
-  /*  */
-  VDBCOMMON.USQLREC = "H2-2-DCC-SPT";
-  VDBCONTROL.UPROC-OBJ = "H2-2-DCC-SPT";
-  VDBCONTROL.UPROC-NM = "AIN29P9-S01-PROC";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  /* ---------------CHANGES DUE TO PTR # 3100 END------------------*/
   /*  */
   try
-    get H2-2-DCC-SPT
-      with #sql{
-        select T2.OFC_CD, T2.NOMADS_USRID
-        from twnivd_caseld_case T1,
-             twnsup_unt_pos_hst T2
-        WHERE T1.UPI = :UPI AND
-              T1.CASE_SUFX = 'A' AND
-              T1.OFC_CD = T2.OFC_CD AND
-              T1.PRGM_OFC_TYPE = T2.PRGM_OFC_TYPE AND
-              T1.SPRVS_UNIT = T2.SPRVS_UNIT AND
-              T1.PSN_NMB = T2.PSN_NMB AND
-              T1.CASELD_IND = 'N' AND
-              T2.ASMNT_BEG_DT BETWEEN
-                     '0001-01-01' AND :AIN29W2.WS-PROCESS-DT AND
-              T2.ASMNT_END_DT BETWEEN
-                     :AIN29W2.WS-PROCESS-DT AND '9999-12-31'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into OFC-CD, NOMADS-USRID ;
+    add H2-NMDT-SSN-VRFDTL ;
   end
   /*  */
-end // end AIN29P9-S01-PROC
-
-//WI 1513  Create SSN Log
-Function AIN29P9-SSN-LOG()
-
-    H2-SSN-LOG.NOMADS-USRID = "SYSTEM";  
-    H2-SSN-LOG.CALLING-PRGM = "AIN29A";
-    /* Add row into SSN LOG Audit Trail table...*/
-    AIN29P9-INS-SSNLOG-Q1();
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-	
-end	
-
-// SEND NCP PROCESS
-Function AIN29P9-SND-NCP-PC()
-  /* ************************************************************************/
-  /* THIS PROCESS WRITES A RECORD INTO THE SVES-OP-FILE IF THE CASE IS A*/
-  /* NEW CASE. IT IS INITIATED IF UPI IS NOT PRESENT IN THE TWNFAM_TRGR_TBL*/
-  /* ************************************************************************/
-
-  AIN29W.WS-SSN = H2-2-LCA-PER.SSN;
-
-  /* ************************************************************************/
-  /* MOVE SSN AND NAME TO SERIAL RECORD*/
-  /* ************************************************************************/
-
-  if ((AIN29W.WS-SSN3 > "000"))
-
-    SR-Q-SVES-REC.SVES-INPUT-SSN = H2-2-LCA-PER.SSN;
-    AIN29W.WS-SSN = H2-2-LCA-PER.SSN;
-    SR-Q-SVES-REC.SVES-INPUT-SURNAME = H2-2-LCA-PER.LST-NM;
-    AIN29W.WS-MID-NAME = H2-2-LCA-PER.MID-NM;
-    SR-Q-SVES-REC.SVES-INPUT-INITIAL = AIN29W.WS-INITIAL;
-    SR-Q-SVES-REC.SVES-INPUT-GIVEN-NAME = H2-2-LCA-PER.FRST-NM;
-
-  /* ************************************************************************/
-  /* MOVE DATE-OF-BIRTH TO SERIAL RECORD*/
-  /* ***********************************************************************/
-  /* WI #27602 SEND '1899-01-01' TO SSA INSTEAD OF LOW/HIGH DATE SO RECORD*/
-  /* WILL BE RETURNED SUCCESSFULLY WITH A VERIFIED SSN.*/
-  /* ***********************************************************************/
-
-    if (H2-2-LCA-PER.DOB == "0001-01-01"
-     || H2-2-LCA-PER.DOB == "9999-12-31")
-
-      H2-2-LCA-PER.DOB = "1899-01-01";
-
-    end
-
-
-    AIN29W.WS-DATE = H2-2-LCA-PER.DOB;
-    SR-Q-SVES-REC.SVES-DOB-YR = AIN29W.WS-YR;
-    SR-Q-SVES-REC.SVES-DOB-MO = AIN29W.WS-MO;
-    SR-Q-SVES-REC.SVES-DOB-DY = AIN29W.WS-DY;
-    SR-Q-SVES-REC.SVES-DOB-CC = AIN29W.WS-YR1;
-
-  /* ***********************************************************************/
-  /* MOVE SEX CODE, AGENCY CODE, REQUEST TYPE, UPI, CASE NUMBER AND*/
-  /* PERSON NUMBER TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-    SR-Q-SVES-REC.SVES-INPUT-SEX = H2-2-LCA-PER.SEX-CD;
-    SR-Q-SVES-REC.SVES-INPUT-STA-AGY-CODE = "029";
-    SR-Q-SVES-REC.SVES-REQUEST-PROGRAM = "NM";
-    SR-Q-SVES-REC.SVES-REQUEST-TYPE = "N";
-    AIN29W.WS-CASE-UPI = H2-2-LCA-PER.UPI;
-    SR-Q-SVES-REC.SVES-CASE-NUMBER = AIN29W.WS-CASE-NUMBER;
-    SR-Q-SVES-REC.SVES-PERSON-NR = "PP";
-
-  /* ***********************************************************************/
-  /* EXECUTE PROCESS TO WRITE TO SERIAL RECORD OUTPUT FILE*/
-  /* ***********************************************************************/
-
-    AIN29P9-ADD-REC();
-    
-  /* ************************************************************************/
-  /* WI 1513 EXECUTE PROCESS TO WRITE SSN LOG RECORD */
-  /* ************************************************************************/
-     H2-SSN-LOG.SSN = H2-2-LCA-PER.SSN;    
-     H2-SSN-LOG.UPI = H2-2-LCA-PER.UPI;     
-     AIN29P9-SSN-LOG();
-    
-
-    if (AIN29W.WS-CHK-IVD-RQST == "Y")
-
-      AIN29W.WS-TRACK-LST-NM = H2-2-LCA-PER.LST-NM;
-      AIN29W.WS-TRACK-MID-NM = H2-2-LCA-PER.MID-NM;
-      AIN29W.WS-TRACK-FRST-NM = H2-2-LCA-PER.FRST-NM;
-      AIN29W.WS-TRACK-MODFR = H2-2-LCA-PER.MODFR;
-      AIN29W.WS-TRACK-SSN = H2-2-LCA-PER.SSN;
-
-  /* ***********************************************************************/
-  /* GET NCP UPI FOR PARTICIPANT AND CREATE CASE TRACKING*/
-  /* ***********************************************************************/
-
-      AIN29P9-GET-NCPUPI();
-
-    end
-  end
-
-  /* ***********************************************************************/
-  /* POPULATE THE HOST VARIABLE FOR THE WHERE CLAUSE*/
-  /* ***********************************************************************/
-
-  H2-ALTERNATE-SSN.UPI = H2-2-LCA-PER.UPI;
-
-  /* ***********************************************************************/
-  /* PERFORM STANDARD DATABASE APPLICATION INITIALIZATION*/
-  /* ***********************************************************************/
-
-  WDB00PI();
-
-  /* ***********************************************************************/
-  /* INITIALIZE COMMON DB-APPLICATION TYPE AND DB-APPLICATION NAME.*/
-  /* ***********************************************************************/
-
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* ***********************************************************************/
-  /* EXECUTE PROCESS TO SET CURSOR FOR TWNALTERNATE_SSN TABLE*/
-  /* ***********************************************************************/
-
-  AIN29P9-DLR-AS-CSR();
-
-  AIN29W.WS-AP-SQLCD = sysVar.sqlData.sqlcode;
-
-  while (AIN29W.WS-AP-SQLCD == 0)
-
-  /* ***********************************************************************/
-  /* EXECUTE PROCESS TO FETCH FIRST ROW TWNALTERNATE_SSN CURSOR*/
-  /* ***********************************************************************/
-
-    AIN29P9-FCH-AS-CSR();
-
-    AIN29W.WS-AP-SQLCD = sysVar.sqlData.sqlcode;
-
-    if (AIN29W.WS-AP-SQLCD == 0)
-
-  /* ***********************************************************************/
-  /* MOVE SQL-RECORD VALUES TO SERIAL RECORD*/
-  /* MOVE SSN, NAME TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-      AIN29W.WS-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-
-      if ((AIN29W.WS-SSN3 > "000"))
-
-        SR-Q-SVES-REC.SVES-INPUT-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-        SR-Q-SVES-REC.SVES-INPUT-SURNAME = H2-2-LCA-PER.LST-NM;
-        AIN29W.WS-MID-NAME = H2-2-LCA-PER.MID-NM;
-        SR-Q-SVES-REC.SVES-INPUT-INITIAL = AIN29W.WS-INITIAL;
-        SR-Q-SVES-REC.SVES-INPUT-GIVEN-NAME = H2-2-LCA-PER.FRST-NM;
-
-  /* ***********************************************************************/
-  /* MOVE DATE-OF-BIRTH, SEX CODE, AND AGENCY CODE TO SERIAL RECORD*/
-  /* ***********************************************************************/
-
-  /* ***********************************************************************/
-  /* WI #27602 SEND '1899-01-01' TO SSA INSTEAD OF LOW/HIGH DATE SO RECORD*/
-  /* WILL BE RETURNED SUCCESSFULLY WITH A VERIFIED SSN.*/
-  /* ***********************************************************************/
-
-        if (H2-2-LCA-PER.DOB == "0001-01-01"
-         || H2-2-LCA-PER.DOB == "9999-12-31")
-
-          H2-2-FTT-PER.DOB = "1899-01-01";
-
-        end
-
-        AIN29W.WS-DATE = H2-2-LCA-PER.DOB;
-        SR-Q-SVES-REC.SVES-DOB-YR = AIN29W.WS-YR;
-        SR-Q-SVES-REC.SVES-DOB-MO = AIN29W.WS-MO;
-        SR-Q-SVES-REC.SVES-DOB-DY = AIN29W.WS-DY;
-        SR-Q-SVES-REC.SVES-DOB-CC = AIN29W.WS-YR1;
-        SR-Q-SVES-REC.SVES-INPUT-SEX = H2-2-LCA-PER.SEX-CD;
-        SR-Q-SVES-REC.SVES-INPUT-STA-AGY-CODE = "029";
-        SR-Q-SVES-REC.SVES-REQUEST-PROGRAM = "NM";
-
-  /* ***********************************************************************/
-  /* MOVE REQUEST TYPE, UPI, CASE NUMBER, AND PERSON NUMBER TO SERIAL REC*/
-  /* ***********************************************************************/
-
-        SR-Q-SVES-REC.SVES-REQUEST-TYPE = "N";
-        AIN29W.WS-CASE-UPI = H2-2-LCA-PER.UPI;
-        SR-Q-SVES-REC.SVES-CASE-NUMBER = AIN29W.WS-CASE-NUMBER;
-        SR-Q-SVES-REC.SVES-PERSON-NR = "AP"; /* PTR 7268*/
-
-  /* ***********************************************************************/
-  /* EXECUTE PROCESS TO WRITE INTO OUTPUT FILE*/
-  /* ***********************************************************************/
-
-        AIN29P9-ADD-REC();
-        
-   /* ************************************************************************/
-  /* WI 1513 EXECUTE PROCESS TO WRITE SSN LOG RECORD */ 
-  /* ************************************************************************/
-        H2-SSN-LOG.SSN = H2-ALTERNATE-SSN.ALT-SSN; 
-        H2-SSN-LOG.UPI = H2-2-LCA-PER.UPI;   
-        AIN29P9-SSN-LOG();
-        
-
-        if (AIN29W.WS-CHK-IVD-RQST == "Y")
-
-          AIN29W.WS-TRACK-LST-NM = H2-2-LCA-PER.LST-NM;
-          AIN29W.WS-TRACK-MID-NM = H2-2-LCA-PER.MID-NM;
-          AIN29W.WS-TRACK-FRST-NM = H2-2-LCA-PER.FRST-NM;
-          AIN29W.WS-TRACK-MODFR = H2-2-LCA-PER.MODFR;
-          AIN29W.WS-TRACK-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-
-  /* ***********************************************************************/
-  /* GET NCP UPI FOR PARTICIPANT AND CREATE CASE TRACKING*/
-  /* ***********************************************************************/
-
-          AIN29P9-GET-NCPUPI();
-        end
-      end
-    end
-  end
-
-  /* ***********************************************************************/
-  /* SET/RESET VDB-COMMON RECORD FOR CURSOR PROCESS*/
-  /* (NRF - No record found , DUP -duplicate rows).*/
-  /* ***********************************************************************/
-
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-
-  /* ***********************************************************************/
-  /* EXECUTE COMMON PROCESS TO SET VDBCONTROL.URC*/
-  /* ***********************************************************************/
-
-  WDB00PE-SQLERR();
-
-  if (VDBCONTROL.URC > 104)
-
-    WCM00P2-TO-CEP01A();
-
-  end /* End of VDBCONTROL.URC > 104 If check.*/
-
-  /* ***********************************************************************/
-  /* MOVE UPI TO FACILITATE RETRIEVAL OF RECS FROM ALTERNATIVE SSN & NAME*/
-  /* ***********************************************************************/
-
-  AIN29W.WS-UPI = H2-2-LCA-PER.UPI;
-
-  /* ***********************************************************************/
-  /* MOVE UPI, SEX CODE, AND DATE OF BIRTH RETRIEVED TO WORKING STORAGE*/
-  /* AS THESE ARE MOVED TO SERIAL RECORD IN GET-SSN-NAME PROCESS*/
-  /* WHICH IS COMMON TO BOTH IVA AND IVD PROCESS.*/
-  /* ***********************************************************************/
-
-  AIN29W.WS-CASE-UPI = H2-2-LCA-PER.UPI;
-  AIN29W.WS-SEX-CD = H2-2-LCA-PER.SEX-CD;
-  AIN29W.WS-DATE = H2-2-LCA-PER.DOB;
-
-  /* ***********************************************************************/
-  /* EXECUTE GET-ALTERNATE-SSN-NAME-PROCESS*/
-  /* ***********************************************************************/
-
-  AIN29P9-GET-SSN-NM();
-
-  AIN29W.WS-TIMESTMP = H2-2-LCA-PER.INFO-RQSTD-TS;
-
-  /* ************************************************************************/
-  /* UPDATE LOCATE ACTIVITY RQST-SENT-DT TO SIGNIFY THAT IT HAS BEEN SENT*/
-  /* ************************************************************************/
-
-  H2-LCTE-ACTVY.UPI = AIN29W.WS-UPI;
-  H2-LCTE-ACTVY.LOC-SRC-CD = "NUMID";
-  H2-LCTE-ACTVY.CASE-SUFX = "A";
-  H2-LCTE-ACTVY.RQST-SQ-NMB = 1;
-  H2-LCTE-ACTVY.RQST-SENT-DT = "0001-01-01";
-  H2-LCTE-ACTVY.INFO-RQSTD-TS = AIN29W.WS-TIMESTMP;
-
-  AIN29P9-UPD-LCA();
-  /*  */
-end // end AIN29P9-SND-NCP-PC
-
-
-// UPDATE LOCATE ACTIVITY
-Function AIN29P9-UPD-LCA()
-  /* UPDATE LOCATE ACTIVITY*/
-  WDB00PI();
-  AIN29P9-UPD-U01();
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /*  */
-end // end AIN29P9-UPD-LCA
-
-
-// UPDATE LOCATE ACTIVITY (SQL)
-Function AIN29P9-UPD-U01()
-  /* *** ----------- changes due to pcf 271 begin --------- ************/
-  VDBCONTROL.UPROC-NM = "AIN29P9-UPD-U01";
-  VDBCONTROL.UPROC-OBJ = "H2-LCTE-ACTVY";
-  VDBCONTROL.UPROC-OPT = "SQLEXEC";
-  VDBCOMMON.USQLREC = "H2-LCTE-ACTVY";
-  /* CALL DATEAPP GDW,VDBCONTROL,VMESSAGE (NOMAPS;*/
-  try
-    execute update 
-      #sql{
-         --
-        UPDATE
-          TWNLCTE_ACTVY T1
-        SET
-          RQST_SENT_DT= :AIN29W2.WS-PROCESS-DT
-        WHERE (RQST_SENT_DT = '0001-01-01' OR RQST_SENT_DT IS NULL)
-        AND INFO_RQSTD_TS = :INFO-RQSTD-TS
-        AND RQST_SQ_NMB = :RQST-SQ-NMB
-        AND LOC_SRC_CD = :LOC-SRC-CD
-        AND CASE_SUFX  = :CASE-SUFX
-        AND UPI        = :UPI
-         --
-      }
-      for H2-LCTE-ACTVY ; // model = update
-  end
   if (sysVar.sqlData.sqlcode == 0)
     VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
   end
-  /* *** ----------- changes due to pcf 271 end --------- ************/
-end // end AIN29P9-UPD-U01
+  /*  */
+end // end AIN30P9-I01-PROC
 
 
-// GET ncp_upi from cst_upi
-Function AIN29Q05-IDC()
+// Create Verified Names Record
+Function AIN30P9-I02-PROC()
   /*  */
-  /* NOMADS BEGIN*/
-  /*  */
-  /* -----------------------------------------------------------*/
-  /* Change History*/
-  /* ==============*/
-  /* DATE        NAME        DESCRIPTION*/
-  /* ----        -----       ----------*/
-  /* 28 Apr 1998   WNMAA       CREATION*/
-  /* -----------------------------------------------------------*/
-  /*  */
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* Move name of SQL row record used to common record*/
-  VDBCOMMON.USQLREC = "H2-IVD-CASE";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-  VDBCONTROL.UPROC-NM = "AIN29Q05-IDC";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCONTROL.UPROC-NM = "AIN30P9-I02-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-VRFD-NAMES";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  VDBCOMMON.USQLREC = "H2-VRFD-NAMES";
   /*  */
   try
-    open AIN29Q05-IDC_RSI01
+    add H2-VRFD-NAMES
       with #sql{
-        select NCP_UPI, case_sufx
-        from TWNIVD_CASE T1
-        WHERE CST_UPI          = :CST-UPI
-          AND NCP_UPI          > 0
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into NCP-UPI, CASE-SUFX
-      for H2-IVD-CASE ;
+        insert into TWNVRFD_NAMES
+        (UPI, ALT_SSN, AKA_MODFR, AKA_MID_NM, AKA_FRST_NM, AKA_LST_NM)
+        values (:UPI, :ALT-SSN,:AKA-MODFR, :AKA-MID-NM, :AKA-FRST-NM,
+            :AKA-LST-NM)
+      } ;
   end
   /*  */
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
+  end
   /*  */
-  /* NOMADS BEGIN*/
-  /*  */
-end // end AIN29Q05-IDC
+end // end AIN30P9-I02-PROC
 
 
-// GET CASE SUFIX
-Function AIN29Q05-IDC-SCAN()
+Function AIN30P9-I03-PROC()
+  try
+    add H2-ALTERNATE-SSN ;
+  end
+end // end AIN30P9-I03-PROC
+
+
+// INITIALISATION PROC
+Function AIN30P9-INIT-PROC()
+  /* CHANGE HISTORY*/
+  /* ---------------------------------------------*/
+  /* DATE           PGR          DESCRIPTION*/
+  /* -------------------------------------------*/
+  /* 01-27-95      TBST184        CREATION*/
+
+  /* CBSI START*/
+
+  set AIN30W empty;
+  set AIN30W1 empty;
+  SR-QCON-REC.AININT-CNT-NO-RECS = 0;
+  SR-QCON-REC.AININT-CNT-REC-PRO = 0;
+  SR-QCON-REC.AININT-CNT-REC-SKIP = 0;
+  /* PTR4782 BEGIN*/
+  AIN30W.WS-FIRST-TIME-FLAG = "T";
+  AIN30W.WS-PREV-SSN = " ";
+  /* PTR4782 END*/
+  /* IT IS ASSUMED THAT THE INPUT FILE IS BEING SORTED BY*/
+  /* A JCL EXTERNALLY.*/
+  /* CBSI END*/
+end // end AIN30P9-INIT-PROC
+
+
+// Create SSN Alert
+Function AIN30P9-IVA-S-ALRT()
+  /* ****************** WI 24604:WNMLS:2003-08-26 ***************************/
+  /* THIS PROCESS IS A CLONE OF AIN30P9-DOD-ALERT WITH SOME MODIFICATIONS.*/
+  /* WHEN THE ALERT 129008 ('PRIMARY SSN NOT VERIFIED') IS GENERATED,*/
+  /* A CLOG WILL BE CREATED TO NOTIFY THE WORKER OF THE SSN.*/
+  /* ************************************************************************/
+
+  set H2-3-CMH-FAC-SPT empty;
+  H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+  H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-PROC-DT;
+
+  AIN30P9-READ-S03X(); /* GET ALL ICI'S FOR THE UPI*/
   /*  */
-  /* NOMADS BEGIN*/
+  if (sysVar.sqlData.sqlcode == 0)
+    AIN30P9-SCAN-S03X();
+    if (sysVar.sqlData.sqlcode == 0)
+      while (sysVar.sqlData.sqlcode == 0)
+
+        AIN30P9-IVA-S-CLOG();
+
+        PCALINP.PAL-ALERT-CD = 129008;
+        PCALINP.PAL-UPI = H2-3-CMH-FAC-SPT.ICI;
+        PCALINP.PAL-ALERT-ACTION = "C";
+        call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+
+        AIN30P9-SCAN-S03X();
+      end /* WHILE*/
+
+    else
+      AIN30W.WS-CURR-DT = AIN30W.WS-PROC-DT;
+  /* 19228 start: example if ws-proc-dt = 1/30/99 date created*/
+  /* would have been 2/30/99 thus -181*/
+      if (AIN30W.WS-PROC-DT-DD > 28)
+        AIN30W.WS-CURR-DT-DD = 28;
+      end
+  /* 19228 end*/
+      AIN30W.WS-CURR-DT-MM = AIN30W.WS-CURR-DT-MM + 1;
+      if (AIN30W.WS-CURR-DT-MM == 13)
+        AIN30W.WS-CURR-DT-MM = 01;
+        AIN30W.WS-CURR-DT-CCYY = AIN30W.WS-CURR-DT-CCYY + 1;
+      end
+
+      set H2-3-CMH-FAC-SPT empty;
+      H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+      H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-CURR-DT;
+      H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-CURR-DT;
+      H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-CURR-DT;
   /*  */
-  /* -----------------------------------------------------------*/
-  /* Change History*/
-  /* ==============*/
-  /* DATE        NAME        DESCRIPTION*/
-  /* ----        -----       ----------*/
-  /* 28 Apr 1998   WNMAA       CREATION*/
-  /* -----------------------------------------------------------*/
+      AIN30P9-READ-S03X();
+      while (sysVar.sqlData.sqlcode == 0)
+        AIN30P9-SCAN-S03X();
+        if (sysVar.sqlData.sqlcode == 0)
+
+          AIN30P9-IVA-S-CLOG();
+
+          PCALINP.PAL-ALERT-CD = 129008;
+          PCALINP.PAL-UPI = H2-3-CMH-FAC-SPT.ICI;
+          PCALINP.PAL-ALERT-ACTION = "C";
+          call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
+          if (VDBCONTROL.URC > 104)
+            WCM00P2-TO-CEP01A();
+          end
+
+        end /* IF*/
+
+      end /* WHILE*/
+    end /* IF CURR-DT RECS*/
+  end /* IF PROC-DT RECS*/
+  /*  */
+end // end AIN30P9-IVA-S-ALRT
+
+
+// BUILD CLOG DATA
+Function AIN30P9-IVA-S-CLOG()
+  /* ****************** WI 24604:WNMLS:2003-08-26 ***************************/
+  /* WHEN ALERT 129008 IS GENERATED, 'PRIMARY SSN NOT VERIFIED',*/
+  /* A CLOG WILL BE CREATED TO NOTIFY THE WORKER OF THE SSN.*/
+  /* ************************************************************************/
+
+  set H2-CASE-LOG empty;
+  AIN30W.WS-SSN = " ";
+  AIN30W.WS-CLOG-TS = "0001-01-01-00.00.00.000000";
+  AIN30W.WS-CLOG-ACTVY-SSN-DESC = " ";
+
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  AIN30W.WS-CLOG-TS = GDW.TS;
+
+  H2-CASE-LOG.ICI = H2-3-CMH-FAC-SPT.ICI;
+  H2-CASE-LOG.PRGM-CASE-TYPE = "FS";
+  H2-CASE-LOG.LOG-ENTRY-TYPE = "S";
+  H2-CASE-LOG.WRKR-ID = H2-3-CMH-FAC-SPT.CASLD-ID;
+
+  H2-CASE-LOG.LOG-CRN-TS = AIN30W.WS-CLOG-TS;
+  H2-CASE-LOG.ACTVY-DT = AIN30W.WS-CLOG-DATE;
+  H2-CASE-LOG.ACTVY-TM = AIN30W.WS-CLOG-TIME;
+  AIN30W.WS-CLOG-ACTVY-SSN-TEXT = "PRIMARY SSN NOT VERIFIED - SSN IS ";
+
+  AIN30W.WS-SSN = H2-PERSON.SSN; /* FROM READ-S01*/
+  AIN30W.WS-CLOG-ACTVY-SSN-3 = AIN30W.WS-SSN-3;
+  AIN30W.WS-CLOG-ACTVY-SSN-FIL1 = " ";
+  AIN30W.WS-CLOG-ACTVY-SSN-2 = AIN30W.WS-SSN-2;
+  AIN30W.WS-CLOG-ACTVY-SSN-FIL2 = " ";
+  AIN30W.WS-CLOG-ACTVY-SSN-4 = AIN30W.WS-SSN-4;
+
+  H2-CASE-LOG.CL-ACTVY-DESC = AIN30W.WS-CLOG-ACTVY-SSN-DESC;
+  H2-CASE-LOG.LOG-ENTRY-DESC = AIN30W.WS-CLOG-ACTVY-SSN-DESC;
+
+  AIN30I1-INSRT-CLOG();
+end // end AIN30P9-IVA-S-CLOG
+
+
+// Build IVA Interface
+Function AIN30P9-IVABI-PROC()
+  /* -------------------------------------------------------*/
+  /* Build IVA Interface                                   */
+  /* -------------------------------------------------------*/
+  /*  */
+  /* IVA BUILD INTERFACE PROCESS*/
+  /* ************ CHANGES DUE TO RELEASE I SYSTEM TESTING ********/
+  /* *** THE TWNNMDT SSN VRFDTL IS READ TO DETERMINE IF A RECORD EXISTS*/
+  /* **** FOR THE SSN AND UPI. IF A RECORD EXISTS AND SSN STS IS VERIFIED*/
+  /* **** THEN NO PROCESSING NEEDS TO BE DONE*/
+
+  /* ** KEY SETTING*/
+
+  H2-NMDT-SSN-VRFDTL.UPI = SR-QSIF-REC.SVES-UPI;
+  H2-NMDT-SSN-VRFDTL.TEMP-SSN = SR-QSIF-REC.SVES-INPUT-SSN;
+  /* ** END KEY SETTING*/
+  WDB00PI();
+  /*  */
+  AIN30P9-READ-S06();
+  VDBCOMMON.UNRF = "Y";
+  /*  */
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+  if (VDBCONTROL.URC == 0)
+    if (H2-NMDT-SSN-VRFDTL.SSN-STS == "V")
+      return;
+    else
+  /*  */
+  /* --------------PTR# 2444 CHANGE BEGIN March 14, 1996--------------*/
+  /*  */
+      H2-NMDT-SSN-VRFDTL.SSN-STS = AIN30W.WS-CHECK-SSN-CD;
+  /*  */
+  /* --------------PTR# 2444 CHANGE END   March 14, 1996--------------*/
+  /*  */
+      WDB00PI();
+      /*  */
+      AIN30P9-UPD-U03();
+      VDBCOMMON.UNRF = "Y";
+      /*  */
+      WDB00PE-SQLERR();
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+    end
+  end
+  /*  */
+  set H2-NMDT-SSN-VRFDTL empty;
+  H2-NMDT-SSN-VRFDTL.UPI = SR-QSIF-REC.SVES-UPI;
+  /*  */
+  /* ---------------CHANGES DUE TO PTR # 3100 BEGIN----------------*/
+  /*  */
+  H2-NMDT-SSN-VRFDTL.PROCESS-DT = AIN30W.WS-PROC-DT;
+  /*  */
+  /* ---------------CHANGES DUE TO PTR # 3100 END------------------*/
+  /*  */
+  /* --------------PTR# 2444 CHANGE BEGIN March 14, 1996--------------*/
+  /*  */
+  H2-NMDT-SSN-VRFDTL.SSN-STS = AIN30W.WS-CHECK-SSN-CD;
+  /*  */
+  /* --------------PTR# 2444 CHANGE END   March 14, 1996--------------*/
+  /*  */
+  H2-NMDT-SSN-VRFDTL.TEMP-SSN = SR-QSIF-REC.SVES-INPUT-SSN;
+  /*  */
+  AIN30W.WS-DATE2 = SR-QSIF-REC.SVES-DATE-OF-BIRTH;
+  /* MOVE SR-QSIF-REC.SVES-DOB-MO TO AIN30W.WS-DOB-MO;*/
+  /* MOVE SR-QSIF-REC.SVES-DOB-DY TO AIN30W.WS-DOB-DY;*/
+  /* MOVE SR-QSIF-REC.SVES-DOB-YR TO AIN30W.WS-DOB-YR;*/
+  /*  */
+  /* Obtain the century part of DOB from the year value given*/
+  /*  */
+  /* IF AIN30W.WS-DOB-YR > '05';*/
+  /*  */
+  /* MOVE '19' TO AIN30W.WS-DOB-CC;*/
+  /* ELSE;*/
+  /*  */
+  /* MOVE '20' TO AIN30W.WS-DOB-CC;*/
+  /* D;*/
   /*  */
   WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIN30A";
+  AIN30P9-I01-PROC();
+  /*  */
+  VDBCOMMON.UDUP = "Y";
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+  /*  */
+  /* ********* CHANGES DUE TO RELEASE I SYSTEM TEST - END *******/
+  /*  */
+end // end AIN30P9-IVABI-PROC
 
-  /* Move name of SQL row record used to common record*/
-  VDBCOMMON.USQLREC = "H2-IVD-CASE";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-  VDBCONTROL.UPROC-NM = "AIN29Q05-IDC-SCAN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  /*  */
-  try
-    get next H2-IVD-CASE ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
+
+// Build IVA Discrepancy Report
+Function AIN30P9-IVADR-PROC()
+  /* ************************************************************************/
+  /* BUILD IVA DISCREPANCY REPORT*/
+  /* ************************************************************************/
+
+  set H2-3-CMH-FAC-SPT empty;
+
+  H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+  H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-PROC-DT;
+
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN30A";
+
+  AIN30P9-READ-S03();
+
   VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
 
   WDB00PE-SQLERR();
 
   if (VDBCONTROL.URC > 104)
+
+    WCM00P2-TO-CEP01A();
+
+  end
+
+  if (sysVar.sqlData.sqlcode == 0)
+
+    SR-Q01F-REC.AIN30A-01-OFC-CD = H2-3-CMH-FAC-SPT.OFC-CD;
+    SR-Q01F-REC.AIN30A-01-CASLD-ID = H2-3-CMH-FAC-SPT.CASLD-ID;
+    SR-Q01F-REC.AIN30A-01-NOMADS-USRID = H2-3-CMH-FAC-SPT.NOMADS-USRID;
+
+  else
+
+    H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+    AIN30W.WS-CURR-DT = AIN30W.WS-PROC-DT;
+
+    AIN30W.WS-CURR-DT-MM = AIN30W.WS-CURR-DT-MM + 1;
+
+    if (AIN30W.WS-PROC-DT-DD > 28)
+      AIN30W.WS-CURR-DT-DD = 28;
+
+    end
+
+    if (AIN30W.WS-CURR-DT-MM == 13)
+      AIN30W.WS-CURR-DT-MM = 01;
+
+      AIN30W.WS-CURR-DT-CCYY = AIN30W.WS-CURR-DT-CCYY + 1;
+
+    end
+
+    H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-CURR-DT;
+    H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-CURR-DT;
+    H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-CURR-DT;
+
+    WDB00PI();
+
+    VDBCONTROL.UACCTYP = "R";
+    VDBCOMMON.UAPPLNAM = "AIN30A";
+
+    AIN30P9-READ-S03();
+
+    VDBCOMMON.UNRF = "Y";
+
+    WDB00PE-SQLERR();
+
+    if (VDBCONTROL.URC > 104)
+
+      WCM00P2-TO-CEP01A();
+
+    end
+
+    if (sysVar.sqlData.sqlcode == 0)
+
+      SR-Q01F-REC.AIN30A-01-OFC-CD = H2-3-CMH-FAC-SPT.OFC-CD;
+      SR-Q01F-REC.AIN30A-01-CASLD-ID = H2-3-CMH-FAC-SPT.CASLD-ID;
+      SR-Q01F-REC.AIN30A-01-NOMADS-USRID = H2-3-CMH-FAC-SPT.NOMADS-USRID;
+
+    end
+  end
+
+  SR-Q01F-REC.AIN30A-01-LAST-NM = SR-QSIF-REC.SVES-INPUT-SURNAME;
+  SR-Q01F-REC.AIN30A-01-MD-INIT = SR-QSIF-REC.SVES-INPUT-INITIAL;
+  SR-Q01F-REC.AIN30A-01-FST-NM = SR-QSIF-REC.SVES-INPUT-GIVEN-NAME;
+  SR-Q01F-REC.AIN30A-01-PROCESS-DATE = AIN30W.WS-PROC-DT-F;
+  SR-Q01F-REC.AIN30A-01-SSN = SR-QSIF-REC.SVES-INPUT-SSN;
+
+  /* ***********************************************************************/
+  /* WI #27602 -*/
+  /* IF THE NUMIDENT VERF CODE = 3, 4, OR 5, THE DOB FOR TRACKING IS*/
+  /* TO BE PICKED FROM SVES-VERIFIED-SSN-DATA INSTEAD OF*/
+  /* SVES-DATE-OF-BIRTH. THE DATE OF BIRTH IS VERIFIED THEN MOVED BACK INTO*/
+  /* SR-QSIF-REC.SVES-DATE-OF-BIRTH.*/
+  /* ***********************************************************************/
+
+  if (((SR-QSIF-REC.SVES-VERIFICATION-CODE == "3"
+   || SR-QSIF-REC.SVES-VERIFICATION-CODE == "4"
+   || SR-QSIF-REC.SVES-VERIFICATION-CODE == "5")
+   && (SR-QSIF-REC.SVES-VERIFIED-SSN-DATA > " ")))
+
+    AIN30W2.WS-VAR11 = " ;CORRECTED DOB: ";
+
+    move SVES-VERIFIED-SSN-DATA to WS-NUMIDENT-VERF-3-DT withV60Compat;
+    SVES-DOB-MO = AIN30W.WS-NUMIDENT-DATE-MM;
+    SVES-DOB-DY = AIN30W.WS-NUMIDENT-DATE-DD;
+    SVES-DOB-YR = AIN30W.WS-NUMIDENT-DATE-YY;
+
+  end
+
+  AIN30W.WS-DATE2 = SR-QSIF-REC.SVES-DATE-OF-BIRTH;
+  SR-Q01F-REC.AIN30A-01-DOB = AIN30W.WS-DATE2;
+
+  /* ************************************************************************/
+  /* WI #27602 - MOVE 'SSNCODE' TO CODE_TBL_TYP TO RETRIEVE PROPER ERROR*/
+  /* MESSAGE. ALSO, MOVE SR-QSIF-REC.SVES-VERIFICATION-CODE*/
+  /* TO H-TCDTS1.CODE-TBL-CD SINCE AIN30W.WS-NOMADS-VERIF-CODE*/
+  /* IS NOT ALWAYS POPULATED.*/
+  /* ************************************************************************/
+
+  set H-TCDTS1 empty;
+
+  /* MOVE AIN30W.WS-NOMADS-VERIF-CODE TO H-TCDTS1.CODE-TBL-CD;*/
+  H-TCDTS1.CODE-TBL-CD = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+  H-TCDTS1.CODE-TBL-TYP = "SSNCODE";
+
+  call "TCDTS1A" (VDBCONTROL, VMESSAGE, H-TCDTS1) {isNoRefresh = yes};
+
+  if (VDBCONTROL.URC > 104)
+
+    WCM00P2-TO-CEP01A();
+
+  end
+
+  if (VDBCONTROL.URC == 0)
+
+    SR-Q01F-REC.AIN30A-01-CODE-DESC = H-TCDTS1.CODE-DESC;
+
+  end
+
+  /* ************************************************************************/
+  /* WI #27602 - MOVE SR-QSIF-REC.SVES-VERIFICATION-CODE TO*/
+  /* AIN30A-01-VERIFIED-CODE WHEN CODES ARE NOT PRESENT IN*/
+  /* AIN30W.WS-NOMADS-VERIF-CODE*/
+  /* ************************************************************************/
+
+  if (AIN30W.WS-NOMADS-VERIF-CODE == " ")
+
+    AIN30A-01-VERIFIED-CODE = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+
+  end
+
+  SR-Q01F-REC.AIN30A-02-DIS-VER = 0;
+  SR-Q01F-REC.AIN30A-02-DIS-PRO = 0;
+  SR-Q01F-REC.AIN30A-02-DIS-TOT = 0;
+  SR-Q01F-REC.AIN30A-03-SUM-VER = 0;
+  SR-Q01F-REC.AIN30A-03-SUM-PRO = 0;
+  SR-Q01F-REC.AIN30A-03-SUM-TOT = 0;
+
+  AIN30P9-ADD-01-REC();
+  /*  */
+end // end AIN30P9-IVADR-PROC
+
+
+// Build IVA Report
+Function AIN30P9-IVAR-PROC()
+  /*  */
+  set H2-3-CMH-FAC-SPT empty;
+  /*  */
+  H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+  H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-PROC-DT;
+  H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-PROC-DT;
+  /*  */
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN30A";
+  /*  */
+  AIN30P9-READ-S03();
+  VDBCOMMON.UNRF = "Y";
+  /*  */
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
     WCM00P2-TO-CEP01A();
   end
-
   /*  */
-  /* NOMADS BEGIN*/
-  /*  */
-end // end AIN29Q05-IDC-SCAN
-
-
-// GET ncp_upi from chd_upi
-Function AIN29Q06-DCC()
-  /*  */
-  /* NOMADS BEGIN*/
-  /*  */
-  /* -----------------------------------------------------------*/
-  /* Change History*/
-  /* ==============*/
-  /* DATE        NAME        DESCRIPTION*/
-  /* ----        -----       ----------*/
-  /* 28 Apr 1998   WNMAA       CREATION*/
-  /* -----------------------------------------------------------*/
-  /*  */
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* Move name of SQL row record used to common record*/
-  VDBCOMMON.USQLREC = "H2-IVD-CASE-CHILD";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE-CHILD";
-  VDBCONTROL.UPROC-NM = "AIN29Q06-DCC";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  /*  */
-  try
-    open AIN29Q06-DCC_RSI01
-      with #sql{
-        select NCP_UPI, CASE_SUFX
-        from TWNIVD_CASE_CHILD T1
-        WHERE CHD_UPI = :CHD-UPI
-          AND NCP_UPI > 0
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into NCP-UPI, CASE-SUFX
-      for H2-IVD-CASE-CHILD ;
-  end
-  /*  */
-  /*  */
-  /* NOMADS BEGIN*/
-  /*  */
-end // end AIN29Q06-DCC
-
-
-// GET NCP-UPI FROM CHILD UPI
-Function AIN29Q06-DCC-SCAN()
-  /*  */
-  /* NOMADS BEGIN*/
-  /*  */
-  /* -----------------------------------------------------------*/
-  /* Change History*/
-  /* ==============*/
-  /* DATE        NAME        DESCRIPTION*/
-  /* ----        -----       ----------*/
-  /* 28 Apr 1998   WNMAA       CREATION*/
-  /* -----------------------------------------------------------*/
-  /*  */
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN29A";
-
-  /* Move name of SQL row record used to common record*/
-  VDBCOMMON.USQLREC = "H2-IVD-CASE-CHILD";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE-CHILD";
-  VDBCONTROL.UPROC-NM = "AIN29Q06-DCC-SCAN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  /*  */
-  try
-    get next H2-IVD-CASE-CHILD ;
-  end
-  /*  */
-  /* Increment count of rows retrieved*/
   if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+    SR-Q04F-REC.AIN30A-04-OFC-CD = H2-3-CMH-FAC-SPT.OFC-CD;
+    SR-Q04F-REC.AIN30A-04-CASLD-ID = H2-3-CMH-FAC-SPT.CASLD-ID;
+    SR-Q04F-REC.AIN30A-04-NOMADS-USRID = H2-3-CMH-FAC-SPT.NOMADS-USRID;
+  /* ** Changes due to WI 15300 *** Begin*/
+  else
+    H2-3-CMH-FAC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+    AIN30W.WS-CURR-DT = AIN30W.WS-PROC-DT;
+    AIN30W.WS-CURR-DT-MM = AIN30W.WS-CURR-DT-MM + 1;
+  /* 19228 start: example if ws-proc-dt = 1/30/99 date created*/
+  /* would have been 2/30/99 thus -181*/
+    if (AIN30W.WS-PROC-DT-DD > 28)
+      AIN30W.WS-CURR-DT-DD = 28;
+    end
+  /* 19228 end*/
+    if (AIN30W.WS-CURR-DT-MM == 13)
+      AIN30W.WS-CURR-DT-MM = 01;
+      AIN30W.WS-CURR-DT-CCYY = AIN30W.WS-CURR-DT-CCYY + 1;
+    end
+    H2-3-CMH-FAC-SPT.PRD-BEG-DT = AIN30W.WS-CURR-DT;
+    H2-3-CMH-FAC-SPT.PRD-END-DT = AIN30W.WS-CURR-DT;
+    H2-3-CMH-FAC-SPT.ASMNT-BEG-DT = AIN30W.WS-CURR-DT;
+
+    WDB00PI();
+    VDBCONTROL.UACCTYP = "R";
+    VDBCOMMON.UAPPLNAM = "AIN30A";
+  /*  */
+    AIN30P9-READ-S03();
+    VDBCOMMON.UNRF = "Y";
+  /*  */
+    WDB00PE-SQLERR();
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
+    end
+
+    if (sysVar.sqlData.sqlcode == 0)
+      SR-Q04F-REC.AIN30A-04-OFC-CD = H2-3-CMH-FAC-SPT.OFC-CD;
+      SR-Q04F-REC.AIN30A-04-CASLD-ID = H2-3-CMH-FAC-SPT.CASLD-ID;
+      SR-Q04F-REC.AIN30A-04-NOMADS-USRID = H2-3-CMH-FAC-SPT.NOMADS-USRID;
+    end
+
+  /* ** Changes due to WI 15300 *** End*/
   end
+  SR-Q04F-REC.AIN30A-04-LAST-NM = SR-QSIF-REC.SVES-INPUT-SURNAME;
+  SR-Q04F-REC.AIN30A-04-MD-INIT = SR-QSIF-REC.SVES-INPUT-INITIAL;
+  SR-Q04F-REC.AIN30A-04-FST-NM = SR-QSIF-REC.SVES-INPUT-GIVEN-NAME;
+  SR-Q04F-REC.AIN30A-04-PROCESS-DATE = AIN30W.WS-PROC-DT-F;
+  SR-Q04F-REC.AIN30A-04-SSN = SR-QSIF-REC.SVES-INPUT-SSN;
+  SR-Q04F-REC.AIN30A-04-DOB = SR-QSIF-REC.SVES-DATE-OF-BIRTH;
+  SR-Q04F-REC.AIN30A-04-VERF-SSN-1 = SR-QSIF-REC.SVES-VERIFIED-SSN[1];
+  SR-Q04F-REC.AIN30A-04-VERF-SSN-2 = SR-QSIF-REC.SVES-VERIFIED-SSN[2];
+  SR-Q04F-REC.AIN30A-04-VERF-SSN-3 = SR-QSIF-REC.SVES-VERIFIED-SSN[3];
+  SR-Q04F-REC.AIN30A-04-VERF-SSN-4 = SR-QSIF-REC.SVES-VERIFIED-SSN[4];
+  SR-Q04F-REC.AIN30A-04-VERF-SSN-5 = SR-QSIF-REC.SVES-VERIFIED-SSN[5];
+  SR-Q04F-REC.AIN30A-05-DIS-TOT = 0;
+  SR-Q04F-REC.AIN30A-06-SUM-TOT = 0;
+    /*  */
+  AIN30P9-ADD-04-REC();
+  /*  */
+end // end AIN30P9-IVAR-PROC
+
+
+// Create IVD Alerts
+Function AIN30P9-IVD-ALERT()
+  /* -------------------------------------------------------*/
+  /* Create IVD Alerts if the SSN is not verified          */
+  /* -------------------------------------------------------*/
+  /*  */
+  set AIN30W1 empty;
+  PCALINP.PAL-ALERT-CD = 320086;
+  PCALINP.PAL-UPI = SR-QSIF-REC.SVES-UPI;
+  PCALINP.PAL-ALERT-ACTION = "C";
+  /*  */
+  call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+  /*  */
+end // end AIN30P9-IVD-ALERT
+
+
+// Build IVD Discrepancy Report
+Function AIN30P9-IVDDR-PROC()
+  /* ************************************************************************/
+  /* BUILD IVD DISCREPANCY REPORT*/
+  /* ************************************************************************/
+
+  set H2-2-DCC-SPT empty;
+
+  H2-2-DCC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+  H2-2-DCC-SPT.CASELD-IND = "N";
+
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN30A";
+
+  AIN30P9-SETINQ-S04();
+
+  if (sysVar.sqlData.sqlcode == 0)
+
+    SR-Q01F-REC.AIN30A-01-OFC-CD = H2-2-DCC-SPT.OFC-CD;
+    SR-Q01F-REC.AIN30A-01-CASLD-ID = H2-2-DCC-SPT.CASLD-ID;
+    SR-Q01F-REC.AIN30A-01-NOMADS-USRID = H2-2-DCC-SPT.NOMADS-USRID;
+    SR-Q01F-REC.AIN30A-01-LAST-NM = SR-QSIF-REC.SVES-INPUT-SURNAME;
+    SR-Q01F-REC.AIN30A-01-MD-INIT = SR-QSIF-REC.SVES-INPUT-INITIAL;
+    SR-Q01F-REC.AIN30A-01-FST-NM = SR-QSIF-REC.SVES-INPUT-GIVEN-NAME;
+    SR-Q01F-REC.AIN30A-01-PROCESS-DATE = AIN30W.WS-PROC-DT-F;
+    SR-Q01F-REC.AIN30A-01-SSN = SR-QSIF-REC.SVES-INPUT-SSN;
+
+  /* ***********************************************************************/
+  /* WI #27602 -*/
+  /* IF THE NUMIDENT VERF CODE = 3, 4, OR 5, THE DOB FOR TRACKING IS*/
+  /* TO BE PICKED FROM SVES-VERIFIED-SSN-DATA INSTEAD OF*/
+  /* SVES-DATE-OF-BIRTH. THE DATE OF BIRTH IS VERIFIED THEN MOVED BACK INTO*/
+  /* SR-QSIF-REC.SVES-DATE-OF-BIRTH.*/
+  /* ***********************************************************************/
+
+    if (((SR-QSIF-REC.SVES-VERIFICATION-CODE == "3"
+     || SR-QSIF-REC.SVES-VERIFICATION-CODE == "4"
+     || SR-QSIF-REC.SVES-VERIFICATION-CODE == "5")
+     && (SR-QSIF-REC.SVES-VERIFIED-SSN-DATA > " ")))
+
+      AIN30W2.WS-VAR11 = " ;CORRECTED DOB: ";
+
+      move SVES-VERIFIED-SSN-DATA to WS-NUMIDENT-VERF-3-DT withV60Compat;
+      SVES-DOB-MO = AIN30W.WS-NUMIDENT-DATE-MM;
+      SVES-DOB-DY = AIN30W.WS-NUMIDENT-DATE-DD;
+      SVES-DOB-YR = AIN30W.WS-NUMIDENT-DATE-YY;
+
+    end
+
+    AIN30W.WS-DATE2 = SR-QSIF-REC.SVES-DATE-OF-BIRTH;
+
+    SR-Q01F-REC.AIN30A-01-DOB = AIN30W.WS-DATE2;
+
+  /* ************************************************************************/
+  /* WI #27602 - MOVE 'SSNCODE' TO CODE_TBL_TYP TO RETRIEVE PROPER ERROR*/
+  /* MESSAGE. ALSO, MOVE SR-QSIF-REC.SVES-VERIFICATION-CODE*/
+  /* TO H-TCDTS1.CODE-TBL-CD SINCE AIN30W.WS-NOMADS-VERIF-CODE*/
+  /* IS NOT ALWAYS POPULATED.*/
+  /* ************************************************************************/
+
+    set H-TCDTS1 empty;
+
+  /* MOVE AIN30W.WS-NOMADS-VERIF-CODE TO H-TCDTS1.CODE-TBL-CD;*/
+    H-TCDTS1.CODE-TBL-CD = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+    H-TCDTS1.CODE-TBL-TYP = "SSNCODE";
+
+    call "TCDTS1A" (VDBCONTROL, VMESSAGE, H-TCDTS1) {isNoRefresh = yes};
+
+    if (VDBCONTROL.URC > 104)
+
+      WCM00P2-TO-CEP01A();
+
+    end
+
+    SR-Q01F-REC.AIN30A-01-CODE-DESC = H-TCDTS1.CODE-DESC;
+
+  /* ************************************************************************/
+  /* WI #27602 - MOVE SR-QSIF-REC.SVES-VERIFICATION-CODE TO*/
+  /* AIN30A-01-VERIFIED-CODE WHEN CODES ARE NOT PRESENT IN*/
+  /* AIN30W.WS-NOMADS-VERIF-CODE*/
+  /* ************************************************************************/
+
+    if (AIN30W.WS-NOMADS-VERIF-CODE == " ")
+
+      AIN30A-01-VERIFIED-CODE = SR-QSIF-REC.SVES-VERIFICATION-CODE;
+
+    end
+
+    SR-Q01F-REC.AIN30A-02-DIS-VER = 0;
+    SR-Q01F-REC.AIN30A-02-DIS-PRO = 0;
+    SR-Q01F-REC.AIN30A-02-DIS-TOT = 0;
+    SR-Q01F-REC.AIN30A-03-SUM-VER = 0;
+    SR-Q01F-REC.AIN30A-03-SUM-PRO = 0;
+    SR-Q01F-REC.AIN30A-03-SUM-TOT = 0;
+
+    AIN30P9-ADD-01-REC();
+
+  end
+
   VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
 
   WDB00PE-SQLERR();
 
   if (VDBCONTROL.URC > 104)
+
     WCM00P2-TO-CEP01A();
+
   end
 
   /*  */
-  /* NOMADS BEGIN*/
+end // end AIN30P9-IVDDR-PROC
+
+
+// Build IVD Report
+Function AIN30P9-IVDR-PROC()
   /*  */
-end // end AIN29Q06-DCC-SCAN
+  set H2-2-DCC-SPT empty;
+  H2-2-DCC-SPT.UPI = SR-QSIF-REC.SVES-UPI;
+  H2-2-DCC-SPT.CASELD-IND = "N";
+  /*  */
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN30A";
+  AIN30P9-SETINQ-S04();
+  /*  */
+  if (sysVar.sqlData.sqlcode == 0)
+    SR-Q04F-REC.AIN30A-04-OFC-CD = H2-2-DCC-SPT.OFC-CD;
+    SR-Q04F-REC.AIN30A-04-CASLD-ID = H2-2-DCC-SPT.CASLD-ID;
+    SR-Q04F-REC.AIN30A-04-NOMADS-USRID = H2-2-DCC-SPT.NOMADS-USRID;
+    SR-Q04F-REC.AIN30A-04-LAST-NM = SR-QSIF-REC.SVES-INPUT-SURNAME;
+    SR-Q04F-REC.AIN30A-04-MD-INIT = SR-QSIF-REC.SVES-INPUT-INITIAL;
+    SR-Q04F-REC.AIN30A-04-FST-NM = SR-QSIF-REC.SVES-INPUT-GIVEN-NAME;
+  /*  */
+  /* ---------------CHANGES DUE TO PTR # 3100 BEGIN----------------*/
+  /*  */
+    SR-Q04F-REC.AIN30A-04-PROCESS-DATE = AIN30W.WS-PROC-DT-F;
+  /*  */
+  /* ---------------CHANGES DUE TO PTR # 3100 END------------------*/
+  /*  */
+    SR-Q04F-REC.AIN30A-04-SSN = SR-QSIF-REC.SVES-INPUT-SSN;
+    SR-Q04F-REC.AIN30A-04-DOB = SR-QSIF-REC.SVES-DATE-OF-BIRTH;
+    SR-Q04F-REC.AIN30A-04-VERF-SSN-1 = SR-QSIF-REC.SVES-VERIFIED-SSN[1];
+    SR-Q04F-REC.AIN30A-04-VERF-SSN-2 = SR-QSIF-REC.SVES-VERIFIED-SSN[2];
+    SR-Q04F-REC.AIN30A-04-VERF-SSN-3 = SR-QSIF-REC.SVES-VERIFIED-SSN[3];
+    SR-Q04F-REC.AIN30A-04-VERF-SSN-4 = SR-QSIF-REC.SVES-VERIFIED-SSN[4];
+    SR-Q04F-REC.AIN30A-04-VERF-SSN-5 = SR-QSIF-REC.SVES-VERIFIED-SSN[5];
+    SR-Q04F-REC.AIN30A-05-DIS-TOT = 0;
+    SR-Q04F-REC.AIN30A-06-SUM-TOT = 0;
+    /*  */
+    AIN30P9-ADD-04-REC();
+  end
+  VDBCOMMON.UNRF = "Y";
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+  /*  */
+end // end AIN30P9-IVDR-PROC
 
 
-Record AIN29W type basicRecord
-  5 WS-DATE char(10) ; 
-    10 WS-YR1 char(2) ; 
-    10 WS-YR char(2) ; 
-    10 WS-FIL1 char(1) ; 
-    10 WS-MO char(2) ; 
-    10 WS-FIL2 char(1) ; 
-    10 WS-DY char(2) ; 
-  5 WS-UPI int ; 
-  5 WS-SSN char(9) ; 
-    10 WS-SSN3 char(3) ; 
-    10 WS-SSN2 char(2) ; 
-    10 WS-SSN4 char(4) ; 
-  5 WS-COUNT int ; 
-  5 WS-CHK-IVD-RQST char(1) ; 
-  5 WS-TIMESTMP char(26) ; 
-  5 WS-SEX-CD char(1) ; 
-  5 WS-MID-NAME char(16) ; 
-    10 WS-INITIAL char(1) ; 
-    10 * char(15) ; 
-  5 WS-CASE-NUMBER char(10) ; 
-    10 WS-CASE-UPI num(10) ; 
-  5 WS-UROWR-CUR1 num(4) ; 
-  5 WS-UROWR-CUR2 num(4) ; 
-  5 WS-UROWR-CUR3 num(4) ; 
-  5 WS-TRACK-INFO char(600) ; 
-    10 WS-TRACK-TEXT char(60) ; 
-    10 WS-TRACK-LST-NM char(21) ; 
-    10 WS-TRACK-FRST-NM char(16) ; 
-    10 WS-TRACK-MID-NM char(16) ; 
-    10 WS-TRACK-MODFR char(3) ; 
-    10 WS-TRACK-SSN char(9) ; 
-    10 FILLER char(475) ; 
-  5 WS-PP-SQLCD smallint ; 
-  5 WS-AP-SQLCD smallint ; 
-  5 WS-PA-SQLCD smallint ; 
-  5 WS-AA-SQLCD smallint ; 
-  5 WS-LCA-SQLCD smallint ; 
-  5 WS-PREV-UPI int ; 
-  5 WS-ERR-CD char(8) ; 
-    10 WS-ERR-FIRST-FOUR char(4) ; 
-    10 WS-ERR-LAST-FOUR char(4) ; 
-  5 WS-DATA-EXISTS char(1) ; 
-end // end AIN29W
+// MAIN PROCEDURE
+Function AIN30P9-MAIN-PROC()
+  /*  */
+  VGVar.handleHardIOErrors = 1;
+  AIN30P9-INIT-PROC();
+  /*  */
+  /* PTR 4782 BEGIN*/
+  /* it is essential to read all the records for a given SSN before*/
+  /* determining the value of the SSN status that needs to be updated.*/
+  /* The structure of the program is therefore altered.*/
+  /*  */
+  /* ---------------CHANGES DUE TO PTR # 3100 BEGIN----------------*/
+  /*  */
+  /* PERFORM THE COMMON PROCESS, WHICH WILL GET THE COMMON DATES USED*/
+  /* IN BATCH PROCESS FROM BDATPARM FILE.*/
+  /*  */
+  WCM00P3-FETCHBDTS();
+  /*  */
+  AIN30W.WS-PROC-DT-CC = BDATEREC.BDATE-PROCESS-DATE-CC;
+  AIN30W.WS-PROC-DT-YY = BDATEREC.BDATE-PROCESS-DATE-YY;
+  AIN30W.WS-PROC-DT-MM = BDATEREC.BDATE-PROCESS-DATE-MM;
+  AIN30W.WS-PROC-DT-DD = BDATEREC.BDATE-PROCESS-DATE-DD;
+  AIN30W.WS-PROC-DT-SEP-1 = "-";
+  AIN30W.WS-PROC-DT-SEP-2 = "-";
+  AIN30W.WS-PROC-DT-F-DD = AIN30W.WS-PROC-DT-DD;
+  AIN30W.WS-PROC-DT-F-MM = AIN30W.WS-PROC-DT-MM;
+  AIN30W.WS-PROC-DT-F-CC = AIN30W.WS-PROC-DT-CC;
+  AIN30W.WS-PROC-DT-F-YY = AIN30W.WS-PROC-DT-YY;
+  /*  */
+  /* ---------------CHANGES DUE TO PTR # 3100 BEGIN----------------*/
+  /*  */
+  AIN30P9-READ-SIF();
+  /*  */
+  while (sysVar.errorCode == "00000000")
+
+    SR-QCON-REC.AININT-CNT-NO-RECS = SR-QCON-REC.AININT-CNT-NO-RECS + 1;
+    if (AIN30W.WS-VERIFY-FG == "Y")
+
+  /* ******************** WI 21295:WNMLS:2002-08-16 START *******************/
+  /* WHEN SR-QSIF-REC.SVES-VERIFICATION-CODE = 'X', A CLOG AND AN ALERT*/
+  /* WILL BE CREATED TO NOTIFY THE WORKER OF THE DATE OF DEATH.*/
+  /* NO ROW WILL BE WRITTEN TO THE REPORT.  THE SSN-VRFN-STS-CD COLUMN*/
+  /* IN TWNPERSON WILL BE UPDATED WITH 'X'. THE SSN-SRC-CD COLUMN IN*/
+  /* TWNPERSON WILL BE UPDATED WITH 'SSA'.*/
+  /* ************************************************************************/
+      if (SR-QSIF-REC.SVES-VERIFICATION-CODE == "X")
+        AIN30P9-DOD-ALERT(); /* ALERTS, U01(UPD VERIF-CD), DOD-CLOG*/
+      else
+  /* ******************** WI 21295:WNMLS:2002-08-16 END *********************/
+        AIN30P9-PROCESS();
+      end
+  /*  */
+  /* CHANGES DUE TO PTR 14878 *** BEGIN ****/
+  /* IF THE PARTICIPANT IS NOT KNOWN TO NOMADS , INCREMENT THE SKIP*/
+  /* COUNTER BY 1*/
+  /*  */
+    else
+      SR-QCON-REC.AININT-CNT-REC-SKIP = SR-QCON-REC.AININT-CNT-REC-SKIP + 1;
+  /*  */
+  /* CHANGES DUE TO PTR 14878 *** END ****/
+  /*  */
+    end
+    AIN30P9-READ-SIF();
+    set SR-Q01F-REC empty;
+  /* SET SR-Q04F-REC EMPTY;*/
+  end
+  if (sysVar.errorCode == "00000102")
+    AIN30P9-PROC-UPD();
+  end
+  /* PTR 4782 END*/
+  /*  */
+  AIN30P9-ADDCON-REC();
+  /*  */
+  if (SR-QCON-REC.AININT-CNT-REC-SKIP > 0)
+
+    VMESSAGE.UMSGCODE = "AIN2701E";
+    VMESSAGE.UMSGINS[2] = "AIN30A";
+    VDBCONTROL.UPROC-NM = "AIN27P9-MAIN-PROC";
+    VDBCONTROL.UPROC-OPT = "EXECUTE";
+    VDBCONTROL.UPROC-OBJ = "SR-QSIF-REC";
+    VMESSAGE.UMSGCODE-JCL-ERR = 4;
+  /* MOVE 'SOME RECORDS WERE SKIPPED FROM INPUT DATA'*/
+  /* TO VDBCONTROL.UEZESQRRM;*/
+
+    VMESSAGE.UMSGINS[1] = " ";
+    VDBCONTROL.UMSQLCODE = 0;
+
+    WCM00P2-TO-CEP01A();
+
+  end
+  if (SR-QCON-REC.AININT-CNT-NO-RECS == 0)
+
+    VMESSAGE.UMSGCODE = "ARX0103E";
+    VMESSAGE.UMSGINS[2] = "AIN30A";
+    VDBCONTROL.UPROC-NM = "AIN30P9-MAIN-PROC";
+    VDBCONTROL.UPROC-OPT = "EXECUTE";
+    VDBCONTROL.UPROC-OBJ = "SR-QSIF-REC";
+    VMESSAGE.UMSGCODE-JCL-ERR = 8;
+  /* MOVE 'SOME RECORDS WERE SKIPPED FROM INPUT DATA'*/
+  /* TO VDBCONTROL.UEZESQRRM;*/
+
+    VMESSAGE.UMSGINS[1] = " ";
+    VDBCONTROL.UMSQLCODE = 0;
+
+    WCM00P2-TO-CEP01A();
+
+  end
+  VGVar.handleSysLibraryErrors = 0;
+  sysLib.commit();
+  /*  */
+end // end AIN30P9-MAIN-PROC
 
 
-Record AIN29W2 type basicRecord
-  10 WS-CRTD-TS char(26) ; 
-    15 WS-CRTD-DT char(10) ; 
-      20 WS-CRTD-DT-CCYY char(4) ; 
-        25 WS-CRTD-DT-CC char(2) ; 
-        25 WS-CRTD-DT-YY char(2) ; 
-      20 WS-CRTD-DT-SEP-1 char(1) ; 
-      20 WS-CRTD-DT-MM char(2) ; 
-      20 WS-CRTD-DT-SEP-2 char(1) ; 
-      20 WS-CRTD-DT-DD char(2) ; 
-    15 WS-TIME-STAMP char(16) ; 
-  10 WS-PROCESS-DT char(10) ; 
-    15 WS-PROC-DT-CCYY char(4) ; 
-      20 WS-PROC-DT-CC char(2) ; 
-      20 WS-PROC-DT-YY char(2) ; 
-    15 WS-PROC-DT-SEP-1 char(1) ; 
-    15 WS-PROC-DT-MM char(2) ; 
-    15 WS-PROC-DT-SEP-2 char(1) ; 
-    15 WS-PROC-DT-DD char(2) ; 
-end // end AIN29W2
+// PROCESS DATA
+Function AIN30P9-PROC-DATA()
+  /* CREATED DUE TO PTR 4782*/
+  /* BEGIN*/
+  /* CHANGES DUE TO PTR 2444 BEGIN*/
+  /* for each record read the verification code received from interface*/
+  /* is converted to verification codes known to NOMADS. If the converted*/
+  /* code is not known to NOMADS, the verification code is written into the*/
+  /* NUMIDENT discrepancy report*/
+  /*  */
+  AIN30P9-CON-VER-CD();
+  if (AIN30W.WS-KNOWN-TO-NOMADS-CODE == "N")
+    SR-QCON-REC.AININT-CNT-REC-SKIP = SR-QCON-REC.AININT-CNT-REC-SKIP + 1;
+    return;
+  end
+  SR-QCON-REC.AININT-CNT-REC-PRO = SR-QCON-REC.AININT-CNT-REC-PRO + 1;
 
+  AIN30P9-CHK-SSN-HR();
+  /*  */
+  /* AS PER PTR# 9660 UPDATE IS DONE IN TWNLCTE_ACTVY*/
+  /* FOR ALL UPI*/
+  /*  */
+  set H2-PERSON empty;
+  H2-PERSON.UPI = SR-QSIF-REC.SVES-UPI;
+  AIN30P9-READ-S01();
+  /*  */
+  /* WI 22199 begin*/
+  /* Initialize Create-Alert-Flag.  Flag can be set in P9-CRE-CSETRK,*/
+  /* and is checked before performing P9-CP-PROC to create IV-D alert*/
+  /*  */
+  AIN30W.WS-CRE-ALERT-FG = "Y";
+  /* WI 22199 end*/
+  if (H2-PERSON.NCP-FG == "Y" || 
+  H2-PERSON.CST-FG == "Y" || 
+  H2-PERSON.CHD-FG == "Y")
+    AIN30P9-UPD-LOCATE();
+  /* get the ncp-upi for the given IV-D case member and create tracking*/
+  /* for that person*/
+    AIN30P9-GET-NCPUPI();
+
+  /* fcr triggers are created here if alt-ssn is added per wi13442*/
+    if (AIN30W.WS-ALT-SSN-FLG == "Y")
+      AIN30P9-ALTSSN-CHG();
+    end
+  /* fcr triggers are created here if alt-ssn is added per wi13442*/
+  end
+  /*  */
+  if (SR-QSIF-REC.SVES-PERSON-NR == "PP")
+    if (AIN30W.WS-NOMADS-VERIF-CODE != "V")
+  /* WI 22199 begin*/
+  /* Don't create IV-D alert if flag is set to 'N'*/
+      if (AIN30W.WS-CRE-ALERT-FG == "Y")
+  /* WI 22199 end*/
+  /*  */
+  /* depending on whether the person is in IV-A or IV-D, either the IV-A or*/
+  /* the iv-d worker is alerted, if the ssn is not verified*/
+  /*  */
+        AIN30P9-CP-PROC();
+      end
+    end
+  else
+    if (AIN30W.WS-NOMADS-VERIF-CODE == "V")
+      AIN30P9-WVN-PROC();
+    end
+  end
+  /* PTR 2444 END*/
+  /* END*/
+  /* PTR 4782 END*/
+end // end AIN30P9-PROC-DATA
