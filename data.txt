@@ -2,31 +2,17 @@ package IVA_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=AIF31A ****
-// This Application reads a flat input file AIF31A.INPUT
-// An AIF31A.INPUT row contains the following
-// Field Description     Size Type Location
-// MEDICAID BILLING NUMBER 11 Char 01-11
-// FROM YYYYMM             06 Char 12-17
-// TO YYYYMM               06 Char 18-23
-// CASE/DEMO FLAG          01 Char 24
-// EVM, EVR &PER are perused to determine validity of the MED#
-// and case eligibility between the FROM/TO dates (Inclusive)
-// When discrepancies are found, they are reported in flat
-// output file AIF31A.OUTPUT.  Valid MED# and dates are
-// put on the TWNMMIS.TRIGGER file for processing and passing
-// eligibility details to MMIS.  The CASE/DEMO details will be
-// generated as well if AIF31A.INPUT, pos 24 contains "Y".
-// /* == Change Log =========================================
-// /* -- WI 1436 ---------------------------------------------
-// /* 2011-08-01 - WI - 1436 K.Laine
-// /* Problem: When to year/month comes in as 9999-12, program
-// /*          reports every single month up to December 9999
-// /* Solution: Limit evaluation of elibility date range to
-// /*         not go beyond 1 year from the current year-month.
-// /* ========================================================
+//*** PROGRAM=AIF21A ****
+// COMPONENT NAME: AIF21A INTERFACE FLAT FILE INSERT DATA
+//                        INTO THE TABLE TWNWTPY_40QTRS.
+// 
+// DESCRIPTION:
+// ============
+// THIS IS A INTERFACE PROGRAM THAT WILL RUN THROUGHT BATCH.
+// INTERFACE FLAT FILE INSERT DATE INTO THE TABLE
+// TWNWTPY_40QTRS.
 // ***********************
-Program AIF31A type basicProgram //VAGen Info - main batch program
+Program AIF21A type basicProgram //VAGen Info - main batch program
   {
   includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
   throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
@@ -34,18 +20,20 @@ Program AIF31A type basicProgram //VAGen Info - main batch program
   }
 
   // Data Declarations
-  AIF31W AIF31W; // record
+  AIF21W AIF21W; // record
   BDATEREC BDATEREC; // record
   CEP01W CEP01W; // record
+  FORMATW FORMATW; // record
   GDW GDW; // record
-  H2-3-EVM-EVR-PER H2-3-EVM-EVR-PER; // record
-  H2-MMIS-TRIGGER H2-MMIS-TRIGGER; // record
   H2-PERSON H2-PERSON; // record
-  SR-AIF31-INREC SR-AIF31-INREC; // record
-  SR-AIF31-OUTREC SR-AIF31-OUTREC; // record
+  H2-WTPY-40QTRS H2-WTPY-40QTRS; // record
+  REP-COMMON REP-COMMON; // record
+  REP-EOFNOF REP-EOFNOF; // record
+  SR-AIF21-RECIN SR-AIF21-RECIN; // record
   VDBCOMMON VDBCOMMON; // record
   VDBCONTROL VDBCONTROL; // record
   VMESSAGE VMESSAGE; // record
+  VSTRREC4 VSTRREC4; // record
 
   // VAGen Info - items needed for migration
   VAGen_EZESYS char(8);
@@ -59,481 +47,868 @@ Program AIF31A type basicProgram //VAGen Info - main batch program
   function main()
     // VAGen Info - initialization needed for migration
     VAGen_EZESYS = VGLib.getVAGSysType();
-    AIF31-LOOP1-MAIN: AIF31-LOOP1-MAIN();
+    AIF21P9-MAIN: AIF21P9-MAIN();
   end // end main
-end // end AIF31A
+end // end AIF21A
 
 
-// WRITE OUTPUT FILE
-Function AIF31-ADD-ERROR()
-  move MR-MEDICAID-ID to ME-MEDICAID-ID withV60Compat;
-  move MR-MIN-YYYYMM to ME-MIN-YYYYMM withV60Compat;
-  move MR-MAX-YYYYMM to ME-MAX-YYYYMM withV60Compat;
+// CLOSES THE APPLICATION
+Function AIF21P9-CLOS-PARA()
+
+  /* *******************************************************************/
+  /* process to close the application                  */
+  /* *******************************************************************/
+  exit program;
+end // end AIF21P9-CLOS-PARA
+
+
+// GETTING THE PROCESS DATE
+Function AIF21P9-FETCHBDTS()
+  /* -------------------------------------------------------------*/
+  /* SCAN & GETTING PROCESS DATE*/
+  /* --------------------------------------------------------------*/
   VGVar.handleHardIOErrors = 1;
   try
-    add SR-AIF31-OUTREC ;
-  end
-  if (SR-AIF31-OUTREC is ioError)
-    VDBCONTROL.UPROC-NM = "AIF31-ADD-ERROR";
-    VDBCONTROL.UPROC-OBJ = "SR-AIF31-OUTREC";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    WS-EZERT8-SPLIT = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = WS-EZERT8-5-8;
-    VMESSAGE.UMSGINS[2] = "AIF31A";
-    if (SR-AIF31-OUTREC is fileNotAvailable)
-      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
-    else
-      if (SR-AIF31-OUTREC is fileNotFound)
-        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
-      else
-        if (SR-AIF31-OUTREC is invalidFormat)
-          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
-        end
-      end
-    end
-    WCM00P2-TO-CEP01A();
-  end
-  ME-ERROR-MSG = " ";
-end // end AIF31-ADD-ERROR
-
-
-Function AIF31-ADD-TRGR()
-  H2-MMIS-TRIGGER.ICI = H2-3-EVM-EVR-PER.ICI;
-  WS-ICI = H2-3-EVM-EVR-PER.ICI;
-  H2-MMIS-TRIGGER.UPI = H2-3-EVM-EVR-PER.UPI;
-  H2-MMIS-TRIGGER.PRGM-CASE-TYPE = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
-  WS-PRGM-CASE-TYPE = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
-  H2-MMIS-TRIGGER.BNFT-MTH = H2-3-EVM-EVR-PER.BNFT-MTH;
-  H2-MMIS-TRIGGER.BNFT-YR = H2-3-EVM-EVR-PER.BNFT-YR;
-  if (SR-AIF31-INREC.MR-CASE-DEMO-FLAG == "Y")
-    H2-MMIS-TRIGGER.CASE-FLAG = "Y";
-    H2-MMIS-TRIGGER.DEMO-FLAG = "Y";
-  else
-    H2-MMIS-TRIGGER.CASE-FLAG = "N";
-    H2-MMIS-TRIGGER.DEMO-FLAG = "N";
-  end
-  H2-MMIS-TRIGGER.STATUS-FLAG = "Y";
-  VDBCONTROL.UPROC-NM = "AIF31-ADD-TRGR";
-  VDBCONTROL.UPROC-OPT = "ADD";
-  VDBCONTROL.UPROC-OBJ = "H2-MMIS-TRIGGER";
-  VDBCOMMON.USQLREC = "H2-MMIS-TRIGGER";
-  try
-    add H2-MMIS-TRIGGER
-      with #sql{
-        insert into TWNMMIS_TRIGGER
-        (ACTN_TS, ICI, UPI, INSU_PLICY_NMB,
-          PRGM_CASE_TYPE, BNFT_MTH, BNFT_YR, DEMO_FLAG,
-          PENDING_FLAG, CASE_FLAG)
-        values (CURRENT TIMESTAMP, :ICI, :UPI, :INSU-PLICY-NMB,
-          :PRGM-CASE-TYPE, :BNFT-MTH, :BNFT-YR, :DEMO-FLAG,
-          :PENDING-FLAG, :CASE-FLAG)
-      } ;
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIF31A";
-end // end AIF31-ADD-TRGR
-
-
-Function AIF31-LOOP1-MAIN()
-  /* -- WI 1436 --------------------------------------------------------*/
-  /* 2011-08-01 - WI - 1436 K.Laine*/
-  /* Problem: When to year/month comes in as 9999-12, program*/
-  /* reports every single month up to December 9999 !*/
-  /* Solution: Limit evaluation of elibility date range to not go*/
-  /* beyond 1 year from the current year-month.*/
-  /* -- WI 1436 --------------------------------------------------------*/
-  /* ---- INITIALIZATION ------------------------------------------------*/
-  set AIF31W empty;
-  set SR-AIF31-INREC empty;
-  set H2-MMIS-TRIGGER empty;
-  set SR-AIF31-OUTREC empty;
-  set H2-PERSON empty;
-  set H2-3-EVM-EVR-PER empty;
-
-  /* ---- Format Current Date -------------------------------------------*/
-  WCM00P3-FETCHBDTS();
-  AIF31W.WS-CURRENT-YYYYMMDD = BDATEREC.BDATE-PROCESS-DATE;
-  /* -- WI 1436 --------------------------------------------------------*/
-  AIF31W.WS-CURRENT-YYYY-PLUS-1-YEAR = WS-CURRENT-YYYY + 1;
-  AIF31W.WS-CURRENT-YYYY-LESS-20-YEARS = WS-CURRENT-YYYY - 20;
-  AIF31W.WS-CUR-YYYY-PLUS-2-MONTHS = WS-CURRENT-YYYY;
-  WS-CUR-MM-PLUS-2-MONTHS = AIF31W.WS-CURRENT-MM + 2;
-  if (AIF31W.WS-CUR-MM-PLUS-2-MONTHS > 12)
-    WS-CUR-YYYY-PLUS-2-MONTHS = WS-CUR-YYYY-PLUS-2-MONTHS + 1;
-    WS-CUR-MM-PLUS-2-MONTHS = WS-CUR-MM-PLUS-2-MONTHS - 12;
-  end
-  /* -- WI 1436 --------------------------------------------------------*/
-
-  /* ---- Read first input record ---------------------------------------*/
-  AIF31-SCAN-DRIVER();
-
-  /* ---- MAIN LOOP -----------------------------------------------------*/
-  while (sysVar.errorCode == "00000000")
-
-    /* ---- Validate the INPUT RECORD -----------------------------------*/
-    ME-ERROR-MSG = "OK                                                          ";
-    AIF31-VALIDATE();
-    if (ME-ERROR-MSG == "OK")
-      /* ---- Loop thru months writing TWNMMIS_TRIGGER records ----------*/
-      AIF31-LOOP2-DATES();
-      if (ME-ERROR-MSG == "OK")
-        AIF31-ADD-ERROR();
-      end
-    end
-
-    /* ---- Read next input record --------------------------------------*/
-    AIF31-SCAN-DRIVER();
-  end
-end // end AIF31-LOOP1-MAIN
-
-
-Function AIF31-LOOP2-DATES()
-  /* ---- Loop from Begin Month thru End Month ----------------------*/
-  while (WS-COMPARE-YYYYMM <= WS-MAX-YYYYMM)
-    if (H2-3-EVM-EVR-PER.BNFT-YR == WS-COMPARE-YYYY
-     && H2-3-EVM-EVR-PER.BNFT-MTH == WS-COMPARE-MM)
-      if (WS-PRGM-CASE-TYPE != "  ")
-        /* ---- Multiple Cases for a single Month -------------------*/
-        ME-ERROR-MSG-1-21 = "MULTIPLE CASE YYYYMM=";
-        move WS-COMPARE-YYYYMM to ME-ERROR-MSG-22-28 withV60Compat;
-        move WS-PRGM-CASE-TYPE to ME-ERROR-MSG-29-30 withV60Compat;
-        move WS-ICI to ME-ERROR-MSG-32-40 withV60Compat;
-        ME-ERROR-MSG-42-43 = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
-        ME-ERROR-MSG-45-53 = H2-3-EVM-EVR-PER.ICI;
-        AIF31-ADD-ERROR();
-      end
-    else
-      /* ---- Date Mismatch between COMPARE-DATE & TWNELIG DATE -----*/
-      while (WS-COMPARE-YYYYMM <= WS-MAX-YYYYMM
-       && (H2-3-EVM-EVR-PER.BNFT-MTH != WS-COMPARE-MM
-       || H2-3-EVM-EVR-PER.BNFT-YR != WS-COMPARE-YYYY))
-        if (WS-PRGM-CASE-TYPE == "  ")
-          ME-ERROR-MSG-1-21 = "NO ELIGIBLITY YYYYMM=";
-          move WS-COMPARE-YYYYMM to ME-ERROR-MSG-22-28 withV60Compat;
-          AIF31-ADD-ERROR();
-        end
-        WS-COMPARE-MM = WS-COMPARE-MM + 1;
-        if (WS-COMPARE-MM == 13)
-          WS-COMPARE-YYYY = WS-COMPARE-YYYY + 1;
-          WS-COMPARE-MM = 1;
-        end
-        WS-PRGM-CASE-TYPE = "  ";
-      end
-    end
-    /* ---- Get Next TWNELIG row ------------------------------------*/
-    if (WS-S02-SQCOD == 0)
-      AIF31-ADD-TRGR();
-      AIF31-SCAN-S02();
-      if (WS-S02-SQCOD != 0)
-        H2-3-EVM-EVR-PER.BNFT-YR = 9999;
-        H2-3-EVM-EVR-PER.BNFT-MTH = 99;
-      end
-    end
-  end
-end // end AIF31-LOOP2-DATES
-
-
-Function AIF31-NUMFAIL()
-  NUMERIC-FLAG = "N";
-end // end AIF31-NUMFAIL
-
-
-Function AIF31-NUMPASS()
-  NUMERIC-FLAG = "Y";
-end // end AIF31-NUMPASS
-
-
-Function AIF31-SCAN-DRIVER()
-  try
-    get next SR-AIF31-INREC ;
+    get next BDATEREC ;
   end
 
-  if (SR-AIF31-INREC is ioError && SR-AIF31-INREC not endOfFile)
-    VDBCONTROL.UPROC-NM = "AIF31-SCAN-DRIVER";
-    VDBCONTROL.UPROC-OBJ = "SR-AIF31-INREC";
+  if (BDATEREC is ioError || 
+  BDATEREC is endOfFile)
+
+    VDBCONTROL.UPROC-NM = "AIF21P9-FETCHBDTS";
+    VDBCONTROL.UPROC-OBJ = "BDATEREC";
     VDBCONTROL.UPROC-OPT = "SCAN";
-    VMESSAGE.UMSGINS[2] = "AIF31A";
-    AIF31W.WS-EZERT8-SPLIT = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = AIF31W.WS-EZERT8-5-8;
-
-    if (SR-AIF31-INREC is fileNotAvailable)
-      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
-    else
-      if (SR-AIF31-INREC is fileNotFound)
-        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
-      else
-        if (SR-AIF31-INREC is invalidFormat)
-          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
-        end /* ** end check for format mismatch*/
-      end /* ** end check for file not found*/
-    end /* ** end check for file not available*/
+    VMESSAGE.UMSGINS[2] = "AIF21A";
+    VDBCONTROL.UMSQLCODE = 0;
+    AIF21W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF21W.WS-ERR-LAST-FOUR;
+    VDBCONTROL.UEZESQRRM = "INPUT PARAMETER FILE - I/O ERROR";
     WCM00P2-TO-CEP01A();
-  end /* ** end check for record found*/
-end // end AIF31-SCAN-DRIVER
 
-
-Function AIF31-SCAN-S02()
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCONTROL.UPROC-NM = "AIF31-SCAN-S02";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCONTROL.UPROC-OBJ = "H2-3-EVM-EVR-PER";
-  VDBCOMMON.USQLREC = "H2-3-EVM-EVR-PER";
-  try
-    get next H2-3-EVM-EVR-PER ;
   end
-  WS-S02-SQCOD = sysVar.sqlData.sqlcode;
-  AIF31-SQL-ERROR();
-end // end AIF31-SCAN-S02
+  /* --------------------------------------------------------------*/
+  AIF21W.WS-BDATE = BDATEREC.BDATE-PROCESS-DATE;
+  AIF21W.WS-DATE-CCYY = AIF21W.WS-BDATE-CCYY;
+  AIF21W.WS-DATE-MM = AIF21W.WS-BDATE-MM;
+  AIF21W.WS-DATE-DD = AIF21W.WS-BDATE-DD;
+  AIF21W.WS-DATE-DASH = "-";
+  AIF21W.WS-DATE-DASH1 = "-";
+end // end AIF21P9-FETCHBDTS
 
 
-Function AIF31-SELECT-S01()
+// INSERT INTO H2-WTPY-40QTRS
+Function AIF21P9-INST-40QTR()
+  /* --------------------------------------------------------------*/
+  /* INSERT H2-FAM-CASE-TOT INTO TABLE TWNFAM-CASE-TOT*/
+  /* --------------------------------------------------------------*/
+  /*  */
   WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCONTROL.UPROC-NM = "AIF31-READ-S01";
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIF21A";
+  VDBCOMMON.USQLREC = "H2-WTPY-40QTRS";
+  VDBCONTROL.UPROC-OBJ = "H2-WTPY-40QTRS";
+  VDBCONTROL.UPROC-NM = "AIF21P9-INST-40QTR";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  try
+    add H2-WTPY-40QTRS ;
+  end
+  /*  */
+  VDBCOMMON.UNRF = "N";
+  VDBCOMMON.UDUP = "Y"; /* * EZESQCOD -803 error then dupicate*/
+  /* Perform db error checkingto see SQL dupicate PRIMARY KEY*/
+  WDB00PE-SQLERR();
+  /*  */
+
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF21P9-INST-40QTR
+
+
+// MAIN PROCESS
+Function AIF21P9-MAIN()
+  /* * PERFORM PROCESS TO INITIALIZE ALL ADDITIONAL RECORDS ***/
+  AIF21P9-SET-EMPTY();
+
+  /* * SCAN BDATE ***/
+  AIF21P9-FETCHBDTS();
+
+  /* * SCAN THE FIRST RECORD FROM FLAT FILE ***/
+  AIF21P9-SCAN-INFLE();
+
+  while (SR-AIF21-RECIN not endOfFile)
+
+    if (SR-AIF21-RECIN.INPUT-SSN != AIF21W.WS-PREV-SSN)
+
+      if (SR-AIF21-RECIN.INPUT-SSN not blanks)
+
+        /* * CHECK TO SEE IF SSN EXIST*/
+        /* * IN TWNPERSON.*/
+        AIF21Q1-INQ-PERSON();
+
+        if (sysVar.sqlData.sqlcode == 0)
+            /* *********/
+            /* * UPI ***/
+          AIF21W.WS-UPI-NUM = H2-PERSON.UPI;
+          AIF21W.WS-UPI-BIN = AIF21W.WS-UPI-NUM;
+          H2-WTPY-40QTRS.UPI = AIF21W.WS-UPI-BIN;
+
+            /* * POPULATE H2-WTPY-TYPE4 ***/
+          AIF21P9-POP-H240QT();
+
+            /* * UPDATE TWNWTPY_TYPE4 ***/
+          AIF21Q2-UPDT-40QTR();
+
+          if (sysVar.sqlData.sqlcode == 100)
+
+              /* * INSERT TO THE TABLE TWNWTPY-TYPE4 ***/
+            AIF21P9-INST-40QTR();
+
+          end /* (IF EZESQCOD = 100;)*/
+
+        end /* (IF EZESQCOD = 0;)*/
+
+
+      end /* (IF SR-AIF21-RECIN.VERIFIED-SSN ^= '*/
+                                   /* ';*/
+
+    end /* (IF SR-AIF21-RECIN.VERIFIED-SSN ^=*/
+                                   /* AIF21W.WS-PREV-SSN;)*/
+
+    /* * MOVE WORKING STORAGE FOR THE FLAG,*/
+    /* * MAKING SURE NOT GETTING THE SAME SSN;*/
+    AIF21W.WS-PREV-SSN = SR-AIF21-RECIN.INPUT-SSN;
+
+    /* * EMPTY OR INIT SR-AIF20 ***/
+    set SR-AIF21-RECIN empty;
+
+    /* * SCAN NEXT RECORD FROM FLAT FILE ***/
+    AIF21P9-SCAN-INFLE();
+
+  end /* *(WHILE SR-AIF21-RECIN NOT EOF)*/
+
+  /* * PROCESS TO CLOSE THE APPLICATION*/
+  AIF21P9-CLOS-PARA();
+end // end AIF21P9-MAIN
+
+
+// POP H2-WTPY-40QTRS
+Function AIF21P9-POP-H240QT()
+
+  /* *********************************/
+  /* * DATE_RECEIVED( CCYY-MM-DD ) ***/
+  H2-WTPY-40QTRS.DATE-RECEIVED = AIF21W.WS-DATE;
+
+  /* ******************/
+  /* * VERIFIED_SSN ***/
+  AIF21W.WS-VERIFIED-SSN-NUM = SR-AIF21-RECIN.VERIFIED-SSN;
+  AIF21W.WS-VERIFIED-SSN-PACK = AIF21W.WS-VERIFIED-SSN-NUM;
+  H2-WTPY-40QTRS.VERIFIED-SSN = AIF21W.WS-VERIFIED-SSN-PACK;
+
+  /* ******************/
+  /* * LST_NM_WTPY ***/
+  H2-WTPY-40QTRS.LST-NM-WTPY = SR-AIF21-RECIN.LAST-NAME;
+
+  /* ******************/
+  /* * FRST_NM_WTPY ***/
+  H2-WTPY-40QTRS.FRST-NM-WTPY = SR-AIF21-RECIN.FIRST-NAME;
+
+  /* *****************/
+  /* * MID_NM_WTPY ***/
+  H2-WTPY-40QTRS.MID-NM-WTPY = SR-AIF21-RECIN.MIDDLE-INITIAL;
+
+  /* *************/
+  /* * COND_CD ***/
+  H2-WTPY-40QTRS.COND-CD = SR-AIF21-RECIN.CONDITION-CODE;
+
+  /* **************/
+  /* * MIN_QTRS ***/
+  if (SR-AIF21-RECIN.MINIMUM-NUMBER-QQ-1937-1950 not blanks)
+    AIF21W.WS-MIN-QTRS-NUM = SR-AIF21-RECIN.MINIMUM-NUMBER-QQ-1937-1950;
+    AIF21W.WS-MIN-QTRS-PACK = AIF21W.WS-MIN-QTRS-NUM;
+    H2-WTPY-40QTRS.MIN-QTRS = AIF21W.WS-MIN-QTRS-PACK;
+  else
+    AIF21W.WS-MIN-QTRS-NUM = 0;
+    AIF21W.WS-MIN-QTRS-PACK = AIF21W.WS-MIN-QTRS-NUM;
+    H2-WTPY-40QTRS.MIN-QTRS = AIF21W.WS-MIN-QTRS-PACK;
+  end
+
+  /* **************/
+  /* * MAX_QTRS ***/
+  if (SR-AIF21-RECIN.MAXIMUM-NUMBER-QQ-1937-1950 not blanks)
+    AIF21W.WS-MAX-QTRS-NUM = SR-AIF21-RECIN.MAXIMUM-NUMBER-QQ-1937-1950;
+    AIF21W.WS-MAX-QTRS-PACK = AIF21W.WS-MAX-QTRS-NUM;
+    H2-WTPY-40QTRS.MAX-QTRS = AIF21W.WS-MAX-QTRS-PACK;
+  else
+    AIF21W.WS-MAX-QTRS-NUM = 0;
+    AIF21W.WS-MAX-QTRS-PACK = AIF21W.WS-MAX-QTRS-NUM;
+    H2-WTPY-40QTRS.MAX-QTRS = AIF21W.WS-MAX-QTRS-PACK;
+  end
+
+  /* *************/
+  /* * RAIL_RD ***/
+  if (SR-AIF21-RECIN.RAILROAD-SERVICE-MNTHS-1937-1946 not blanks)
+    AIF21W.WS-RAIL-RD-NUM = SR-AIF21-RECIN.RAILROAD-SERVICE-MNTHS-1937-1946;
+    AIF21W.WS-RAIL-RD-PACK = AIF21W.WS-RAIL-RD-NUM;
+    H2-WTPY-40QTRS.RAIL-RD = AIF21W.WS-RAIL-RD-PACK;
+  else
+    AIF21W.WS-RAIL-RD-NUM = 0;
+    AIF21W.WS-RAIL-RD-PACK = AIF21W.WS-RAIL-RD-NUM;
+    H2-WTPY-40QTRS.RAIL-RD = AIF21W.WS-RAIL-RD-PACK;
+  end
+
+  /* ****************/
+  /* * TOTAL_QTRS ***/
+  AIF21W.WS-INDX = 1;
+  AIF21W.WS-COUNT-TOTAL-QTRS = 000;
+  while (AIF21W.WS-INDX <= 356)
+
+    if ("N" != SR-AIF21-RECIN.QUALIFY-QTR-ARRAY[WS-INDX])
+      AIF21W.WS-COUNT-TOTAL-QTRS = AIF21W.WS-COUNT-TOTAL-QTRS + 1;
+    end
+    AIF21W.WS-INDX = AIF21W.WS-INDX + 1;
+  end
+  AIF21W.WS-COUNT-TOTAL-QTRS-PACK = AIF21W.WS-COUNT-TOTAL-QTRS;
+  H2-WTPY-40QTRS.TOTAL-QTRS = AIF21W.WS-COUNT-TOTAL-QTRS-PACK;
+
+  /* ***************/
+  /* * QTRS LINE ***/
+  AIF21W.WS-QUALIFY-QTR-PATTERN = SR-AIF21-RECIN.QUALIFY-QTR-PATTERN;
+
+  /* ****************/
+  /* * QTRS_LINE1 ***/
+  AIF21W.WS-QTRS-LINE1-1937 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1937;
+  AIF21W.WS-QTRS-LINE1-SPACE1 = " ";
+  AIF21W.WS-QTRS-LINE1-1938 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1938;
+  AIF21W.WS-QTRS-LINE1-SPACE2 = " ";
+  AIF21W.WS-QTRS-LINE1-1939 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1939;
+  AIF21W.WS-QTRS-LINE1-SPACE3 = " ";
+  AIF21W.WS-QTRS-LINE1-1940 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1940;
+  AIF21W.WS-QTRS-LINE1-SPACE4 = " ";
+  AIF21W.WS-QTRS-LINE1-1941 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1941;
+  AIF21W.WS-QTRS-LINE1-SPACE5 = " ";
+  AIF21W.WS-QTRS-LINE1-1942 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1942;
+  AIF21W.WS-QTRS-LINE1-SPACE6 = " ";
+  AIF21W.WS-QTRS-LINE1-1943 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1943;
+  AIF21W.WS-QTRS-LINE1-SPACE7 = " ";
+  AIF21W.WS-QTRS-LINE1-1944 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1944;
+  AIF21W.WS-QTRS-LINE1-SPACE8 = " ";
+  AIF21W.WS-QTRS-LINE1-1945 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1945;
+  AIF21W.WS-QTRS-LINE1-SPACE9 = " ";
+  AIF21W.WS-QTRS-LINE1-1946 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1946;
+  AIF21W.WS-QTRS-LINE1-SPACE10 = " ";
+  AIF21W.WS-QTRS-LINE1-1947 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1947;
+  AIF21W.WS-QTRS-LINE1-SPACE11 = " ";
+  AIF21W.WS-QTRS-LINE1-1948 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1948;
+  AIF21W.WS-QTRS-LINE1-SPACE12 = " ";
+  AIF21W.WS-QTRS-LINE1-1949 = AIF21W.WS-QUALIFY-QTR-PATTERN-L1-1949;
+  H2-WTPY-40QTRS.QTRS-LINE1 = AIF21W.WS-QTRS-LINE1;
+
+  /* * QTRS_LINE2 ***/
+  AIF21W.WS-QTRS-LINE2-1950 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1950;
+  AIF21W.WS-QTRS-LINE2-SPACE1 = " ";
+  AIF21W.WS-QTRS-LINE2-1951 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1951;
+  AIF21W.WS-QTRS-LINE2-SPACE2 = " ";
+  AIF21W.WS-QTRS-LINE2-1952 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1952;
+  AIF21W.WS-QTRS-LINE2-SPACE3 = " ";
+  AIF21W.WS-QTRS-LINE2-1953 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1953;
+  AIF21W.WS-QTRS-LINE2-SPACE4 = " ";
+  AIF21W.WS-QTRS-LINE2-1954 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1954;
+  AIF21W.WS-QTRS-LINE2-SPACE5 = " ";
+  AIF21W.WS-QTRS-LINE2-1955 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1955;
+  AIF21W.WS-QTRS-LINE2-SPACE6 = " ";
+  AIF21W.WS-QTRS-LINE2-1956 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1956;
+  AIF21W.WS-QTRS-LINE2-SPACE7 = " ";
+  AIF21W.WS-QTRS-LINE2-1957 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1957;
+  AIF21W.WS-QTRS-LINE2-SPACE8 = " ";
+  AIF21W.WS-QTRS-LINE2-1958 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1958;
+  AIF21W.WS-QTRS-LINE2-SPACE9 = " ";
+  AIF21W.WS-QTRS-LINE2-1959 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1959;
+  AIF21W.WS-QTRS-LINE2-SPACE10 = " ";
+  AIF21W.WS-QTRS-LINE2-1960 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1960;
+  AIF21W.WS-QTRS-LINE2-SPACE11 = " ";
+  AIF21W.WS-QTRS-LINE2-1961 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1961;
+  AIF21W.WS-QTRS-LINE2-SPACE12 = " ";
+  AIF21W.WS-QTRS-LINE2-1962 = AIF21W.WS-QUALIFY-QTR-PATTERN-L2-1962;
+  H2-WTPY-40QTRS.QTRS-LINE2 = AIF21W.WS-QTRS-LINE2;
+
+  /* * QTRS_LINE3 ***/
+  AIF21W.WS-QTRS-LINE3-1963 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1963;
+  AIF21W.WS-QTRS-LINE3-SPACE1 = " ";
+  AIF21W.WS-QTRS-LINE3-1964 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1964;
+  AIF21W.WS-QTRS-LINE3-SPACE2 = " ";
+  AIF21W.WS-QTRS-LINE3-1965 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1965;
+  AIF21W.WS-QTRS-LINE3-SPACE3 = " ";
+  AIF21W.WS-QTRS-LINE3-1966 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1966;
+  AIF21W.WS-QTRS-LINE3-SPACE4 = " ";
+  AIF21W.WS-QTRS-LINE3-1967 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1967;
+  AIF21W.WS-QTRS-LINE3-SPACE5 = " ";
+  AIF21W.WS-QTRS-LINE3-1968 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1968;
+  AIF21W.WS-QTRS-LINE3-SPACE6 = " ";
+  AIF21W.WS-QTRS-LINE3-1969 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1969;
+  AIF21W.WS-QTRS-LINE3-SPACE7 = " ";
+  AIF21W.WS-QTRS-LINE3-1970 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1970;
+  AIF21W.WS-QTRS-LINE3-SPACE8 = " ";
+  AIF21W.WS-QTRS-LINE3-1971 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1971;
+  AIF21W.WS-QTRS-LINE3-SPACE9 = " ";
+  AIF21W.WS-QTRS-LINE3-1972 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1972;
+  AIF21W.WS-QTRS-LINE3-SPACE10 = " ";
+  AIF21W.WS-QTRS-LINE3-1973 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1973;
+  AIF21W.WS-QTRS-LINE3-SPACE11 = " ";
+  AIF21W.WS-QTRS-LINE3-1974 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1974;
+  AIF21W.WS-QTRS-LINE3-SPACE12 = " ";
+  AIF21W.WS-QTRS-LINE3-1975 = AIF21W.WS-QUALIFY-QTR-PATTERN-L3-1975;
+  H2-WTPY-40QTRS.QTRS-LINE3 = AIF21W.WS-QTRS-LINE3;
+
+  /* * QTRS_LINE4 ***/
+  AIF21W.WS-QTRS-LINE4-1976 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1976;
+  AIF21W.WS-QTRS-LINE4-SPACE1 = " ";
+  AIF21W.WS-QTRS-LINE4-1977 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1977;
+  AIF21W.WS-QTRS-LINE4-SPACE2 = " ";
+  AIF21W.WS-QTRS-LINE4-1978 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1978;
+  AIF21W.WS-QTRS-LINE4-SPACE3 = " ";
+  AIF21W.WS-QTRS-LINE4-1979 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1979;
+  AIF21W.WS-QTRS-LINE4-SPACE4 = " ";
+  AIF21W.WS-QTRS-LINE4-1980 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1980;
+  AIF21W.WS-QTRS-LINE4-SPACE5 = " ";
+  AIF21W.WS-QTRS-LINE4-1981 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1981;
+  AIF21W.WS-QTRS-LINE4-SPACE6 = " ";
+  AIF21W.WS-QTRS-LINE4-1982 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1982;
+  AIF21W.WS-QTRS-LINE4-SPACE7 = " ";
+  AIF21W.WS-QTRS-LINE4-1983 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1983;
+  AIF21W.WS-QTRS-LINE4-SPACE8 = " ";
+  AIF21W.WS-QTRS-LINE4-1984 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1984;
+  AIF21W.WS-QTRS-LINE4-SPACE9 = " ";
+  AIF21W.WS-QTRS-LINE4-1985 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1985;
+  AIF21W.WS-QTRS-LINE4-SPACE10 = " ";
+  AIF21W.WS-QTRS-LINE4-1986 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1986;
+  AIF21W.WS-QTRS-LINE4-SPACE11 = " ";
+  AIF21W.WS-QTRS-LINE4-1987 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1987;
+  AIF21W.WS-QTRS-LINE4-SPACE12 = " ";
+  AIF21W.WS-QTRS-LINE4-1988 = AIF21W.WS-QUALIFY-QTR-PATTERN-L4-1988;
+  H2-WTPY-40QTRS.QTRS-LINE4 = AIF21W.WS-QTRS-LINE4;
+
+  /* * QTRS_LINE5 ***/
+  AIF21W.WS-QTRS-LINE5-1989 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1989;
+  AIF21W.WS-QTRS-LINE5-SPACE1 = " ";
+  AIF21W.WS-QTRS-LINE5-1990 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1990;
+  AIF21W.WS-QTRS-LINE5-SPACE2 = " ";
+  AIF21W.WS-QTRS-LINE5-1991 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1991;
+  AIF21W.WS-QTRS-LINE5-SPACE3 = " ";
+  AIF21W.WS-QTRS-LINE5-1992 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1992;
+  AIF21W.WS-QTRS-LINE5-SPACE4 = " ";
+  AIF21W.WS-QTRS-LINE5-1993 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1993;
+  AIF21W.WS-QTRS-LINE5-SPACE5 = " ";
+  AIF21W.WS-QTRS-LINE5-1994 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1994;
+  AIF21W.WS-QTRS-LINE5-SPACE6 = " ";
+  AIF21W.WS-QTRS-LINE5-1995 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1995;
+  AIF21W.WS-QTRS-LINE5-SPACE7 = " ";
+  AIF21W.WS-QTRS-LINE5-1996 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1996;
+  AIF21W.WS-QTRS-LINE5-SPACE8 = " ";
+  AIF21W.WS-QTRS-LINE5-1997 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1997;
+  AIF21W.WS-QTRS-LINE5-SPACE9 = " ";
+  AIF21W.WS-QTRS-LINE5-1998 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1998;
+  AIF21W.WS-QTRS-LINE5-SPACE10 = " ";
+  AIF21W.WS-QTRS-LINE5-1999 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-1999;
+  AIF21W.WS-QTRS-LINE5-SPACE11 = " ";
+  AIF21W.WS-QTRS-LINE5-2000 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-2000;
+  AIF21W.WS-QTRS-LINE5-SPACE12 = " ";
+  AIF21W.WS-QTRS-LINE5-2001 = AIF21W.WS-QUALIFY-QTR-PATTERN-L5-2001;
+  H2-WTPY-40QTRS.QTRS-LINE5 = AIF21W.WS-QTRS-LINE5;
+
+  /* * QTRS_LINE6 ***/
+  AIF21W.WS-QTRS-LINE6-2002 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2002;
+  AIF21W.WS-QTRS-LINE6-SPACE1 = " ";
+  AIF21W.WS-QTRS-LINE6-2003 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2003;
+  AIF21W.WS-QTRS-LINE6-SPACE2 = " ";
+  AIF21W.WS-QTRS-LINE6-2004 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2004;
+  AIF21W.WS-QTRS-LINE6-SPACE3 = " ";
+  AIF21W.WS-QTRS-LINE6-2005 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2005;
+  AIF21W.WS-QTRS-LINE6-SPACE4 = " ";
+  AIF21W.WS-QTRS-LINE6-2006 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2006;
+  AIF21W.WS-QTRS-LINE6-SPACE5 = " ";
+  AIF21W.WS-QTRS-LINE6-2007 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2007;
+  AIF21W.WS-QTRS-LINE6-SPACE6 = " ";
+  AIF21W.WS-QTRS-LINE6-2008 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2008;
+  AIF21W.WS-QTRS-LINE6-SPACE7 = " ";
+  AIF21W.WS-QTRS-LINE6-2009 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2009;
+  AIF21W.WS-QTRS-LINE6-SPACE8 = " ";
+  AIF21W.WS-QTRS-LINE6-2010 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2010;
+  AIF21W.WS-QTRS-LINE6-SPACE9 = " ";
+  AIF21W.WS-QTRS-LINE6-2011 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2011;
+  AIF21W.WS-QTRS-LINE6-SPACE10 = " ";
+  AIF21W.WS-QTRS-LINE6-2012 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2012;
+  AIF21W.WS-QTRS-LINE6-SPACE11 = " ";
+  AIF21W.WS-QTRS-LINE6-2013 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2013;
+  AIF21W.WS-QTRS-LINE6-SPACE12 = " ";
+  AIF21W.WS-QTRS-LINE6-2014 = AIF21W.WS-QUALIFY-QTR-PATTERN-L6-2014;
+  H2-WTPY-40QTRS.QTRS-LINE6 = AIF21W.WS-QTRS-LINE6;
+
+  /* * QTRS_LINE7 ***/
+  AIF21W.WS-QTRS-LINE7-2015 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2015;
+  AIF21W.WS-QTRS-LINE7-SPACE1 = " ";
+  AIF21W.WS-QTRS-LINE7-2016 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2016;
+  AIF21W.WS-QTRS-LINE7-SPACE2 = " ";
+  AIF21W.WS-QTRS-LINE7-2017 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2017;
+  AIF21W.WS-QTRS-LINE7-SPACE3 = " ";
+  AIF21W.WS-QTRS-LINE7-2018 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2018;
+  AIF21W.WS-QTRS-LINE7-SPACE4 = " ";
+  AIF21W.WS-QTRS-LINE7-2019 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2019;
+  AIF21W.WS-QTRS-LINE7-SPACE5 = " ";
+  AIF21W.WS-QTRS-LINE7-2020 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2020;
+  AIF21W.WS-QTRS-LINE7-SPACE6 = " ";
+  AIF21W.WS-QTRS-LINE7-2021 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2021;
+  AIF21W.WS-QTRS-LINE7-SPACE7 = " ";
+  AIF21W.WS-QTRS-LINE7-2022 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2022;
+  AIF21W.WS-QTRS-LINE7-SPACE8 = " ";
+  AIF21W.WS-QTRS-LINE7-2023 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2023;
+  AIF21W.WS-QTRS-LINE7-SPACE9 = " ";
+  AIF21W.WS-QTRS-LINE7-2024 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2024;
+  AIF21W.WS-QTRS-LINE7-SPACE10 = " ";
+  AIF21W.WS-QTRS-LINE7-2025 = AIF21W.WS-QUALIFY-QTR-PATTERN-L7-2025;
+  H2-WTPY-40QTRS.QTRS-LINE7 = AIF21W.WS-QTRS-LINE7;
+end // end AIF21P9-POP-H240QT
+
+
+// PROCESS TO READ INPUT FILE
+Function AIF21P9-SCAN-INFLE()
+  VDBCONTROL.UPROC-NM = "AIF21P9-SCAN-INFLE";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "SR-AIF21-RECIN";
+  VMESSAGE.UMSGINS[2] = "AIF21A";
+  try
+    get next SR-AIF21-RECIN ;
+  end
+
+  /* check if any i/o error has occured*/
+  if (SR-AIF21-RECIN is ioError && SR-AIF21-RECIN not endOfFile)
+    VMESSAGE.UMSGCODE-JCL-ERR = 0;
+    AIF21W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF21W.WS-ERR-LAST-FOUR;
+    /* return error code to indicate abnormal ending*/
+    WCM00P2-TO-CEP01A();
+  end
+  if (SR-AIF21-RECIN is endOfFile)
+    VMESSAGE.UMSGCODE-JCL-ERR = 0;
+    AIF21W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF21W.WS-ERR-LAST-FOUR;
+  /* PERFORM WCM00P2-TO-CEP01A;*/
+  end
+end // end AIF21P9-SCAN-INFLE
+
+
+// INITIALIZE ALL RECORDS
+Function AIF21P9-SET-EMPTY()
+
+  /* *******************************************************************/
+  /* process to initialize all records                */
+  /* *******************************************************************/
+  set VMESSAGE empty;
+  set CEP01W empty;
+  set VDBCONTROL empty;
+  set VDBCOMMON empty;
+  set AIF21W empty;
+
+  /* set all H2 records empty*/
+  set H2-PERSON empty;
+  set H2-WTPY-40QTRS empty;
+
+  /* set all serial records empty*/
+  set SR-AIF21-RECIN empty;
+end // end AIF21P9-SET-EMPTY
+
+
+// INQ H2-PERSON
+Function AIF21Q1-INQ-PERSON()
+  VDBCONTROL.UPROC-NM = "AIF20Q1-INQ-PERSON";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
   VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-  VDBCOMMON.USQLREC = "H2-PERSON";
+
+  VDBCONTROL.UACCTYP = "R";
   try
-    get H2-PERSON singleRow
+    get H2-PERSON
       with #sql{
-        select UPI
+        select T1.UPI
         from TWNPERSON T1
-        WHERE T1.MEDIC_BLNG_SQ_NMB = :MEDIC-BLNG-SQ-NMB
-         AND T1.SSN NOT LIKE '999%'
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE
+        T1.SSN = :SR-AIF21-RECIN.INPUT-SSN
+        FOR FETCH ONLY
          --** INSERT ORDER BY CLAUSE HERE **
       }
       into UPI ;
   end
-  WS-S01-SQCOD = sysVar.sqlData.sqlcode;
-  AIF31-SQL-ERROR();
-end // end AIF31-SELECT-S01
+
+  if (sysVar.sqlData.sqlcode != 0)
+    REPP9-SQL-CHKERR();
+  end
+end // end AIF21Q1-INQ-PERSON
 
 
-Function AIF31-SETINQ-S02()
+// UPDATE TWNWTPY_40QTRS
+Function AIF21Q2-UPDT-40QTR()
+  /* ---------------------------------------------------------*/
+  /* THIS PROCESS UPDATES TABLE TWNFAM_CASE_TOT ON THE FIELD*/
+  /* PENDING_CASES.*/
+  /* ---------------------------------------------------------*/
+  /*  */
+  /* Perform standard database initialisation process*/
   WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCONTROL.UPROC-NM = "AIF31-SETINQ-S02";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  VDBCONTROL.UPROC-OBJ = "H2-3-EVM-EVR-PER";
-  VDBCOMMON.USQLREC = "H2-3-EVM-EVR-PER";
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIF20A";
+  VDBCOMMON.USQLREC = "H2-WTPY-TYPE4";
+  VDBCONTROL.UPROC-OBJ = "H2-WTPY-TYPE4";
+  VDBCONTROL.UPROC-NM = "AIF20P9-UPDAT-WTPY";
+  VDBCONTROL.UPROC-OPT = "SQLEXEC";
   try
-    open AIF31-SETINQ-S02_RSI01
-      with #sql{
-        select T1.ICI, T1.PRGM_CASE_TYPE, T1.BNFT_YR, T1.BNFT_MTH, T1.UPI
-        from twnelg_ver_mbr T1,
-             twnelig_version T2,
-             twnperson T3
-        WHERE T3.MEDIC_BLNG_SQ_NMB = :WS-MEDICAID-ID-PK
-        AND T1.ELIG_CD NOT IN ('3','9')
-        AND T1.PRGM_CASE_TYPE NOT IN ('FS','FP','TN','TP','TL','TC','SG')
-        AND ((T1.BNFT_YR >= :WS-MIN-YYYY-BIN AND T1.BNFT_YR <= :WS-MAX-YYYY-BIN)
-        AND NOT (T1.BNFT_YR = :WS-MIN-YYYY-BIN AND T1.BNFT_MTH < :WS-MIN-MM-BIN)
-        AND NOT (T1.BNFT_YR = :WS-MAX-YYYY-BIN AND T1.BNFT_MTH > :WS-MAX-MM-BIN))
-        AND T2.ICI = T1.ICI
-        AND T2.PRGM_CASE_TYPE = T1.PRGM_CASE_TYPE
-        AND T2.BNFT_YR = T1.BNFT_YR
-        AND T2.BNFT_MTH = T1.BNFT_MTH
-        AND T2.VER_NMB = T1.VER_NMB
-        AND T2.LST_POSTD_VER_IND = 'Y'
-        AND T3.UPI = T1.UPI
-        ORDER BY T1.BNFT_YR, T1.BNFT_MTH, T1.PRGM_CASE_TYPE
-      }      
-      into ICI, PRGM-CASE-TYPE, BNFT-YR, BNFT-MTH, UPI
-      for H2-3-EVM-EVR-PER ;
+    execute update 
+      #sql{
+        UPDATE
+          TWNWTPY_40QTRS
+        SET
+        UPI=:UPI,
+        DATE_RECEIVED=:DATE-RECEIVED,
+        VERIFIED_SSN=:VERIFIED-SSN,
+        LST_NM_WTPY=:LST-NM-WTPY,
+        FRST_NM_WTPY=:FRST-NM-WTPY,
+        MID_NM_WTPY=:MID-NM-WTPY,
+        COND_CD=:COND-CD,
+        MIN_QTRS=:MIN-QTRS,
+        MAX_QTRS=:MAX-QTRS,
+        RAIL_RD=:RAIL-RD,
+        TOTAL_QTRS=:TOTAL-QTRS,
+        QTRS_LINE1=:QTRS-LINE1,
+        QTRS_LINE2=:QTRS-LINE2,
+        QTRS_LINE3=:QTRS-LINE3,
+        QTRS_LINE4=:QTRS-LINE4,
+        QTRS_LINE5=:QTRS-LINE5,
+        QTRS_LINE6=:QTRS-LINE6,
+        QTRS_LINE7=:QTRS-LINE7
+        WHERE
+              UPI = :H2-WTPY-40QTRS.UPI
+      }
+      for H2-WTPY-40QTRS ; // model = update
   end
-  WS-S02-SQCOD = sysVar.sqlData.sqlcode;
-  AIF31-SQL-ERROR();
-end // end AIF31-SETINQ-S02
-
-
-Function AIF31-SQL-ERROR()
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIF31A";
+  /*  */
   VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
+  VDBCOMMON.UDUP = "Y";
+  /* Perform db error checking*/
   WDB00PE-SQLERR();
-  if (VDBCONTROL.URC >= 104)
-    if (VDBCOMMON.USQLNUM == 811)
-      ME-ERROR-MSG = "MULTIPLE SSN'S DETECTED FOR BILLING NUMBER";
-      AIF31-ADD-ERROR();
-    else
-  /* --------------------------------- NEW ERROR CAPTURE ROUTINE --*/
-      ME-ERROR-MSG-1-28 = "UNEXPECTED SQL ERROR: CASE= ";
-      move WS-ICI to ME-ERROR-MSG-32-40 withV60Compat;
-      ME-ERROR-MSG-42-43 = H2-3-EVM-EVR-PER.PRGM-CASE-TYPE;
-      ME-ERROR-MSG-45-53 = H2-3-EVM-EVR-PER.ICI;
-      AIF31-ADD-ERROR();
-  /* --------------------------------- NEW ERROR CAPTURE ROUTINE --*/
-      WCM00P2-TO-CEP01A();
-    end
-  end
-end // end AIF31-SQL-ERROR
+  /*  */
+  /* *IF VDBCONTROL.URC > 104;*/
+  /* *  PERFORM WCM00P2-TO-CEP01A;*/
+  /* *END;*/
+end // end AIF21Q2-UPDT-40QTR
 
 
-Function AIF31-VALIDATE()
-  /* ---- VALIDATE the MEDICAID number ----------------------------------*/
-  if (MR-MEDICAID-ID is numeric)
-    AIF31-NUMPASS();
-  else
-    AIF31-NUMFAIL();
-  end
-  if (NUMERIC-FLAG != "Y")
-    ME-ERROR-MSG = "MEDICAID NUMBER MUST BE 11 DIGITS LONG";
-    AIF31-ADD-ERROR();
-  else
-    move MR-MEDICAID-ID to WS-MEDICAID-ID withV60Compat;
-    move WS-MEDICAID-ID to WS-MEDICAID-ID-PK withV60Compat;
-    H2-PERSON.MEDIC-BLNG-SQ-NMB = WS-MEDICAID-ID;
-    /* ---- LOOK UP the MEDICAID NUMBER -----------------------------------*/
-    AIF31-SELECT-S01();
-    if (WS-S01-SQCOD == 100)
-      ME-ERROR-MSG = "MEDICAID NUMBER NOT FOUND ON FILE";
-      AIF31-ADD-ERROR();
-    end
-  end
-
-  /* ---- VALIDATE the FROM and TO date ---------------------------------*/
-  WS-MIN-YYYY = 9999;
-  WS-MAX-YYYY = 9999;
-  WS-MIN-MM = 99;
-  WS-MAX-MM = 99;
-
-  if (MR-MIN-YYYYMM == "    ")
-    move WS-CURRENT-YYYY to MR-MIN-YYYY withV60Compat;
-  end
-  if (MR-MIN-MM == "  ")
-    move WS-CURRENT-MM to MR-MIN-MM withV60Compat;
-  end
-  if (MR-MIN-YYYYMM is numeric)
-    AIF31-NUMPASS();
-  else
-    AIF31-NUMFAIL();
-  end
-  if (NUMERIC-FLAG != "Y")
-    ME-ERROR-MSG = "MINIMUM YEAR/MONTH MUST BE YYYYMM FORMAT";
-    AIF31-ADD-ERROR();
-  else
-    if (MR-MIN-YYYY > WS-CURRENT-YYYY-PLUS-1-YEAR
-     || MR-MIN-YYYY < WS-CURRENT-YYYY-LESS-20-YEARS)
-      move WS-CURRENT-YYYYMMDD to WS-MIN-YYYYMM withV60Compat;
-      move WS-CURRENT-YYYYMMDD to MR-MIN-YYYYMM withV60Compat;
-    else
-      move MR-MIN-YYYYMM to WS-MIN-YYYYMM withV60Compat;
-    end
-    if (WS-MIN-MM < 1 || WS-MIN-MM > 12)
-      ME-ERROR-MSG = "MONTHS OF MINIMUM-YYYYMM ARE INVALID";
-      AIF31-ADD-ERROR();
-    end
-  end
-
-  if (MR-MAX-YYYY == "    "
-   || MR-MAX-YYYY == "0000")
-    move MR-MIN-YYYY to MR-MAX-YYYY withV60Compat;
-  end
-  if (MR-MAX-MM == "  "
-   || MR-MAX-MM == "00")
-    move MR-MIN-MM to MR-MAX-MM withV60Compat;
-  end
-  if (MR-MAX-YYYYMM is numeric)
-    AIF31-NUMPASS();
-  else
-    AIF31-NUMFAIL();
-  end
-  if (NUMERIC-FLAG != "Y")
-    ME-ERROR-MSG = "MAXIMUM YEAR/MONTH MUST BE YYYYMM FORMAT";
-    AIF31-ADD-ERROR();
-  else
-  /* -- WI 1436 --------------------------------------------------------*/
-    if (MR-MAX-YYYY > WS-CURRENT-YYYY-PLUS-1-YEAR
-     || MR-MAX-YYYY < WS-CURRENT-YYYY-LESS-20-YEARS)
-      move WS-CUR-YYYYMM-PLUS-2-MONTHS to WS-MAX-YYYYMM withV60Compat;
-      move WS-CUR-YYYYMM-PLUS-2-MONTHS to MR-MAX-YYYYMM withV60Compat;
-    else
-      move MR-MAX-YYYYMM to WS-MAX-YYYYMM withV60Compat;
-    end
-  /* -- WI 1436 --------------------------------------------------------*/
-    if (WS-MAX-MM < 1 || WS-MAX-MM > 12)
-      ME-ERROR-MSG = "MONTHS OF MAXIMUM-YYYYMM ARE INVALID";
-      AIF31-ADD-ERROR();
-    end
-  end
-
-  if (WS-MAX-YYYY != 9999
-   && WS-MIN-YYYY != 9999)
-    if (WS-MAX-YYYY < WS-MIN-YYYY
-     || (WS-MAX-YYYY == WS-MIN-YYYY
-     && WS-MAX-MM < WS-MIN-MM))
-      ME-ERROR-MSG = "MAXIMUM-YYYYMM IS LESS THAN MINIMUM-YYYYMM";
-      AIF31-ADD-ERROR();
-    end
-  end
-
-  if (ME-ERROR-MSG != "OK")
-    return;
-  end
-
-  move MR-MIN-YYYY to WS-COMPARE-YYYY withV60Compat;
-  move MR-MIN-MM to WS-COMPARE-MM withV60Compat;
-  move WS-MAX-YYYY to WS-MAX-YYYY-BIN withV60Compat;
-  move WS-MAX-MM to WS-MAX-MM-BIN withV60Compat;
-  move WS-MIN-YYYY to WS-MIN-YYYY-BIN withV60Compat;
-  move WS-MIN-MM to WS-MIN-MM-BIN withV60Compat;
-
-  /* ---- LOOK UP the PLANS WITHIN the DATE RANGE -----------------------*/
-  AIF31-SETINQ-S02();
-  if (WS-S02-SQCOD == 0)
-    AIF31-SCAN-S02();
-  end
-  if (WS-S02-SQCOD != 0)
-    ME-ERROR-MSG = "NO ELIGIBLE MONTHS WITHIN DATE RANGE";
-    AIF31-ADD-ERROR();
-  end
-end // end AIF31-VALIDATE
-
-
-Record AIF31W type basicRecord
-  10 WS-S01-SQCOD smallint ; 
-  10 WS-S02-SQCOD smallint ; 
-  10 NUMERIC-FLAG char(1) ; 
-  10 WS-EZERT8-SPLIT char(8) ; 
-  10 WS-EZERT8-1-4 char(4) ; 
-  10 WS-EZERT8-5-8 char(4) ; 
-  10 WS-CURRENT-YYYYMMDD char(8) ; 
-    15 WS-CURRENT-YYYY num(4) ; 
-    15 WS-CURRENT-MM num(2) ; 
-    15 WS-CURRENT-DD num(2) ; 
-  10 WS-CURRENT-YYYY-PLUS-1-YEAR num(4) ; 
-  10 WS-CURRENT-YYYY-LESS-20-YEARS num(4) ; 
-  10 WS-CUR-YYYYMM-PLUS-2-MONTHS char(6) ; 
-    15 WS-CUR-YYYY-PLUS-2-MONTHS num(4) ; 
-    15 WS-CUR-MM-PLUS-2-MONTHS num(2) ; 
-  10 WS-COMPARE-YYYYMM char(6) ; 
-    15 WS-COMPARE-YYYY num(4) ; 
-    15 WS-COMPARE-MM num(2) ; 
-  10 WS-MIN-YYYYMM char(6) ; 
-    15 WS-MIN-YYYY num(4) ; 
-    15 WS-MIN-MM num(2) ; 
-  10 WS-MAX-YYYYMM char(6) ; 
-    15 WS-MAX-YYYY num(4) ; 
-    15 WS-MAX-MM num(2) ; 
-  10 WS-MIN-YYYY-BIN smallint ; 
-  10 WS-MIN-MM-BIN smallint ; 
-  10 WS-MAX-YYYY-BIN smallint ; 
-  10 WS-MAX-MM-BIN smallint ; 
-  10 WS-MEDICAID-ID num(11) ; 
-  10 WS-MEDICAID-ID-BIN bigint ; 
-  10 WS-MEDICAID-ID-PK decimal(11) ; 
-  10 WS-PRGM-CASE-TYPE char(2) ; 
-  10 WS-ICI num(9) ; 
-  10 WS-VAR01 smallint ; 
-  10 WS-VAR02 smallint ; 
-end // end AIF31W
+//*** RECORD=AIF21W ****
+// WORKING STORAGE (VARIABLE)
+// **********************
+Record AIF21W type basicRecord
+  10 WS-RAIL-RD-NUM num(3) ; 
+  10 WS-RAIL-RD-PACK decimal(3) ; 
+  10 WS-INDX num(3) ; 
+  10 WS-COUNT-TOTAL-QTRS num(3) ; 
+  10 WS-COUNT-TOTAL-QTRS-PACK decimal(3) ; 
+  10 WS-UPI-NUM num(9) ; 
+  10 WS-UPI-BIN int ; 
+  10 WS-VERIFIED-SSN-NUM num(9) ; 
+  10 WS-VERIFIED-SSN-PACK decimal(9) ; 
+  10 WS-MIN-QTRS-NUM num(2) ; 
+  10 WS-MIN-QTRS-PACK decimal(2) ; 
+  10 WS-MAX-QTRS-NUM num(2) ; 
+  10 WS-MAX-QTRS-PACK decimal(2) ; 
+  10 WS-TOTAL-QTRS-NUM num(3) ; 
+  10 WS-TOTAL-QTRS-PACK decimal(2) ; 
+  10 WS-PREV-SSN char(9) ; 
+  10 WS-ERR-CD char(8) ; 
+    15 WS-ERR-FIRST-FOUR char(4) ; 
+    15 WS-ERR-LAST-FOUR char(4) ; 
+  10 WS-BDATE char(8) ; 
+    15 WS-BDATE-CCYY char(4) ; 
+    15 WS-BDATE-MM char(2) ; 
+    15 WS-BDATE-DD char(2) ; 
+  10 WS-DATE char(10) ; 
+    15 WS-DATE-CCYY char(4) ; 
+    15 WS-DATE-DASH char(1) ; 
+    15 WS-DATE-MM char(2) ; 
+    15 WS-DATE-DASH1 char(1) ; 
+    15 WS-DATE-DD char(2) ; 
+  10 WS-QUALIFY-QTR-PATTERN char(356) ; 
+    15 WS-QUALIFY-QTR-PATTERN-L1 char(52) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1937 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1938 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1939 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1940 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1941 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1942 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1943 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1944 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1945 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1946 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1947 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1948 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L1-1949 char(4) ; 
+    15 WS-QUALIFY-QTR-PATTERN-L2 char(52) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1950 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1951 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1952 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1953 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1954 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1955 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1956 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1957 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1958 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1959 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1960 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1961 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L2-1962 char(4) ; 
+    15 WS-QUALIFY-QTR-PATTERN-L3 char(52) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1963 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1964 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1965 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1966 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1967 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1968 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1969 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1970 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1971 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1972 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1973 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1974 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L3-1975 char(4) ; 
+    15 WS-QUALIFY-QTR-PATTERN-L4 char(52) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1976 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1977 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1978 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1979 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1980 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1981 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1982 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1983 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1984 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1985 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1986 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1987 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L4-1988 char(4) ; 
+    15 WS-QUALIFY-QTR-PATTERN-L5 char(52) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1989 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1990 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1991 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1992 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1993 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1994 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1995 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1996 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1997 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1998 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-1999 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-2000 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L5-2001 char(4) ; 
+    15 WS-QUALIFY-QTR-PATTERN-L6 char(52) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2002 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2003 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2004 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2005 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2006 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2007 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2008 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2009 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2010 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2011 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2012 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2013 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L6-2014 char(4) ; 
+    15 WS-QUALIFY-QTR-PATTERN-L7 char(44) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2015 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2016 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2017 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2018 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2019 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2020 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2021 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2022 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2023 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2024 char(4) ; 
+      20 WS-QUALIFY-QTR-PATTERN-L7-2025 char(4) ; 
+  10 WS-QTRS-LINE1 char(64) ; 
+    15 WS-QTRS-LINE1-1937 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE1 char(1) ; 
+    15 WS-QTRS-LINE1-1938 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE2 char(1) ; 
+    15 WS-QTRS-LINE1-1939 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE3 char(1) ; 
+    15 WS-QTRS-LINE1-1940 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE4 char(1) ; 
+    15 WS-QTRS-LINE1-1941 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE5 char(1) ; 
+    15 WS-QTRS-LINE1-1942 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE6 char(1) ; 
+    15 WS-QTRS-LINE1-1943 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE7 char(1) ; 
+    15 WS-QTRS-LINE1-1944 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE8 char(1) ; 
+    15 WS-QTRS-LINE1-1945 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE9 char(1) ; 
+    15 WS-QTRS-LINE1-1946 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE10 char(1) ; 
+    15 WS-QTRS-LINE1-1947 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE11 char(1) ; 
+    15 WS-QTRS-LINE1-1948 char(4) ; 
+    15 WS-QTRS-LINE1-SPACE12 char(1) ; 
+    15 WS-QTRS-LINE1-1949 char(4) ; 
+  10 WS-QTRS-LINE2 char(64) ; 
+    15 WS-QTRS-LINE2-1950 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE1 char(1) ; 
+    15 WS-QTRS-LINE2-1951 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE2 char(1) ; 
+    15 WS-QTRS-LINE2-1952 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE3 char(1) ; 
+    15 WS-QTRS-LINE2-1953 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE4 char(1) ; 
+    15 WS-QTRS-LINE2-1954 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE5 char(1) ; 
+    15 WS-QTRS-LINE2-1955 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE6 char(1) ; 
+    15 WS-QTRS-LINE2-1956 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE7 char(1) ; 
+    15 WS-QTRS-LINE2-1957 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE8 char(1) ; 
+    15 WS-QTRS-LINE2-1958 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE9 char(1) ; 
+    15 WS-QTRS-LINE2-1959 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE10 char(1) ; 
+    15 WS-QTRS-LINE2-1960 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE11 char(1) ; 
+    15 WS-QTRS-LINE2-1961 char(4) ; 
+    15 WS-QTRS-LINE2-SPACE12 char(1) ; 
+    15 WS-QTRS-LINE2-1962 char(4) ; 
+  10 WS-QTRS-LINE3 char(64) ; 
+    15 WS-QTRS-LINE3-1963 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE1 char(1) ; 
+    15 WS-QTRS-LINE3-1964 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE2 char(1) ; 
+    15 WS-QTRS-LINE3-1965 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE3 char(1) ; 
+    15 WS-QTRS-LINE3-1966 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE4 char(1) ; 
+    15 WS-QTRS-LINE3-1967 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE5 char(1) ; 
+    15 WS-QTRS-LINE3-1968 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE6 char(1) ; 
+    15 WS-QTRS-LINE3-1969 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE7 char(1) ; 
+    15 WS-QTRS-LINE3-1970 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE8 char(1) ; 
+    15 WS-QTRS-LINE3-1971 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE9 char(1) ; 
+    15 WS-QTRS-LINE3-1972 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE10 char(1) ; 
+    15 WS-QTRS-LINE3-1973 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE11 char(1) ; 
+    15 WS-QTRS-LINE3-1974 char(4) ; 
+    15 WS-QTRS-LINE3-SPACE12 char(1) ; 
+    15 WS-QTRS-LINE3-1975 char(4) ; 
+  10 WS-QTRS-LINE4 char(64) ; 
+    15 WS-QTRS-LINE4-1976 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE1 char(1) ; 
+    15 WS-QTRS-LINE4-1977 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE2 char(1) ; 
+    15 WS-QTRS-LINE4-1978 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE3 char(1) ; 
+    15 WS-QTRS-LINE4-1979 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE4 char(1) ; 
+    15 WS-QTRS-LINE4-1980 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE5 char(1) ; 
+    15 WS-QTRS-LINE4-1981 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE6 char(1) ; 
+    15 WS-QTRS-LINE4-1982 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE7 char(1) ; 
+    15 WS-QTRS-LINE4-1983 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE8 char(1) ; 
+    15 WS-QTRS-LINE4-1984 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE9 char(1) ; 
+    15 WS-QTRS-LINE4-1985 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE10 char(1) ; 
+    15 WS-QTRS-LINE4-1986 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE11 char(1) ; 
+    15 WS-QTRS-LINE4-1987 char(4) ; 
+    15 WS-QTRS-LINE4-SPACE12 char(1) ; 
+    15 WS-QTRS-LINE4-1988 char(4) ; 
+  10 WS-QTRS-LINE5 char(64) ; 
+    15 WS-QTRS-LINE5-1989 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE1 char(1) ; 
+    15 WS-QTRS-LINE5-1990 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE2 char(1) ; 
+    15 WS-QTRS-LINE5-1991 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE3 char(1) ; 
+    15 WS-QTRS-LINE5-1992 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE4 char(1) ; 
+    15 WS-QTRS-LINE5-1993 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE5 char(1) ; 
+    15 WS-QTRS-LINE5-1994 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE6 char(1) ; 
+    15 WS-QTRS-LINE5-1995 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE7 char(1) ; 
+    15 WS-QTRS-LINE5-1996 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE8 char(1) ; 
+    15 WS-QTRS-LINE5-1997 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE9 char(1) ; 
+    15 WS-QTRS-LINE5-1998 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE10 char(1) ; 
+    15 WS-QTRS-LINE5-1999 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE11 char(1) ; 
+    15 WS-QTRS-LINE5-2000 char(4) ; 
+    15 WS-QTRS-LINE5-SPACE12 char(1) ; 
+    15 WS-QTRS-LINE5-2001 char(4) ; 
+  10 WS-QTRS-LINE6 char(64) ; 
+    15 WS-QTRS-LINE6-2002 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE1 char(1) ; 
+    15 WS-QTRS-LINE6-2003 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE2 char(1) ; 
+    15 WS-QTRS-LINE6-2004 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE3 char(1) ; 
+    15 WS-QTRS-LINE6-2005 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE4 char(1) ; 
+    15 WS-QTRS-LINE6-2006 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE5 char(1) ; 
+    15 WS-QTRS-LINE6-2007 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE6 char(1) ; 
+    15 WS-QTRS-LINE6-2008 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE7 char(1) ; 
+    15 WS-QTRS-LINE6-2009 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE8 char(1) ; 
+    15 WS-QTRS-LINE6-2010 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE9 char(1) ; 
+    15 WS-QTRS-LINE6-2011 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE10 char(1) ; 
+    15 WS-QTRS-LINE6-2012 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE11 char(1) ; 
+    15 WS-QTRS-LINE6-2013 char(4) ; 
+    15 WS-QTRS-LINE6-SPACE12 char(1) ; 
+    15 WS-QTRS-LINE6-2014 char(4) ; 
+  10 WS-QTRS-LINE7 char(54) ; 
+    15 WS-QTRS-LINE7-2015 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE1 char(1) ; 
+    15 WS-QTRS-LINE7-2016 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE2 char(1) ; 
+    15 WS-QTRS-LINE7-2017 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE3 char(1) ; 
+    15 WS-QTRS-LINE7-2018 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE4 char(1) ; 
+    15 WS-QTRS-LINE7-2019 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE5 char(1) ; 
+    15 WS-QTRS-LINE7-2020 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE6 char(1) ; 
+    15 WS-QTRS-LINE7-2021 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE7 char(1) ; 
+    15 WS-QTRS-LINE7-2022 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE8 char(1) ; 
+    15 WS-QTRS-LINE7-2023 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE9 char(1) ; 
+    15 WS-QTRS-LINE7-2024 char(4) ; 
+    15 WS-QTRS-LINE7-SPACE10 char(1) ; 
+    15 WS-QTRS-LINE7-2025 char(4) ; 
+end // end AIF21W
 
 
