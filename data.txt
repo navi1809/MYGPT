@@ -1,5 +1,751 @@
-TN: NEON Household with One Work-Eligible Parent
-TL: TANF Loan (Needy Caretaker)
-TP: Temporary Program
-SG: Self-Sufficiency Grant
-TC (TCHD): TANF Child-Only (Child-Headed Household)
+package IVA_Batch;
+import egl.core.*;
+import CommonMigratedParts.*;
+import DataTables.*;
+//*** PROGRAM=AIF28A ****
+// 
+// DESCRIPTION:
+// ============
+// AIF28A TOP ADDRESS MATCH REQUEST
+// 
+// 
+// ***********************
+Program AIF28A type basicProgram //VAGen Info - main batch program
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
+
+  // Data Declarations
+  AIF28W AIF28W; // record
+  AIF28W-HEAD AIF28W-HEAD; // record
+  CEP01W CEP01W; // record
+  FORMATW FORMATW; // record
+  GDW GDW; // record
+  H2-3-DMQDRP-DEB H2-3-DMQDRP-DEB;
+  H2-DBTR-DTLS H2-DBTR-DTLS; // record
+  H2-DEBT-MATCH-REQ H2-DEBT-MATCH-REQ; // record
+  H2-DEBT-RESP-PRSN H2-DEBT-RESP-PRSN; // record
+  H2-PERSON H2-PERSON; // record
+  REP-COMMON REP-COMMON; // record
+  REP-EOFNOF REP-EOFNOF; // record
+  SR-132REP-RECOUT SR-132REP-RECOUT; // record
+  SR-AIF28-OUTREC SR-AIF28-OUTREC; // record
+  VDBCOMMON VDBCOMMON; // record
+  VDBCONTROL VDBCONTROL; // record
+  VMESSAGE VMESSAGE; // record
+  VSTRREC4 VSTRREC4; // record
+
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
+
+  // Use Declarations
+  use VDB00T1 {deleteAfterUse = yes}; // table
+
+  function main()
+    // VAGen Info - initialization needed for migration
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    AIF28P8-MAIN: AIF28P8-MAIN();
+  end // end main
+end // end AIF28A
+
+
+// MAIN PROCESS
+Function AIF28P8-MAIN()
+  AIF28P9-INIT-PARA();
+
+  AIF28W.WS-DATA-FLG = "N";
+  AIF28Q1-DMQDRP-DEB();
+  AIF28Q1-SCAN();
+  while (VDBCONTROL.URC == 0)
+    AIF28W.WS-DATA-FLG = "Y";
+    AIF28W.WS-DEBT-YR-CCYY = H2-3-DMQDRP-DEB.DEBT-YR;
+    AIF28W.WS-DEBT-YR = AIF28W.WS-DEBT-YY;
+    AIF28W.WS-DEBT-SQ-NMB = H2-3-DMQDRP-DEB.DEBT-SQ-NMB;
+    AIF28W.WS-DEBT-UPI = H2-3-DMQDRP-DEB.UPI;
+    AIF28P9-APPLSPEC();
+    AIF28Q1-SCAN();
+  end
+
+  if (WS-DATA-FLG == "Y")
+    AIF28W.WS-CNTL-ID = "CNTL";
+    AIF28W.WS-CNTL-FLR70 = " ";
+    AIF28W.WS-CNTL-FLR52 = " ";
+    AIF28W.WS-CNTL-DMF-YR = "  ";
+    AIF28W.WS-CNTL-COUNT = AIF28W.WS-COUNT;
+    AIF28W.WS-CNTL-AMOUNT = AIF28W.WS-TOTAL;
+    SR-AIF28-OUTREC.ADDR-REQUEST-REC = AIF28W.WS-CNTL-REC;
+    AIF28Q8-ADD-SR-REC();
+    AIF28Q8-CLOSE-SR();
+  end
+
+  AIF28P9-PROC-EOF();
+end // end AIF28P8-MAIN
+
+
+// application specific processin
+Function AIF28P9-APPLSPEC()
+  AIF28P9-DBTR-NAME();
+  if (WS-ERROR == "Y")
+    return;
+  end
+
+  AIF28P9-PROC-OUTRC();
+
+  set H2-DEBT-MATCH-REQ empty;
+  H2-DEBT-MATCH-REQ.DEBT-YR = H2-3-DMQDRP-DEB.DEBT-YR;
+  H2-DEBT-MATCH-REQ.DEBT-SQ-NMB = H2-3-DMQDRP-DEB.DEBT-SQ-NMB;
+  H2-DEBT-MATCH-REQ.UPI = H2-3-DMQDRP-DEB.UPI; 
+  H2-DEBT-MATCH-REQ.REQUEST-DT = AIF28W.WS-CURR-DT;
+  H2-DEBT-MATCH-REQ.NAME-CTL = AIF28W.WS-NAME-CTL;
+  H2-DEBT-MATCH-REQ.LAST-NAME = AIF28W.WS-LST-NM;
+  H2-DEBT-MATCH-REQ.FIRST-NAME = AIF28W.WS-FRST-NM;
+  AIF28W.WS-TOP-YR = H2-3-DMQDRP-DEB.DEBT-YR;
+  AIF28W.WS-TOP-SQ-NMB = H2-3-DMQDRP-DEB.DEBT-SQ-NMB;
+  AIF28W.WS-TOP-SPACE = " ";
+  H2-DEBT-MATCH-REQ.TOP-DEBT-ID = AIF28W.WS-TOP-ID;
+  H2-DEBT-MATCH-REQ.STS-CD = "P";  
+  AIF28Q3-UPD-DMQ();
+
+  SET H2-DEBT-RESP-PRSN EMPTY; 
+  H2-DEBT-RESP-PRSN.DEBT-YR = H2-3-DMQDRP-DEB.DEBT-YR;
+  H2-DEBT-RESP-PRSN.DEBT-SQ-NMB = H2-3-DMQDRP-DEB.DEBT-SQ-NMB;
+  H2-DEBT-RESP-PRSN.UPI = H2-3-DMQDRP-DEB.UPI;
+  H2-DEBT-RESP-PRSN.ADR-MATCH-STS = "P";
+  AIF28Q2-UPD-DRP();
+
+end // end AIF28P9-APPLSPEC
+
+// application specific processin
+
+// GET DEBTOR NAME
+Function AIF28P9-DBTR-NAME()
+  AIF28W.WS-ERROR = "N";
+  
+  set H2-PERSON empty;
+  H2-PERSON.UPI = H2-3-DMQDRP-DEB.UPI;
+  H2-PERSON.SSN = H2-3-DMQDRP-DEB.SSN;
+  AIF28Q7-PERSON();
+  if (VDBCONTROL.URC == 0)
+      AIF28W.WS-LST-NM = H2-PERSON.LST-NM;
+      AIF28W.WS-FRST-NM = H2-PERSON.FRST-NM;
+  else
+      set H2-DBTR-DTLS empty;   
+      H2-DBTR-DTLS.UPI = H2-3-DMQDRP-DEB.UPI;
+      H2-DBTR-DTLS.DBTR-SSN = H2-3-DMQDRP-DEB.SSN;      
+      AIF28Q7-DBTR-DTL();
+      if (VDBCONTROL.URC == 0)
+          AIF28W.WS-LST-NM = H2-DBTR-DTLS.LST-NM;
+          AIF28W.WS-FRST-NM = H2-DBTR-DTLS.FRST-NM;
+      else
+          AIF28W.WS-ERROR = "Y";
+          return;
+      end
+  end
+
+  WS-NAME-CHAR[1] = " ";
+  WS-NAME-CHAR[2] = " ";
+  WS-NAME-CHAR[3] = " ";
+  WS-NAME-CHAR[4] = " ";
+  WS-IDX-1 = 1;
+  WS-IDX-2 = 0;
+  while (WS-IDX-1 < 21)
+    if (WS-LST-CHAR[WS-IDX-1] == "A"
+     || WS-LST-CHAR[WS-IDX-1] == "B"
+     || WS-LST-CHAR[WS-IDX-1] == "C"
+     || WS-LST-CHAR[WS-IDX-1] == "D"
+     || WS-LST-CHAR[WS-IDX-1] == "E"
+     || WS-LST-CHAR[WS-IDX-1] == "F"
+     || WS-LST-CHAR[WS-IDX-1] == "G"
+     || WS-LST-CHAR[WS-IDX-1] == "H"
+     || WS-LST-CHAR[WS-IDX-1] == "I"
+     || WS-LST-CHAR[WS-IDX-1] == "J"
+     || WS-LST-CHAR[WS-IDX-1] == "K"
+     || WS-LST-CHAR[WS-IDX-1] == "L"
+     || WS-LST-CHAR[WS-IDX-1] == "M"
+     || WS-LST-CHAR[WS-IDX-1] == "N"
+     || WS-LST-CHAR[WS-IDX-1] == "O"
+     || WS-LST-CHAR[WS-IDX-1] == "P"
+     || WS-LST-CHAR[WS-IDX-1] == "Q"
+     || WS-LST-CHAR[WS-IDX-1] == "R"
+     || WS-LST-CHAR[WS-IDX-1] == "S"
+     || WS-LST-CHAR[WS-IDX-1] == "T"
+     || WS-LST-CHAR[WS-IDX-1] == "U"
+     || WS-LST-CHAR[WS-IDX-1] == "V"
+     || WS-LST-CHAR[WS-IDX-1] == "W"
+     || WS-LST-CHAR[WS-IDX-1] == "X"
+     || WS-LST-CHAR[WS-IDX-1] == "Y"
+     || WS-LST-CHAR[WS-IDX-1] == "Z")
+      WS-IDX-2 = WS-IDX-2 + 1;
+      WS-NAME-CHAR[WS-IDX-2] = WS-LST-CHAR[WS-IDX-1];
+    else
+      if (WS-LST-CHAR[WS-IDX-1] == "-"
+       && WS-IDX-2 > 0)
+        WS-IDX-2 = WS-IDX-2 + 1;
+        WS-NAME-CHAR[WS-IDX-2] = WS-LST-CHAR[WS-IDX-1];
+      end
+    end
+    if (WS-IDX-2 == 4)
+      WS-IDX-1 = 21;
+    else
+      WS-IDX-1 = WS-IDX-1 + 1;
+    end
+  end
+end // end AIF28P9-DBTR-NAME
+
+
+// application specific processin
+Function AIF28P9-PROC-OUTRC()
+  set SR-AIF28-OUTREC empty;
+  SR-AIF28-OUTREC.ADREQ-AGENCY-CD = "28";
+  SR-AIF28-OUTREC.ADREQ-STATE-CD = "NV";
+  SR-AIF28-OUTREC.ADREQ-MASTER-FILE-CD = "1";
+  SR-AIF28-OUTREC.ADREQ-DELINQNT-DT = "000000";
+  SR-AIF28-OUTREC.ADREQ-DMF-PROGRAM-YR = "  ";
+  SR-AIF28-OUTREC.ADREQ-SSN-ZERO = "0";
+  SR-AIF28-OUTREC.ADREQ-FILLER-1 = "0";
+  SR-AIF28-OUTREC.ADREQ-DEBT-AMT = 0;
+  SR-AIF28-OUTREC.ADREQ-LOCAL-CD = "   ";
+  SR-AIF28-OUTREC.ADREQ-FILLER-2 = "  ";
+  SR-AIF28-OUTREC.ADREQ-FILLER-3 = "  ";
+  SR-AIF28-OUTREC.ADREQ-FILLER-4 = " ";
+  SR-AIF28-OUTREC.ADREQ-JUDGEMENT = " ";
+  SR-AIF28-OUTREC.ADREQ-SSN = H2-3-DMQDRP-DEB.SSN;
+  SR-AIF28-OUTREC.ADREQ-NAME-CTL = AIF28W.WS-NAME-CTL;
+  SR-AIF28-OUTREC.ADREQ-LAST-NAME = AIF28W.WS-LST-NM;
+  SR-AIF28-OUTREC.ADREQ-FIRST-NAME = AIF28W.WS-FRST-NM;
+  SR-AIF28-OUTREC.ADREQ-DEBT-NMB = AIF28W.WS-DEBT-NMBR;      
+  AIF28Q8-ADD-SR-REC();
+
+  AIF28W.WS-COUNT = AIF28W.WS-COUNT + 1;
+end // end AIF28P9-PROC-OUTRC
+
+// application specific processin
+Function AIF28P9-PROC-EOF()
+  REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
+  AIF28W-HEAD.UPAGE = REP-COMMON.WS-PAGE-NO;
+
+  /* set carriage control flag for form feed if flag is set*/
+  if (REP-COMMON.WS-PAGE-NO > 1)
+    SR-132REP-RECOUT.PRNT-CC = "1";
+  end
+
+  /* move each line of header to map and print*/
+  SR-132REP-RECOUT.UFIELD = AIF28W-HEAD.LINE1;
+  WR-132REP-OUT-FILE();
+
+  SR-132REP-RECOUT.PRNT-CC = " ";
+  SR-132REP-RECOUT.UFIELD = AIF28W-HEAD.LINE2;
+  WR-132REP-OUT-FILE();
+
+  AIF28W-HEAD.LINE3-CNTL-TEXT = "CONTROL TOTAL COUNT ";
+  set FORMATW empty;
+  FORMATW.INPUT-NUMBER = AIF28W.WS-CNTL-COUNT;
+  if (FORMATW.INPUT-NUMBER != 0)
+    FORMATW.LENGTH = 8;
+    FORMATW.DEC-COUNT = 0;
+    FORMATW.FORMAT-FLAG = "N";
+    REPP9-FORMAT-PROC();
+  else
+    FORMATW.OUTPUT-CHAR = "       0";
+  end
+  AIF28W-HEAD.LINE3-CNTL-COUNT = FORMATW.OUTPUT-CHAR;
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  SR-132REP-RECOUT.UFIELD = AIF28W-HEAD.LINE3;
+  WR-132REP-OUT-FILE();
+
+  AIF28W-HEAD.LINE3-CNTL-TEXT = "CONTROL TOTAL AMOUNT";
+  AIF28W-HEAD.LINE3-CNTL-COUNT = "    0.00";
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  SR-132REP-RECOUT.UFIELD = AIF28W-HEAD.LINE3;
+  WR-132REP-OUT-FILE();
+
+  REP132P9-EOR-PROC();
+  AIF28Q8-CLOSE-RPT();
+end // end AIF28P9-PROC-EOF
+	
+// INTIALISE ALL VARIABLES
+Function AIF28P9-INIT-PARA()
+  set VMESSAGE empty;
+  set CEP01W empty;
+  set VDBCONTROL empty;
+  set VDBCOMMON empty;
+  set AIF28W empty;
+
+  /* set all h2 records empty*/
+  set H2-3-DMQDRP-DEB empty;
+  set H2-DBTR-DTLS empty;
+  set H2-PERSON empty;
+  set H2-DEBT-RESP-PRSN empty;
+  set H2-DEBT-MATCH-REQ empty;
+
+  set SR-AIF28-OUTREC empty;
+
+  /* set all report variables to initial values*/
+  /* ws-page-no      - current printing page number*/
+  /* ws-line-no      - current page line no*/
+  /* ws-new-page     - a new page indicator*/
+  /* ws-max-no-lines - lineage for a standard report frame*/
+
+  VGVar.handleHardIOErrors = 1;
+  REP-COMMON.WS-PAGE-NO = 0;
+  REP-COMMON.WS-LINE-NO = 56;
+  REP-COMMON.WS-NEW-PAGE = "Y";
+  REP-COMMON.WS-MAX-NO-LINES = 56;
+
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  REP-COMMON.WS-DT = GDW.DTL; /* current date*/
+  REP-COMMON.WS-YEAR = REP-COMMON.WS-YY;
+  REP-COMMON.WS-MONTH = REP-COMMON.WS-MM;
+  REP-COMMON.WS-DAY = REP-COMMON.WS-DD;
+  REP-COMMON.WS-F1 = "/";
+  REP-COMMON.WS-F2 = "/";
+  AIF28W-HEAD.UDATE = REP-COMMON.WS-DATE;
+  AIF28W-HEAD.UTIME = VGVar.currentFormattedTime; /* current time*/
+  AIF28W-HEAD.UAPPL = "AIF28A"; /* report name*/
+  VDBCOMMON.UAPPLNAM = "AIF28A";
+
+  AIF28W.WS-DT = GDW.DTL; /* current date*/
+  AIF28W.WS-CURR-CCYY = AIF28W.WS-CCYY;
+  AIF28W.WS-DASH1 = "-";
+  AIF28W.WS-CURR-MM = AIF28W.WS-MM;
+  AIF28W.WS-DASH2 = "-";
+  AIF28W.WS-CURR-DD = AIF28W.WS-DD;
+
+  AIF28P9-INITCON();
+  /* set standard header variables*/
+end // end AIF28P9-INIT-PARA
+
+
+// INITIALISE CONSTANTS
+Function AIF28P9-INITCON()
+  AIF28W-HEAD.LINE1-PAGE-TEXT = "PAGE-NBR";
+  AIF28W-HEAD.FILLER1 = " ";
+  AIF28W-HEAD.FILLER2 = " ";
+  AIF28W-HEAD.LINE1-STATE-TEXT = "STATE OF NEVADA";
+  AIF28W-HEAD.FILLER3 = " ";
+  AIF28W-HEAD.LINE1-DATE-TEXT = "DATE";
+  AIF28W-HEAD.FILLER4 = " ";
+
+  AIF28W-HEAD.FILLER5 = " ";
+  AIF28W-HEAD.LINE2-RPT-NAME = "TREASURY OFFSET ADDRESS MATCH REQUEST";
+  AIF28W-HEAD.FILLER6 = " ";
+  AIF28W-HEAD.LINE2-TIME-TEXT = "TIME";
+  AIF28W-HEAD.FILLER7 = " ";
+  AIF28W-HEAD.FILLER8 = " ";
+  AIF28W-HEAD.FILLER9 = " ";
+end // end AIF28P9-INITCON
+	
+
+//------------------- QUERIES ------------------------------
+Function AIF28Q1-DMQDRP-DEB()
+  WDB00PI();
+  VDBCONTROL.UPROC-NM = "AIF28Q1-DMQDRP-DEB";
+  VDBCOMMON.USQLREC = "H2-3-DMQDRP-DEB";
+  VDBCONTROL.UPROC-OBJ = "H2-3-DMQDRP-DEB";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  try
+    open AIF28Q1-DMQDRP-DEB_RSI01
+      with #sql{
+        select T1.DEBT_YR 
+              ,T1.DEBT_SQ_NMB
+              ,T1.UPI 
+              ,T1.TOP_DEBTOR 
+              ,T1.REQUEST_DT
+              ,T1.SSN 
+              ,T1.NAME_CTL 
+              ,T1.LAST_NAME 
+              ,T1.FIRST_NAME 
+              ,T1.STS_CD 
+              ,T2.ADR_MATCH_STS 
+              ,T2.TOP_DBTR_TYPE
+              ,T3.DEBT_PRGM_CD 
+              ,T3.OFC_CD 
+              ,T3.DEBT_CLSFN_CD 
+              ,T3.DEBT_BAL_AMT 
+              ,T3.DEBT_STS 
+              ,T3.ESTBL_DT 
+              ,T3.JDGMT_STS_CD 
+              ,T3.RPYMT_MTHD
+    FROM TWNDEBT_MATCH_REQ T1    
+        ,TWNDEBT_RESP_PRSN T2
+        ,TWNDEBT T3
+        WHERE T1.DEBT_SQ_NMB > 0         
+        AND T1.REQUEST_DT = '0001-01-01' 
+        AND T1.DEBT_YR = T2.DEBT_YR
+        AND T1.DEBT_SQ_NMB = T2.DEBT_SQ_NMB
+        AND T1.UPI = T2.UPI
+        AND T1.DEBT_YR = T3.DEBT_YR
+        AND T1.DEBT_SQ_NMB = T3.DEBT_SQ_NMB
+        AND T3.DEBT_PRGM_CD   = 'FS'
+        AND T3.DEBT_CLSFN_CD IN ('A', 'H', 'V')
+        AND T3.DEBT_BAL_AMT > 24.99
+        AND T3.DEBT_STS <> 'C'
+        ORDER BY T1.DEBT_YR, T1.DEBT_SQ_NMB, T1.TOP_DEBTOR, T1.UPI
+        FOR FETCH ONLY
+      }      
+      into DEBT-YR
+          ,DEBT-SQ-NMB
+          ,UPI
+          ,TOP-DEBTOR
+          ,REQUEST-DT
+          ,SSN 
+          ,NAME-CTL 
+          ,LAST-NAME 
+          ,FIRST-NAME 
+          ,STS-CD 
+          ,ADR-MATCH-STS
+          ,TOP-DBTR-TYPE
+          ,DEBT-PRGM-CD
+          ,OFC-CD
+          ,DEBT-CLSFN-CD           
+          ,DEBT-BAL-AMT
+          ,DEBT-STS
+          ,ESTBL-DT
+          ,JDGMT-STS-CD
+          ,RPYMT-MTHD
+      for H2-3-DMQDRP-DEB ;
+  end
+  AIF28Q9-SQLERR-RD();
+  if (VDBCONTROL.URC != 0)
+      sysVar.returnCode = 8;
+      WCM00P2-TO-CEP01A();
+  end
+end  
+ 
+Function AIF28Q1-SCAN()
+  WDB00PI();
+  VDBCONTROL.UPROC-NM = "AIF28Q1-SCAN";
+  VDBCOMMON.USQLREC = "H2-3-DMQDRP-DEB";
+  VDBCONTROL.UPROC-OBJ = "H2-3-DMQDRP-DEB";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  try
+    get next H2-3-DMQDRP-DEB ;
+  end
+  AIF28Q9-SQLERR-RD();
+end  
+
+Function AIF28Q2-UPD-DRP() 	
+  WDB00PI();
+  VDBCONTROL.UPROC-NM = "AIF28Q4-DB-RSP-PRS";
+  VDBCOMMON.USQLREC = "H2-DEBT-RESP-PRSN";
+  VDBCONTROL.UPROC-OBJ = "H2-DEBT-RESP-PRSN";
+  VDBCONTROL.UPROC-OPT = "UPDATE";
+  try
+    execute 
+      #sql{
+        UPDATE TWNDEBT_RESP_PRSN
+        SET ADR_MATCH_STS      = :ADR-MATCH-STS
+        WHERE DEBT_YR          = :DEBT-YR
+          AND DEBT_SQ_NMB      = :DEBT-SQ-NMB
+          AND UPI              = :UPI
+      }
+      for H2-DEBT-RESP-PRSN ;  
+  end
+  AIF28Q9-SQLERR-WR();
+  if (VDBCONTROL.URC != 0)
+  	  AIF28W.WS-ERR-DEBT-YR = H2-DEBT-RESP-PRSN.DEBT-YR;
+      AIF28W.WS-ERR-DEBT-SQ-NMB = H2-DEBT-RESP-PRSN.DEBT-SQ-NMB;
+      AIF28W.WS-ERR-UPI =  H2-DEBT-RESP-PRSN.UPI;
+      AIF28Q9-SET-ERROR();  	  
+      sysVar.returnCode = 8;
+      WCM00P2-TO-CEP01A();
+  end
+end // end AIF28Q2-UPD-DRP
+
+Function AIF28Q3-UPD-DMQ()
+  WDB00PI();
+  VDBCONTROL.UPROC-NM = "AIF28Q3-UPD-DMQ";
+  VDBCOMMON.USQLREC = "H2-DEBT-MATCH-REQ";
+  VDBCONTROL.UPROC-OBJ = "H2-DEBT-MATCH-REQ";
+  VDBCONTROL.UPROC-OPT = "UPDATE";
+  try
+    execute 
+      #sql{
+        UPDATE TWNDEBT_MATCH_REQ
+        SET REQUEST_DT     = :REQUEST-DT
+           ,NAME_CTL       = :NAME-CTL 
+           ,LAST_NAME      = :LAST-NAME
+           ,FIRST_NAME     = :FIRST-NAME                         
+           ,STS_CD         = :STS-CD
+           ,TOP_DEBT_ID    = :TOP-DEBT-ID 
+        WHERE DEBT_YR      = :DEBT-YR
+          AND DEBT_SQ_NMB  = :DEBT-SQ-NMB
+          AND UPI          = :UPI
+      }
+      for H2-DEBT-MATCH-REQ ; // model = none
+  end
+  AIF28Q9-SQLERR-WR();
+  if (VDBCONTROL.URC != 0)
+  	  AIF28W.WS-ERR-DEBT-YR = H2-DEBT-MATCH-REQ.DEBT-YR;
+      AIF28W.WS-ERR-DEBT-SQ-NMB = H2-DEBT-MATCH-REQ.DEBT-SQ-NMB;
+      AIF28W.WS-ERR-UPI =  H2-DEBT-MATCH-REQ.UPI;
+      AIF28Q9-SET-ERROR();  	  
+      sysVar.returnCode = 8;
+      WCM00P2-TO-CEP01A();
+  end
+end 
+
+// INQURY Message Text Data
+Function AIF28Q7-DBTR-DTL()
+  WDB00PI();
+  VDBCONTROL.UPROC-NM = "AIF28Q7-DBTR-DTL";
+  VDBCONTROL.UPROC-OBJ = "H2-DBTR-DTLS";
+  VDBCOMMON.USQLREC = "H2-DBTR-DTLS";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  /*  */
+  try
+    get H2-DBTR-DTLS
+      with #sql{
+        select LST_NM, FRST_NM, MID_NM, MODFR, DBTR_SSN
+        from twndbtr_dtls T1
+        WHERE UPI = :UPI
+        AND DBTR_SSN = :DBTR-SSN  
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into LST-NM, FRST-NM, MID-NM, MODFR, DBTR-SSN ;
+  end
+  AIF28Q9-SQLERR-RD();
+end // end AIF28Q7-DBTR-DTL
+ 
+Function AIF28Q7-PERSON()
+  WDB00PI();
+  VDBCONTROL.UPROC-NM = "AIF28Q7-PERSON";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  /*  */
+  try
+    get H2-PERSON
+      with #sql{
+        select LST_NM, FRST_NM, MID_NM, MODFR, SSN
+        from TWNPERSON T1
+        WHERE UPI = :UPI
+        AND SSN = :SSN
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into LST-NM, FRST-NM, MID-NM, MODFR, SSN ;
+  end
+  AIF28Q9-SQLERR-RD();
+end // end AIF28Q7-PERSON
+
+// PROCESS SQL READ ERRORS
+Function AIF28Q9-SQLERR-RD()
+//  SysLib.writeStdout("AIF28Q9-SQLERR-RD");
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIF28A";
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
+//  SysLib.writeStdout("URC = " + VDBCONTROL.URC);
+  if (VDBCONTROL.URC >= 104)
+      SysLib.writeStdout("VDBCONTROL.URC " + VDBCONTROL.URC + "  " + VDBCONTROL.UPROC-NM + "  " + VDBCONTROL.UPROC-OBJ);
+      sysVar.returnCode = 8;
+      WCM00P2-TO-CEP01A();
+  end
+END 
+
+Function AIF28Q9-SQLERR-WR()
+//  SysLib.writeStdout("AIF28Q9-SQLERR-WR");
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIF28A";
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "Y";
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC >= 104)
+      SysLib.writeStdout("VDBCONTROL.URC " + VDBCONTROL.URC + "  " + VDBCONTROL.UPROC-NM + "  " + VDBCONTROL.UPROC-OBJ);
+      sysVar.returnCode = 8;
+      WCM00P2-TO-CEP01A();
+  end
+END  
+
+FUNCTION AIF28Q9-SET-ERROR()
+      SysLib.writeStdout("VDBCONTROL.URC " + VDBCONTROL.URC + "  " + VDBCONTROL.UPROC-NM + "  " + VDBCONTROL.UPROC-OBJ);
+      SysLib.writeStdout("DEBT YR " + AIF28W.WS-ERR-DEBT-YR);
+      SysLib.writeStdout("DEBT SQ " + AIF28W.WS-ERR-DEBT-SQ-NMB);
+      SysLib.writeStdout("UPI " + AIF28W.WS-ERR-UPI);  
+  	  IF (VDBCONTROL.URC == 100)
+  	      VDBCONTROL.URC = 112;
+  	  END
+END
+
+//----------------- FLAT FILE & REPORT I/O ----------
+// WRITE OUTPUT FILE
+Function AIF28Q8-ADD-SR-REC()
+  VGVar.handleHardIOErrors = 1;
+  try
+    add SR-AIF28-OUTREC ;
+  end
+  if (SR-AIF28-OUTREC is ioError)
+    VDBCONTROL.UPROC-NM = "AIF28Q8-ADD-SR-REC";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF28-OUTREC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    AIF28W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF28W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIF28A";
+    if (SR-AIF28-OUTREC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF28-OUTREC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF28-OUTREC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF28Q8-ADD-SR-REC
+
+// CLOSE REPORT
+Function AIF28Q8-CLOSE-RPT()
+  VGVar.handleHardIOErrors = 1;
+  try
+    close SR-132REP-RECOUT ;
+  end
+  if (SR-132REP-RECOUT is ioError)
+    VDBCONTROL.UPROC-NM = "AIF28Q8-CLOSE-RPT";
+    VDBCONTROL.UPROC-OBJ = "SR-132REP-RECOUT";
+    VDBCONTROL.UPROC-OPT = "CLOSE";
+    AIF28W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF28W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIF28A";
+    if (SR-132REP-RECOUT is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-132REP-RECOUT is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-132REP-RECOUT is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF28Q8-CLOSE-RPT
+
+// CLOSE THE SINP FILE
+Function AIF28Q8-CLOSE-SR()
+  try
+    close SR-AIF28-OUTREC ;
+  end
+  if (SR-AIF28-OUTREC is ioError)
+    VDBCONTROL.UPROC-NM = "AIF28P9-CLOSE-SINP";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF28-OUTREC";
+    VDBCONTROL.UPROC-OPT = "CLOSE";
+    AIF28W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF28W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIF28A";
+    if (SR-AIF28-OUTREC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF28-OUTREC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF28-OUTREC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF28Q8-CLOSE-SR
+
+Record AIF28W type basicRecord
+  10 WS-EOF char(1) ; 
+  10 WS-DATE-10 char(10) ; 
+    15 WS-DATE-CC num(2) ; 
+    15 WS-DATE-YY num(2) ; 
+    15 WS-DATE-FLR1 char(1) ; 
+    15 WS-DATE-MM num(2) ; 
+    15 WS-DATE-FLR2 char(1) ; 
+    15 WS-DATE-DD num(2) ; 
+  10 WS-DT char(8) ; 
+    15 WS-CCYY char(4) ; 
+    15 WS-MM char(2) ; 
+    15 WS-DD num(2) ; 
+  10 WS-CURR-DT char(10) ; 
+    15 WS-CURR-CCYY num(4) ; 
+    15 WS-DASH1 char(1) ; 
+    15 WS-CURR-MM char(2) ; 
+    15 WS-DASH2 char(1) ; 
+    15 WS-CURR-DD char(2) ; 
+  10 WS-DATA-FLG char(1) ; 
+  10 WS-FIRST-TIME char(1) ;
+  10 WS-RESP-IND char(1) ;
+  10 WS-TAX-INTC-IND char(1) ;
+   
+  10 WS-DBTR-TYPE char(1) ;
+  10 WS-SSN char(9) ; 
+  10 WS-LST-NM char(21) ; 
+    15 WS-LST-CHAR char(1) [21] ; 
+  10 WS-FRST-NM char(16) ; 
+  10 WS-MID-NM char(16) ; 
+  10 WS-NAME-CTL char(4) ; 
+    15 WS-NAME-CHAR char(1) [4] ; 
+  10 WS-IDX-1 num(2) ; 
+  10 WS-IDX-2 num(2) ; 
+  10 WS-ERROR char(1) ; 
+  10 WS-ERR-CD char(8) ; 
+    15 WS-ERR-FIRST-FOUR char(4) ; 
+    15 WS-ERR-LAST-FOUR char(4) ; 
+  10 WS-DEBT-NMBR char(15) ; 
+    15 WS-DEBT-YR NUM (2) ; 
+    15 WS-DEBT-SQ-NMB num(4) ; 
+    15 WS-DEBT-UPI num(9) ; 
+  10 WS-TOP-ID char(18) ; 
+    15 WS-TOP-YR NUM (2) ; 
+    15 WS-TOP-SQ-NMB num(5) ; 
+    15 WS-TOP-SPACE char(11) ; 
+  10 WS-DEBT-YR-CCYY num(4);
+    15 WS-DEBT-CC num(2);
+    15 WS-DEBT-YY num(2);
+  10 WS-COUNT num(8) ; 
+  10 WS-TOTAL num(14,2) ; 
+  10 WS-CNTL-REC char(150) ; 
+    15 WS-CNTL-ID char(4) ; 
+    15 WS-CNTL-COUNT num(8) ; 
+    15 WS-CNTL-AMOUNT num(14,2) ; 
+    15 WS-CNTL-FLR70 char(70) ; 
+    15 WS-CNTL-DMF-YR char(2) ; 
+    15 WS-CNTL-FLR52 char(52) ;
+  10 WS-ERR-DEBT-YR NUM (4) ; 
+  10 WS-ERR-DEBT-SQ-NMB num(5) ; 
+  10 WS-ERR-UPI num(9) ; 
+     
+end // end AIF28W
+
+
+Record AIF28W-HEAD type basicRecord
+  10 LINE1 char(132) ; 
+    15 LINE1-PAGE-TEXT char(8) ; 
+    15 FILLER1 char(1) ; 
+    15 UPAGE char(4) ; 
+    15 FILLER2 char(46) ; 
+    15 LINE1-STATE-TEXT char(15) ; 
+    15 FILLER3 char(43) ; 
+    15 LINE1-DATE-TEXT char(4) ; 
+    15 FILLER4 char(3) ; 
+    15 UDATE char(8) ; 
+  10 LINE2 char(132) ; 
+    15 UAPPL char(8) ; 
+    15 FILLER5 char(39) ; 
+    15 LINE2-RPT-NAME char(37) ; 
+    15 FILLER6 char(33) ; 
+    15 LINE2-TIME-TEXT char(4) ; 
+    15 FILLER7 char(3) ; 
+    15 UTIME char(8) ; 
+  10 LINE3 char(132) ; 
+    15 FILLER8 char(51) ; 
+    15 LINE3-CNTL-TEXT char(20) ; 
+    15 LINE3-CNTL-COUNT char(8) ; 
+    15 FILLER9 char(53) ; 
+end // end AIF28W-HEAD
+
+
