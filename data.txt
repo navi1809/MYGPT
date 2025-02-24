@@ -2,35 +2,34 @@ package IVA_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=AIN36A ****
-// COMPONENT NAME: AIN36A
+//*** PROGRAM=AIN37A ****
+// COMPONENT NAME: AIN37A
 // ===============
 // 
 // DESCRIPTION:
 // ============
-// This module generates the daily request file to be sent to
-// ESD/guide.  The program identifies those SSNs for which
-// requests are to be sent to ESD to get the wage, UIB,
-// employer, and payor details.  The information returned by
-// ESD will be used to verify the details provided by the
-// casemembers; if there is any discrepancy, the member's
-// data will be updated using the information provided by the
-// ESD response record.
+// This module generates the monthly (first Friday of month)
+// request data sent to ESD.  (An earlier description indicated
+// that this was a quarterly program, but it isn't.)  Daily
+// requests are sent by program AIN36A for both FAME and IV-D.
+// This program identifies those SSNs for which requests are to
+// be sent to ESD to get wage, UIB, employer, payor details.
+// The information returned by ESD is used to verify the
+// details provided by the case members, if there is any
+// discrepancy then the member's data is updated using the
+// information provided by the ESD.
 // ---------------------------------------------------------
 // Change log
-// Date        Work Item    Description
-// ----------  ---------    ----------------------------------
-// 08/21/1998  WI14086      JBALDWIN- ESD GUIDE interface with
-//                          NOMADS.
-// 03/22/2004  WI15406      D.Bugli- Modify program to send
-// 04/19/2004               alternate SSNs, along with the
-//                          primary SSN, for IV-D NCPs.
-// 11/16/2020  EP-1024-4105 This change is for IV-A SNAPER Federal reporting.
-//                          4 times/year in the week after the quarterly
-//                          universe file goes to DETR, we will send these
-//                          SSNs based on the ESD flag in TWNOASIS_FS_PERF.
+// Date        Work Item  Description
+// ----------  ---------  ----------------------------------
+// 08/21/1998  WI14086    JBALDWIN- ESD GUIDE interface with
+//                        NOMADS.
+// 03/22/2004  WI15406    D.Bugli- Modify program to send
+//                        alternate SSNs, along with the
+//                        primary SSN for NCPs.
+// 
 // ***********************
-Program AIN36A type basicProgram //VAGen Info - main batch program
+Program AIN37A type basicProgram //VAGen Info - main batch program
   {
   includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
   throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
@@ -38,25 +37,23 @@ Program AIN36A type basicProgram //VAGen Info - main batch program
   }
 
   // Data Declarations
-  AIN36W AIN36W; // record
-  AIN36W2 AIN36W2; // record
+  AIN37W AIN37W; // record
   BDATEREC BDATEREC; // record
   CEP01W CEP01W; // record
   GDW GDW; // record
   H2-2-CMH-PER H2-2-CMH-PER; // record
   H2-2-DCC-SPT H2-2-DCC-SPT; // record
-  H2-2-LCA-PER H2-2-LCA-PER; // record
+  H2-2-IDC-PER H2-2-IDC-PER; // record
   H2-2-PER-RPD H2-2-PER-RPD; // record
   H2-ALTERNATE-SSN H2-ALTERNATE-SSN; // record
+  H2-CASE-MEMBER-HST H2-CASE-MEMBER-HST; // record
   H2-IVD-CONTACTS H2-IVD-CONTACTS; // record
   H2-LCTE-ACTVY H2-LCTE-ACTVY; // record
-  /* PWA 1024-41-5 - start */
-  H2-SYSDATE H2-SYSDATE; // record
-  H2-OASIS-FS-PERF H2-OASIS-FS-PERF; // record
-  /* PWA 1024-4105 - end */
-  H3-PERSON H3-PERSON; // record
-  SR-Q-LOG1-REC SR-Q-LOG1-REC; // record
-  SR-Q36OUT-REC SR-Q36OUT-REC; // record
+  H2-PERSON H2-PERSON; // record
+  P-DATE-REC1 P-DATE-REC1; // record
+  SR-QAIN37A-JOB-FLE SR-QAIN37A-JOB-FLE; // record
+  SR-QAIN37A-OPT-REC SR-QAIN37A-OPT-REC; // record
+  VCOMMON VCOMMON; // record
   VCONTROL VCONTROL; // record
   VDBCOMMON VDBCOMMON; // record
   VDBCONTROL VDBCONTROL; // record
@@ -76,270 +73,527 @@ Program AIN36A type basicProgram //VAGen Info - main batch program
   function main()
     // VAGen Info - initialization needed for migration
     VAGen_EZESYS = VGLib.getVAGSysType();
-    AIN36P9-MAIN-PROC: AIN36P9-MAIN-PROC();
+    AIN37P9-MAIN-PROC: AIN37P9-MAIN-PROC();
   end // end main
-end // end AIN36A
+end // end AIN37A
 
 
-// Add a record into output file
-Function AIN36P9-ADD-PROC()
-  /* Process to add a record into the output file*/
+// DISPLAY JOB LOG
+Function AIN37P9-ADD-JFILE()
+  /* ----------------------------------------------------------*/
+  /* Process to display the number of records processed*/
+  /* ----------------------------------------------------------*/
 
   VGVar.handleHardIOErrors = 1;
+  VDBCONTROL.UPROC-NM = "AIN37P9-ADD-JFILE";
+  VDBCONTROL.UPROC-OBJ = "SR-QAIN37A-JOB-FLE";
+  VDBCONTROL.UPROC-OPT = "ADD";
   try
-    add SR-Q36OUT-REC ;
+    add SR-QAIN37A-JOB-FLE ;
   end
 
-  if (SR-Q36OUT-REC is ioError)
-    VDBCONTROL.UPROC-NM = "AIN36P9-ADD-PROC";
-    VDBCONTROL.UPROC-OBJ = "SR-Q36OUT-REC";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    AIN36W.WS-ERR-CD = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = AIN36W.WS-ERR-LAST-FOUR;
-    VMESSAGE.UMSGINS[2] = "AIN36A";
+  if (SR-QAIN37A-JOB-FLE is ioError)
 
-    /* Following conditions are added to move corresponding error msgs*/
+    AIN37W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN37W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN37A";
 
-    if (SR-Q36OUT-REC is fileNotAvailable)
+    /* The following conditions are added to move the corresponding*/
+    /* error message*/
+
+    if (SR-QAIN37A-JOB-FLE is fileNotAvailable)
       VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
     else
-      if (SR-Q36OUT-REC is fileNotFound)
+      if (SR-QAIN37A-JOB-FLE is fileNotFound)
         VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
       else
-        if (SR-Q36OUT-REC is invalidFormat)
+        if (SR-QAIN37A-JOB-FLE is invalidFormat)
           VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
         end
       end
     end
+
     WCM00P2-TO-CEP01A();
   end
-  /*  */
-end // end AIN36P9-ADD-PROC
+end // end AIN37P9-ADD-JFILE
 
 
-// Display number of records sent
-Function AIN36P9-DIS-PROC()
-  VGVar.handleHardIOErrors = 1;
+// INSERT INTO TWNIVD-CONTACTS
+Function AIN37P9-ADD-PRC()
+  /* --------------------------------------------------------*/
+  /* Process to insert a record into TWNIVD_CONTACTS*/
+  /* --------------------------------------------------------*/
+
+  VDBCOMMON.USQLREC = "H2-IVD-CONTACTS";
+  VDBCONTROL.UPROC-NM = "AIN37P9-ADD-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-IVD-CONTACTS";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+
+  AIN37W.WS-PROCESS-TS = GDW.TS;
+  AIN37W.WS-PROCESS-TS-DT = AIN37W.WS-PROCESS-DATE;
+  H2-IVD-CONTACTS.CRTD-TS = AIN37W.WS-PROCESS-TS;
   try
-    add SR-Q-LOG1-REC ;
+    add H2-IVD-CONTACTS
+      with #sql{
+        insert into TWNIVD_CONTACTS
+        (UPI,
+            CASE_SUFX,
+            CRTD_TS,
+            CASE_FUNC_AREA,
+            CNTCT_TYPE,
+            CNTCT_SRC,
+            CASE_SPCFC_IND,
+            WRKR_ID,
+            CNTCT_TXT)
+        values (:UPI,
+             :CASE-SUFX,
+             :CRTD-TS,
+             :CASE-FUNC-AREA,
+             :CNTCT-TYPE,
+             :CNTCT-SRC,
+             :CASE-SPCFC-IND,
+             :WRKR-ID,
+             :CNTCT-TXT)
+      } ;
   end
-  if (SR-Q-LOG1-REC is ioError)
-  /* if an error occured on writine the record*/
-  /*  */
-    VDBCONTROL.UPROC-NM = "AIN36P9-DIS-PROC";
-    VDBCONTROL.UPROC-OBJ = "SR-Q-LOG1-REC";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    AIN36W.WS-ERR-CD = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = AIN36W.WS-ERR-LAST-FOUR;
-    VMESSAGE.UMSGINS[2] = "AIN36A";
-    /* the following conditions are added to move the corresponding*/
+
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
+  end
+end // end AIN37P9-ADD-PRC
+
+
+// ADD A RECORD TO OUTPUT FILE
+Function AIN37P9-ADD-PROC()
+  /* Process to add a record into the output file*/
+
+  VGVar.handleHardIOErrors = 1;
+  VDBCONTROL.UPROC-NM = "AIN37P9-ADD-PROC";
+  VDBCONTROL.UPROC-OBJ = "SR-QAIN37A-OPT-REC";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  try
+    add SR-QAIN37A-OPT-REC ;
+  end
+
+  if (SR-QAIN37A-OPT-REC is ioError)
+
+    AIN37W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN37W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN37A";
+
+    /* The following conditions are added to move the corresponding*/
     /* error message*/
-    /*  */
-    if (SR-Q-LOG1-REC is fileNotAvailable)
+
+    if (SR-QAIN37A-OPT-REC is fileNotAvailable)
       VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
     else
-      if (SR-Q-LOG1-REC is fileNotFound)
+      if (SR-QAIN37A-OPT-REC is fileNotFound)
         VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
       else
-        if (SR-Q-LOG1-REC is invalidFormat)
+        if (SR-QAIN37A-OPT-REC is invalidFormat)
           VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
-        end /* ** end check for format mismatch*/
-      end /* ** end check for file not found*/
-    end /* end check for file not available*/
+        end
+      end
+    end
+
     WCM00P2-TO-CEP01A();
-  end /* end check for error in writing*/
-end // end AIN36P9-DIS-PROC
 
-
-// Process to get current date
-Function AIN36P9-GET-DATE()
-  /* Read bdaterec file containing process date in 'mm-dd-ccyy' format.*/
-
-  /* --------------------------PTR 11166 BEGIN---------------------------*/
-  WCM00P3-FETCHBDTS();
-  /* --------------------------PTR 11166 END-----------------------------*/
-  AIN36W.WS-PROCESS-DT = BDATEREC.BDATE-PROCESS-DATE;
-  VDTSREC.UDATYY = AIN36W.WS-PROCESS-DT-CCYY;
-  VDTSREC.UDATMM = AIN36W.WS-PROCESS-DT-MM;
-  VDTSREC.UDATDD = AIN36W.WS-PROCESS-DT-DD;
-  call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
-  if (VCONTROL.URC == 0)
-    AIN36W.WS-PROCESS-CCYY = VDTSREC.UDATYY;
-    AIN36W.WS-PROCESS-MM = VDTSREC.UDATMM;
-    AIN36W.WS-PROCESS-DD = VDTSREC.UDATDD;
-    AIN36W.WS-PROCESS-DASH1 = "-";
-    AIN36W.WS-PROCESS-DASH2 = "-";
-    
-    //WI 4259 Dan J.  Added variable for current date - 16 years for DOB limit.
-    AIN36W.WS-16YEAR-CCYY = VDTSREC.UDATYY;
-    AIN36W.WS-16YEAR-CCYY = AIN36W.WS-16YEAR-CCYY -16;
-    AIN36W.WS-16YEAR-MM = VDTSREC.UDATMM;
-    AIN36W.WS-16YEAR-DD = VDTSREC.UDATDD;
-    AIN36W.WS-16YEAR-DASH1 = "-";
-    AIN36W.WS-16YEAR-DASH2 = "-";
-  else
-    SR-Q36OUT-REC.AIN36A-OUTPUT-REC = "    INPUT DATE ENTERED IS INVALID, CORRECT INPUT AND RERUN ";
-    AIN36P9-ADD-PROC();
-    exit program;
   end
   /*  */
-end // end AIN36P9-GET-DATE
+end // end AIN37P9-ADD-PROC
 
-/* PWA 1024-41-5 - start */
-Function AIN36P9-GET-QUARTERLY_DT()
-  VDBCOMMON.USQLREC = "H2-SYSDATE";
-  VDBCONTROL.UPROC-OBJ = "H2-SYSDATE";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-NM = " AIN36P9-GET-QUARTERLY_DT";
-  
-  try
-  	get H2-SYSDATE
-  	  with #sql{
-  	  select dayofweek(cast(:WS-PROCESS-DATE as date))
-  	  from TWNSYSDATE
-  	  }
-  	into ws-snapet-dayofweek ;
-  end   	
 
-  /* Set error control flags*/
-
-  VDBCOMMON.UNRF = "N";
-  VDBCOMMON.UDUP = "Y";
-
-  /* Perform DBM error processing*/
-
-  WDB00PE-SQLERR();
-  /*  */
-
-end // end AIN36P9-GET-QUARTERLY_DT
-/* PWA 1024-41-5 - end */	
-
-// build the table TWNIVD_CONTACT
-Function AIN36P9-I-IVD-PROC()
-  /* ----------------------------------------------------------------*/
-  /* Inserts a record into the table TWNIVD_CONTACTS to show that*/
-  /* this NCP has already been submittted*/
+// BUILD DATA FOR TWNIVD_CONTACTS
+Function AIN37P9-CT-IVD-CTS()
+  /* ---------------------------------------------------------------*/
+  /* This process is to build an entry in TWNIVD_CONTACTS, one for*/
+  /* each NCP SSN sent, either primary or alternate.*/
   /* ---------------------------------------------------------------*/
   /* Change log*/
   /* Date        Work Item  Description*/
   /* ----------  ---------  ----------------------------------------*/
-  /* 04/19/2004  WI15406    D.Bugli- Revise contact entry to show*/
-  /* if the SSN sent was a primary or alternate*/
-  /* SSN.*/
+  /* 04/08/2004  WI15406    D.Bugli- Add alternate/primary SSN text*/
+  /* to the contact entry, and use compression*/
+  /* logic (WST60A).*/
   /* ---------------------------------------------------------------*/
   /*  */
   set H2-IVD-CONTACTS empty;
 
-  /* Move values to the sql row record for insertion*/
-
-  /* Move the value for upi fetched from the join of the tables*/
-  /* TWNLCTE_ACTVY and TWNPERSON*/
-
-  H2-IVD-CONTACTS.UPI = H2-2-LCA-PER.UPI;
+  /* Build the row for insertion:*/
+  H2-IVD-CONTACTS.UPI = H2-2-IDC-PER.UPI;
   H2-IVD-CONTACTS.CNTCT-TYPE = "I";
   H2-IVD-CONTACTS.CASE-SPCFC-IND = "N";
-  H2-IVD-CONTACTS.CASE-SUFX = "A";
   H2-IVD-CONTACTS.CNTCT-SRC = "ESD";
+  H2-IVD-CONTACTS.CASE-SUFX = "A";
   H2-IVD-CONTACTS.CASE-FUNC-AREA = " ";
-  /*  */
-  AIN36W2.WS-TEXT = " ";
-  AIN36W2.WS-TEXT1 = "THIS NCP HAS BEEN REPORTED TO ESD FOR DAILY";
-  AIN36W2.WS-FIL11 = " ";
-  AIN36W2.WS-TEXT2 = "VERIFICATION AS:";
-  AIN36W2.WS-FIL2 = " ";
-  /*  */
+  AIN37W.WS-CONCAT = " ";
+  AIN37W.WS-STRING = "THIS NCP HAS BEEN REPORTED TO ESD FOR MONTHLY VERIFICATION AS:";
+  AIN37W.WS-C-SSN = AIN37W.WS-SSN;
+
   /* WI15406 - Indicate primary or alternate SSN ** start ***/
-  if (AIN36W.WS-PRIALT-SW == "P")
-    AIN36W2.WS-TEXT3 = AIN36W.WS-PRI-SSN;
-    AIN36W2.WS-SSN-TYPE = " (PRIMARY SSN)";
+  if (AIN37W.WS-PRIALT-SW == "P")
+    AIN37W.WS-C-SSN = AIN37W.WS-PRI-SSN;
+    AIN37W.WS-C-SSN-TYPE = " (PRIMARY SSN)";
   else
-    AIN36W2.WS-TEXT3 = AIN36W.WS-ALT-SSN;
-    AIN36W2.WS-SSN-TYPE = " (ALTERNATE SSN)";
+    AIN37W.WS-C-SSN = AIN37W.WS-ALT-SSN;
+    AIN37W.WS-C-SSN-TYPE = " (ALTERNATE SSN)";
   end
   /* WI15406 - Indicate primary or alternate SSN ** end ***/
   /*  */
   /* WI15406 - Compress out extra spaces ** start ***/
-  VSTRREC7.UINSTRG = AIN36W2.WS-TEXT;
+  VSTRREC7.UINSTRG = AIN37W.WS-CONCAT;
   VSTRREC7.USTRLENGTH = 100;
   call "WST60A" (VSTRREC7);
   H2-IVD-CONTACTS.CNTCT-TXT = VSTRREC7.UOUTSTRG;
   /* WI15406 - Compress out extra spaces ** end ***/
 
   call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  AIN36W.WS-PROCESS-TS = GDW.TS;
-  AIN36W.WS-PROCESS-TS-DT = AIN36W.WS-PROCESS-DATE;
 
-  set H2-2-DCC-SPT empty;
-  H2-2-DCC-SPT.UPI = H2-2-LCA-PER.UPI;
-
-  AIN36P9-S05-PROC(); /* Retrieving worker id.*/
-
-  if (VDBCONTROL.URC > 104)
+  AIN37W.WS-PROCESS-TS = GDW.TS;
+  AIN37W.WS-PROCESS-TS-DT = AIN37W.WS-PROCESS-DATE;
+  H2-IVD-CONTACTS.CRTD-TS = AIN37W.WS-PROCESS-TS;
+  /*  */
+  /* Retrieving worker ID*/
+  H2-2-DCC-SPT.UPI = H2-2-IDC-PER.UPI;
+  AIN37P9-S05-PROC();
+  if (VDBCONTROL.URC >= 104)
     WCM00P2-TO-CEP01A();
   end
-
   H2-IVD-CONTACTS.WRKR-ID = H2-2-DCC-SPT.NOMADS-USRID;
-
-  /* Perform standard database application initialisation*/
+  /*  */
+  /* Insert record into TWNIVD_CONTACTS*/
   WDB00PI();
-
-  /* move values for access type and application name*/
+  /* Set the values for access type and application name*/
   VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN36A";
-
-  /* Perform the process to add a record into the table TWNIVD_CONTACTS*/
-  AIN36P9-I01-PROC();
-
-  /* Set the unrf and udup flags*/
+  VDBCOMMON.UAPPLNAM = "AIN37A";
+  AIN37P9-ADD-PRC(); /* AIN37A_I01 ;*/
+  /* Set the NRF and DUP flags*/
   VDBCOMMON.UNRF = "N";
   VDBCOMMON.UDUP = "Y";
-
-  /* Perform the sql error processing*/
+  /* Perform DB error processing*/
   WDB00PE-SQLERR();
-
-  /* Check for fatal errors*/
   if (VDBCONTROL.URC > 104)
     WCM00P2-TO-CEP01A();
   end
   /*  */
-end // end AIN36P9-I-IVD-PROC
+end // end AIN37P9-CT-IVD-CTS
 
 
-// Add a record into IVD_CONTACTS
-Function AIN36P9-I01-PROC()
-  /* *************************************************************/
-  /* Process to insert a record into the table TWNIVD_CONTACTS **/
-  /* *************************************************************/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-IVD-CONTACTS";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CONTACTS";
-  VDBCONTROL.UPROC-NM = "AIN36P9-I01-PROC";
+// INSERT INTO TWNLCTE_ACTVY
+Function AIN37P9-CT-TB-PRC()
+  /* Insert TWNLCTE_ACTVY record*/
+
+  WDB00PI();
+
+  /* Set the values for access type and application name*/
+
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIN37A";
+
+  VDBCOMMON.USQLREC = "H2-LCTE-ACTVY";
+  VDBCONTROL.UPROC-NM = "AIN37P9-CT-TB-PRC";
+  VDBCONTROL.UPROC-OBJ = "H2-LCTE-ACTVY";
   VDBCONTROL.UPROC-OPT = "ADD";
   try
-    add H2-IVD-CONTACTS
+    add H2-LCTE-ACTVY
       with #sql{
-        insert into TWNIVD_CONTACTS
-        (UPI, CASE_SUFX, CRTD_TS, CASE_FUNC_AREA, CNTCT_TYPE, CNTCT_SRC,
-            CASE_SPCFC_IND, WRKR_ID, CNTCT_TXT)
-        values (:UPI, :CASE-SUFX, :WS-PROCESS-TS,
-            :CASE-FUNC-AREA, :CNTCT-TYPE,
-            :CNTCT-SRC, :CASE-SPCFC-IND, :WRKR-ID, :CNTCT-TXT)
+        insert into TWNLCTE_ACTVY
+        (UPI,
+             CASE_SUFX,
+             LOC_SRC_CD,
+             RQST_SQ_NMB,
+             INFO_RQSTD_TS,
+             FIPS_CD,
+             FUTRE_ACT_DT,
+             RPT_RQSTD_FROM,
+             INFO_RCVD_DT,
+             CSENET_ACTN_CD,
+             RQSTD_RPT_TYPE,
+             RQSTD_FROM_ST2,
+             ACTN_RSN_CD,
+             RQSTD_FROM_ST3,
+             FNL_TYPE,
+             RSPNS_DUE_DT,
+             RQSTD_FROM_ST4,
+             INFO_TYPE_SENT,
+             MAIL_UNDLV_RSN_CD,
+             INFO_TXT,
+             SPLS_INTRF_TYPE,
+             RQST_SENT_DT,
+             CSENET_ACTN_RSN_CD,
+             CSENET_FUNC_TYPE,
+             RQST_TYPE,
+             RQSTD_FROM_ST1,
+             LCTE_DTL_TYPE,
+             NPLS_FG,
+             FRM_ID,
+             NTCE_ID,
+             EFF_DT,
+             MANUAL_IND)
+        values (:UPI,
+             :CASE-SUFX,
+             :LOC-SRC-CD,
+             :RQST-SQ-NMB,
+             :INFO-RQSTD-TS,
+             :FIPS-CD,
+             :FUTRE-ACT-DT,
+             :RPT-RQSTD-FROM,
+             :INFO-RCVD-DT,
+             :CSENET-ACTN-CD,
+             :RQSTD-RPT-TYPE,
+             :RQSTD-FROM-ST2,
+             :ACTN-RSN-CD,
+             :RQSTD-FROM-ST3,
+             :FNL-TYPE,
+             :RSPNS-DUE-DT,
+             :RQSTD-FROM-ST4,
+             :INFO-TYPE-SENT,
+             :MAIL-UNDLV-RSN-CD,
+             :INFO-TXT,
+             :SPLS-INTRF-TYPE,
+             :RQST-SENT-DT,
+             :CSENET-ACTN-RSN-CD,
+             :CSENET-FUNC-TYPE,
+             :RQST-TYPE,
+             :RQSTD-FROM-ST1,
+             :LCTE-DTL-TYPE,
+             :NPLS-FG,
+             :FRM-ID,
+             :NTCE-ID,
+             :EFF-DT,
+             :MANUAL-IND)
       } ;
   end
-  if (H2-IVD-CONTACTS not ioError)
-  /*  */
-  /* if insertion is successful,increment the counter for*/
-  /* number of records written*/
-  /*  */
+
+  if (sysVar.sqlData.sqlcode == 0)
     VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
   end
-end // end AIN36P9-I01-PROC
+
+  VDBCOMMON.UNRF = "N";
+  VDBCOMMON.UDUP = "N";
+
+  WDB00PE-SQLERR();
+
+  /*  */
+end // end AIN37P9-CT-TB-PRC
 
 
-// Process to control execution
-Function AIN36P9-MAIN-PROC()
+// FETCH FROM TWNPERSON
+Function AIN37P9-FETH1-PROC()
+  /* Fetch records from TWNPERSON & TWNRESP-PRSN-DBTR*/
+
+  VDBCOMMON.USQLREC = "H2-2-PER-RPD      ";
+  VDBCONTROL.UPROC-NM = "AIN37P9-FETH1-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-PER-RPD      ";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  try
+    get next H2-2-PER-RPD ;
+  end
+
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  /*  */
+end // end AIN37P9-FETH1-PROC
+
+
+// FETCH FROM NON_CUST_PARENT
+Function AIN37P9-FETH3-PROC()
+  /* ************************************************************/
+  /* Fetch records from TWNNON_CUST_PARENT                    **/
+  /* ************************************************************/
+  /*  */
+  VDBCOMMON.USQLREC = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-NM = "AIN37P9-FETH3-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  try
+    get next H2-2-IDC-PER ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+  /*  */
+  /* Increment the counter for number of records written*/
+  /*  */
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+end // end AIN37P9-FETH3-PROC
+
+
+// Process for initialisation
+Function AIN37P9-INIT-PROC()
+  /* ********************************************************************/
+  /* This process Initialises all the records used in the application **/
+  /* and fetches the value of current date + 75 days into the         **/
+  /* working storage variable ws-due-dt                               **/
+  /* *******************************************************************/
+
+  /* Set records empty*/
+
+  set AIN37W empty;
+  set SR-QAIN37A-OPT-REC empty;
+  set SR-QAIN37A-JOB-FLE empty;
+  set H2-LCTE-ACTVY empty;
+  set H2-PERSON empty;
+
+  /* WI15406 - Uncomment the following "empty" statement:*/
+  set H2-ALTERNATE-SSN empty;
+
+  set H2-2-IDC-PER empty;
+  set H2-2-PER-RPD empty;
+
+  VDBCOMMON.UAPPLNAM = "AIN37A";
+  AIN37W.WS-DATE = " ";
+  AIN37W.WS-PRGM-TYPE = "A";
+
+  /* CALL DATEAPP GDW,VDBCONTROL,VMESSAGE (NOMAPS;*/
+  /* MOVE GDW.DTL TO AIN37W.WS-DATE1;*/
+
+  /* Read input parameter file containing date in 'mm-dd-ccyy' format.*/
+  WCM00P3-FETCHBDTS(); /* PTR 11166*/
+
+  /* The input date is entered use it.*/
+  AIN37W.WS-PROCESS-DT = BDATEREC.BDATE-PROCESS-DATE;
+  VDTSREC.UDATYY = AIN37W.WS-PROCESS-DT-CCYY;
+  VDTSREC.UDATMM = AIN37W.WS-PROCESS-DT-MM;
+  VDTSREC.UDATDD = AIN37W.WS-PROCESS-DT-DD;
+  call "WDT10A" (VCONTROL, VDTSREC) {isNoRefresh = yes};
+  if (VCONTROL.URC == 0)
+    AIN37W.WS-PROCESS-CCYY = VDTSREC.UDATYY;
+    AIN37W.WS-PROCESS-MM = VDTSREC.UDATMM;
+    AIN37W.WS-PROCESS-DD = VDTSREC.UDATDD;
+    AIN37W.WS-PROCESS-DASH1 = "-";
+    AIN37W.WS-PROCESS-DASH2 = "-";
+  else
+    SR-QAIN37A-OPT-REC.AIN37A-OUTPUT-REC = "    INPUT DATE ENTERED IS INVALID, CORRECT INPUT AND RERUN ";
+    AIN37P9-ADD-PROC();
+    exit program;
+  end
+  /* Calculate a date less six months.  This date is used to determine if a*/
+  /* person has been off case for less than six months, and if so then that*/
+  /* person's SSN should be sent to ESD to gather ESD's more accurate data*/
+  /* since there is a six month lag for employers to report actual wages.*/
+  move WS-PROCESS-DT to WS-PROCESS-DT-TEST-N withV60Compat;
+  WS-DASH-1 = "-";
+  WS-DASH-2 = "-";
+  if (WS-PROCESS-DT-MM-N > 6)
+    WS-LESS-6M-DT-MM = WS-PROCESS-DT-MM-N - 6;
+    move WS-PROCESS-DT-CCYY-N to WS-LESS-6M-DT-CCYY withV60Compat;
+    WS-LESS-6M-DT-DD = "01";
+  else
+    WS-LESS-6M-DT-MM = WS-PROCESS-DT-MM-N + 6;
+    WS-LESS-6M-DT-CCYY = WS-PROCESS-DT-CCYY-N - 1;
+    WS-LESS-6M-DT-DD = "01";
+  end
+  /* Calculate a date less (7) months.  This date is used to determine*/
+  /* if a person that has been off a case for less than six months, was*/
+  /* active sometime during that time frame(+ 1 mo) if yes send SSN to ESD*/
+  /* otherwise skip this SSN.*/
+  move WS-PROCESS-DT to WS-PROCESS-DT-TEST-N withV60Compat;
+  WS-DASH1 = "-";
+  WS-DASH2 = "-";
+  if (WS-PROCESS-DT-MM-N > 7)
+    WS-LESS-7M-DT-MM = WS-PROCESS-DT-MM-N - 7;
+    move WS-PROCESS-DT-CCYY-N to WS-LESS-7M-DT-CCYY withV60Compat;
+    WS-LESS-7M-DT-DD = "01";
+  else
+    WS-LESS-7M-DT-MM = WS-PROCESS-DT-MM-N + 5;
+    WS-LESS-7M-DT-CCYY = WS-PROCESS-DT-CCYY-N - 1;
+    WS-LESS-7M-DT-DD = "01";
+  end
+  
+  //WI 4259 - DAN J.  Calculate date - 16 years.
+  move WS-PROCESS-DT to WS-PROCESS-DT-TEST-N withV60Compat;
+  WS-16DASH1 = "-";
+  WS-16DASH2 = "-";
+  move WS-PROCESS-DT-MM-N to WS-LESS-16Y-DT-MM withV60Compat;
+  move WS-PROCESS-DT-DD-N to WS-LESS-16Y-DT-DD withV60Compat;  
+  WS-LESS-16Y-DT-CCYY = WS-PROCESS-DT-CCYY-N - 16;
+  
+  
+  /* This program is run monthly or quarterly, not concerned about day.*/
+end // end AIN37P9-INIT-PROC
+
+
+// PROCESS TO GET IVD SSNS
+Function AIN37P9-IV-D-RQST()
+  /* *****************************************************************/
+  /* Identify list of IVD SSNs for which request is to be sent to ESD*/
+  /* *****************************************************************/
+
+  /* Select all the new cases and worker initiated requests requiring*/
+  /* to be sent out on this interface*/
+  VDBCOMMON.UAPPLNAM = "AIN37A";
+
+  /* Declare cursor on TWNIVD_CASE AND TWNPERSON*/
+  AIN37P9-READ3-PROC(); /* (AIN37A-S03)Open the cursor*/
+
+  if (VDBCONTROL.URC == 0)
+    AIN37P9-FETH3-PROC(); /* Read a row of the cursor*/
+    AIN37W.WS-IVDURC1 = sysVar.sqlData.sqlcode;
+    if (AIN37W.WS-IVDURC1 == 0)
+      /* Set "first time" switches:*/
+      AIN37W.WS-PREV-UPI1 = 0;
+      AIN37W.WS-PREV-UPI2 = H2-2-IDC-PER.UPI;
+      AIN37W.WS-USE-PRI = "N";
+      AIN37W.WS-USE-ALT = "N";
+      while (AIN37W.WS-IVDURC1 == 0)
+        if (H2-2-IDC-PER.UPI != AIN37W.WS-PREV-UPI2)
+          AIN37P9-UPD-LCTE();
+        end
+        AIN37W.WS-PER-SSN = H2-2-IDC-PER.SSN;
+        AIN37W.WS-PRI-SSN = H2-2-IDC-PER.SSN;
+        AIN37W.WS-NCP-UPI = H2-2-IDC-PER.UPI;
+        if (H2-2-IDC-PER.ESD-SENT-DT != AIN37W.WS-PROCESS-DATE
+         && AIN37W.WS-NCP-UPI != AIN37W.WS-PREV-UPI1)
+          /* Check for Primary SSN to send:*/
+          AIN37W.WS-PRIALT-SW = "P";
+          /* Pseudo ssns and merged SSNs should not be sent out to ESD*/
+          /* Do not send records on cases with more than one suffix*/
+          if ((WS-SSN-PART1 != "999" && 
+          WS-SSN-PART1 != "   " && 
+          WS-SSN-PART1 != "000"))
+            AIN37W.WS-USE-PRI = "Y";
+            /* Move the person details to the output record*/
+            SR-QAIN37A-OPT-REC.AIN37A-SSN = H2-2-IDC-PER.SSN;
+            /* Add Primary SSN to the output dataset*/
+            AIN37P9-ADD-PROC();
+            /* Put an entry in IVD-contacts*/
+            AIN37P9-CT-IVD-CTS();
+            AIN37W.WS-NO-OF-IVD-RECS = AIN37W.WS-NO-OF-IVD-RECS + 1;
+          end
+
+          /* Check for Alternate SSN(s) to send:*/
+          AIN37P9-SEND-X-SSN();
+        end /* End ck for ESD-SENT-DT, prev UPI*/
+        /* Set hold and do next read:*/
+        AIN37W.WS-PREV-UPI1 = H2-2-IDC-PER.UPI; /* (set hold)*/
+        AIN37W.WS-PREV-UPI2 = H2-2-IDC-PER.UPI; /* (set hold)*/
+        AIN37P9-FETH3-PROC(); /* Read "next" row*/
+        AIN37W.WS-IVDURC1 = sysVar.sqlData.sqlcode;
+      end /* End of While loop*/
+      /* Check if locate update needed for last NCP processed:*/
+      AIN37P9-UPD-LCTE();
+    end
+  else
+    if (VDBCONTROL.URC == 100) /* (no records to send for IV-D)*/
+      /* Display "no IV-D" message*/
+      SR-QAIN37A-JOB-FLE.VAGen_STRING = "NO IV-D RECORDS WERE PROCESSED.";
+      AIN37P9-ADD-JFILE();
+    else
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+    end
+  end
+  /*  */
+end // end AIN37P9-IV-D-RQST
+
+
+// MAIN-PROCESS
+Function AIN37P9-MAIN-PROC()
   /* ---------------------------------------------------------------*/
-  /* This main process controls the execution of the program.*/
+  /* This Process Serves as the main process for the application*/
   /* ---------------------------------------------------------------*/
   /* Change log*/
   /* Date        Work Item  Description*/
@@ -350,171 +604,266 @@ Function AIN36P9-MAIN-PROC()
   /* also a FAME case member, etc.*/
   /* ---------------------------------------------------------------*/
   /*  */
-  /* initialise working storage variables*/
-  set AIN36W empty;
-  set AIN36W2 empty;
+  /* Perform Process for Initialisation*/
+  AIN37P9-INIT-PROC();
 
-  AIN36W.WS-DATE = " ";
-  AIN36W.WS-PRGM-TYPE = "A";
-  set SR-Q36OUT-REC empty;
+  /* WI15406 - Move IV-D processing ahead of FAME ** (start) ***/
+  /* Perform the Process to Identify the list of IVD SSN's which are*/
+  /* currently open to be sent to ESD.*/
+  AIN37P9-IV-D-RQST();
+  /* WI15406 - Move IV-D processing ahead of FAME ** (end) ***/
 
-  /* This Process is to fetch the process date/current date*/
-  AIN36P9-GET-DATE();
+  /* Perform the Process to Identify the IVA SSNs which are currently*/
+  /* open to be sent to ESD to get the wage,employer and payor details*/
+  AIN37P9-SEND-P-SSN();
 
-  /* WI15406 - Move IV-D process before FAME processes ** start ***/
-  /* Identify the list of IVD (NCP) SSNs to be sent to ESD:*/
-  AIN36P9-RQST-PROC();
-  /* WI15406 - Move IV-D process before FAME processes ** end ***/
+  /* Perform the Process to Identify the IVA SSNs which are currently*/
+  /* closed less than six months to detect overpayments.*/
+  
+  //WI 4259 - Dan J.  Combined query with AINP9-SEND-P-SSN above.
+  //AIN37P9-SEND-C-SSN();
+
+  /* Perform the Process to Identify the I&R SSNs which are currently*/
+  /* open to be sent to ESD to get the wage, employer and payor details.*/
+  AIN37P9-SEND-A-SSN();
   /*  */
-  /* Identify the list of IVA SSNs to be sent to ESD:*/
-  AIN36P9-SEND-PROC();
   /*  */
-  /* Identify the list of I&R SSNs to be sent to ESD:*/
-  AIN36P9-SEND-I-R(); /* WI14086*/
-  /*  */
-  /* PWA 1024-4105 - Start */
-  AIN36P9-SNAPET-PROC();
-  /* PWA 1024-4105 - End */
   /* ---------------------------------------------------------------*/
   /* F I N A L    D I S P L A Y*/
+  /* The number of records sent is displayed in the job file*/
   /* ---------------------------------------------------------------*/
-  /* Write the number of records sent to esd*/
-  SR-Q-LOG1-REC.LOGMSG = "NUMBER OF IVA RECORDS PROCESSED   ";
-  SR-Q-LOG1-REC.NUM-RECS = AIN36W.WS-NO-OF-IVA-RECS;
-  AIN36P9-DIS-PROC();
+  SR-QAIN37A-JOB-FLE.VAGen_STRING = "NUMBER OF IVA-RECORDS-PROCESSED..";
+  SR-QAIN37A-JOB-FLE.NO-OF-RECS = AIN37W.WS-NO-OF-IVA-RECS;
+  AIN37P9-ADD-JFILE(); /* IVA active persons*/
   /*  */
-  SR-Q-LOG1-REC.LOGMSG = "NUMBER OF I&R RECORDS PROCESSED   ";
-  SR-Q-LOG1-REC.NUM-RECS = AIN36W.WS-NO-OF-I-R-RECS;
-  AIN36P9-DIS-PROC();
+  SR-QAIN37A-JOB-FLE.VAGen_STRING = "NUMBER OF I&R-RECORDS-PROCESSED..";
+  SR-QAIN37A-JOB-FLE.NO-OF-RECS = AIN37W.WS-NO-OF-I-R-RECS;
+  AIN37P9-ADD-JFILE(); /* I&R Designated debtors*/
   /*  */
-  SR-Q-LOG1-REC.LOGMSG = "NUMBER OF IVD RECORDS PROCESSED   ";
-  SR-Q-LOG1-REC.NUM-RECS = AIN36W.WS-NO-OF-IVD-RECS;
-  AIN36P9-DIS-PROC();
+  /* WI15406 - Revise display of IVD counts ** start ***/
+  SR-QAIN37A-JOB-FLE.VAGen_STRING = "NUMBER OF IVD PRIMARY SSNS SENT  ";
+  SR-QAIN37A-JOB-FLE.NO-OF-RECS = AIN37W.WS-NO-OF-IVD-RECS;
+  AIN37P9-ADD-JFILE(); /* IVD active persons (primary SSN)*/
   /*  */
-  /* WI15406 - Add display for number of alternate SSNs sent ** start ***/
-  SR-Q-LOG1-REC.LOGMSG = "NUMBER OF IVD ALTERNATE SSNS SENT ";
-  SR-Q-LOG1-REC.NUM-RECS = AIN36W.WS-NO-OF-ALT-RECS;
-  AIN36P9-DIS-PROC();
+  SR-QAIN37A-JOB-FLE.VAGen_STRING = "NUMBER OF IVD ALTERNATE SSNS SENT";
+  SR-QAIN37A-JOB-FLE.NO-OF-RECS = AIN37W.WS-NO-OF-ALT-RECS;
+  AIN37P9-ADD-JFILE(); /* IVD active persons (alternate SSN)*/
   /*  */
-  SR-Q-LOG1-REC.LOGMSG = "ALT. SSN SAME AS PRIMARY, NOT SENT";
-  SR-Q-LOG1-REC.NUM-RECS = AIN36W.WS-NO-OF-SAME-RECS;
-  AIN36P9-DIS-PROC();
-  /* WI15406 - Add display for number of alternate SSNs sent ** end ***/
+  SR-QAIN37A-JOB-FLE.VAGen_STRING = "ALT. SSN SAME A PRIMARY, NOT SENT";
+  SR-QAIN37A-JOB-FLE.NO-OF-RECS = AIN37W.WS-NO-OF-SAME-RECS;
+  AIN37P9-ADD-JFILE(); /* Where primary & alt SSN are same*/
+  /* /* for the UPI (duplicate not sent)*/
+  /* WI15406 - Revise display of IVD counts ** end ***/
   /*  */
-end // end AIN36P9-MAIN-PROC
-
-
-// Get NCPs' SSNs to send
-Function AIN36P9-RQST-PROC()
-  /* ---------------------------------------------------------------*/
-  /* Reads the tables TWNLCTE_ACTVY and TWNPERSON check if there are*/
-  /* any SSNs for which ESD request needs to be sent.*/
-  /* ---------------------------------------------------------------*/
-  /* Change log*/
-  /* Date        Work Item  Description*/
-  /* ----------  ---------  ----------------------------------------*/
-  /* 03/29/2004  WI15406    D.Bugli- Execution of the process to send*/
-  /* alternate SSNs for IV-D NCPs has been*/
-  /* commented out since at least 1998.*/
-  /* However, it is now a requirement to send*/
-  /* alternate SSNs along with primary SSNs.*/
-  /* ---------------------------------------------------------------*/
+  //WI 4259 - Dan J.  Eliminated.
+  //SR-QAIN37A-JOB-FLE.VAGen_STRING = "NUMBER OF IVA-CLOSED RECORDS.....";
+  //SR-QAIN37A-JOB-FLE.NO-OF-RECS = AIN37W.WS-NO-OF-IVA-REC;
+  //AIN37P9-ADD-JFILE(); /* IVA persons off case less than 6*/
+  /* /* months*/
   /*  */
-  /* Select all the new NCPs and worker-initiated requests needing*/
-  /* to be sent out on this interface:*/
+end // end AIN37P9-MAIN-PROC
 
-  set H2-2-LCA-PER empty;
-  AIN36W.WS-PRGM-TYPE = "D";
-  H2-2-LCA-PER.LOC-SRC-CD = "ESD";
-  H2-2-LCA-PER.RQST-SENT-DT = "0001-01-01";
-  H2-2-LCA-PER.CASE-SUFX = "A";
-  H2-2-LCA-PER.RQST-SQ-NMB = 1;
 
-  AIN36W.WS-RQST-BEG-DT = AIN36W.WS-PROCESS-DATE;
-  AIN36W.WS-RQST-BEG-TM = "-00.00.00.000000";
+// DECLARE CURSOR ON TWNPERSON
+Function AIN37P9-READ1-PROC()
+  /* *************************************************************/
+  /* Declare a cursor for TWNCASE_MEMBER_HST & TWNPERSON table;*/
+  /* *************************************************************/
+  
+  /*  WI 4259 Dan J.  Modified query to include only currently eligible members for Med and TANF, 
+      and only members eligible in the last 6 months for SNAP.  Also, excluded any children under 
+      16 years of age.  */
+      
+  WDB00PI();
 
-  AIN36W.WS-RQST-END-DT = AIN36W.WS-PROCESS-DATE;
-  AIN36W.WS-RQST-END-TM = "-23.59.59.999999";
-
-  /* Perform the process to declare cursor for the join of*/
-  /* the tables TWNLCTE_ACTVY and TWNPERSON*/
-  AIN36P9-SETINQ2(); /* (set the cursor)*/
-  if (VDBCONTROL.URC == 0) /* (we have some NCPs to send to ESD)*/
-    AIN36P9-SCAN2-PRO(); /* (do first read)*/
-    AIN36W.WS-IVDURC1 = sysVar.sqlData.sqlcode;
-    if (AIN36W.WS-IVDURC1 == 0)
-      /* Set "first time" switches:*/
-      AIN36W.WS-PREV-UPI1 = 0;
-      AIN36W.WS-PREV-UPI2 = H2-2-LCA-PER.UPI;
-      AIN36W.WS-USE-PRI = "N";
-      AIN36W.WS-USE-ALT = "N";
-      while (AIN36W.WS-IVDURC1 == 0)
-        if (H2-2-LCA-PER.UPI != AIN36W.WS-PREV-UPI2)
-          AIN36P9-UPD-LCTE();
-        end /* End of check for change in UPI*/
-
-        AIN36W.WS-PER-SSN = H2-2-LCA-PER.SSN;
-        AIN36W.WS-PRI-SSN = H2-2-LCA-PER.SSN;
-        AIN36W.WS-UPI = H2-2-LCA-PER.UPI;
-        /* If a request has not been sent for the process date*/
-        /* already, for this UPI (NCP), move the person details*/
-        /* to the output record:*/
-        if (H2-2-LCA-PER.ESD-SENT-DT != AIN36W.WS-PROCESS-DATE && 
-        AIN36W.WS-UPI != AIN36W.WS-PREV-UPI1)
-          /* Check for Primary SSN to send:*/
-          AIN36W.WS-PRIALT-SW = "P";
-          /* Pseudo SSNs and merged SSNs should not be sent out to ESD.*/
-          /* Do not send records on cases with more than one suffix.*/
-          if ((AIN36W.WS-SSN-PART1 != "999" && 
-          AIN36W.WS-SSN-PART1 != "   " && 
-          AIN36W.WS-SSN-PART1 != "000"))
-            AIN36W.WS-USE-PRI = "Y";
-            /* Add a Primary SSN record to the output file*/
-            SR-Q36OUT-REC.AIN36A-SSN = H2-2-LCA-PER.SSN;
-            SR-Q36OUT-REC.AIN36A-ACTION-CD = "A";
-            AIN36P9-ADD-PROC();
-
-            /* Put a record in IV-D contacts:*/
-            AIN36P9-I-IVD-PROC();
-            AIN36W.WS-NO-OF-IVD-RECS = AIN36W.WS-NO-OF-IVD-RECS + 1;
-          end
-
-          /* Check for Alternate SSN(s) to send:*/
-          AIN36P9-SAS-PROC();
-        end
-
-        /* Set hold and do next read:*/
-        AIN36W.WS-PREV-UPI1 = H2-2-LCA-PER.UPI; /* (set hold)*/
-        AIN36W.WS-PREV-UPI2 = H2-2-LCA-PER.UPI; /* (set hold)*/
-        AIN36W.WS-HOLD-INFO-RQSTD-TS = H2-2-LCA-PER.INFO-RQSTD-TS;
-        AIN36P9-SCAN2-PRO(); /* (do next read)*/
-        AIN36W.WS-IVDURC1 = sysVar.sqlData.sqlcode;
-      end /* (end WHILE loop)*/
-      /* Check if locate update needed for last NCP processed:*/
-      AIN36P9-UPD-LCTE();
-    end
-
-  else /* (URC NOT = 0)*/
-    if (VDBCONTROL.URC == 100) /* (no records to send for IV-D)*/
-      /* Display "no IV-D" message*/
-      SR-Q-LOG1-REC.LOGMSG = "NO IV-D RECORDS WERE PROCESSED.";
-      AIN36P9-DIS-PROC();
-    else
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-    end
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.USQLREC = "H2-2-CMH-PER";
+  VDBCONTROL.UPROC-NM = "AIN37P9-READ1-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-PER";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  try
+    open AIN37P9-READ1-PROC_RSI01
+      with #sql{
+        select DISTINCT T2.SSN, T2.UPI
+        from TWNCASE_MEMBER_HST T1,
+             TWNPERSON T2
+        WHERE T1.UPI = T2.UPI
+          AND T2.SSN BETWEEN '001000000' AND '998999999'
+          AND T1.PRD_END_DT >= :AIN37W.WS-LESS-6M-DT  
+          AND T2.DOB < :AIN37W.WS-LESS-16Y-DT          
+          AND T1.FS_ASST_IND = 'Y'   
+          AND T1.FS_ELIG_CD NOT IN('3', '9' , ' ' )          
+        UNION
+        select DISTINCT T2.SSN, T2.UPI
+        from TWNCASE_MEMBER_HST T1,
+             TWNPERSON T2
+        WHERE T1.UPI = T2.UPI
+          AND T2.SSN BETWEEN '001000000' AND '998999999'
+          AND T1.PRD_END_DT >= :AIN37W.WS-PROCESS-DATE  
+          AND T2.DOB < :AIN37W.WS-LESS-16Y-DT          
+          AND ((T1.AFDC_ASST_IND = 'Y' AND T1.AFDC_ELIG_CD NOT IN('3', '9' , ' ' ))
+          OR   (T1.TN_ASST_IND = 'Y'   AND T1.TN_ELIG_CD NOT IN('3', '9' , ' ' ))
+          OR   (T1.TP_ASST_IND = 'Y'   AND T1.TP_ELIG_CD NOT IN('3', '9' , ' ' ))
+          OR   (T1.TL_ASST_IND = 'Y'   AND T1.TL_ELIG_CD NOT IN('3', '9' , ' ' ))
+          OR   (T1.TC_ASST_IND = 'Y'   AND T1.TC_ELIG_CD NOT IN('3', '9' , ' ' ))
+          OR   (T1.SG_ASST_IND = 'Y'   AND T1.SG_ELIG_CD NOT IN('3', '9' , ' ' ))
+          OR   (T1.MA_ASST_IND = 'Y'   AND T1.MA_ELIG_CD NOT IN('3', '9' , ' ' )))
+        FOR FETCH ONLY
+         --
+         --** INSERT ORDER BY CLAUSE HERE **
+      }      
+      into SSN,
+           UPI
+      for H2-2-CMH-PER ;
   end
+
+  VDBCOMMON.UNRF = "N";
+  VDBCOMMON.UDUP = "N";
+
+  WDB00PE-SQLERR();
   /*  */
-end // end AIN36P9-RQST-PROC
+end // end AIN37P9-READ1-PROC
+
+
+// CURSOR FOR TWNCASE_MEMBER_HST
+Function AIN37P9-READ2-PROC()
+  /* **************************************************************/
+  /* Process to declare cursor on TWNCASE_MEMBER_HST & TWNPERSON*/
+  /* **************************************************************/
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.USQLREC = "H2-2-CMH-PER      ";
+  VDBCONTROL.UPROC-NM = "AIN37P9-READ2-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-CHM-PER      ";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  try
+    open AIN37P9-READ2-PROC_RSI01
+      with #sql{
+        select DISTINCT T2.SSN, T1.UPI
+        from TWNCASE_MEMBER_HST T1,
+             TWNPERSON T2
+        WHERE T1.UPI = T2.UPI
+          AND (T1.FS_ASST_IND = 'Y' AND T1.FS_ELIG_CD IN('3','9')  OR
+               T1.MA_ASST_IND = 'Y' AND T1.MA_ELIG_CD IN('3','9')  OR
+               T1.AFDC_ASST_IND = 'Y' AND T1.AFDC_ELIG_CD IN('3','9'))
+          AND T1.PRD_BEG_DT >= :WS-LESS-6M-DT
+          AND T1.PRD_END_DT  = '9999-12-31'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }      
+      into SSN, UPI
+      for H2-2-CMH-PER ;
+  end
+
+  /* Set the NRF and DUP flags*/
+  VDBCOMMON.UNRF = "N";
+  VDBCOMMON.UDUP = "N";
+
+  /* Perform DB error processing*/
+  WDB00PE-SQLERR();
+  /*  */
+end // end AIN37P9-READ2-PROC
+
+
+// DECLAR CUR ON IVD CASE & PERSN
+Function AIN37P9-READ3-PROC()
+  /* ***************************************************************/
+  /* Declare cursor on TWNIVD_CASE, TWNNON_CUST_PARENT, TWNPERSON*/
+  /* ***************************************************************/
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.USQLREC = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-NM = "AIN37P9-READ3-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  try
+    open AIN37P9-READ3-PROC_RSI01
+      with #sql{
+        select T2.UPI,
+            T2.SSN,
+            T2.LST_NM,
+            T2.FRST_NM,
+            T2.MID_NM,
+            T2.MODFR,
+            T2.ESD_SENT_DT,
+            T1.FUNC_AREA_CD
+        from TWNIVD_CASE T1,
+             TWNPERSON T2
+        WHERE T1.CASE_STS  <> 'C' AND
+              T1.CASE_TYPE <> 'D' AND
+              T1.NCP_UPI    = T2.UPI
+        ORDER BY T2.UPI
+      }      
+      into UPI,
+           SSN,
+           LST-NM,
+           FRST-NM,
+           MID-NM,
+           MODFR,
+           ESD-SENT-DT,
+           FUNC-AREA-CD
+      for H2-2-IDC-PER ;
+  end
+
+  VDBCOMMON.UNRF = "N";
+  VDBCOMMON.UDUP = "Y";
+
+  /* Perform DB error processing*/
+  WDB00PE-SQLERR();
+  /*  */
+end // end AIN37P9-READ3-PROC
+
+
+// Cursor TWNRESP_PRSN_DBTR
+Function AIN37P9-READ4-PROC()
+  /* ************************************************************/
+  /* Declare a cursor for tables TWNPERSON & TWNRESP_PRSN_DBTR*/
+  /* ************************************************************/
+
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.USQLREC = "H2-2-PER-RPD     ";
+  VDBCONTROL.UPROC-NM = "AIN37P9-READ4-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-PER-RPD     ";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  try
+    open AIN37P9-READ4-PROC_RSI01
+      with #sql{
+        select T1.SSN,
+            T2.UPI,
+            T2.DSGNT_DBTR_IND,
+            T1.ESD_SENT_DT
+        from TWNPERSON T1,
+             TWNRESP_PRSN_DBTR T2
+        WHERE T2.UPI = T1.UPI
+          AND T2.UPI > 0
+          AND T2.DSGNT_DBTR_IND = 'Y'
+         --
+         --** INSERT ORDER BY CLAUSE HERE **
+      }      
+      into SSN,
+           UPI,
+           DSGNT-DBTR-IND,
+           ESD-SENT-DT
+      for H2-2-PER-RPD ;
+  end
+
+  VDBCOMMON.UNRF = "N";
+  VDBCOMMON.UDUP = "N";
+
+  WDB00PE-SQLERR();
+  /*  */
+end // end AIN37P9-READ4-PROC
 
 
 // Read table DCC & SPT
-Function AIN36P9-S05-PROC()
+Function AIN37P9-S05-PROC()
   /*  */
   VDBCOMMON.USQLREC = "H2-2-DCC-SPT";
   VDBCONTROL.UPROC-OBJ = "H2-2-DCC-SPT";
-  VDBCONTROL.UPROC-NM = "AIN36P9-S05-PROC";
+  VDBCONTROL.UPROC-NM = "AIN37P9-S05-PROC";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
   /*  */
   try
@@ -531,14 +880,14 @@ Function AIN36P9-S05-PROC()
               T1.PSN_NMB = T2.PSN_NMB AND
               T1.CASELD_IND = 'N' AND
               T2.ASMNT_BEG_DT BETWEEN
-                       '0001-01-01' AND :AIN36W.WS-PROCESS-DATE AND
+                     '0001-01-01' AND :AIN37W.WS-PROCESS-DATE AND
               T2.ASMNT_END_DT BETWEEN
-                       :AIN36W.WS-PROCESS-DATE AND '9999-12-31'
+                     :AIN37W.WS-PROCESS-DATE AND '9999-12-31'
          --** INSERT ORDER BY CLAUSE HERE **
       }
       into NOMADS-USRID ;
   end
-
+  /*  */
   /* Set error control flags*/
 
   VDBCOMMON.UNRF = "N";
@@ -547,12 +896,275 @@ Function AIN36P9-S05-PROC()
   /* Perform DBM error processing*/
 
   WDB00PE-SQLERR();
+end // end AIN37P9-S05-PROC
+
+
+// FETCH RECORDS FROM TWNPERSON
+Function AIN37P9-SCAN1-PROC()
+  /* ************************************************************/
+  /* Process to fetch a from TWNCASE_MEMBER_HST & TWNPERSON*/
+  /* ************************************************************/
   /*  */
-end // end AIN36P9-S05-PROC
+  VDBCOMMON.USQLREC = "H2-2-CMH-PER";
+  VDBCONTROL.UPROC-NM = "AIN37P9-SCAN1-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-PER";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  try
+    get next H2-2-CMH-PER ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+  /*  */
+  /* Increment the counter for number of records written*/
+  /*  */
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+end // end AIN37P9-SCAN1-PROC
+
+
+// READ TWNCASE_MEMBER_HST
+Function AIN37P9-SCAN2-PROC()
+  /* **************************************************************/
+  /* This Process is to READ rows from TWNCASE_MEMBER_HST      **/
+  /* **************************************************************/
+  VDBCOMMON.USQLREC = "H2-CASE_MEMBER_HST";
+  VDBCONTROL.UPROC-NM = "AIN37P9-SCAN2-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-CASE-MEMBER-HST";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-CASE-MEMBER-HST
+      with #sql{
+        select COUNT (*)
+        from TWNCASE_MEMBER_HST T1
+        WHERE (T1.FS_ELIG_CD NOT IN ('3', '9')
+         OR    T1.MA_ELIG_CD NOT IN ('3', '9')
+         OR    T1.AFDC_ELIG_CD NOT IN ('3', '9'))
+         AND  (T1.PRD_BEG_DT BETWEEN :WS-LESS-7M-DT AND :WS-PROCESS-DATE)
+         AND   T1.UPI = :AIN37W.WS-UPI-B
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into UINDEX1 ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+  /* If records found*/
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  /*  */
+end // end AIN37P9-SCAN2-PROC
+
+
+// Fetch alternate SSNs for rqst
+Function AIN37P9-SCAN3-PRO()
+  /* ---------------------------------------------------------------*/
+  /* Process to fetch rows from the table TWNALTERNATE_SSN*/
+  /* ---------------------------------------------------------------*/
+  /* Change log*/
+  /* Date        Work Item  Description*/
+  /* ----------  ---------  ----------------------------------------*/
+  /* 03/29/2004  WI15406    D.Bugli- Execution of this process has*/
+  /* been commented out for several years.*/
+  /* However, it is now a requirement to send*/
+  /* alternate SSNs along with primary SSNs*/
+  /* (for IV-D only).*/
+  /* ---------------------------------------------------------------*/
+  /*  */
+  VDBCOMMON.USQLREC = "H2-ALTERNATE-SSN";
+  VDBCONTROL.UPROC-NM = "AIN37P9-SCAN3-PRO";
+  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-SSN";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  try
+    get next H2-ALTERNATE-SSN ;
+  end
+  /*  */
+  if (H2-ALTERNATE-SSN not ioError)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+
+  VDBCOMMON.UNRF = "1";
+  VDBCOMMON.UDUP = "N";
+
+  WDB00PE-SQLERR();
+  /*  */
+end // end AIN37P9-SCAN3-PRO
+
+
+// List open I&R Cases on NOMADS
+Function AIN37P9-SEND-A-SSN()
+  /* This Process Identifies the list of ssns to be sent to ESD*/
+  /* to get the wage,employer and UIB details.*/
+  /* ==============================================================*/
+  /* Perform the process to read TWNPERSON & TWNRESP_PRSN_DBTR*/
+
+  set H2-2-PER-RPD empty;
+
+  AIN37P9-READ4-PROC(); /* Open a cursor*/
+
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+
+  while (H2-2-PER-RPD not ioError)
+
+    AIN37P9-FETH1-PROC(); /* Scan the rows or cursor*/
+
+    if (H2-2-PER-RPD not ioError)
+      AIN37W.WS-PER-SSN = H2-2-PER-RPD.SSN;
+    end
+
+    /* Pseudo ssns and merged SSNs should not be sent out to ESD*/
+    if (H2-2-PER-RPD not ioError && 
+    (WS-SSN-PART1 != "999" && 
+    WS-SSN-PART1 != "   " && 
+    WS-SSN-PART1 != "000") && 
+    H2-2-PER-RPD.ESD-SENT-DT != AIN37W.WS-PROCESS-DATE)
+
+        /* Move the person details to output record*/
+      SR-QAIN37A-OPT-REC.AIN37A-SSN = H2-2-PER-RPD.SSN;
+    end
+
+      /* If SSN is valid, add record to the output file*/
+    if (SR-QAIN37A-OPT-REC.AIN37A-SSN != " ")
+
+      AIN37P9-ADD-PROC();
+      AIN37W.WS-NO-OF-I-R-RECS = AIN37W.WS-NO-OF-I-R-RECS + 1;
+
+        /* Update ESD_SENT_DT in TWNPERSON*/
+      VDBCONTROL.UACCTYP = "W";
+      VDBCOMMON.UAPPLNAM = "AIN37A";
+      H2-PERSON.UPI = H2-2-PER-RPD.UPI;
+
+        /* Update record in TWNPERSON*/
+      AIN37P9-UDT1-PROC();
+
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+    end
+    set SR-QAIN37A-OPT-REC empty;
+  end /* end check for records found*/
+  /*  */
+end // end AIN37P9-SEND-A-SSN
+
+
+// List closed IVA Cases
+Function AIN37P9-SEND-C-SSN()
+  /* This Process Identifies the list of ssns from iva Person off a case*/
+  /* less than six months to assist in detecting overpayments.*/
+  /* ==============================================================*/
+  /* Perform the process to read TWNPERSON and TWNCASE_MEMBER_HST*/
+
+  set H2-2-CMH-PER empty;
+
+  AIN37P9-READ2-PROC(); /* ( AIN37A-S01) Open the cursor*/
+
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+
+  while (H2-2-CMH-PER not ioError)
+
+    AIN37P9-SCAN1-PROC(); /* Read rows of the cursor*/
+
+    if (H2-2-CMH-PER not ioError)
+      AIN37W.WS-PER-SSN = H2-2-CMH-PER.SSN;
+      AIN37W.WS-UPI-B = H2-2-CMH-PER.UPI;
+    end
+      /* Pseudo ssns and merged SSNs should not be sent out to ESD*/
+    if (H2-2-CMH-PER not ioError && 
+    (WS-SSN-PART1 != "999" && 
+    WS-SSN-PART1 != "   " && 
+    WS-SSN-PART1 != "000"))
+      ;
+      AIN37P9-SCAN2-PROC();
+      ;
+      if (VDBCOMMON.UINDEX1 > 0)
+        SR-QAIN37A-OPT-REC.AIN37A-SSN = H2-2-CMH-PER.SSN;
+      end
+    end
+
+      /* If SSN is valid, add record to the output file*/
+    if (SR-QAIN37A-OPT-REC.AIN37A-SSN != " ")
+
+      AIN37P9-ADD-PROC();
+      AIN37W.WS-NO-OF-IVA-REC = AIN37W.WS-NO-OF-IVA-REC + 1;
+
+        /* Update ESD_SENT_DT in TWNPERSON*/
+      VDBCONTROL.UACCTYP = "W";
+      VDBCOMMON.UAPPLNAM = "AIN37A";
+      H2-PERSON.UPI = AIN37W.WS-UPI-N;
+
+        /* Update record in TWNPERSON*/
+      AIN37P9-UDT1-PROC();
+
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+      ;
+      set SR-QAIN37A-OPT-REC empty;
+    end
+  end /* end check for records found*/
+  /*  */
+end // end AIN37P9-SEND-C-SSN
+
+
+// List open IVA Cases
+Function AIN37P9-SEND-P-SSN()
+  /* This Process Identifies the list of ssns to be sent to ESD*/
+  /* to get the wage,employer and UIB details.*/
+  /* ==============================================================*/
+  /* Perform the process to read TWNPERSON and TWNCASE_MEMBER_HST*/
+
+  set H2-2-CMH-PER empty;
+
+  AIN37P9-READ1-PROC(); /* ( AIN37A-S01) Open the cursor*/
+
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
+
+  while (H2-2-CMH-PER not ioError)
+
+    AIN37P9-SCAN1-PROC(); /* Read rows of the cursor*/
+
+    if (H2-2-CMH-PER not ioError)
+      AIN37W.WS-PER-SSN = H2-2-CMH-PER.SSN;
+    end
+      /* Pseudo ssns and merged SSNs should not be sent out to ESD*/
+    if (H2-2-CMH-PER not ioError && 
+    (WS-SSN-PART1 != "999" && 
+    WS-SSN-PART1 != "   " && 
+    WS-SSN-PART1 != "000"))
+
+      SR-QAIN37A-OPT-REC.AIN37A-SSN = H2-2-CMH-PER.SSN;
+
+    end
+
+      /* If SSN is valid, add record to the output file*/
+    if (SR-QAIN37A-OPT-REC.AIN37A-SSN != " ")
+
+      AIN37P9-ADD-PROC();
+      AIN37W.WS-NO-OF-IVA-RECS = AIN37W.WS-NO-OF-IVA-RECS + 1;
+
+        /* Update ESD_SENT_DT in TWNPERSON*/
+      VDBCONTROL.UACCTYP = "W";
+      VDBCOMMON.UAPPLNAM = "AIN37A";
+      H2-PERSON.UPI = H2-2-CMH-PER.UPI;
+
+        /* Update record in TWNPERSON*/
+      AIN37P9-UDT1-PROC();
+
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+
+      set SR-QAIN37A-OPT-REC empty;
+    end
+  end /* end check for records found*/
+  /*  */
+end // end AIN37P9-SEND-P-SSN
 
 
 // Fetch alternate ssn for requst
-Function AIN36P9-SAS-PROC()
+Function AIN37P9-SEND-X-SSN()
   /* ---------------------------------------------------------------*/
   /* This process reads the table TWNALTERNATE_SSN to check if there*/
   /* are alternate SSNs for the UPIs fetched from TWNPERSON*/
@@ -570,38 +1182,38 @@ Function AIN36P9-SAS-PROC()
   /* ---------------------------------------------------------------*/
   /*  */
   /* Check for Alternate SSN(s) to send:*/
-  AIN36W.WS-PRIALT-SW = "A";
+  AIN37W.WS-PRIALT-SW = "A";
   /*  */
   set H2-ALTERNATE-SSN empty;
-  H2-ALTERNATE-SSN.UPI = H2-2-LCA-PER.UPI;
-  AIN36P9-SETINQ3(); /* Get cursor of alternate SSNs*/
+  H2-ALTERNATE-SSN.UPI = H2-2-IDC-PER.UPI;
+  AIN37P9-SETINQ3(); /* Get cursor of alternate SSNs*/
   if (VDBCONTROL.URC == 0)
     /* Fetch row from TWNALTERNATE_SSN table*/
-    AIN36P9-SCAN3-PRO();
-    AIN36W.WS-IVDURC2 = sysVar.sqlData.sqlcode;
-    while (AIN36W.WS-IVDURC2 == 0)
-      AIN36W.WS-PER-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-      AIN36W.WS-ALT-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-      if ((AIN36W.WS-SSN-PART1 != "999" && 
-      AIN36W.WS-SSN-PART1 != "   " && 
-      AIN36W.WS-SSN-PART1 != "000"))
-        if (AIN36W.WS-ALT-SSN == AIN36W.WS-PRI-SSN)
-          /* Don't send alt SSN if same as primary SSN;*/
-          AIN36W.WS-NO-OF-SAME-RECS = AIN36W.WS-NO-OF-SAME-RECS + 1;
+    AIN37P9-SCAN3-PRO();
+    AIN37W.WS-IVDURC2 = sysVar.sqlData.sqlcode;
+    while (AIN37W.WS-IVDURC2 == 0)
+      AIN37W.WS-PER-SSN = H2-ALTERNATE-SSN.ALT-SSN;
+      AIN37W.WS-ALT-SSN = H2-ALTERNATE-SSN.ALT-SSN;
+      /* Don't send pseudo-SSNs or merged SSNs:*/
+      if ((AIN37W.WS-SSN-PART1 != "999" && 
+      AIN37W.WS-SSN-PART1 != "   " && 
+      AIN37W.WS-SSN-PART1 != "000"))
+        if (AIN37W.WS-ALT-SSN == AIN37W.WS-PRI-SSN)
+          /* Don't send alt SSN if same as primary SSN:*/
+          AIN37W.WS-NO-OF-SAME-RECS = AIN37W.WS-NO-OF-SAME-RECS + 1;
         else
-          AIN36W.WS-USE-ALT = "Y";
+          AIN37W.WS-USE-ALT = "Y";
           /* Add an Alternate SSN record to the output file*/
-          SR-Q36OUT-REC.AIN36A-SSN = H2-ALTERNATE-SSN.ALT-SSN;
-          SR-Q36OUT-REC.AIN36A-ACTION-CD = "A";
-          AIN36P9-ADD-PROC();
+          SR-QAIN37A-OPT-REC.AIN37A-SSN = H2-ALTERNATE-SSN.ALT-SSN;
+          AIN37P9-ADD-PROC();
           /* Put a record in IV-D contacts:*/
-          AIN36P9-I-IVD-PROC();
-          AIN36W.WS-NO-OF-ALT-RECS = AIN36W.WS-NO-OF-ALT-RECS + 1;
+          AIN37P9-CT-IVD-CTS();
+          AIN37W.WS-NO-OF-ALT-RECS = AIN37W.WS-NO-OF-ALT-RECS + 1;
         end
       end
       /* Read the next alternate SSN row:*/
-      AIN36P9-SCAN3-PRO();
-      AIN36W.WS-IVDURC2 = sysVar.sqlData.sqlcode;
+      AIN37P9-SCAN3-PRO();
+      AIN37W.WS-IVDURC2 = sysVar.sqlData.sqlcode;
     end /* end of while loop*/
   else
     if (VDBCONTROL.URC > 104)
@@ -609,419 +1221,18 @@ Function AIN36P9-SAS-PROC()
     end
   end
   /*  */
-end // end AIN36P9-SAS-PROC
-
-
-// Fetch records from TWNPERSON
-Function AIN36P9-SCAN-PROC()
-  /* Fetch rows from TWNPERSON*/
-
-  VDBCOMMON.USQLREC = "H2-2-CMH-PER";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SCAN-PROC";
-  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-PER";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  try
-    get next H2-2-CMH-PER ;
-  end
-
-  if (H2-2-CMH-PER not ioError)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-end // end AIN36P9-SCAN-PROC
-
-
-// Fetch rows from RESP_PRSN_DBTR
-Function AIN36P9-SCAN1-PRO()
-  /* -----------------------------------------------------------*/
-  /* Fetch rows from TWNRESP_PRSN_DBTR and TWNPERSON   **/
-  /* -----------------------------------------------------------*/
-
-  VDBCOMMON.USQLREC = "H2-2-PER-RPD";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SCAN1-PRO";
-  VDBCONTROL.UPROC-OBJ = "H2-2-PER-RPD";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  try
-    get next H2-2-PER-RPD ;
-  end
-
-  if (H2-2-PER-RPD not ioError)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-
-  /* Perform the sql error Processing*/
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN36P9-SCAN1-PRO
-
-
-// Fetch rows from LCTE_ACTVY
-Function AIN36P9-SCAN2-PRO()
-  /* -----------------------------------------------------------*/
-  /* Fetch rows from TWNLCTE_ACTVY and TWNPERSON   **/
-  /* -----------------------------------------------------------*/
-
-  VDBCOMMON.USQLREC = "H2-2-LCA-PER";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SCAN2-PRO";
-  VDBCONTROL.UPROC-OBJ = "H2-2-LCA-PER";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  try
-    get next H2-2-LCA-PER ;
-  end
-
-  if (H2-2-LCA-PER not ioError)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-
-  /* Perform the sql error Processing*/
-
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN36P9-SCAN2-PRO
-
-
-// Fetch alternate SSNs for rqst
-Function AIN36P9-SCAN3-PRO()
-  /* ---------------------------------------------------------------*/
-  /* Process to fetch rows from the table TWNALTERNATE_SSN*/
-  /* ---------------------------------------------------------------*/
-  /* Change log*/
-  /* Date        Work Item  Description*/
-  /* ----------  ---------  ----------------------------------------*/
-  /* 03/22/2004  WI15406    D.Bugli- Execution of this process has*/
-  /* been commented out for several years.*/
-  /* However, it is now a requirement to send*/
-  /* alternate SSNs along with primary SSNs.*/
-  /* ---------------------------------------------------------------*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SCAN3-PRO";
-  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  try
-    get next H2-ALTERNATE-SSN ;
-  end
-  /*  */
-  if (H2-ALTERNATE-SSN not ioError)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN36P9-SCAN3-PRO
-
-
-// Get the ssns for request
-Function AIN36P9-SEND-I-R()
-  /* -----------------------------------------------------------------*/
-  /* Identify the list of ssn's of the I&R case members,for which request*/
-  /* is to be sent to ESD to get wage,employer and UIB payments*/
-  /* -----------------------------------------------------------------*/
-
-  /* Read the table TWNPERSON and TWNRESP_PRSN_DBTR tables to*/
-  /* select those individuals where the DSGNT_DBTR_IND = 'Y'*/
-  /* the ESD_SENT_DT is either High or Low Value date.*/
-  AIN36P9-SETINQ1();
-
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-
-  while (H2-2-PER-RPD not ioError)
-
-    AIN36P9-SCAN1-PRO();
-
-    if (H2-2-PER-RPD not ioError)
-      AIN36W.WS-PER-SSN = H2-2-PER-RPD.SSN;
-    end
-
-    /* Pseudo ssns and merged SSNs should not be sent out to ESD*/
-    if (H2-2-PER-RPD not ioError && 
-    (WS-SSN-PART1 != "999" && 
-    WS-SSN-PART1 != "   " && 
-    WS-SSN-PART1 != "000"))
-
-      /* iva-case-mbr-fg changed to iva-elig-fg*/
-      if (H2-2-PER-RPD.DSGNT-DBTR-IND == "Y")
-
-          /* Move person details to the output record*/
-        SR-Q36OUT-REC.AIN36A-SSN = H2-2-PER-RPD.SSN;
-  /* MOVE H2-PERSON.LST-NM TO SR-Q36OUT-REC.AIN36A-LAST-NAME;*/
-  /* MOVE H2-PERSON.FRST-NM TO SR-Q36OUT-REC.AIN36A-FRST-NAME;*/
-        SR-Q36OUT-REC.AIN36A-ACTION-CD = "A";
-      end
-
-      /* if valid ssn value is fetched from the table*/
-      if (SR-Q36OUT-REC.AIN36A-SSN != " ")
-
-        /* perform the process to add a record into the output file*/
-        AIN36P9-ADD-PROC();
-        AIN36W.WS-NO-OF-I-R-RECS = AIN36W.WS-NO-OF-I-R-RECS + 1;
-
-        /* Update ESD-SENT-DT in TWNPERSON*/
-        set H3-PERSON empty;
-        H3-PERSON.UPI = H2-2-PER-RPD.UPI;
-        H3-PERSON.ESD-SENT-DT = AIN36W.WS-PROCESS-DATE;
-
-        /* Perform the process to update the table TWNPERSON*/
-        AIN36P9-U01-PROC();
-
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-
-  /* /* If an alternate ssn exists, send request to esd for the ssn*/
-  /* PERFORM AIN36P9-SAS-PROC;*/
-      end
-    else
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-    end /* end-if*/
-  end /* end-while*/
-end // end AIN36P9-SEND-I-R
-
-
-// Get the ssns for request
-Function AIN36P9-SEND-PROC()
-  /* -----------------------------------------------------------------*/
-  /* Identify the list of ssn's of the iva case members,for which request*/
-  /* is to be sent to ESD to get wage,employer and UIB payments*/
-  /* -----------------------------------------------------------------*/
-
-  /* Read the table TWNPERSON/cmh ssns for which request is to be sent*/
-  /* select those individuals where the IVA_ELIG_FG is set to 'Y' and*/
-  /* the ESD_SENT_DT is either High or Low Value date.*/
-  AIN36P9-SETINQ();
-
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-
-  while (H2-2-CMH-PER not ioError)
-
-    AIN36P9-SCAN-PROC();
-
-    if (H2-2-CMH-PER not ioError)
-      AIN36W.WS-PER-SSN = H2-2-CMH-PER.SSN;
-    end
-
-    /* Pseudo ssns and merged SSNs should not be sent out to ESD*/
-    if (H2-2-CMH-PER not ioError && 
-    (WS-SSN-PART1 != "999" && 
-    WS-SSN-PART1 != "   " && 
-    WS-SSN-PART1 != "000"))
-
-      /* iva-case-mbr-fg changed to iva-elig-fg*/
-      if (H2-2-CMH-PER.IVA-ELIG-FG == "Y")
-
-        /* Move person details to the output record*/
-        SR-Q36OUT-REC.AIN36A-SSN = H2-2-CMH-PER.SSN;
-  /* MOVE h2-2-cmh-per.LST-NM TO SR-Q36OUT-REC.AIN36A-LAST-NAME;*/
-  /* MOVE h2-2-cmh-per.FRST-NM TO SR-Q36OUT-REC.AIN36A-FRST-NAME;*/
-        SR-Q36OUT-REC.AIN36A-ACTION-CD = "A";
-      end
-
-      /* if a valid SSN is fetched from the table*/
-      if (SR-Q36OUT-REC.AIN36A-SSN != " ")
-
-        /* perform the process to add a record into the output file*/
-        AIN36P9-ADD-PROC();
-        AIN36W.WS-NO-OF-IVA-RECS = AIN36W.WS-NO-OF-IVA-RECS + 1;
-
-        /* Update ESD-SENT-DT in TWNPERSON*/
-        set H3-PERSON empty;
-        H3-PERSON.UPI = H2-2-CMH-PER.UPI;
-        H3-PERSON.ESD-SENT-DT = AIN36W.WS-PROCESS-DATE;
-
-        /* Perform the process to update the table TWNPERSON*/
-        AIN36P9-U01-PROC();
-
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-
-  /* /* If an alternate ssn exists, send request to esd for the ssn*/
-  /* PERFORM AIN36P9-SAS-PROC;*/
-
-      end /* end-if  valid ssn is fetched*/
-    else
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-    end /* end-if*/
-  end /* end-while*/
-end // end AIN36P9-SEND-PROC
-
-
-// Declare cursor on TWNPERSON
-Function AIN36P9-SETINQ()
-  /* *********************************************************/
-  /* Declare a cursor on the TWNPERSON table*/
-  /* *********************************************************/
-  
-  /*  WI 4259 Dan J.  Modified query to not send children under 16.  */
-  
-  WDB00PI();
-
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN36A";
-
-  VDBCOMMON.USQLREC = "H2-2-CMH-PER";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SETINQ";
-  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-PER";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  try
-    open AIN36P9-SETINQ_RSI01
-      with #sql{
-        select DISTINCT T1.UPI,SSN,'Y',LST_NM,FRST_NM
-        from TWNCASE_MEMBER_HST T1,
-             TWNPERSON T2
-        WHERE  T1.UPI = T2.UPI  AND
-               T2.SSN BETWEEN '001000000' AND '998999999' AND
-               T2.DOB < :AIN36W.WS-16YEAR-DATE AND
-               ESD_SENT_DT IN ('9999-12-31', '0001-01-01') AND               
-               T1.PRD_END_DT >= :AIN36W.WS-PROCESS-DATE AND                
-                   ((T1.FS_ELIG_CD   NOT IN('3','9',' ') and T1.FS_ASST_IND   = 'Y')
-                OR ( T1.AFDC_ELIG_CD NOT IN('3','9',' ') and T1.AFDC_ASST_IND = 'Y')
-                OR ( T1.TN_ELIG_CD   NOT IN('3','9',' ') and T1.TN_ASST_IND   = 'Y')
-                OR ( T1.TP_ELIG_CD   NOT IN('3','9',' ') and T1.TP_ASST_IND   = 'Y')
-                OR ( T1.TC_ELIG_CD   NOT IN('3','9',' ') and T1.TC_ASST_IND   = 'Y')
-                OR ( T1.TL_ELIG_CD   NOT IN('3','9',' ') and T1.TL_ASST_IND   = 'Y')
-                OR ( T1.SG_ELIG_CD   NOT IN('3','9',' ') and T1.SG_ASST_IND   = 'Y')
-                OR  (T1.MA_ELIG_CD   NOT IN('3','9',' ') and T1.MA_ASST_IND   = 'Y'))                 
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into UPI,SSN,IVA-ELIG-FG,LST-NM,FRST-NM
-      for H2-2-CMH-PER ;
-  end
-
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-
-  /* perform sql error processing*/
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN36P9-SETINQ
-
-
-// Read table TWNRESP_PRSN_DBTR
-Function AIN36P9-SETINQ1()
-  /* Declare a cursor the the TWNRESP_PRSN_DBTR table*/
-  WDB00PI();
-
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN36A";
-  VDBCOMMON.USQLREC = "H2-2-PER-RPD     ";
-  VDBCONTROL.UPROC-OBJ = "H2-2-PER-RPD     ";
-  VDBCONTROL.UPROC-NM = "AIN36P9-S04-PROC";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  /*  */
-  try
-    open AIN36P9-SETINQ1_RSI01
-      with #sql{
-        select T1.SSN,
-          T1.UPI,
-          T2.DSGNT_DBTR_IND
-        from TWNPERSON T1,
-             TWNRESP_PRSN_DBTR T2
-        WHERE(T1.ESD_SENT_DT = '9999-12-31' OR
-              T1.ESD_SENT_DT = '0001-01-01')
-         AND  T2.DSGNT_DBTR_IND = 'Y'
-         AND  T2.UPI = T1.UPI
-         AND  T2.UPI > 0
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into SSN,
-           UPI,
-           DSGNT-DBTR-IND
-      for H2-2-PER-RPD ;
-  end
-
-  /* Set error control flags*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN36P9-SETINQ1
-
-
-// Declare cursor on LCTE_ACTVY
-Function AIN36P9-SETINQ2()
-  /* This process declares the cursor for the join of the  tables*/
-  /* TWNLCTE_ACTY and TWNPERSON*/
-
-  WDB00PI();
-
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN36A";
-
-  VDBCOMMON.USQLREC = "H2-2-LCA-PER";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SETINQ2";
-  VDBCONTROL.UPROC-OBJ = "H2-2-LCA-PER";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  try
-    open AIN36P9-SETINQ2_RSI01
-      with #sql{
-        select T1.UPI, T1.INFO_RQSTD_TS,
-            T2.SSN, T2.ESD_SENT_DT,
-            T2.LST_NM, T2.FRST_NM
-        from TWNLCTE_ACTVY T1,
-             TWNPERSON T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE  T1.INFO_RQSTD_TS <= :WS-RQST-END-TS
-        AND   (T1.RQST_SENT_DT = :RQST-SENT-DT OR
-                T1.RQST_SENT_DT = '9999-12-31'OR
-                T1.RQST_SENT_DT IS NULL)
-        AND    T1.RQST_SQ_NMB = :RQST-SQ-NMB
-        AND    T1.LOC_SRC_CD = :LOC-SRC-CD
-        AND    T1.CASE_SUFX = :CASE-SUFX
-        AND    T1.UPI = T2.UPI
-         --****************************************************************
-         -- The following OR condition is added to fetch all those records
-         -- for which request is not sent to ESD but are populated with
-         -- high values or nulls date.
-         --****************************************************************
-         --** INSERT ORDER BY CLAUSE HERE **
-        ORDER BY T1.UPI
-      }      
-      into UPI, INFO-RQSTD-TS,
-           SSN, ESD-SENT-DT,
-           LST-NM, FRST-NM
-      for H2-2-LCA-PER ;
-  end
-
-  /* Set error control flags*/
-
-  VDBCOMMON.UNRF = "N";
-  VDBCOMMON.UDUP = "Y";
-
-  /* Perform DBM error processing*/
-
-  WDB00PE-SQLERR();
-end // end AIN36P9-SETINQ2
+end // end AIN37P9-SEND-X-SSN
 
 
 // Build alternate SSNs for rqst
-Function AIN36P9-SETINQ3()
+Function AIN37P9-SETINQ3()
   /* ---------------------------------------------------------------*/
   /* This process is to declare cursor on the table TWNALTERNATE_SSN*/
   /* ---------------------------------------------------------------*/
   /* Change log*/
   /* Date        Work Item  Description*/
   /* ----------  ---------  ----------------------------------------*/
-  /* 03/22/2004  WI15406    D.Bugli- Execution of this process has*/
+  /* 03/23/2004  WI15406    D.Bugli- Execution of this process has*/
   /* been commented out for several years.*/
   /* However, it is now a requirement to send*/
   /* alternate SSNs along with primary SSNs.*/
@@ -1030,14 +1241,14 @@ Function AIN36P9-SETINQ3()
   WDB00PI();
 
   VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN36A";
+  VDBCOMMON.UAPPLNAM = "AIN37A";
 
   VDBCOMMON.USQLREC = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SETINQ3";
+  VDBCONTROL.UPROC-NM = "AIN37P9-SETINQ3";
   VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-SSN";
   VDBCONTROL.UPROC-OPT = "SETINQ";
   try
-    open AIN36P9-SETINQ3_RSI01
+    open AIN37P9-SETINQ3_RSI01
       with #sql{
         select ALT_SSN
         from twnalternate_ssn T1
@@ -1057,210 +1268,47 @@ Function AIN36P9-SETINQ3()
   /* Perform DBM error processing*/
   WDB00PE-SQLERR();
   /*  */
-end // end AIN36P9-SETINQ3
+end // end AIN37P9-SETINQ3
 
-/* PWA 1024-4105 - Start */
-Function AIN36P9-SNAPET-PROC()
-// This routine will only run completely 4 times per year
-// one week after the quarterly universe file is sent
-// to DETR. That occurs the first Saturday of March (03), June (06),
-// September (09) and December (12). 	
 
-  AIN36W.WS-SNAPET-IND = "N";
-  AIN36W.WS-SNAPET-DAYOFWEEK = 0;
-  
-  if (AIN36W.WS-PROCESS-MM == "03" ||
-      AIN36W.WS-PROCESS-MM == "06" ||
-      AIN36W.WS-PROCESS-MM == "09" ||
-      AIN36W.WS-PROCESS-MM == "12")
-      	AIN36P9-GET-QUARTERLY_DT();
-  end
-  
-  if (AIN36W.WS-SNAPET-DAYOFWEEK == 2 &&
-      AIN36W.WS-PROCESS-DD < 10)
-  	  ain36w.WS-SNAPET-IND = "Y";
-  else
-  	return;
-  end
+// UPDATE  TABLE TWNPERSON
+Function AIN37P9-UDT1-PROC()
 
-  AIN36P9-SNAPET-Q01();
-  
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-
-  while (H2-OASIS-FS-PERF not ioError)
-
-    AIN36P9-SNAPET-QS();
-
-    if (H2-OASIS-FS-PERF not ioError)
-      AIN36W.WS-PER-SSN = H2-OASIS-FS-PERF.SSN;
-    end
-
-    /* Pseudo ssns and merged SSNs should not be sent out to ESD*/
-    if (H2-OASIS-FS-PERF not ioError && 
-      (WS-SSN-PART1 != "999" && 
-      WS-SSN-PART1 != "   " && 
-      WS-SSN-PART1 != "000"))
-        SR-Q36OUT-REC.AIN36A-SSN = H2-OASIS-FS-PERF.SSN;
-        SR-Q36OUT-REC.AIN36A-ACTION-CD = "A";
-    
-      if (SR-Q36OUT-REC.AIN36A-SSN != " ")
-        /* perform the process to add a record into the output file*/
-        AIN36P9-ADD-PROC();
-        AIN36W.WS-NO-OF-IVA-RECS = AIN36W.WS-NO-OF-IVA-RECS + 1;
-
-      end /* end-if  valid ssn is fetched*/
-    
-   else
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-    end  
-  end 	  
-end // end AIN36P9-SNAPET-PROC
-
-Function AIN36P9-SNAPET-Q01()
-  /* This process declares the cursor for the join of the table*/
-  /* TWNOASIS_FS_PERF*/
+  /* Process to update the ESD_SENT_DT in TWNPERSON*/
 
   WDB00PI();
 
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN36A";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-NM = "AIN37P9-UDT1-PROC";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  VDBCONTROL.UPROC-OPT = "SQLEXEC";
 
-  VDBCOMMON.USQLREC = "H2-OASIS-FS-PERF";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SNAPET-Q01";
-  VDBCONTROL.UPROC-OBJ = "H2-OASIS-FS-PERF";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
+  H2-PERSON.ESD-SENT-DT = AIN37W.WS-PROCESS-DATE;
   try
-    open AIN36P9-SNAPET-Q01_RSI01
-      with #sql{
-        select UPI, SSN, ESD_FILE_FLAG 
-        from TWNOASIS_FS_PERF
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE  ESD_FILE_FLAG = 'Y'
-         --****************************************************************
-         -- The following OR condition is added to fetch all those records
-         -- for which request is not sent to ESD but are populated with
-         -- high values or nulls date.
-         --****************************************************************
-         --** INSERT ORDER BY CLAUSE HERE **
-        ORDER BY SSN
-      }      
-      into UPI, SSN, ESD-FILE-FLAG
-      for H2-OASIS-FS-PERF ;
+    execute update 
+      #sql{
+        UPDATE TWNPERSON T1
+        SET ESD_SENT_DT = :ESD-SENT-DT
+        WHERE UPI = :UPI
+      }
+      for H2-PERSON ; // model = update
   end
 
-  /* Set error control flags*/
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
+  end
 
   VDBCOMMON.UNRF = "N";
   VDBCOMMON.UDUP = "Y";
 
-  /* Perform DBM error processing*/
-
-  WDB00PE-SQLERR();	
-end	// end AIN36P9-SNAPET-Q01
-
-Function AIN36P9-SNAPET-QS()
-
-  VDBCOMMON.USQLREC = "H2-OASIS-FS-PERF";
-  VDBCONTROL.UPROC-NM = "AIN36P9-SNAPET-QS";
-  VDBCONTROL.UPROC-OBJ = "H2-OASIS-FS-PERF";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  try
-    get next H2-OASIS-FS-PERF ;
-  end
-
-  if (H2-OASIS-FS-PERF not ioError)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  	
-end // end AIN36P9-SNAPET-QS	
-
-/* PWA 1024-4501 - end */
-
-// Process to update PERSON table
-Function AIN36P9-U01-PROC()
-  /* Process to update the record in the person table*/
-
-  WDB00PI();
-
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN36A";
-
-  VDBCOMMON.USQLREC = "H3-PERSON";
-  VDBCONTROL.UPROC-OBJ = "H3-PERSON";
-  VDBCONTROL.UPROC-NM = "AIN36P9-U01-PROC";
-  VDBCONTROL.UPROC-OPT = "SQLEXEC";
-  try
-    execute update 
-      #sql{
-        UPDATE
-          TWNPERSON T1
-        SET
-           ESD_SENT_DT=:ESD-SENT-DT
-          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-         WHERE UPI = :UPI
-      }
-      for H3-PERSON ; // model = update
-  end
-
-  if (H3-PERSON not ioError)
-    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
-  end
-
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-
   WDB00PE-SQLERR();
+
   /*  */
-end // end AIN36P9-U01-PROC
-
-
-// Update the table TWNLCTE_ACTVY
-Function AIN36P9-U02-PROC()
-  /* Process to update the table TWNLCTE_ACTVY for RQST_SENT_DT*/
-
-  WDB00PI();
-
-  VDBCOMMON.USQLREC = "H2-LCTE-ACTVY";
-  VDBCONTROL.UPROC-OBJ = "H2-LCTE-ACTVY";
-  VDBCONTROL.UPROC-NM = "AIN36P9-U02-PROC";
-  VDBCONTROL.UPROC-OPT = "SQLEXEC";
-  try
-    execute update 
-      #sql{
-        UPDATE
-          TWNLCTE_ACTVY T1
-        SET
-          RQST_SENT_DT=:RQST-SENT-DT
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE INFO_RQSTD_TS = :INFO-RQSTD-TS
-         AND  RQST_SQ_NMB = :RQST-SQ-NMB
-         AND  LOC_SRC_CD = :LOC-SRC-CD
-         AND  CASE_SUFX = :CASE-SUFX
-         AND  UPI = :UPI
-      }
-      for H2-LCTE-ACTVY ; // model = update
-  end
-
-  if (H2-LCTE-ACTVY not ioError)
-    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
-  end
-
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-
-  /* Perform the sql error processing*/
-
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN36P9-U02-PROC
+end // end AIN37P9-UDT1-PROC
 
 
 // Update locate activity table
-Function AIN36P9-UPD-LCTE()
+Function AIN37P9-UPD-LCTE()
   /* ---------------------------------------------------------------*/
   /* This process updates TWNLCTE_ACTVY with the current date as*/
   /* the sent date.*/
@@ -1274,88 +1322,143 @@ Function AIN36P9-UPD-LCTE()
   /* alternate SSN has been sent for an NCP.*/
   /* ---------------------------------------------------------------*/
   /*  */
-  if (AIN36W.WS-USE-PRI == "Y"
-   || AIN36W.WS-USE-ALT == "Y")
+  if (AIN37W.WS-USE-PRI == "Y"
+   || AIN37W.WS-USE-ALT == "Y")
+    H2-2-DCC-SPT.UPI = AIN37W.WS-PREV-UPI2;
+
+    AIN37P9-S05-PROC(); /* Retrieving worker id*/
+
+    if (VDBCONTROL.URC >= 104)
+      WCM00P2-TO-CEP01A();
+    end
     /* Update TWNLCTE_ACTVY with process dt for request sent date*/
     set H2-LCTE-ACTVY empty;
     /* Key values:*/
-    H2-LCTE-ACTVY.UPI = AIN36W.WS-PREV-UPI2;
-    H2-LCTE-ACTVY.CASE-SUFX = "A";
-    H2-LCTE-ACTVY.LOC-SRC-CD = "ESD";
-    H2-LCTE-ACTVY.RQST-SQ-NMB = 1;
-    H2-LCTE-ACTVY.INFO-RQSTD-TS = AIN36W.WS-HOLD-INFO-RQSTD-TS;
-    /* Value to update:*/
-    H2-LCTE-ACTVY.RQST-SENT-DT = AIN36W.WS-PROCESS-DATE;
-    AIN36P9-U02-PROC();
     /*  */
-    /* Perform the process to update the record in the person table*/
-    H3-PERSON.UPI = AIN36W.WS-PREV-UPI2;
-    H3-PERSON.ESD-SENT-DT = AIN36W.WS-PROCESS-DATE;
-    AIN36P9-U01-PROC();
+    /* moving worker id to TWNLCTE_ACTVY.INFO_TXT*/
+    H2-LCTE-ACTVY.INFO-TXT = H2-2-DCC-SPT.NOMADS-USRID;
+    H2-LCTE-ACTVY.FNL-TYPE = H2-2-IDC-PER.FUNC-AREA-CD;
+
+    WS-PRGM-TYPE = "D";
+    H2-LCTE-ACTVY.UPI = AIN37W.WS-PREV-UPI2; /**/
+    H2-LCTE-ACTVY.LOC-SRC-CD = "ESD";
+    H2-LCTE-ACTVY.RQST-SENT-DT = AIN37W.WS-PROCESS-DATE;
+
+    AIN37W.WS-PROCESS-TS = GDW.TS;
+    AIN37W.WS-PROCESS-TS-DT = AIN37W.WS-PROCESS-DATE;
+    H2-LCTE-ACTVY.INFO-RQSTD-TS = AIN37W.WS-PROCESS-TS;
+
+    H2-LCTE-ACTVY.RSPNS-DUE-DT = "0001-01-01";
+    H2-LCTE-ACTVY.FUTRE-ACT-DT = "0001-01-01";
+    H2-LCTE-ACTVY.INFO-RCVD-DT = "0001-01-01";
+    H2-LCTE-ACTVY.EFF-DT = "0001-01-01";
+
+  /* The ESD LOCATE INTERFACE uses the following constant values*/
+  /* because this type of intetrface is person level*/
+    H2-LCTE-ACTVY.CASE-SUFX = "A";
+    H2-LCTE-ACTVY.RQST-SQ-NMB = 1;
+    H2-LCTE-ACTVY.MANUAL-IND = "N";
+
+  /* Create locate activity*/
+    VDBCONTROL.UACCTYP = "W";
+    VDBCOMMON.UAPPLNAM = "AIN37A";
+
+  /* Insert record into TWNLCTE_ACTVY*/
+    AIN37P9-CT-TB-PRC(); /* AIN37A-I02;*/
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
+    end
+    /*  */
+    /* Update  ESD_SENT_DT in TWNPERSON*/
+    set H2-PERSON empty;
+    H2-PERSON.UPI = AIN37W.WS-PREV-UPI2;
+    H2-PERSON.ESD-SENT-DT = AIN37W.WS-PROCESS-DATE;
+    AIN37P9-UDT1-PROC();
     if (VDBCONTROL.URC > 104)
       WCM00P2-TO-CEP01A();
     end
     /*  */
   end
-  AIN36W.WS-USE-PRI = "N";
-  AIN36W.WS-USE-ALT = "N";
+  AIN37W.WS-USE-PRI = "N";
+  AIN37W.WS-USE-ALT = "N";
   /*  */
-end // end AIN36P9-UPD-LCTE
+end // end AIN37P9-UPD-LCTE
 
 
-Record AIN36W type basicRecord
-  10 WS-NO-OF-IVA-RECS int ; 
-  10 WS-NO-OF-I-R-RECS int ; 
-  10 WS-NO-OF-IVD-RECS int ; 
-  10 WS-NO-OF-ALT-RECS int ; 
-  10 WS-NO-OF-SAME-RECS int ; 
-  10 WS-DATE char(10) ; 
-    15 WS-DATE-MM char(2) ; 
-    15 WS-FIL11 char(1) ; 
-    15 WS-DATE-DD char(2) ; 
-    15 WS-FIL22 char(1) ; 
-    15 WS-DATE-YY char(4) ; 
-  10 WS-DATE1 char(10) ; 
-    15 WS-DATE1-YY1 char(4) ; 
+Record AIN37W type basicRecord
+  10 WS-NO-OF-IVA-RECS int ; // TOTAL NUMBER OF RECORDS READ
+  10 WS-NO-OF-I-R-RECS int ; // TOTAL NUMBER OF RECORDS READ
+  10 WS-NO-OF-IVD-RECS int ; // TOTAL NUMBER OF RECORDS READ
+  10 WS-NO-OF-IVA-REC int ; // TOTAL NUMBER OF RECORDS READ
+  10 WS-NO-OF-ALT-RECS int ; // TOTAL NUMBER OF RECORDS READ
+  10 WS-NO-OF-SAME-RECS int ; // TOTAL NUMBER OF RECORDS READ
+  10 WS-IVDURC1 num(3) ; 
+  10 WS-IVDURC2 num(3) ; 
+  10 WS-DATE char(8) ; // DATE
+  10 WS-DUE-DT char(8) ; // DUE DATE
+  10 WS-PRGM-TYPE char(1) ; // PROGRAM TYPE
+  10 WS-SSN char(9) ; // SSN
+  10 WS-UPI-B int ; 
+  10 WS-UPI-N num(9) ; 
+  10 WS-NCP-UPI int ; 
+  10 WS-CONCAT char(96) ; 
+    15 WS-STRING char(70) ; 
+    15 WS-C-SSN char(10) ; 
+    15 WS-C-SSN-TYPE char(16) ; 
+  10 WS-DATE1 char(8) ; 
+    15 WS-YY1 char(4) ; 
+    15 WS-MM1 char(2) ; 
+    15 WS-DD1 char(2) ; 
+  10 WS-DATE2 char(10) ; 
+    15 WS-YY2 char(4) ; 
     15 WS-FIL1 char(1) ; 
-    15 WS-DATE1-MM1 char(2) ; 
+    15 WS-MM2 char(2) ; 
     15 WS-FIL2 char(1) ; 
-    15 WS-DATE1-DD1 char(2) ; 
-  10 WS-PRGM-TYPE char(1) ; 
-  10 WS-SSN char(9) ; 
-  10 WS-FLAG1 char(1) ; 
-  10 WS-FLAG2 char(1) ; 
+    15 WS-DD2 char(2) ; 
   10 WS-ERR-CD char(8) ; 
     15 WS-ERR-FIRST-FOUR char(4) ; 
     15 WS-ERR-LAST-FOUR char(4) ; 
+  10 WS-CURR-DATE char(10) ; 
   10 WS-PROCESS-DATE char(10) ; 
     15 WS-PROCESS-CCYY char(4) ; 
     15 WS-PROCESS-DASH1 char(1) ; 
     15 WS-PROCESS-MM char(2) ; 
     15 WS-PROCESS-DASH2 char(1) ; 
-    15 WS-PROCESS-DD char(2) ;  
-  10 WS-16YEAR-DATE char(10) ; 
-    15 WS-16YEAR-CCYY NUM(4) ; 
-    15 WS-16YEAR-DASH1 char(1) ; 
-    15 WS-16YEAR-MM char(2) ; 
-    15 WS-16YEAR-DASH2 char(1) ; 
-    15 WS-16YEAR-DD char(2) ; 
-  10 WS-RQST-BEG-TS char(26) ; 
-    15 WS-RQST-BEG-DT char(10) ; 
-    15 WS-RQST-BEG-TM char(16) ; 
-  10 WS-RQST-END-TS char(26) ; 
-    15 WS-RQST-END-DT char(10) ; 
-    15 WS-RQST-END-TM char(16) ; 
+    15 WS-PROCESS-DD char(2) ; 
   10 WS-PROCESS-TS char(26) ; 
     15 WS-PROCESS-TS-DT char(10) ; 
-    15 WS-PROCESS-TIME char(16) ; 
-  10 WS-PREV-SSN char(9) ; 
+    15 WS-PROCESS-TS-TM char(16) ; 
   10 WS-PROCESS-DT char(8) ; 
     15 WS-PROCESS-DT-CCYY char(4) ; 
       20 WS-PROCESS-DT-CC char(2) ; 
       20 WS-PROCESS-DT-YY char(2) ; 
     15 WS-PROCESS-DT-MM char(2) ; 
     15 WS-PROCESS-DT-DD char(2) ; 
+  10 WS-PROCESS-DT-TEST-N num(8) ; 
+    15 WS-PROCESS-DT-CCYY-N num(4) ; 
+    15 WS-PROCESS-DT-MM-N num(2) ; 
+    15 WS-PROCESS-DT-DD-N num(2) ; 
+  10 WS-LESS-6M-DT char(10) ; 
+    15 WS-LESS-6M-DT-CCYY num(4) ; 
+    15 WS-DASH-1 char(1) ; 
+    15 WS-LESS-6M-DT-MM num(2) ; 
+    15 WS-DASH-2 char(1) ; 
+    15 WS-LESS-6M-DT-DD char(2) ; 
+  10 WS-LESS-7M-DT char(10) ; 
+    15 WS-LESS-7M-DT-CCYY num(4) ; 
+    15 WS-DASH1 char(1) ; 
+    15 WS-LESS-7M-DT-MM num(2) ; 
+    15 WS-DASH2 char(1) ; 
+    15 WS-LESS-7M-DT-DD char(2) ; 
+ 10 WS-LESS-16Y-DT char(10) ; 
+    15 WS-LESS-16Y-DT-CCYY num(4) ; 
+    15 WS-16DASH1 char(1) ; 
+    15 WS-LESS-16Y-DT-MM num(2) ; 
+    15 WS-16DASH2 char(1) ; 
+    15 WS-LESS-16Y-DT-DD char(2) ;
+  10 WS-PRIALT-SW char(1) ; 
+  10 WS-USE-PRI char(1) ; 
+  10 WS-USE-ALT char(1) ; 
   10 WS-PRI-SSN char(9) ; 
   10 WS-ALT-SSN char(9) ; 
   10 WS-PER-SSN char(9) ; 
@@ -1364,271 +1467,9 @@ Record AIN36W type basicRecord
     15 WS-SSN-PART3 char(4) ; 
   10 WS-PREV-UPI1 int ; 
   10 WS-PREV-UPI2 int ; 
-  10 WS-UPI int ; 
-  10 WS-PRIALT-SW char(1) ; 
-  10 WS-USE-PRI char(1) ; 
-  10 WS-USE-ALT char(1) ; 
-  10 WS-IVDURC1 num(3) ; 
-  10 WS-IVDURC2 num(3) ; 
-  10 WS-HOLD-INFO-RQSTD-TS char(26) ;
-  /* PWA 1024-4105 - start */
-  10 WS-SNAPET-IND char(1);
-  10 WS-SNAPET-DAYOFWEEK int;
-  /* PWA 1024 -4105 - end */ 
-end // end AIN36W
+  10 WS-PREVIOUS-UPI int ; 
+  10 WS-FIRST-TIME-IN-LOOP char(1) ; 
+  10 WS-HOLD-INFO-RQSTD-TS char(26) ; 
+end // end AIN37W
 
 
-Record AIN36W2 type basicRecord
-  10 WS-TEXT char(91) ; 
-    15 WS-TEXT1 char(47) ; 
-    15 WS-FIL11 char(1) ; 
-    15 WS-TEXT2 char(17) ; 
-    15 WS-FIL2 char(1) ; 
-    15 WS-TEXT3 char(9) ; 
-    15 WS-SSN-TYPE char(16) ; 
-  10 WS-TIMESTAMP char(26) ; 
-    15 WS-DT char(10) ; 
-    15 WS-FIL1 char(1) ; 
-    15 WS-TIME char(8) ; 
-      20 * char(2) ; 
-      20 WS-DOT1 char(1) ; 
-      20 * char(2) ; 
-      20 WS-DOT2 char(1) ; 
-      20 * char(2) ; 
-    15 WS-MS char(7) ; 
-end // end AIN36W2
-
-/* EP-1024-4105 - Start */
-// FED_PERFORM_ID
-DataItem FED-PERFORM-ID decimal(31)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// UPI
-DataItem UPI int  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// SSN
-DataItem SSN char(9)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// ICI
-DataItem ICI int  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// FIRST_NME
-DataItem FIRST-NAME char(20)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// LAST_NME
-DataItem LAST-NAME char(30)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// MI
-DataItem MI char(16)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// MODIFIER
-DataItem MODIFIER char(4)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// DOB
-DataItem DOB char(10)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// AGE
-DataItem AGE decimal(3)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// SEX_ID
-DataItem SEX-ID decimal(31)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// ETHNICITY_ID
-DataItem ETHNICITY-ID char(5)  {
-  align = left,   fillCharacter = nullFill, inputRequired = no
-}
-end
-
-// LANGUAGE_ID
-DataItem LANGUAGE-ID decimal(31)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// EDUCATION_ID
-DataItem EDUCATION-ID decimal(31)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// ABAWD_STAT
-DataItem ABAWD-STAT char(1)  {
-  align = left,   fillCharacter = nullFill, inputRequired = no
-}
-end
-
-// MAND_VOL
-DataItem MAND-VOL char(1)  {
-  align = left,   fillCharacter = nullFill, inputRequired = no
-}
-end
-
-// SFY
-DataItem SFY int  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// FFY
-DataItem FFY int  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// ACTIVITY_ID
-DataItem ACTIVITY-ID decimal(31)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-end
-
-// PART_START_DT
-DataItem PART-START-DT char(10)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// FINAL_COMPLETE_DT
-DataItem FINAL-COMPLETE-DT char(10)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// FFY_2ND_QTR
-DataItem FFY-2ND-QTR decimal(6)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-End
-
-// ESD_2ND_QTR
-DataItem ESD-2ND-QTR decimal(6)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-End
-
-// ESD_2ND_WAGES_TOT
-DataItem ESD-2ND-WAGES-TOT decimal(8,2)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-End
-
-// FFY_4TH_QTR
-DataItem FFY-4TH-QTR decimal(6)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-End
-
-// ESD_4TH_QTR
-DataItem ESD-4TH-QTR decimal(6)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-End
-
-// ESD_4TH_WAGES_TOT
-DataItem ESD-4TH-WAGES-TOT decimal(8,2)  {
-  currency = no, numericSeparator = no, sign = leading, align = right, 
-  fillCharacter = " ", inputRequired = no
-}
-End
-
-// ADDED_DT
-DataItem ADDED-DT char(10)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// UPDATED_DT
-DataItem UPDATED-DT char(10)  {
-  align = left, fillCharacter = nullFill, inputRequired = no
-}
-End
-
-// ESD_FILE_FLAG
-DataItem ESD-FILE-FLAG char(1)  {
-  align = left,   fillCharacter = nullFill, inputRequired = no
-}
-end
-
-
-Record H2-OASIS-FS-PERF type sqlRecord  {
-  tableNames = [["TWNOASIS_FS_PERF", "T1"]]
-  }
-  3 FED-PERFORM-ID FED-PERFORM-ID { column = "FED_PERFORM_ID", isSQLNullable = yes} ;
-  3 UPI UPI { column = "UPI", isSQLNullable = yes} ;
-  3 SSN SSN { column = "ACCT_NMB", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 ICI ICI { column = "ACC_OPEND_DT", isSQLNullable = yes} ;
-  3 FIRST-NAME FIRST-NAME { column = "FIRST_NAME", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 LAST-NAME LAST-NAME { column = "LAST_NAME", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 MI MI { column = "MI", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 MODIFIER MODIFIER { column = "MODIFIER", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 DOB DOB { column = "DOB", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 AGE AGE { column = "AGE", isSQLNullable = yes} ;
-  3 SEX-ID SEX-ID { column = "SEX_ID", isSQLNullable = yes} ;
-  3 ETHNICITY-ID ETHNICITY-ID { column = "ETHNICITY_ID", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 LANGUAGE-ID LANGUAGE-ID { column = "LANGUAGE_ID", isSQLNullable = yes} ;
-  3 EDUCATION-ID EDUCATION-ID { column = "EDUCATION_ID", isSQLNullable = yes} ;
-  3 ABAWD-STAT ABAWD-STAT { column = "ABAWD_STAT", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 MAND-VOL MAND-VOL { column = "MAND_VOL", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 SFY SFY { column = "SFY", isSQLNullable = yes} ;
-  3 FFY FFY { column = "FFY", isSQLNullable = yes} ;
-  3 ACTIVITY-ID ACTIVITY-ID { column = "ACTIVITY_ID", isSQLNullable = yes} ;
-  3 PART-START-DT PART-START-DT { column = "PART_START_DT", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 FINAL-COMPLETE-DT FINAL-COMPLETE-DT { column = "FINAL_COMPLETE_DT", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 FFY-2ND-QTR FFY-2ND-QTR { column = "FFY_2ND_QTR", isSQLNullable = yes} ;
-  3 ESD-2ND-QTR ESD-2ND-QTR { column = "ESD_2ND_QTR ", isSQLNullable = yes} ;
-  3 ESD-2ND-WAGES-TOT ESD-2ND-WAGES-TOT { column = "ESD_2ND_WAGES_TOT", isSQLNullable = yes} ;
-  3 FFY-4TH-QTR FFY-4TH-QTR { column = "FFY_4TH_QTR", isSQLNullable = yes} ;
-  3 ESD-4TH-QTR ESD-4TH-QTR { column = "ESD_4TH_QTR ", isSQLNullable = yes} ;
-  3 ESD-4TH-WAGES-TOT ESD-4TH-WAGES-TOT { column = "ESD_4TH_WAGES_TOT", isSQLNullable = yes} ;
-  3 ADDED-DT ADDED-DT { column = "ADDED_DT", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 UPDATED-DT UPDATED-DT { column = "UPDATED_DT", isSQLNullable = yes, sqlDataCode = 453} ;
-  3 ESD-FILE-FLAG ESD-FILE-FLAG { column = "ESD_FILE_FLAG", isSQLNullable = yes, sqlDataCode = 453} ;
-end // end H2-OASIS-FS-PERF
-  
-/* EP-1024-4105 - End */
