@@ -2,1115 +2,579 @@ package IVA_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=AIN23A ****
-// COMPONENT NAME: AIN23A
-// ===============
-// 
+//*** PROGRAM=AIF54A ****
+// COMPONENT NAME: AIF54A
+// ======================
+// Death Registry Match Report
+//
 // DESCRIPTION:
 // ============
-// Reports shows the SSI amount reported
-// in NOMADS and the SSI amount currently recognised
-// in the state for that beneficiary.
+// Looks for matches in NOMADS with Vital Statistics Death
+// Registry records. Inserts rows into TWNVTL_STAT_DOD 
+// table for Crystal Report. For strong matches (on SSN and DOB), 
+// create CLOG entries for all ICIs.
+// ====================================
+// WI 1860: Death Registry Match Report 
+// March 2014, C. Boedenauer 
+// AUGUST 2014 EHR, WI 2476: REVISED DEATH REGISTRY INPUT
 // 
-// 
-// ***********************
-Program AIN23A type basicProgram //VAGen Info - main batch program
-  {
-  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
-  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
-  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
-  }
-
-  // Data Declarations
-  AIN23W AIN23W; // record
-  AIN23W-DET AIN23W-DET; // record
-  AIN23W-FOOTER AIN23W-FOOTER; // record
-  AIN23W-HEAD AIN23W-HEAD; // record
-  AIN23W-SUBFOT AIN23W-SUBFOT; // record
-  AIN23W-SUBH AIN23W-SUBH; // record
-  AIN55W AIN55W; // record
-  CEP01W CEP01W; // record
-  FORMATW FORMATW; // record
-  GDW GDW; // record
-  REP-COMMON REP-COMMON; // record
-  REP-EOFNOF REP-EOFNOF; // record
-  SR-132REP-RECOUT SR-132REP-RECOUT; // record
-  SR-AIN23-RECIN SR-AIN23-RECIN; // record
-  VDBCOMMON VDBCOMMON; // record
-  VDBCONTROL VDBCONTROL; // record
-  VMESSAGE VMESSAGE; // record
-  VSTRREC4 VSTRREC4; // record
-
-  // VAGen Info - items needed for migration
-  VAGen_EZESYS char(8);
-  VAGen_EZEREPLY num(1);
-  VAGen_EZE_WAIT_TIME bin(9,2);
-  VAGen_EZE_ITEMLEN int;
-
-  // Use Declarations
-  use VDB00T1 {deleteAfterUse = yes}; // table
-
-  function main()
-    // VAGen Info - initialization needed for migration
-    VAGen_EZESYS = VGLib.getVAGSysType();
-    AIN23P9-MAIN: AIN23P9-MAIN();
-  end // end main
-end // end AIN23A
-
-
-// INTIALISE ALL VARIABLES
-Function AIN23P9-INIT-PARA()
-  /* cbsi start*/
-  /* ************************************************************************/
-  /* This process initialises all tha report records and varaiables*/
-  /* empties all the records*/
-  /* ************************************************************************/
-  /* SET ALL REPORT VARIABLES TO INITIAL VALUES*/
-  set AIN23W empty;
-  set SR-AIN23-RECIN empty;
-  set AIN23W-HEAD empty;
-  set AIN23W-DET empty;
-  set AIN23W-FOOTER empty;
-  set AIN23W-SUBH empty;
-  set AIN23W-SUBFOT empty;
-  set SR-132REP-RECOUT empty;
-  set VSTRREC4 empty;
-  set CEP01W empty;
-  set VDBCONTROL empty;
-  set VDBCOMMON empty;
-  set FORMATW empty;
-  set AIN55W empty;
-  set REP-EOFNOF empty;
-  set VSTRREC4 empty;
-  set AIN55W empty;
-  set REP-COMMON empty;
-  set VMESSAGE empty;
-  VGVar.handleHardIOErrors = 1;
-  REP-COMMON.WS-PAGE-NO = 1;
-
-  REP-COMMON.WS-LINE-NO = 1;
-  REP-COMMON.WS-NEW-PAGE = "Y";
-
-  /* PERFORM PROCESS TO INITIALISE CONSTANTS*/
-  AIN23P9-INITCON();
-
-  REP-COMMON.WS-MAX-NO-LINES = 56;
-
-
-  /* PERFORM PROCESS TO READ INPUT PARAMETER FILE*/
-
-  AIN23P9-SCAN();
-
-  /* SET STANDARD HEADER FIELDS*/
-
-
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  REP-COMMON.WS-DT = GDW.DTL;
-  REP-COMMON.WS-YEAR = REP-COMMON.WS-YY;
-  REP-COMMON.WS-MONTH = REP-COMMON.WS-MM;
-  REP-COMMON.WS-DAY = REP-COMMON.WS-DD;
-  REP-COMMON.WS-F1 = "/";
-  REP-COMMON.WS-F2 = "/";
-  AIN23W-HEAD.S-DATE = REP-COMMON.WS-DATE;
-  AIN23W-HEAD.S-TIME = VGVar.currentFormattedTime;
-  /* PTR 8??? -- IF NO RECORDS USE CURRENT DATE --- 11/22/96 -- BEGIN*/
-  if (sysVar.errorCode == "00000000")
-    AIN23W.WS-DATE = SR-AIN23-RECIN.AIN22A-01-PROCESS-DATE;
-  /* PTR 5508 PUT PROCESS-DATE IN HEADER (NEXT LINE ONLY) -- 11/08/96 ---*/
-    AIN23W-HEAD.S-PRCS-DATE = SR-AIN23-RECIN.AIN22A-01-PROCESS-DATE;
-  else
-    AIN23W.WS-DATE = GDW.DTCD;
-    AIN23W-HEAD.S-PRCS-DATE = REP-COMMON.WS-DATE;
-  end
-  /* PTR 8??? -- IF NO RECORDS USE CURRENT DATE --- 11/22/96 -- END*/
-
-  if (AIN23W.WS-MONTH == 1)
-    AIN23W-HEAD.S-RPT-MNTH = "JAN,";
-  end
-  if (AIN23W.WS-MONTH == 2)
-    AIN23W-HEAD.S-RPT-MNTH = "FEB,";
-  end
-  if (AIN23W.WS-MONTH == 3)
-    AIN23W-HEAD.S-RPT-MNTH = "MAR,";
-  end
-  if (AIN23W.WS-MONTH == 4)
-    AIN23W-HEAD.S-RPT-MNTH = "APR,";
-  end
-  if (AIN23W.WS-MONTH == 5)
-    AIN23W-HEAD.S-RPT-MNTH = "MAY,";
-  end
-  if (AIN23W.WS-MONTH == 6)
-    AIN23W-HEAD.S-RPT-MNTH = "JUN,";
-  end
-  if (AIN23W.WS-MONTH == 7)
-    AIN23W-HEAD.S-RPT-MNTH = "JUL,";
-  end
-  if (AIN23W.WS-MONTH == 8)
-    AIN23W-HEAD.S-RPT-MNTH = "AUG,";
-  end
-  if (AIN23W.WS-MONTH == 9)
-    AIN23W-HEAD.S-RPT-MNTH = "SEP,";
-  end
-  if (AIN23W.WS-MONTH == 10)
-    AIN23W-HEAD.S-RPT-MNTH = "OCT,";
-  end
-  if (AIN23W.WS-MONTH == 11)
-    AIN23W-HEAD.S-RPT-MNTH = "NOV,";
-  end
-  if (AIN23W.WS-MONTH == 12)
-    AIN23W-HEAD.S-RPT-MNTH = "DEC,";
-  end
-
-  AIN23W-HEAD.S-RPT-YEAR = AIN23W.WS-YEAR1;
-  /* cbsi end*/
-end // end AIN23P9-INIT-PARA
-
-
-// INITIALISE CONSTANTS
-Function AIN23P9-INITCON()
-  /* cbsi start*/
-  /* ************************************************************************/
-  /* This process is to initialise all the report constants*/
-  /* ************************************************************************/
-  /* this process intialises all the reports constants*/
-  /* PTR 5508 ADDS NEW SSN TO REPORT --------- 11/08/96 -----*/
-  AIN23W-HEAD.CONSTANT1 = "PAGE-NBR";
-  AIN23W-HEAD.FILLER1 = " ";
-  AIN23W-HEAD.FILLER2 = " ";
-  AIN23W-HEAD.CONSTANT2 = "STATE";
-  AIN23W-HEAD.FILLER3 = " ";
-  AIN23W-HEAD.CONSTANT3 = "OF";
-  AIN23W-HEAD.FILLER4 = " ";
-  AIN23W-HEAD.CONSTANT4 = "NEVADA";
-  AIN23W-HEAD.FILLER5 = " ";
-  AIN23W-HEAD.CONSTANT5 = "DATE";
-  AIN23W-HEAD.FILLER6 = " ";
-  AIN23W-HEAD.FILLER7 = " ";
-  AIN23W-HEAD.FILLER8 = " ";
-  AIN23W-HEAD.CONSTANT6 = "SSI(SDX)";
-  AIN23W-HEAD.FILLER9 = " ";
-  AIN23W-HEAD.CONSTANT7 = "BENEFITS";
-  AIN23W-HEAD.FILLER10 = " ";
-  AIN23W-HEAD.CONSTANT8 = "LISTING";
-  AIN23W-HEAD.FILLER11 = " ";
-  AIN23W-HEAD.CONSTANT9 = "TIME";
-  AIN23W-HEAD.FILLER12 = " ";
-  AIN23W-HEAD.FILLER13 = " ";
-  AIN23W-HEAD.FILLER14 = " ";
-  AIN23W-HEAD.CONSTANT10 = "REPORT";
-  AIN23W-HEAD.FILLER15 = " ";
-  AIN23W-HEAD.CONSTANT11 = "MONTH";
-  AIN23W-HEAD.CONSTANT12 = "PROCESS DATE:";
-  AIN23W-HEAD.FILLER16 = " ";
-  AIN23W-HEAD.FILLER20 = " ";
-  AIN23W-HEAD.FILLER17 = " ";
-  AIN23W-HEAD.FILLER18 = " ";
-  AIN23W-HEAD.FILLER19 = " ";
-  AIN23W-SUBH.CONSTANT1 = "DISTRICT";
-  AIN23W-SUBH.FILLER1 = " ";
-  AIN23W-SUBH.CONSTANT2 = "CASE";
-  AIN23W-SUBH.FILLER2 = " ";
-  AIN23W-SUBH.CONSTANT3 = "WORKER";
-  AIN23W-SUBH.FILLER3 = " ";
-  AIN23W-SUBH.CONSTANT4 = "NAME";
-  AIN23W-SUBH.FILLER4 = " ";
-  AIN23W-SUBH.CONSTANT5 = "CASE";
-  AIN23W-SUBH.FILLER5 = " ";
-  AIN23W-SUBH.CONSTANT6 = "NEW";
-  AIN23W-SUBH.FILLER6 = " ";
-  AIN23W-SUBH.CONSTANTN = "SSN";
-  AIN23W-SUBH.FILLERN = " ";
-  AIN23W-SUBH.CONSTANT7 = "SSI";
-  AIN23W-SUBH.FILLER7 = " ";
-  AIN23W-SUBH.CONSTANT8 = "IN";
-  AIN23W-SUBH.FILLER8 = " ";
-  AIN23W-SUBH.CONSTANT9 = "SSI";
-  AIN23W-SUBH.FILLER9 = " ";
-  AIN23W-SUBH.CONSTANT10 = "DIFFERENCE";
-  AIN23W-SUBH.FILLER10 = " ";
-  AIN23W-SUBH.CONSTANT11 = "ACTION";
-  AIN23W-SUBH.FILLER11 = " ";
-  AIN23W-SUBH.FILLER12 = " ";
-  AIN23W-SUBH.CONSTANT12 = "LOAD";
-  AIN23W-SUBH.FILLER13 = " ";
-  AIN23W-SUBH.CONSTANT13 = "NUMBER";
-  AIN23W-SUBH.FILLER14 = " ";
-  AIN23W-SUBH.CONSTANT14 = "NUMBER";
-  AIN23W-SUBH.FILLER15 = " ";
-  AIN23W-SUBH.CONSTANT15 = "FROM";
-  AIN23W-SUBH.CONSTANTN1 = "SDX";
-  AIN23W-SUBH.FILLER16 = " ";
-  AIN23W-SUBH.FILLERN1 = " ";
-  AIN23W-SUBH.CONSTANT16 = "NOMADS";
-  AIN23W-SUBH.FILLER17 = " ";
-  AIN23W-SUBH.CONSTANT17 = "AMOUNT";
-  AIN23W-SUBH.FILLER18 = " ";
-  AIN23W-SUBH.CONSTANT18 = "AMOUNT";
-  AIN23W-SUBH.FILLER19 = " ";
-  AIN23W-SUBH.CONSTANT19 = "PCT.";
-  AIN23W-SUBH.FILLER20 = " ";
-  AIN23W-SUBH.FILLER21 = " ";
-  AIN23W-DET.FILLER1 = " ";
-  AIN23W-DET.FILLER2 = " ";
-  AIN23W-DET.FILLER3 = " ";
-  AIN23W-DET.FILLER4 = " ";
-  AIN23W-DET.FILLER5 = " ";
-  AIN23W-DET.FILLER6 = " ";
-  AIN23W-DET.FILLER7 = " ";
-  AIN23W-DET.FILLER8 = " ";
-  AIN23W-DET.FILLER9 = " ";
-  AIN23W-DET.FILLER10 = " ";
-  AIN23W-DET.FILLER11 = " ";
-  AIN23W-DET.FILLER12 = " ";
-  AIN23W-SUBFOT.FILLER1 = " ";
-  AIN23W-SUBFOT.CONSTANT1 = "DISTRICT";
-  AIN23W-SUBFOT.FILLER2 = " ";
-  AIN23W-SUBFOT.CONSTANT2 = "SUBTOTALS";
-  AIN23W-SUBFOT.FILLER3 = " ";
-  AIN23W-SUBFOT.FILLER4 = " ";
-  AIN23W-SUBFOT.CONSTANT3 = "TOTAL";
-  AIN23W-SUBFOT.FILLER5 = " ";
-  AIN23W-SUBFOT.CONSTANT4 = "CHANGED";
-  AIN23W-SUBFOT.FILLER6 = " ";
-  AIN23W-SUBFOT.CONSTANT5 = "PROBLEM";
-  AIN23W-SUBFOT.FILLER7 = " ";
-  AIN23W-SUBFOT.CONSTANT6 = "CASES";
-  AIN23W-SUBFOT.FILLER8 = " ";
-  AIN23W-SUBFOT.CONSTANT7 = "CASES";
-  AIN23W-SUBFOT.FILLER9 = " ";
-  AIN23W-SUBFOT.CONSTANT8 = "CASES";
-  AIN23W-SUBFOT.FILLER10 = " ";
-  AIN23W-SUBFOT.FILLER11 = " ";
-  AIN23W-SUBFOT.FILLER12 = " ";
-  AIN23W-SUBFOT.FILLER13 = " ";
-  AIN23W-SUBFOT.FILLER14 = " ";
-  AIN23W-SUBFOT.FILLER15 = " ";
-  AIN23W-FOOTER.CONSTANT1 = "REPORT";
-  AIN23W-FOOTER.FILLER1 = " ";
-  AIN23W-FOOTER.CONSTANT2 = "SUMMARY";
-  AIN23W-FOOTER.FILLER2 = " ";
-  AIN23W-FOOTER.FILLER3 = " ";
-  AIN23W-FOOTER.CONSTANT3 = "TOTAL";
-  AIN23W-FOOTER.FILLER4 = " ";
-  AIN23W-FOOTER.CONSTANT4 = "CHANGED";
-  AIN23W-FOOTER.FILLER5 = " ";
-  AIN23W-FOOTER.CONSTANT5 = "PROBLEM";
-  AIN23W-FOOTER.FILLER6 = " ";
-  AIN23W-FOOTER.CONSTANT6 = "CASES";
-  AIN23W-FOOTER.FILLER7 = " ";
-  AIN23W-FOOTER.CONSTANT7 = "CASES";
-  AIN23W-FOOTER.FILLER8 = " ";
-  AIN23W-FOOTER.CONSTANT8 = "CASES";
-  AIN23W-FOOTER.FILLER9 = " ";
-  AIN23W-FOOTER.FILLER10 = " ";
-  AIN23W-FOOTER.FILLER11 = " ";
-  AIN23W-FOOTER.FILLER12 = " ";
-  AIN23W-FOOTER.FILLER13 = " ";
-
-  AIN23W-HEAD.S-REPORT-ID = "AIN23A";
-  /* cbsi end*/
-end // end AIN23P9-INITCON
-
-
-// REPORTS MAIN PARA
-Function AIN23P9-MAIN()
-  /* cbsi start*/
-  /* ************************************************************************/
-  /* This program has main control over this application*/
-  /* initailises all the report variables*/
-  /* prints ths report*/
-  /* closes the application*/
-  /* ************************************************************************/
-  /* PERFORM PROCESS TO INITIALISE VARIABLES*/
-
-  AIN23P9-INIT-PARA();
-
-  /* PERFORM PROCESS TO PRINT REPORT*/
-
-  AIN23P9-PRINT-PARA();
-
-  /* call the ain55a application and closes*/
-
-  /* move the application name*/
-  AIN55W.WS-PRG-NAME = "AIN23A";
-
-  /* call ain55a with vdbcontrol,vmessage,ain55W*/
-  call "AIN55A" (VDBCONTROL, VMESSAGE, AIN55W) {isNoRefresh = yes};
-
-  /* check for error processing*/
-  if (VDBCONTROL.URC >= 104)
-    WCM00P2-TO-CEP01A();
-    exit program;
-  end
-  /* close the application*/
-
-  exit program;
-
-
-  /* cbsi end*/
-end // end AIN23P9-MAIN
-
-
-// POPULATING REPORTS DETAILS
-Function AIN23P9-POP-DET()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* **/
-  /* This process is to format and move the retrieved values to the report*/
-  /* variables*/
-  /* concatenates some variables using wst50a*/
-  /* uses a common reports process format-proc*/
-  /* sets all the flags to format the report variable*/
-  /* ***********************************************************************/
-  /* **/
-  /* write the detail screen layout*/
-  AIN23W-DET.S-DIST-CD = SR-AIN23-RECIN.AIN22A-01-OFC-CD;
-  AIN23W-DET.S-CASE-LD = SR-AIN23-RECIN.AIN22A-01-CASLD-ID;
-  AIN23W-DET.S-WRKR-NMB = SR-AIN23-RECIN.AIN22A-01-NOMADS-USRID;
-  /* PTR 5508 ADD NEW-SSN TO REPORT ------- 11/08/96 -------*/
-  AIN23W-DET.S-NEW-SSN = SR-AIN23-RECIN.AIN22A-01-NEW-SSN;
-
-  /* concatenate the name in ws*/
-  VSTRREC4.UCONLEN = 19;
-  VSTRREC4.UCONLEN2 = 10;
-  VSTRREC4.UCONLEN3 = 1;
-  VSTRREC4.UCONCAT = SR-AIN23-RECIN.AIN22A-01-LAST-NAME;
-  VSTRREC4.UCONCAT2 = SR-AIN23-RECIN.AIN22A-01-FIRST-NAME;
-  VSTRREC4.UCONCAT3 = SR-AIN23-RECIN.AIN22A-01-MIDDLE-INIT;
-
-  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
-
-  AIN23W.WS-NAME = VSTRREC4.USTRING;
-  AIN23W-DET.S-NAME = AIN23W.WS-NAME-1;
-  set VSTRREC4 empty;
-
-  AIN23W-DET.S-CASE-NUMBER = SR-AIN23-RECIN.AIN22A-01-CASE-NUMBER;
-
-
-  if (SR-AIN23-RECIN.AIN22A-01-NOMADS-AMT != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = SR-AIN23-RECIN.AIN22A-01-NOMADS-AMT;
-    FORMATW.LENGTH = 8;
-    FORMATW.DEC-COUNT = 2;
-
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-DET.S-SSI-NOMADS = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-DET.S-SSI-NOMADS = "    0.00";
-  end
-
-
-  if (SR-AIN23-RECIN.AIN22A-01-INTERFACE-AMT != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = SR-AIN23-RECIN.AIN22A-01-INTERFACE-AMT;
-    FORMATW.LENGTH = 8;
-    FORMATW.DEC-COUNT = 2;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-DET.S-SSI-AMOUNT = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-DET.S-SSI-AMOUNT = "    0.00";
-  end
-
-
-  if (SR-AIN23-RECIN.AIN22A-01-REPORT-DIFF != 0)
-    AIN23W.WS-DIFF-SIGN-FLAG = "N";
-    if (SR-AIN23-RECIN.AIN22A-01-REPORT-DIFF < 0)
-      AIN23W.WS-TEMP-DIFF-AMT = -1 * SR-AIN23-RECIN.AIN22A-01-REPORT-DIFF;
-      AIN23W.WS-DIFF-SIGN-FLAG = "Y";
-    else
-      AIN23W.WS-TEMP-DIFF-AMT = SR-AIN23-RECIN.AIN22A-01-REPORT-DIFF;
-    end
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN23W.WS-TEMP-DIFF-AMT;
-    FORMATW.DEC-COUNT = 2;
-    FORMATW.LENGTH = 8;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-DET.S-DIFF-AMT = FORMATW.OUTPUT-CHAR;
-    if (AIN23W.WS-DIFF-SIGN-FLAG == "N")
-      AIN23W-DET.S-DIFF-AMT-SIGN = " ";
-    else
-      AIN23W-DET.S-DIFF-AMT-SIGN = "-";
-    end
-  else
-    AIN23W-DET.S-DIFF-AMT = "    0.00";
-    AIN23W-DET.S-DIFF-AMT-SIGN = " ";
-  end
-
-  AIN23W-DET.S-DIFF-PCT = SR-AIN23-RECIN.AIN22A-01-DIFF-PCT;
-  AIN23W-DET.S-ACTION = SR-AIN23-RECIN.AIN22A-01-ACTION;
-  /*  */
-
-  if (SR-AIN23-RECIN.AIN22A-01-CASE-TYPE == "P")
-    AIN23W.WS-02-DIS-PRO = AIN23W.WS-02-DIS-PRO + 1;
-    AIN23W.WS-03-PRO-CASE = AIN23W.WS-03-PRO-CASE + 1;
-  else
-    if (SR-AIN23-RECIN.AIN22A-01-CASE-TYPE == "C")
-      AIN23W.WS-02-DIS-CHA = AIN23W.WS-02-DIS-CHA + 1;
-      AIN23W.WS-03-CHA-CASE = AIN23W.WS-03-CHA-CASE + 1;
-    end
-  end
-
-  /* CBSI END*/
-end // end AIN23P9-POP-DET
-
-
-// POPULATING THE REPORTS FOOTER
-Function AIN23P9-POP-FOOTER()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to populate the footer variables*/
-  /* format and move the retrieved values to the report*/
-  /* variables*/
-  /* uses a common reports process(format-proc)*/
-  /* sets all the flags to format the report variable*/
-  /* ***********************************************************************/
-  if (AIN23W.WS-03-CHA-CASE != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN23W.WS-03-CHA-CASE;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-FOOTER.S-REP-SUM-CHA-CASE = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-FOOTER.S-REP-SUM-CHA-CASE = "      0";
-  end
-
-  if (AIN23W.WS-03-PRO-CASE != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN23W.WS-03-PRO-CASE;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-FOOTER.S-REP-SUM-PRO-CASE = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-FOOTER.S-REP-SUM-PRO-CASE = "      0";
-  end
-
-
-  AIN23W.WS-REP-TOTAL = AIN23W.WS-03-CHA-CASE +   AIN23W.WS-03-PRO-CASE;
-
-  if (AIN23W.WS-REP-TOTAL != 0)
-
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN23W.WS-REP-TOTAL;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-FOOTER.S-REP-SUM-TOT-CASE = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-FOOTER.S-REP-SUM-TOT-CASE = "      0";
-  end
-  /* cbsi end*/
-end // end AIN23P9-POP-FOOTER
-
-
-// PROCESS TO PRINT THE REPORT
-Function AIN23P9-PRINT-PARA()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the report*/
-  /* 1.prints the no data to report if there is no data*/
-  /* 2.performs the additional processing process*/
-  /* ***********************************************************************/
-  /* ERROR PROCESSING FOR SERIAL RECORD*/
-
-  if ((SR-AIN23-RECIN is endOfFile))
-    AIN23P9-PRN-HEAD();
-    REP132P9-NRF-PROC();
-    return;
-  end
-
-  /* PRINT ALL THE DETAILS RETRIVED FROM SEQUENTIAL FILE*/
-  AIN23W.WS-OFC-CD-OLD = SR-AIN23-RECIN.AIN22A-01-OFC-CD;
-
-
-  while ((SR-AIN23-RECIN not endOfFile))
-
-    /* PERFORM APPLICATION SPECIFIC PROCESSING*/
-
-    /* PRINT HEADER AND SUB HEADER AT THE START OF A NEW PAGE*/
-
-    if ((REP-COMMON.WS-NEW-PAGE == "Y"))
-
-       /* PRINT THE HEADER DETAILS*/
-
-      AIN23P9-PRN-HEAD();
-
-       /* PRINT THE SUBHEADER*/
-
-      AIN23P9-PRN-SUBH();
-
-       /* RESET NEW PAGE INDICATOR*/
-
-      REP-COMMON.WS-NEW-PAGE = "N";
-    end
-
-    AIN23P9-POP-DET();
-
-       /* PERFORM PROCESS TO PRINT THE DETAILS*/
-
-    AIN23P9-PRN-DETAIL();
-
-    if ((REP-COMMON.WS-LINE-NO > REP-COMMON.WS-MAX-NO-LINES))
-      SR-132REP-RECOUT.PRNT-CC = "1";
-      REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
-      REP-COMMON.WS-NEW-PAGE = "Y";
-    end
-    /* PERFORM PROCESS TO SCAN THE CURSOR*/
-    AIN23P9-SCAN();
-    AIN23W.WS-OFC-CD-NEW = SR-AIN23-RECIN.AIN22A-01-OFC-CD;
-
-    if (AIN23W.WS-OFC-CD-OLD != AIN23W.WS-OFC-CD-NEW)
-      AIN23W.WS-OFC-CD-OLD = AIN23W.WS-OFC-CD-NEW;
-          /* PRINT THE HEADING AND THE SUB HEADING IF END OF PAGE*/
-          /* IS ENCOUNTERED*/
-
-      if (AIN23W.WS-02-DIS-CHA != 0)
-        set FORMATW empty;
-        FORMATW.INPUT-NUMBER = AIN23W.WS-02-DIS-CHA;
-        FORMATW.LENGTH = 7;
-        FORMATW.FORMAT-FLAG = "N";
-        FORMATW.DOLLAR-FLAG = "N";
-        REPP9-FORMAT-PROC();
-        AIN23W-SUBFOT.S-DIS-TOT-CHA-CASE = FORMATW.OUTPUT-CHAR;
-      else
-        AIN23W-SUBFOT.S-DIS-TOT-CHA-CASE = "      0";
-      end
-
-      if (AIN23W.WS-02-DIS-PRO != 0)
-        set FORMATW empty;
-        FORMATW.INPUT-NUMBER = AIN23W.WS-02-DIS-PRO;
-        FORMATW.LENGTH = 7;
-        FORMATW.FORMAT-FLAG = "N";
-        FORMATW.DOLLAR-FLAG = "N";
-        REPP9-FORMAT-PROC();
-        AIN23W-SUBFOT.S-DIS-TOT-PRO-CASE = FORMATW.OUTPUT-CHAR;
-      else
-        AIN23W-SUBFOT.S-DIS-TOT-PRO-CASE = "      0";
-      end
-
-      AIN23W.WS-DIS-TOTAL = AIN23W.WS-02-DIS-CHA +       AIN23W.WS-02-DIS-PRO;
-      if (AIN23W.WS-DIS-TOTAL != 0)
-        set FORMATW empty;
-        FORMATW.INPUT-NUMBER = AIN23W.WS-DIS-TOTAL;
-        FORMATW.LENGTH = 7;
-        FORMATW.FORMAT-FLAG = "N";
-        FORMATW.DOLLAR-FLAG = "N";
-        REPP9-FORMAT-PROC();
-        AIN23W-SUBFOT.S-DIS-TOT-CASE = FORMATW.OUTPUT-CHAR;
-      else
-        AIN23W-SUBFOT.S-DIS-TOT-CASE = "      0";
-      end
-      /* process to print sub footer*/
-      AIN23P9-SUBFOOTER();
-      /* reinitialise the dis variables*/
-      AIN23W.WS-02-DIS-PRO = 0;
-      AIN23W.WS-02-DIS-CHA = 0;
-    end
-  end
-
-  /* PERFORM PROCESS TO POPULATE SUBFOOTER*/
-
-  /* check if the ws variable ne 0*/
-     /* if ne 0, then perform format proc*/
-       /* else move 0 value (hardcoded)*/
-  if (AIN23W.WS-02-DIS-CHA != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN23W.WS-02-DIS-CHA;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-SUBFOT.S-DIS-TOT-CHA-CASE = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-SUBFOT.S-DIS-TOT-CHA-CASE = "      0";
-  end
-
-  /* check if the ws variable ne 0*/
-     /* if ne 0, then perform format proc*/
-       /* else move 0 value (hardcoded)*/
-  if (AIN23W.WS-02-DIS-PRO != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN23W.WS-02-DIS-PRO;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-SUBFOT.S-DIS-TOT-PRO-CASE = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-SUBFOT.S-DIS-TOT-PRO-CASE = "      0";
-  end
-
-  AIN23W.WS-DIS-TOTAL = AIN23W.WS-02-DIS-CHA +   AIN23W.WS-02-DIS-PRO;
-  /* check if the ws variable ne 0*/
-     /* if ne 0, then perform format proc*/
-       /* else move 0 value (hardcoded)*/
-  if (AIN23W.WS-DIS-TOTAL != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN23W.WS-DIS-TOTAL;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN23W-SUBFOT.S-DIS-TOT-CASE = FORMATW.OUTPUT-CHAR;
-  else
-    AIN23W-SUBFOT.S-DIS-TOT-CASE = "      0";
-  end
-
-  AIN23W.WS-END-REPT = "Y";
-
-  AIN23P9-SUBFOOTER();
-  AIN23P9-POP-FOOTER();
-
-  /* PERFROM PROCESS TO PRINT THE FOOTER*/
-  AIN23P9-PRN-FOOTER();
-
-  REP132P9-EOR-PROC();
-
-  /* cbsi end*/
-end // end AIN23P9-PRINT-PARA
-
-
-// to print the detail line
-Function AIN23P9-PRN-DETAIL()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the detail record*/
-  /* uses the common process to print the record*/
-  /* ***********************************************************************/
-  SR-132REP-RECOUT.UFIELD = AIN23W-DET.LINE1;
-  WR-132REP-OUT-FILE();
-  /* cbsi end*/
-end // end AIN23P9-PRN-DETAIL
-
-
-// to print the footer
-Function AIN23P9-PRN-FOOTER()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the footer record*/
-  /* uses the common process to print the record*/
-  /* ***********************************************************************/
-  AIN23W.WS-LINE-DIFF = REP-COMMON.WS-MAX-NO-LINES -   REP-COMMON.WS-LINE-NO;
-  if (AIN23W.WS-LINE-DIFF < 11)
-    SR-132REP-RECOUT.PRNT-CC = "1";
-    REP-COMMON.WS-LINE-NO = 1;
-    REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
-    REP-COMMON.WS-NEW-PAGE = "Y";
-    AIN23P9-PRN-HEAD();
-    AIN23P9-PRN-SUBH();
-
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE1;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE2;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE3;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE4;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE5;
-    WR-132REP-OUT-FILE();
-
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE6;
-    WR-132REP-OUT-FILE();
-  else
-    SR-132REP-RECOUT.PRNT-CC = " ";
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE1;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE2;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE3;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE4;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE5;
-    WR-132REP-OUT-FILE();
-
-    SR-132REP-RECOUT.UFIELD = AIN23W-FOOTER.LINE6;
-    WR-132REP-OUT-FILE();
-  end
-  /* cbsi end*/
-end // end AIN23P9-PRN-FOOTER
-
-
-// process is to print the header
-Function AIN23P9-PRN-HEAD()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the header record*/
-  /* sets the page number*/
-  /* sets the control character*/
-  /* uses the common process to print the record*/
-  /* resets the control character*/
-  /* ***********************************************************************/
-  AIN23W-HEAD.S-PAGE-NO = REP-COMMON.WS-PAGE-NO;
-
-  /* MOVE EACH LINE OF HEADER TO MAP AND PRINT IT*/
-  SR-132REP-RECOUT.UFIELD = AIN23W-HEAD.LINE1;
-  WR-132REP-OUT-FILE();
-  SR-132REP-RECOUT.PRNT-CC = " ";
-  SR-132REP-RECOUT.UFIELD = AIN23W-HEAD.LINE2;
-  WR-132REP-OUT-FILE();
-  SR-132REP-RECOUT.UFIELD = AIN23W-HEAD.LINE3;
-  WR-132REP-OUT-FILE();
-  SR-132REP-RECOUT.UFIELD = AIN23W-HEAD.LINE4;
-  WR-132REP-OUT-FILE();
-  SR-132REP-RECOUT.UFIELD = AIN23W-HEAD.LINE5;
-  WR-132REP-OUT-FILE();
-  /* cbsi end*/
-end // end AIN23P9-PRN-HEAD
-
-
-// PRINTING THE REPORT'S SUB-HEAD
-Function AIN23P9-PRN-SUBH()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the sub header record*/
-  /* sets the control character*/
-  /* uses the common process to print the record*/
-  /* resets the control character*/
-  /* ***********************************************************************/
-  /* MOVE EACD LINE OF SUBHEADER TO MAP*/
-  SR-132REP-RECOUT.UFIELD = AIN23W-SUBH.LINE1;
-  WR-132REP-OUT-FILE();
-  SR-132REP-RECOUT.UFIELD = AIN23W-SUBH.LINE2;
-  WR-132REP-OUT-FILE();
-  SR-132REP-RECOUT.UFIELD = AIN23W-SUBH.LINE3;
-  WR-132REP-OUT-FILE();
-  /* cbsi end*/
-end // end AIN23P9-PRN-SUBH
-
-
-// PROCESS TO READ INPUT FILE
-Function AIN23P9-SCAN()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* **/
-  /* This process is to read the input file*/
-  /* ***********************************************************************/
-  /* **/
-  try
-    get next SR-AIN23-RECIN ;
-  end
-  if (((SR-AIN23-RECIN is ioError) && 
-  (SR-AIN23-RECIN not endOfFile)))
-    VDBCONTROL.UPROC-NM = "AIN23P9-SCAN";
-    VDBCONTROL.UPROC-OBJ = "SR-AIN23-RECIN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    VMESSAGE.UMSGCODE = sysVar.errorCode;
-    sysVar.returnCode = 8;
-    WCM00P2-TO-CEP01A();
-  end
-  /* cbsi end*/
-end // end AIN23P9-SCAN
-
-
-// to print the sub footer
-Function AIN23P9-SUBFOOTER()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* **/
-  /* This process is to print the subfooter*/
-  /* takes care of control breaks*/
-  /* ***********************************************************************/
-  /* **/
-  AIN23W.WS-LINE-DIFF = REP-COMMON.WS-MAX-NO-LINES -   REP-COMMON.WS-LINE-NO;
-
-  if (AIN23W.WS-LINE-DIFF < 8)
-    SR-132REP-RECOUT.PRNT-CC = "1";
-    REP-COMMON.WS-NEW-PAGE = "Y";
-    REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
-    AIN23P9-PRN-HEAD();
-    AIN23P9-PRN-SUBH();
-  /* POPULATE THE SUB-FOOTER DETAILS*/
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE1;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE2;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE3;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE4;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE5;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE6;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE7;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE8;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.PRNT-CC = "1";
-    REP-COMMON.WS-NEW-PAGE = "Y";
-    REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
-  else
-
-  /* POPULATE THE SUB-FOOTER DETAILS*/
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE1;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE2;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE3;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE4;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE5;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE6;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE7;
-    WR-132REP-OUT-FILE();
-    SR-132REP-RECOUT.UFIELD = AIN23W-SUBFOT.LINE8;
-    WR-132REP-OUT-FILE();
-    if (AIN23W.WS-END-REPT != "Y")
-      SR-132REP-RECOUT.PRNT-CC = "1";
-      REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
-      REP-COMMON.WS-NEW-PAGE = "Y";
-    else
-      SR-132REP-RECOUT.PRNT-CC = " ";
-      REP-COMMON.WS-NEW-PAGE = "N";
-    end
-
-
-  end
-  /* cbsi end*/
-end // end AIN23P9-SUBFOOTER
-
-
-Record AIN23W type basicRecord
-  10 WS-NAME char(100) ; 
-    15 WS-NAME-1 char(39) ; 
-    15 WS-NAME-2 char(61) ; 
-  10 WS-CNT num(2) ; 
-  10 WS-TOT-CNT num(2) ; 
-  10 WS-OFC-CD-OLD char(2) ; 
-  10 WS-OFC-CD-NEW char(2) ; 
-  10 WS-02-DIS-PRO num(7) ; 
-  10 WS-02-DIS-CHA num(7) ; 
-  10 WS-03-PRO-CASE num(7) ; 
-  10 WS-03-CHA-CASE num(7) ; 
-  10 WS-FIRST-TIME char(1) ; 
-  10 WS-DIS-TOTAL num(7) ; 
-  10 WS-REP-TOTAL num(7) ; 
-  10 WS-LINE-DIFF num(2) ; 
-  10 WS-TEMP-DIFF-AMT num(7,2) ; 
-  10 WS-DIFF-SIGN-FLAG char(1) ; 
-  10 WS-DATE char(10) ; 
-    15 WS-YEAR num(4) ; 
-      20 WS-YEAR1 char(4) ; 
-    15 WS-D-FIL1 char(1) ; 
-    15 WS-MONTH num(2) ; 
-    15 WS-D-FIL2 char(1) ; 
-    15 WS-DAY num(2) ; 
-  10 WS-END-REPT char(1) ; 
-end // end AIN23W
-
-
-Record AIN23W-DET type basicRecord
-  10 LINE1 char(132) ; 
-    15 FILLER1 char(1) ; 
-    15 S-DIST-CD char(2) ; 
-    15 FILLER2 char(4) ; 
-    15 S-CASE-LD char(5) ; 
-    15 FILLER3 char(2) ; 
-    15 S-WRKR-NMB char(8) ; 
-    15 FILLER4 char(2) ; 
-    15 S-NAME char(39) ; 
-    15 FILLER5 char(1) ; 
-    15 S-CASE-NUMBER char(9) ; 
-    15 FILLER6 char(1) ; 
-    15 S-NEW-SSN char(9) ; 
-    15 FILLER7 char(1) ; 
-    15 S-SSI-NOMADS char(8) ; 
-    15 FILLER8 char(1) ; 
-    15 S-SSI-AMOUNT char(8) ; 
-    15 FILLER9 char(1) ; 
-    15 S-DIFF-AMT-SIGN char(1) ; 
-    15 S-DIFF-AMT char(8) ; 
-    15 FILLER10 char(1) ; 
-    15 S-DIFF-PCT char(3) ; 
-    15 FILLER11 char(1) ; 
-    15 S-ACTION char(10) ; 
-    15 FILLER12 char(6) ; 
-end // end AIN23W-DET
-
-
-Record AIN23W-FOOTER type basicRecord
-  10 LINE1 char(132) ; 
-    15 CONSTANT1 char(6) ; 
-    15 FILLER1 char(1) ; 
-    15 CONSTANT2 char(7) ; 
-    15 FILLER2 char(118) ; 
-  10 LINE2 char(132) ; 
-    15 FILLER3 char(132) ; 
-  10 LINE3 char(132) ; 
-    15 CONSTANT3 char(5) ; 
-    15 FILLER4 char(5) ; 
-    15 CONSTANT4 char(7) ; 
-    15 FILLER5 char(3) ; 
-    15 CONSTANT5 char(7) ; 
-    15 FILLER6 char(105) ; 
-  10 LINE4 char(132) ; 
-    15 CONSTANT6 char(5) ; 
-    15 FILLER7 char(5) ; 
-    15 CONSTANT7 char(5) ; 
-    15 FILLER8 char(7) ; 
-    15 CONSTANT8 char(5) ; 
-    15 FILLER9 char(105) ; 
-  10 LINE5 char(132) ; 
-    15 FILLER10 char(132) ; 
-  10 LINE6 char(132) ; 
-    15 S-REP-SUM-TOT-CASE char(7) ; 
-    15 FILLER11 char(3) ; 
-    15 S-REP-SUM-CHA-CASE char(7) ; 
-    15 FILLER12 char(3) ; 
-    15 S-REP-SUM-PRO-CASE char(7) ; 
-    15 FILLER13 char(105) ; 
-end // end AIN23W-FOOTER
-
-
-Record AIN23W-HEAD type basicRecord
-  10 LINE1 char(132) ; 
-    15 CONSTANT1 char(8) ; 
-    15 FILLER1 char(1) ; 
-    15 S-PAGE-NO char(4) ; 
-    15 FILLER2 char(36) ; 
-    15 CONSTANT2 char(5) ; 
-    15 FILLER3 char(1) ; 
-    15 CONSTANT3 char(2) ; 
-    15 FILLER4 char(1) ; 
-    15 CONSTANT4 char(6) ; 
-    15 FILLER5 char(47) ; 
-    15 CONSTANT5 char(4) ; 
-    15 FILLER6 char(3) ; 
-    15 S-DATE char(8) ; 
-    15 FILLER7 char(6) ; 
-  10 LINE2 char(132) ; 
-    15 S-REPORT-ID char(8) ; 
-    15 FILLER8 char(36) ; 
-    15 CONSTANT6 char(8) ; 
-    15 FILLER9 char(1) ; 
-    15 CONSTANT7 char(8) ; 
-    15 FILLER10 char(1) ; 
-    15 CONSTANT8 char(7) ; 
-    15 FILLER11 char(42) ; 
-    15 CONSTANT9 char(4) ; 
-    15 FILLER12 char(3) ; 
-    15 S-TIME char(8) ; 
-    15 FILLER13 char(6) ; 
-  10 LINE3 char(132) ; 
-    15 FILLER14 char(132) ; 
-  10 LINE4 char(132) ; 
-    15 CONSTANT10 char(6) ; 
-    15 FILLER15 char(1) ; 
-    15 CONSTANT11 char(5) ; 
-    15 FILLER16 char(1) ; 
-    15 S-RPT-MNTH char(4) ; 
-    15 FILLER17 char(1) ; 
-    15 S-RPT-YEAR char(4) ; 
-    15 FILLER18 char(20) ; 
-    15 CONSTANT12 char(13) ; 
-    15 S-PRCS-DATE char(10) ; 
-    15 FILLER20 char(67) ; 
-  10 LINE5 char(132) ; 
-    15 FILLER19 char(132) ; 
-end // end AIN23W-HEAD
-
-
-Record AIN23W-SUBFOT type basicRecord
-  10 LINE1 char(132) ; 
-    15 FILLER1 char(132) ; 
-  10 LINE2 char(132) ; 
-    15 CONSTANT1 char(8) ; 
-    15 FILLER2 char(1) ; 
-    15 CONSTANT2 char(9) ; 
-    15 FILLER3 char(114) ; 
-  10 LINE3 char(132) ; 
-    15 FILLER4 char(132) ; 
-  10 LINE4 char(132) ; 
-    15 CONSTANT3 char(5) ; 
-    15 FILLER5 char(5) ; 
-    15 CONSTANT4 char(7) ; 
-    15 FILLER6 char(3) ; 
-    15 CONSTANT5 char(7) ; 
-    15 FILLER7 char(105) ; 
-  10 LINE5 char(132) ; 
-    15 CONSTANT6 char(5) ; 
-    15 FILLER8 char(5) ; 
-    15 CONSTANT7 char(5) ; 
-    15 FILLER9 char(5) ; 
-    15 CONSTANT8 char(5) ; 
-    15 FILLER10 char(107) ; 
-  10 LINE6 char(132) ; 
-    15 FILLER11 char(132) ; 
-  10 LINE7 char(132) ; 
-    15 S-DIS-TOT-CASE char(7) ; 
-    15 FILLER12 char(3) ; 
-    15 S-DIS-TOT-CHA-CASE char(7) ; 
-    15 FILLER13 char(3) ; 
-    15 S-DIS-TOT-PRO-CASE char(7) ; 
-    15 FILLER14 char(105) ; 
-  10 LINE8 char(132) ; 
-    15 FILLER15 char(132) ; 
-end // end AIN23W-SUBFOT
-
-
-Record AIN23W-SUBH type basicRecord
-  10 LINE1 char(132) ; 
-    15 CONSTANT1 char(8) ; 
-    15 FILLER1 char(1) ; 
-    15 CONSTANT2 char(4) ; 
-    15 FILLER2 char(3) ; 
-    15 CONSTANT3 char(6) ; 
-    15 FILLER3 char(4) ; 
-    15 CONSTANT4 char(4) ; 
-    15 FILLER4 char(36) ; 
-    15 CONSTANT5 char(4) ; 
-    15 FILLER5 char(6) ; 
-    15 CONSTANT6 char(3) ; 
-    15 FILLER6 char(1) ; 
-    15 CONSTANTN char(3) ; 
-    15 FILLERN char(3) ; 
-    15 CONSTANT7 char(3) ; 
-    15 FILLER7 char(1) ; 
-    15 CONSTANT8 char(2) ; 
-    15 FILLER8 char(3) ; 
-    15 CONSTANT9 char(3) ; 
-    15 FILLER9 char(6) ; 
-    15 CONSTANT10 char(10) ; 
-    15 FILLER10 char(3) ; 
-    15 CONSTANT11 char(6) ; 
-    15 FILLER11 char(9) ; 
-  10 LINE2 char(132) ; 
-    15 FILLER12 char(9) ; 
-    15 CONSTANT12 char(4) ; 
-    15 FILLER13 char(3) ; 
-    15 CONSTANT13 char(6) ; 
-    15 FILLER14 char(44) ; 
-    15 CONSTANT14 char(6) ; 
-    15 FILLER15 char(4) ; 
-    15 CONSTANT15 char(4) ; 
-    15 FILLER16 char(1) ; 
-    15 CONSTANTN1 char(3) ; 
-    15 FILLERN1 char(2) ; 
-    15 CONSTANT16 char(6) ; 
-    15 FILLER17 char(3) ; 
-    15 CONSTANT17 char(6) ; 
-    15 FILLER18 char(3) ; 
-    15 CONSTANT18 char(6) ; 
-    15 FILLER19 char(3) ; 
-    15 CONSTANT19 char(4) ; 
-    15 FILLER20 char(15) ; 
-  10 LINE3 char(132) ; 
-    15 FILLER21 char(132) ; 
-end // end AIN23W-SUBH
-
+// ************************************
+
+program AIF54A type BasicProgram {
+	includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+	throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+	I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+	}
+	// Data Declarations
+	AIF54W AIF54W; // record
+	CEP01W CEP01W; // record
+	GDW GDW; // record
+	H2-CASE-LOG H2-CASE-LOG; // record
+	H2-CASE-MEMBER H2-CASE-MEMBER; // record	
+	H2-PERSON H2-PERSON; // record
+	H2-VTL-STAT-DOD H2-VTL-STAT-DOD; // SQL record
+	SR-AIF54-INREC SR-AIF54-INREC; // Serial record (input file)
+  	VDBCOMMON VDBCOMMON; // record
+  	VDBCONTROL VDBCONTROL; // record
+  	VMESSAGE VMESSAGE; // record
+	
+	// VAGen Info - items needed for migration
+  	VAGen_EZESYS char(8);
+  	VAGen_EZEREPLY num(1);
+  	VAGen_EZE_WAIT_TIME bin(9,2);
+ 	VAGen_EZE_ITEMLEN int;
+	
+	// Use Declarations
+	use VDB00T1 {deleteAfterUse = yes}; // table
+
+	function main()
+    	VAGen_EZESYS = VGLib.getVAGSysType();
+    	AIF54P9-MAIN: AIF54P9-MAIN();
+	end // end main	
+
+	// Read input file and process records
+	function AIF54P9-MAIN()
+		AIF54P9-INIT-PROC();
+		AIF54Q-READ-IP();	
+		if (SR-AIF54-INREC is endOfFile)
+    		sysVar.returnCode = 8;
+    		VMESSAGE.UMSGCODE-JCL-ERR = 0;
+    		AIF54W.WS-ERR-CD = sysVar.errorCode;
+    		VMESSAGE.UMSGINS[1] = AIF54W.WS-ERR-LAST-FOUR;
+    		WCM00P2-TO-CEP01A();
+  		end  	
+  		while (SR-AIF54-INREC not endOfFile)
+    		AIF54P9-APPLSPEC();
+    		AIF54Q-READ-IP();
+  		end 		
+		AIF54Q-CLOSE-SR();
+		exit program;
+	end // end AIF54P9-MAIN
+
+	function AIF54P9-INIT-PROC()
+		set AIF54W empty; // Initialize working storage
+		// Retrieve and format system date
+		call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+		AIF54W.WS-FIL1 = "-";
+		AIF54W.WS-FIL2 = "-";	
+		AIF54W.WS-DATE1 = GDW.DTL;
+		AIF54W.WS-YY = AIF54W.WS-YY1;
+		AIF54W.WS-MM = AIF54W.WS-MM1;
+		AIF54W.WS-DD = AIF54W.WS-DD1;
+		set H2-CASE-LOG empty;	
+		// Set values for invariable CLOG information
+		H2-CASE-LOG.ACTVY-DT = WS-CURRENT-DATE;
+		H2-CASE-LOG.PRGM-CASE-TYPE = "";
+		H2-CASE-LOG.WRKR-ID = "VITSTATS";
+		H2-CASE-LOG.LOG-ENTRY-TYPE = "";
+		H2-CASE-LOG.LOG-ENTRY-DESC = "VITAL STATISTICS DEATH MATCH";
+		WS-CLOGDESC1 = "PER SSN/DOB MATCH WITH VITAL STATISTICS DEATH REGISTRY,      CLIENT (UPI ";
+		WS-CLOGDESC2 = ") IS DECEASED AS OF ";
+	end // end AIF54P9-INIT-PROC
+	
+	// Read Vital Statistics Death Registry Input File
+	function AIF54Q-READ-IP()
+		WDB00PI();
+		VDBCONTROL.UPROC-NM = "AIF54PQ-READ-IP";
+    	VDBCONTROL.UPROC-OBJ = "SR-AIF54-INREC";
+    	VDBCONTROL.UPROC-OPT = "SCAN";
+    	VMESSAGE.UMSGINS[2] = "AIF54A";
+  		try
+    		get next SR-AIF54-INREC;
+  		end
+  		if (SR-AIF54-INREC is ioError && SR-AIF54-INREC not endOfFile)  
+  			VMESSAGE.UMSGCODE-JCL-ERR = 0;   	
+    		AIF54W.WS-ERR-CD = sysVar.errorCode;
+    		VMESSAGE.UMSGINS[1] = AIF54W.WS-ERR-LAST-FOUR;
+    		WCM00P2-TO-CEP01A();
+  		end // end if
+	end // end AIF54Q-READ-IP
+
+	// Look for match--first on SSN/DOB
+	function AIF54P9-APPLSPEC()
+		WS-SSNFLG = "N";
+		WS-INPUT-DT = SR-AIF54-INREC.DCSD-DOB;
+		AIF54P9-VALID-DATE(); // Validate and reformat DOB
+		WS-DOB = WS-OUTPUT-DT;
+		// Process if DOB valid, otherwise skip record
+		if (WS-DOB != "0001-01-01")
+			// If non-blank and numeric SSN provided in Vital Stats file:		
+			if ((SR-AIF54-INREC.DCSD-SSN != " ") and (SR-AIF54-INREC.DCSD-SSN is numeric))		
+				WS-SSN = SR-AIF54-INREC.DCSD-SSN;
+				AIF54Q-READ-PER(); // Try match on SSN and DOB
+				if (VDBCONTROL.URC == 0)
+					WS-SSNFLG = "Y";
+					AIF54W.WS-UPI = H2-PERSON.UPI;
+					AIF54P9-SSN-MATCH();
+				end // end if
+			end // end if	
+			// If a numeric, non-blank SSN was not provided,
+			// or a match was tried but not found on SSN/DOB:
+			if (WS-SSNFLG == "N")
+				WS-MATCH-CNT = 0;
+				WS-LST-NM = SR-AIF54-INREC.DCSD-LAST-NM;
+				AIF54Q-GETCOUNT(); // Get match count on LST_NM/DOB
+				if (AIF54W.WS-MATCH-CNT > 0) // TWNPERSON record(s) found
+					AIF54Q-SETINQ-PER(); // 
+					if (VDBCONTROL.URC == 0) 
+						AIF54P9-LSTNM-MATCH(); // Process LST_NM/DOB matches
+					end // end if
+				end	// end if
+			end // end if SSN flag = "N"
+		end // end if DOB valid	
+	end // end AIF54P9-APPLSPEC
+
+	function AIF54Q-GETCOUNT()
+		WDB00PI();
+  		VDBCONTROL.UPROC-NM = "AIF54Q-GETCOUNT";
+  		VDBCONTROL.UPROC-OPT = "SETINQ";
+  		VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  		VDBCOMMON.USQLREC = "H2-PERSON";
+  		try
+  			get H2-PERSON singleRow
+  			with #sql{
+  				select count(*)
+  				from	TWNPERSON
+  				where	LST_NM = :AIF54W.WS-LST-NM
+  				and		DOB = :AIF54W.WS-DOB
+  			}
+  			into AIF54W.WS-MATCH-CNT;
+		end
+		AIF54Q-SQLERR-RD();
+	end // end AIF54Q-GETCOUNT
+
+	// For match on SSN/DOB, routine to write to TWN_VTL_STAT_DOD 
+	// table and create CLOG entry for case(s).
+	function AIF54P9-SSN-MATCH()							
+		set H2-VTL-STAT-DOD empty;
+		H2-VTL-STAT-DOD.SEQ-CNT = 1;
+		H2-VTL-STAT-DOD.MATCH-CNT = 1;
+		H2-VTL-STAT-DOD.MATCH-TYP = "SSN";
+		H2-VTL-STAT-DOD.UPI = WS-UPI;
+		H2-VTL-STAT-DOD.SSN = WS-SSN;
+		AIF54W.WS-INPUT-DT = SR-AIF54-INREC.DCSD-DOD;
+		AIF54P9-VALID-DATE();
+		WS-DOD = WS-OUTPUT-DT; 
+		AIF54P9-MOVEDATA();
+		AIF54Q-ADD-VSD();		
+	
+		// If duplicate key, increment seq. # and try again
+		while (WS-DUPFLG == "Y")
+	  		H2-VTL-STAT-DOD.SEQ-CNT = H2-VTL-STAT-DOD.SEQ-CNT + 1;
+	  		AIF54Q-ADD-VSD();
+	  	end	
+  	
+		// Create CLOG entries for each ICI
+		AIF54Q-SETINQ-CM();
+		AIF54Q-SCAN-CM();
+		
+		if (VDBCONTROL.URC == 0)
+			// Set up CLOG values that will 
+			// remain the same for all ICIs
+			WS-CLOGUPI = WS-UPI;
+			if (WS-DOD == "0001-01-01")
+				WS-CLOGDOD = "UNKNOWN DT";
+			else
+				CL-DODHYPH1 = "/";
+				CL-DODHYPH2 = "/";
+				CL-DODMM = WS-DOD-MM;
+				CL-DODDD = WS-DOD-DD;
+				CL-DODYYYY = WS-DOD-YYYY;			
+			end
+			H2-CASE-LOG.CL-ACTVY-DESC = WS-CLOG-STRING;
+		end
+		
+	  	while (VDBCONTROL.URC == 0)	
+			H2-CASE-LOG.ICI = H2-CASE-MEMBER.ICI;
+			AIF54Q-ADD-CLOG();
+	  		AIF54Q-SCAN-CM();
+	  	end // end while
+	end // end AIF54P9-SSN-MATCH
+
+	// For match on LST_NM/DOB, routine to scan cursor for 
+	// possible multiple matches and write to TWN_VTL_STAT_DOD
+	// table, writing match count to each record.
+	function AIF54P9-LSTNM-MATCH()
+		AIF54Q-SCAN-PER();
+		if (VDBCONTROL.URC == 0)
+			set H2-VTL-STAT-DOD empty;
+			H2-VTL-STAT-DOD.MATCH-CNT = WS-MATCH-CNT;
+			H2-VTL-STAT-DOD.MATCH-TYP = "LNM";
+			AIF54W.WS-INPUT-DT = SR-AIF54-INREC.DCSD-DOD;
+			AIF54P9-VALID-DATE(); // validate Date of Death
+			WS-DOD = WS-OUTPUT-DT;			
+			AIF54P9-MOVEDATA();
+		end
+		while (VDBCONTROL.URC == 0)
+			H2-VTL-STAT-DOD.SEQ-CNT = 1;
+			H2-VTL-STAT-DOD.UPI = H2-PERSON.UPI;
+			H2-VTL-STAT-DOD.SSN = H2-PERSON.SSN;
+			AIF54Q-ADD-VSD();
+			// If duplicate key, increment seq. # and try again
+			while (WS-DUPFLG == "Y")
+	  			H2-VTL-STAT-DOD.SEQ-CNT = H2-VTL-STAT-DOD.SEQ-CNT + 1;
+	  			AIF54Q-ADD-VSD();
+	  		end // end while		
+			AIF54Q-SCAN-PER();
+		end // end while	 	
+	end	// end AIF54P9-LSTNM-MATCH
+
+	function AIF54P9-VALID-DATE()
+		// Initializations
+		WS-OUTPUT-DT = " ";
+		WS-VALID-DT-FLG = "N";
+		if (WS-INPUT-DT is numeric)
+			if ((WS-INPUT-MM == "01" || WS-INPUT-MM == "03" || WS-INPUT-MM == "05" || 
+				WS-INPUT-MM == "07" || WS-INPUT-MM == "08" || WS-INPUT-MM == "10" ||
+				WS-INPUT-MM == "12") &&
+				(WS-INPUT-DD >= "01" && WS-INPUT-DD <= "31"))
+				WS-VALID-DT-FLG = "Y";
+			else
+				if ((WS-INPUT-MM == "04" || WS-INPUT-MM == "06" ||
+					WS-INPUT-MM == "09" || WS-INPUT-MM == "11") &&
+					(WS-INPUT-DD >= "01" && WS-INPUT-DD <= "30"))
+					WS-VALID-DT-FLG = "Y";
+				else
+					// Leap year determination
+					if (WS-INPUT-MM == "02")
+						WS-LEAP-FLG = "N";
+						WS-TEMP-INT = WS-INPUT-YYYY; // Cast string to integer
+						WS-INT-YYYY = WS-TEMP-INT % 4;
+        				if ((WS-INT-YYYY == 0))
+          					WS-TEMP-INT = WS-INT-YYYY % 100;
+          					if (WS-TEMP-INT != 0)
+            					WS-LEAP-FLG = "Y";
+          					else
+            					WS-TEMP-INT = WS-INT-YYYY % 400;
+            					if (WS-TEMP-INT == 0)
+              						WS-LEAP-FLG = "Y";
+            					end
+          					end
+        				end
+        				if ((WS-LEAP-FLG == "Y" && WS-INPUT-DD <= "29") || 
+  							(WS-LEAP-FLG == "N" && WS-INPUT-DD <= "28"))
+  							WS-VALID-DT-FLG = "Y";	
+  						end  							
+					end // End leap year determination
+				end
+			end							
+		end // end if date is numeric
+		if (WS-VALID-DT-FLG == "Y")
+			WS-OUTPUT-MM = WS-INPUT-MM;
+			WS-OUTPUT-DD = WS-INPUT-DD;
+			WS-OUTPUT-YYYY = WS-INPUT-YYYY;
+			WS-OUTPUT-FIL1 = "-";
+			WS-OUTPUT-FIL2 = "-";
+		else
+			WS-OUTPUT-DT = "0001-01-01";
+		end // end if date valid		
+	end // end AIF54P9-VALID-DATE	
+
+	function AIF54Q-CLOSE-SR()
+	  	VGVar.handleHardIOErrors = 1;
+	  	try
+	    	close SR-AIF54-INREC ;
+	  	end
+	  	if (SR-AIF54-INREC is ioError)
+	    	VDBCONTROL.UPROC-NM = "AIF54Q-CLOSE-SR";
+	    	VDBCONTROL.UPROC-OBJ = "SR-AIF54-INREC";
+	    	VDBCONTROL.UPROC-OPT = "CLOSE";
+	    	AIF54W.WS-ERR-CD = sysVar.errorCode;
+	    	VMESSAGE.UMSGINS[1] = AIF54W.WS-ERR-LAST-FOUR;
+	    	VMESSAGE.UMSGINS[2] = "AIF54A";
+	    	if (SR-AIF54-INREC is fileNotAvailable)
+	      		VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+	    	else
+	      		if (SR-AIF54-INREC is fileNotFound)
+	        		VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+	      		else
+	        		if (SR-AIF54-INREC is invalidFormat)
+	          			VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+	        		end
+	    		end
+	    	end
+	    	WCM00P2-TO-CEP01A();
+	  	end	
+	end // end AIF54Q-CLOSE-SR
+
+	// Move data from serial file to DB table record
+	// (fields not affected by multiple ICIs or matches)
+	function AIF54P9-MOVEDATA()	
+	  	H2-VTL-STAT-DOD.RCVD-YR = AIF54W.WS-YY;
+	  	H2-VTL-STAT-DOD.RCVD-MTH = AIF54W.WS-MM;
+	  	if (SR-AIF54-INREC.DCSD-SSN is numeric)
+			H2-VTL-STAT-DOD.VST-SSN = SR-AIF54-INREC.DCSD-SSN;
+		else
+			H2-VTL-STAT-DOD.VST-SSN = " ";
+		end	
+		H2-VTL-STAT-DOD.LST-NM = SR-AIF54-INREC.DCSD-LAST-NM;
+		H2-VTL-STAT-DOD.FRST-NM = SR-AIF54-INREC.DCSD-FIRST-NM;
+		H2-VTL-STAT-DOD.MID-NM = SR-AIF54-INREC.DCSD-MIDDLE-NM;
+		H2-VTL-STAT-DOD.MODFR = SR-AIF54-INREC.DCSD-SUFX;
+		H2-VTL-STAT-DOD.DOB = WS-DOB; // date already validated	
+		H2-VTL-STAT-DOD.DOD = WS-DOD; // date already validated	
+		H2-VTL-STAT-DOD.BIRTH-ST = SR-AIF54-INREC.DCSD-BIRTH-ST;
+		H2-VTL-STAT-DOD.BIRTH-CNTRY = SR-AIF54-INREC.DCSD-BIRTH-CNTRY;
+		H2-VTL-STAT-DOD.RES-ADDR = SR-AIF54-INREC.DCSD-RES-ADDR;
+		H2-VTL-STAT-DOD.RES-APT-NMBR = SR-AIF54-INREC.DCSD-RES-APT-NMB;
+		H2-VTL-STAT-DOD.RES-CITY = SR-AIF54-INREC.DCSD-RES-CITY;
+		H2-VTL-STAT-DOD.RES-ST-NCHS = SR-AIF54-INREC.DCSD-RES-ST-NCHS;
+		H2-VTL-STAT-DOD.RES-CNTRY-NCHS = SR-AIF54-INREC.DCSD-RES-CNTRY-NCHS;
+		H2-VTL-STAT-DOD.RES-ZIPCD = SR-AIF54-INREC.DCSD-RES-ZIPCD;
+		H2-VTL-STAT-DOD.PLACE-DEATH = SR-AIF54-INREC.DCSD-PLACE-DEATH;	
+		H2-VTL-STAT-DOD.PATRNL-LST-NM = SR-AIF54-INREC.FA-LAST-NM;
+		H2-VTL-STAT-DOD.PATRNL-FRST-NM = SR-AIF54-INREC.FA-FIRST-NM;
+		H2-VTL-STAT-DOD.PATRNL-MID-NM = SR-AIF54-INREC.FA-MIDDLE-NM;
+		H2-VTL-STAT-DOD.PATRNL-MODFR = SR-AIF54-INREC.FA-SUFX;
+		H2-VTL-STAT-DOD.MATRNL-LST-NM = SR-AIF54-INREC.MO-LAST-NM;
+		H2-VTL-STAT-DOD.MATRNL-FRST-NM = SR-AIF54-INREC.MO-FIRST-NM;
+		H2-VTL-STAT-DOD.MATRNL-MID-NM = SR-AIF54-INREC.MO-MIDDLE-NM;
+		H2-VTL-STAT-DOD.MATRNL-MODFR = SR-AIF54-INREC.MO-SUFX;
+		H2-VTL-STAT-DOD.PLACE-DEATH = SR-AIF54-INREC.DCSD-PLACE-DEATH;	
+	  	H2-VTL-STAT-DOD.RCVD-DT = AIF54W.WS-CURRENT-DATE;
+	end // end AIF54P9-MOVEDATA
+
+	// Look for exact match on SSN and DOB
+	function AIF54Q-READ-PER()
+		WDB00PI();
+	  	VDBCONTROL.UPROC-NM = "AIF54Q-READ-PER";
+	  	VDBCONTROL.UPROC-OPT = "INQUIRY";
+	  	VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+	  	VDBCOMMON.USQLREC = "H2-PERSON";
+	  	try
+	    	get H2-PERSON singlerow into UPI, SSN
+	      	with #sql{
+	        	select 	UPI, SSN   
+	        	from	TWNPERSON
+	        	where 	SSN = :AIF54W.WS-SSN
+	        	and		DOB = :AIF54W.WS-DOB
+	      	}               
+	      	;
+	  	end
+	  	AIF54Q-SQLERR-RD();
+	end // end AIF54Q-READ-PER
+
+	// Look for match(es) on LST_NM and DOB when blank or 
+	// non-numeric SSN provided in input record or record  
+	// not found on SSN and DOB in AIF54Q-READ-PER.
+	function AIF54Q-SETINQ-PER()
+		WDB00PI();
+	  	VDBCONTROL.UPROC-NM = "AIF54Q-SETINQ-PER";
+	  	VDBCONTROL.UPROC-OPT = "SETINQ";
+	  	VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+	  	VDBCOMMON.USQLREC = "H2-PERSON";
+	  	/*  */
+	  	try
+	  		open AIF54Q-SETINQ-PER_RSI01
+	  		with #sql{
+	  			select	T1.UPI, T1.SSN
+	  			from	TWNPERSON T1
+	  			where	T1.DOB = :AIF54W.WS-DOB
+	  			and		T1.LST_NM = :AIF54W.WS-LST-NM
+	  		}
+	  		into UPI, SSN
+	  		for H2-PERSON;
+	  	end
+	  	AIF54Q-SQLERR-RD();
+	end // end AIF54Q-SETINQ-PER
+
+	// For strong (SSN/DOB) match, get ICIs for CLOG entries
+	function AIF54Q-SETINQ-CM()
+		WDB00PI();
+	  	VDBCONTROL.UPROC-NM = "AIF54Q-SETINQ-CM";
+	  	VDBCONTROL.UPROC-OPT = "SETINQ";
+	  	VDBCONTROL.UPROC-OBJ = "H2-CASE-MEMBER";
+	  	VDBCOMMON.USQLREC = "H2-CASE-MEMBER";
+	  	/*  */
+	  	try
+	  		open AIF54Q-SETINQ-CM_RSI01
+	      	with #sql{
+	        	select 	ICI
+	        	from	TWNCASE_MEMBER
+	        	where	UPI = :AIF54W.WS-UPI
+	      	}
+	      	into 	ICI
+	      	for H2-CASE-MEMBER;
+	  	end
+	  	AIF54Q-SQLERR-RD();
+	end // end AIF54Q-SETINQ-CM
+
+	// Scan H2-PERSON cursor
+	function AIF54Q-SCAN-PER()
+		WDB00PI();
+		VDBCONTROL.UPROC-NM = "AIF54Q-SCAN-PER";
+	  	VDBCONTROL.UPROC-OPT = "SCAN";
+	  	VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+	  	VDBCOMMON.USQLREC = "H2-PERSON";
+	  	try
+	    	get next H2-PERSON ;
+	  	end
+	  	AIF54Q-SQLERR-RD();
+	end // end AIF54Q-SCAN-PER
+
+	// 	Scan H2-CASE-MEMBER cursor
+	function AIF54Q-SCAN-CM()
+		WDB00PI();
+		VDBCONTROL.UPROC-NM = "AIF54Q-SCAN-CM";
+	  	VDBCONTROL.UPROC-OPT = "SCAN";
+	  	VDBCONTROL.UPROC-OBJ = "H2-CASE-MEMBER";
+	  	VDBCOMMON.USQLREC = "H2-CASE-MEMBER";
+	  	try
+	    	get next H2-CASE-MEMBER;
+	  	end
+	  	AIF54Q-SQLERR-RD();
+	end // end AIF54PQ-SCAN-CM
+	
+	// Insert row into TWNCASE_LOG
+	function AIF54Q-ADD-CLOG()
+		WDB00PI();
+		VDBCOMMON.USQLREC = "H2-CASE-LOG";
+		VDBCONTROL.UPROC-OBJ = "H2-CASE-LOG";
+		VDBCONTROL.UPROC-NM = "AIF54Q-ADD-CLOG";
+		VDBCONTROL.UPROC-OPT = "ADD";
+		try
+			add H2-CASE-LOG
+			with #sql{
+	        insert into TWNCASE_LOG
+	        (ICI, ACTVY_DT, LOG_CRN_TS, PRGM_CASE_TYPE, ACTVY_TM, 
+	        WRKR_ID, LOG_ENTRY_DESC, LOG_ENTRY_TYPE, CL_ACTVY_DESC)
+	        values (:ICI, :ACTVY-DT, CURRENT TIMESTAMP, :PRGM-CASE-TYPE, CURRENT TIME, 
+	        :WRKR-ID, :LOG-ENTRY-DESC, :LOG-ENTRY-TYPE, :CL-ACTVY-DESC)
+	      } ;
+		end
+		AIF54Q-SQLERR-WR();
+	end // end AIF54Q-ADD-CLOG
+	
+	function AIF54Q-ADD-VSD()
+		WDB00PI();
+		VDBCOMMON.USQLREC = "H2-VTL-STAT-DOD";
+		VDBCONTROL.UPROC-OBJ = "H2-VTL-STAT-DOD";
+		VDBCONTROL.UPROC-NM = "AIF54Q-ADD-VSD";
+		VDBCONTROL.UPROC-OPT = "ADD";
+		try
+			add H2-VTL-STAT-DOD
+			with #sql{
+	        	insert into TWNVTL_STAT_DOD
+	        	(RCVD_YR, RCVD_MTH, UPI, SEQ_CNT, SSN, MATCH_TYP, MATCH_CNT, VST_SSN, 
+	        	LST_NM, FRST_NM, MID_NM, MODFR, DOB, DOD, BIRTH_ST, BIRTH_CNTRY,
+	        	RES_ADDR, RES_APT_NMBR, RES_CITY, RES_ST_NCHS, RES_CNTRY_NCHS, RES_ZIPCD,
+	        	PATRNL_LST_NM, PATRNL_FRST_NM, PATRNL_MID_NM, PATRNL_MODFR,
+	        	MATRNL_LST_NM, MATRNL_FRST_NM, MATRNL_MID_NM, MATRNL_MODFR,
+	        	PLACE_DEATH, RCVD_DT)
+	        	values (:RCVD-YR, :RCVD-MTH, :UPI, :SEQ-CNT, :SSN, :MATCH-TYP, :MATCH-CNT, :VST-SSN,
+	        	:LST-NM, :FRST-NM, :MID-NM, :MODFR, :DOB, :DOD, :BIRTH-ST, :BIRTH-CNTRY,
+	        	:RES-ADDR, :RES-APT-NMBR, :RES-CITY, :RES-ST-NCHS, :RES-CNTRY-NCHS, :RES-ZIPCD,
+	        	:PATRNL-LST-NM, :PATRNL-FRST-NM, :PATRNL-MID-NM, :PATRNL-MODFR,
+	        	:MATRNL-LST-NM, :MATRNL-FRST-NM, :MATRNL-MID-NM, :MATRNL-MODFR,
+	        	:PLACE-DEATH, :RCVD-DT)
+	      	};
+		end
+		AIF54Q-SQLERR-WR(); 
+	end // end AIF54Q-ADD-VSD
+
+	// PROCESS SQL READ ERRORS
+	function AIF54Q-SQLERR-RD()
+	  VDBCONTROL.UACCTYP = "R";
+	  VDBCOMMON.UAPPLNAM = "AIF54A";
+	  VDBCOMMON.UNRF = "Y";
+	  VDBCOMMON.UDUP = "N";
+	  WDB00PE-SQLERR();
+	  if (VDBCONTROL.URC >= 104)
+	    WCM00P2-TO-CEP01A();
+	  end
+	end // end AIF54Q-SQLERR-RD
+
+	// PROCESS SQL WRITE ERRORS 
+	function AIF54Q-SQLERR-WR()
+		WS-DUPFLG = "N";
+	  	VDBCONTROL.UACCTYP = "W";
+	  	VDBCOMMON.UAPPLNAM = "AIF54A";
+	  	VDBCOMMON.UNRF = "Y";
+	  	VDBCOMMON.UDUP = "Y";
+	  	WDB00PE-SQLERR();
+	  	if (VDBCONTROL.URC > 0)
+	  		if (VDBCONTROL.URC == 104)
+	  			WS-DUPFLG = "Y";
+	  		else
+	  			VDBCONTROL.UROLLBACK = "Y";
+	    		WCM00P2-TO-CEP01A();
+	  		end
+	  	end
+	end // end AIF54Q-SQLERR-WR
+	
+end // end AIF54A
+
+Record AIF54W type basicRecord
+  10 WS-INPUT-DT char(8); // MMDDYYYY
+  	15 WS-INPUT-MM char(2);
+  	15 WS-INPUT-DD char(2);
+  	15 WS-INPUT-YYYY char(4);
+  10 WS-OUTPUT-DT char(10); // YYYY-DD-MM
+  	15 WS-OUTPUT-YYYY char(4);
+  	15 WS-OUTPUT-FIL1 char(1);
+  	15 WS-OUTPUT-MM char(2);
+  	15 WS-OUTPUT-FIL2 char(1);
+  	15 WS-OUTPUT-DD char(2);
+  10 WS-INT-YYYY smallint;
+  10 WS-TEMP-INT smallint;	
+  10 WS-LST-NM char(21); 
+  10 WS-SSN char(9); 
+  10 WS-UPI int;
+  10 WS-DOB char(10);
+  10 WS-DOD char(10);
+  	15 WS-DOD-YYYY char(4);
+  	15 WS-DOD-FIL1 char(1);
+  	15 WS-DOD-MM char(2);
+  	15 WS-DOD-FIL2 char(1);
+  	15 WS-DOD-DD char(2); 
+  10 WS-VALID-DT-FLG char(1);
+  10 WS-LEAP-FLG char(1); 
+  10 WS-SSNFLG char(1); // "Y" if TWNPERSON record found on SSN/DOB query
+  10 WS-DUPFLG char(1); // "Y" if attempt to write death match record finds duplicate key
+  10 WS-ERR-CD char(8); 
+    15 WS-ERR-FIRST-FOUR char(4); 
+    15 WS-ERR-LAST-FOUR char(4);
+  10 WS-CURRENT-DATE char(10); 
+    15 WS-YY char(4); 
+    15 WS-FIL1 char(1); 
+    15 WS-MM char(2); 
+    15 WS-FIL2 char(1); 
+    15 WS-DD char(2); 
+  10 WS-DATE1 char(8); // Date as retrieved from system
+    15 WS-YY1 char(4); 
+    15 WS-MM1 char(2); 
+    15 WS-DD1 char(2); 
+  10 WS-CLOG-STRING char(112); // Format string for CL_ACTVY_DESC (CASE LOG)
+  	15 WS-CLOGDESC1 char(73);
+  	15 WS-CLOGUPI char(9);
+  	15 WS-CLOGDESC2 char(20);
+ 	15 WS-CLOGDOD char(10);		
+  		20 CL-DODMM char(2);	
+  		20 CL-DODHYPH1 char(1); 
+  		20 CL-DODDD char(2);	
+  		20 CL-DODHYPH2 char(1);	
+  		20 CL-DODYYYY char(4);	
+  10 WS-MATCH-CNT smallint;
+  10 WS-SEQ-CNT smallint;
+end // AIF54W
 
