@@ -1,41 +1,24 @@
 import java.math.BigDecimal;
 import java.sql.*;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 
-/**
- * Java version of ARX04A batch.
- *
- * This program:
- *   – Uses the current date (which must be the last day of the month) as input.
- *   – Connects to the database and executes all the SELECT queries (with all WHERE, ORDER BY, etc.)
- *     as in the original EGL batch.
- *   – Processes program case history (and related family action, eligibility, redetermination, office,
- *     and worker data) and “builds” a PCERecord object for each case.
- *   – Instead of writing out a file, the output is stored in an in‐memory object (a list of PCERecord)
- *     which can then be passed to other batches.
- *
- * NOTE: This code attempts to “translate” every line of business logic (including comments that
- * refer to “Changes due to WI …” or “PTR # …”) as in the original code. Some of the SQL queries include
- * placeholders (such as "/*-- INSERT ORDER BY CLAUSE HERE --*/") which you must complete as needed.
- */
-public class ARX04A {
+//---------------------------------------------------------
+// This merged program simulates the functionality of ARX04A and ARX07A.
+// Phase 1: Generate the PCE extract (simulate ARX04A).
+// Phase 2: Process the in-memory PCE extract to accumulate pending-case statistics 
+//          (simulate ARX07A), grouping by worker and program type.
+//---------------------------------------------------------
+public class MergedBatch {
 
-    // JDBC connection
+    // Simulated JDBC connection (for any DB operations during PCE generation, if needed)
     private Connection connection;
 
-    // Working storage objects equivalent to the EGL records.
-    private ARX04W arx04w = new ARX04W();
-    private ARX04W2 arx04w2 = new ARX04W2();
-    private ARX04W3 arx04w3 = new ARX04W3();
-    // The PCE extract – a list of records that would be written out in EGL.
-    private List<PCERecord> pceExtract = new ArrayList<>();
-
-    public ARX04A() {
-        // Initialize the JDBC connection.
+    public MergedBatch() {
+        // Initialize JDBC connection if required.
         try {
-            // (Replace the URL, user and password with your database settings.)
             Class.forName("com.your.jdbc.Driver");
             connection = DriverManager.getConnection("jdbc:yourdb://localhost:3306/yourdatabase", "user", "password");
         } catch (Exception e) {
@@ -43,507 +26,344 @@ public class ARX04A {
         }
     }
 
-    /**
-     * Main entry point.
-     */
     public static void main(String[] args) {
-        // Use current date
+        // Use current date as the processing parameter. (This must be the last day of the month.)
         LocalDate currentDate = LocalDate.now();
-        // Validate that the current date is the last day of the month
         if (!isLastDayOfMonth(currentDate)) {
-            System.err.println("ERROR: Current date must be the last day of the month.");
+            System.err.println("ERROR: Current date (" + currentDate + ") is not the last day of the month.");
             System.exit(1);
         }
-        ARX04A batch = new ARX04A();
-        batch.initialize();
-        batch.populateDate(currentDate);
-        batch.mainProcess();
 
-        // At this point, pceExtract holds the list of PCERecords
-        PCEExtract output = batch.getPCEExtract();
-        // You can now pass 'output' to other batches.
-        System.out.println("PCE Extract complete. Total records: " + output.getRecords().size());
+        // Phase 1: Generate PCE extract (simulate ARX04A)
+        MergedBatch batch = new MergedBatch();
+        PCEExtract pceExtract = batch.generatePCEExtract();
+        System.out.println("Generated PCE extract with " + pceExtract.getRecords().size() + " records.");
+
+        // Phase 2: Process the PCE extract to produce pending stats (simulate ARX07A)
+        List<PendingStats> pendingStatsList = processPendingStats(pceExtract, currentDate);
+
+        // In a real system, these records would be added to the TWNNMDS_PEND_STATS table.
+        // Here, we simply print them.
+        System.out.println("Pending Stats Records:");
+        for (PendingStats ps : pendingStatsList) {
+            System.out.println(ps);
+        }
     }
 
+    // Utility: Check if a date is the last day of its month.
     private static boolean isLastDayOfMonth(LocalDate date) {
         return date.getDayOfMonth() == date.lengthOfMonth();
     }
 
-    /**
-     * Initialize working storage (equivalent to ARX04P9-INITIALIZE).
-     */
-    public void initialize() {
-        arx04w.clear();
-        arx04w2.clear();
-        arx04w3.clear();
-        // Initialize other working storage fields as needed.
-    }
+    //-----------------------------------------------------------------
+    // Phase 1: Simulate the ARX04A batch to generate the PCE extract.
+    // In a full conversion, this would run many queries and business logic
+    // to build the PCERecord objects. Here we assume that logic is encapsulated.
+    //-----------------------------------------------------------------
+    public PCEExtract generatePCEExtract() {
+        // For illustration, we simulate generating a list of PCERecord objects.
+        // In your full implementation, this method would perform all the
+        // SELECT queries (e.g., from TWNPRGM_CASE_HSTRY, TWNFAM_CASE_HSTRY, etc.)
+        // and business logic (building flags, dates, worker details, etc.)
+        // exactly as in your ARX04A conversion.
+        List<PCERecord> records = new ArrayList<>();
 
-    /**
-     * Instead of reading the date from an input file, set the working storage date to currentDate.
-     */
-    public void populateDate(LocalDate date) {
-        arx04w3.setDate(date);
-        arx04w2.setDate(date);
-    }
+        // --- Example simulated records ---
+        // Assume date strings are in ISO format ("yyyy-MM-dd").
+        PCERecord rec1 = new PCERecord();
+        rec1.setOfcCd("01");
+        rec1.setSprvsUnit("A");
+        rec1.setFuncAreaCd("X");
+        rec1.setWrkrType("1");
+        rec1.setPsnNmb(100);
+        rec1.setWrkrId("WRK12345");
+        rec1.setWrkrNm("SMITH, JOHN");
+        rec1.setPrgmCaseType("SG");   // e.g., SG record
+        rec1.setPrgmCaseSts("P");     // Only process records with status "P"
+        rec1.setPceLastRecForMnth("Y"); // Mark as last record for month
+        rec1.setStsEffDt("2025-01-20"); // Effective date for status
+        rec1.setApplDt("2025-01-15");   // Application date
+        records.add(rec1);
 
-    /**
-     * Main processing logic (equivalent to ARX04P9-MAIN).
-     */
-    public void mainProcess() {
-        // Validate the input date is correct (ARX04P9-VALIDATE)
-        if (!validateDate()) {
-            System.err.println("Input date validation failed.");
-            System.exit(1);
-        }
-        // Retrieve program case history details (ARX04P9-GET-DB-DAT)
-        getDbData();
-        // In EGL the PCE file is closed here; in Java, our pceExtract list is the final output.
-    }
+        // Add additional simulated records for different program types...
+        PCERecord rec2 = new PCERecord();
+        rec2.setOfcCd("01");
+        rec2.setSprvsUnit("A");
+        rec2.setFuncAreaCd("X");
+        rec2.setWrkrType("1");
+        rec2.setPsnNmb(100);
+        rec2.setWrkrId("WRK12345");
+        rec2.setWrkrNm("SMITH, JOHN");
+        rec2.setPrgmCaseType("TC");   // e.g., TC record
+        rec2.setPrgmCaseSts("P");
+        rec2.setPceLastRecForMnth("Y");
+        rec2.setStsEffDt("2025-01-10");
+        rec2.setApplDt("2025-01-08");
+        records.add(rec2);
 
-    /**
-     * Validate that the date is the last day of the month and is valid.
-     * (This method implements ARX04P9-VALIDATE logic.)
-     */
-    private boolean validateDate() {
-        // Validate date format via a date utility if needed.
-        // Here we assume that arx04w2 and arx04w3 have already been set.
-        LocalDate date = LocalDate.of(arx04w2.pi1LstDayMnthCCYY, arx04w2.pi1LstDayMnthMM, arx04w2.pi1LstDayMnthDD);
-        if (!isLastDayOfMonth(date)) {
-            System.err.println("ERROR: Input date must be the last day of the month.");
-            return false;
-        }
-        // For February, also check leap year logic (as in EGL code)
-        if (arx04w2.pi1LstDayMnthMM == 2) {
-            boolean isLeap = date.isLeapYear();
-            int expectedDay = isLeap ? 29 : 28;
-            if (arx04w2.pi1LstDayMnthDD != expectedDay) {
-                System.err.println("ERROR: For February, the date must be " + expectedDay);
-                return false;
-            }
-        }
-        return true;
-    }
+        // ... (simulate additional records for FM, MA, FS, TL, TN, TP as needed)
 
-    /**
-     * Retrieve all program case history data (equivalent to ARX04P9-GET-DB-DAT).
-     */
-    public void getDbData() {
-        try {
-            // STEP 1: Query offices (ARX04P9-OFC-INQ)
-            String sqlOffice = "SELECT t1.OFC_CD " +
-                    "FROM TWNOFFICE t1 " +
-                    "WHERE t1.OFC_TYP = 'A' " +
-                    "  AND t1.OFC_CD BETWEEN 'AA' AND '01' " +
-                    "  /*-- INSERT ORDER BY CLAUSE HERE --*/ " +
-                    "ORDER BY t1.OFC_CD ASC";
-            PreparedStatement stmtOffice = connection.prepareStatement(sqlOffice);
-            ResultSet rsOffice = stmtOffice.executeQuery();
-            while (rsOffice.next()) {
-                String ofcCd = rsOffice.getString("OFC_CD");
-                // Process each office row (ARX04P9-OFC-SCAN)
-                Office office = new Office();
-                office.setOfcCd(ofcCd);
-
-                // STEP 2: For each office, query program case history details (ARX04P9-PCY-INQ)
-                String sqlPCY = "SELECT T1.OFC_CD, T1.SPRVS_UNIT, T1.PSN_NMB, T1.FUNC_AREA_CD, T1.WRKR_TYPE, T1.CASLD_ID, " +
-                        "       T2.CASE_STS, T2.MTHLY_RPTR_IND, T2.HOH_UPI, T2.FS_SUFX, T2.HMLS_IND, " +
-                        "       T3.ICI, T3.PRGM_CASE_TYPE, T3.STS_EFF_DT, T3.PRGM_CASE_STS, T3.EXPD_FS_RSN_CD, " +
-                        "       T3.INIT_APRVL_DT, T3.APPL_DT, T3.AID_CD, T3.ELIG_CD, T3.CLSRE_RSN_CD, " +
-                        "       T3.MULT_CLSRE_RSN_IND, T3.SYS_CLSRE_DNL_RSN " +
-                        "FROM TWNFAM_CASELD_CASE T1, TWNFAM_CASE_HSTRY T2, TWNPRGM_CASE_HSTRY T3 " +
-                        "WHERE T1.ofc_cd = ? " +
-                        "  AND T3.PRD_BEG_DT <= ? " +
-                        "  AND T3.PRD_END_DT >= ? " +
-                        "  AND T3.PRGM_CASE_TYPE IN ('AF', 'FS', 'MA', 'TC', 'TL', 'TN', 'TP', 'SG', 'MC', 'AO') " +
-                        "  AND T2.PRD_BEG_DT <= ? " +
-                        "  AND T2.PRD_END_DT >= ? " +
-                        "  AND T2.ICI = T3.ICI " +
-                        "  AND T1.ICI = T3.ICI " +
-                        "  /*-- INSERT ORDER BY CLAUSE HERE --*/ " +
-                        "ORDER BY T1.OFC_CD ASC, T1.SPRVS_UNIT ASC, T1.FUNC_AREA_CD ASC, T1.WRKR_TYPE ASC, " +
-                        "         T1.PSN_NMB ASC, T3.ICI ASC, T3.PRGM_CASE_TYPE ASC, T3.AID_CD";
-                PreparedStatement stmtPCY = connection.prepareStatement(sqlPCY);
-                stmtPCY.setString(1, office.getOfcCd());
-                // Use the date from arx04w2 (which was set in populateDate)
-                String procDate = arx04w2.getPi1LstDayMnth();
-                stmtPCY.setString(2, procDate);
-                stmtPCY.setString(3, procDate);
-                stmtPCY.setString(4, procDate);
-                stmtPCY.setString(5, procDate);
-                ResultSet rsPCY = stmtPCY.executeQuery();
-                while (rsPCY.next()) {
-                    // Build the PCE record from the PCY row (ARX04P9-BLD-PCE)
-                    PCERecord pce = buildPCE(rsPCY);
-                    // Process Family Actions (ARX04P9-FAM-ACTN)
-                    processFamActn(pce);
-                    // Add to the extract object (instead of writing to a file)
-                    pceExtract.add(pce);
-                }
-                rsPCY.close();
-                stmtPCY.close();
-            }
-            rsOffice.close();
-            stmtOffice.close();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Build a PCERecord from the current program case history result row.
-     * (Implements ARX04P9-BLD-PCE business logic.)
-     */
-    private PCERecord buildPCE(ResultSet rs) throws SQLException {
-        PCERecord pce = new PCERecord();
-        // Set default flags (from ARX04P9-BLD-PCE)
-        pce.setPceLastRecForMnth("N");
-        pce.setPceReinstInd("N");
-        pce.setPceReopnInd("N");
-        pce.setPceReappInd("N");
-        pce.setPceAprvlInd("N");
-        pce.setPceRedetInd("N");
-        pce.setPceConfrsInd("N");
-        pce.setPceRedetCmpltThisMnth("N");
-
-        // Set fields from TWNFAM_CASELD_CASE, TWNFAM_CASE_HSTRY, and TWNPRGM_CASE_HSTRY
-        pce.setOfcCd(rs.getString("OFC_CD"));
-        pce.setSprvsUnit(rs.getString("SPRVS_UNIT"));
-        pce.setPsnNmb(rs.getInt("PSN_NMB"));
-        pce.setFuncAreaCd(rs.getString("FUNC_AREA_CD"));
-        pce.setWrkrType(rs.getString("WRKR_TYPE"));
-        pce.setCasldId(rs.getString("CASLD_ID"));
-        pce.setCaseSts(rs.getString("CASE_STS"));
-        pce.setMthlyRptInd(rs.getString("MTHLY_RPTR_IND"));
-        pce.setHohUpi(rs.getString("HOH_UPI"));
-        pce.setFsSuFx(rs.getString("FS_SUFX"));
-        pce.setHmlsInd(rs.getString("HMLS_IND"));
-        pce.setIci(rs.getString("ICI"));
-        pce.setPrgmCaseType(rs.getString("PRGM_CASE_TYPE"));
-        pce.setStsEffDt(rs.getString("STS_EFF_DT"));
-        pce.setPrgmCaseSts(rs.getString("PRGM_CASE_STS"));
-        pce.setExpdFsRsnCd(rs.getString("EXPD_FS_RSN_CD"));
-        pce.setInitAprvlDt(rs.getString("INIT_APRVL_DT"));
-        pce.setApplDt(rs.getString("APPL_DT"));
-        pce.setAidCd(rs.getString("AID_CD"));
-        pce.setEligCd(rs.getString("ELIG_CD"));
-        pce.setClsreRsnCd(rs.getString("CLSRE_RSN_CD"));
-        pce.setMultClsreRsnInd(rs.getString("MULT_CLSRE_RSN_IND"));
-        pce.setSysClsreDnlRsn(rs.getString("SYS_CLSRE_DNL_RSN"));
-        // (Additional business logic and pointer–related changes are applied here as in the EGL code.)
-        return pce;
-    }
-
-    /**
-     * Process family action details for a given PCERecord.
-     * (Implements ARX04P9-FAM-ACTN and related routines.)
-     */
-    private void processFamActn(PCERecord pce) throws SQLException {
-        // First, run a query to get family actions for the case.
-        String sqlFam = "SELECT ACTN_TYP, ACTN_TS, AID_CD, ACTN_EFF_DT, INIT_APRVL_DT, APPL_DT, " +
-                "       EXPD_FS_RSN_CD, ELIG_CD, ACTN_RSN_CD, MULT_CLSRE_RSN_IND, " +
-                "       BNFT_YR, BNFT_MTH, VER_NMB, FAM_APPL_TYPE " +
-                "FROM twnfam_actns " +
-                "WHERE ICI = ? " +
-                "  AND PRGM_TYP = ? " +
-                "  AND YEAR(ACTN_TS) = ? " +
-                "  AND MONTH(ACTN_TS) = ? " +
-                "ORDER BY ACTN_TS DESC";
-        PreparedStatement stmtFam = connection.prepareStatement(sqlFam);
-        stmtFam.setString(1, pce.getIci());
-        stmtFam.setString(2, pce.getPrgmCaseType());
-        LocalDate now = LocalDate.now();
-        stmtFam.setInt(3, now.getYear());
-        stmtFam.setInt(4, now.getMonthValue());
-        ResultSet rsFam = stmtFam.executeQuery();
-        while (rsFam.next()) {
-            String actnTyp = rsFam.getString("ACTN_TYP");
-            // Process each action type (AP, DN, TR, FA, RA, RE, RI) per business logic.
-            if ("AP".equals(actnTyp)) { // Approval
-                pce.setPceAprvlInd("Y");
-                pce.setPrgmCaseSts("O");
-                // If FAM_APPL_TYPE is "FT", set INIT_APRVL_DT from the family action.
-                // (Other conditional logic as in the EGL code goes here.)
-            } else if ("DN".equals(actnTyp)) {
-                pce.setMultClsreRsnInd(rsFam.getString("MULT_CLSRE_RSN_IND"));
-                pce.setPrgmCaseSts("D");
-                pce.setClsreRsnCd(rsFam.getString("ACTN_RSN_CD"));
-            } else if ("TR".equals(actnTyp)) {
-                pce.setMultClsreRsnInd(rsFam.getString("MULT_CLSRE_RSN_IND"));
-                pce.setPrgmCaseSts("T");
-                pce.setClsreRsnCd(rsFam.getString("ACTN_RSN_CD"));
-            } else if ("RE".equals(actnTyp)) {
-                // For RE, decide between reapplication and re-opening
-                String famApplType = rsFam.getString("FAM_APPL_TYPE");
-                if ("RP".equals(famApplType) || "RH".equals(famApplType)) {
-                    pce.setPceReappInd("Y");
-                } else {
-                    pce.setPceReopnInd("Y");
-                }
-            } else if ("RI".equals(actnTyp)) {
-                pce.setPceReinstInd("Y");
-                pce.setPceReisntDt(rsFam.getString("ACTN_EFF_DT"));
-            }
-            // Additional rules for other types (e.g., "FA", "RA") are applied here.
-        }
-        rsFam.close();
-        stmtFam.close();
-
-        // Process eligibility details based on FAM action data (ARX04P9-ELIG-L1 and ARX04P9-ELIG-DTL)
-        processEligDetails(pce);
-    }
-
-    /**
-     * Process eligibility details (from TWNELIG_VERSION).
-     */
-    private void processEligDetails(PCERecord pce) throws SQLException {
-        String sqlElig = "SELECT ELIG_NUM, CHD_NMB, BNFT_AMT, ENTLM_AMT, BNFT_RDCTN_AMT, BNFT_YR, BNFT_MTH, VER_NMB, TOT_MTHLY_BNFT_AMT " +
-                "FROM TWNELIG_VERSION " +
-                "WHERE ICI = ? " +
-                "  AND PRGM_CASE_TYPE = ? " +
-                "  AND BNFT_YR = ? " +
-                "  AND BNFT_MTH = ? " +
-                "  AND LST_POSTD_VER_IND = 'Y' " +
-                "/*-- INSERT ORDER BY CLAUSE HERE --*/";
-        PreparedStatement stmtElig = connection.prepareStatement(sqlElig);
-        stmtElig.setString(1, pce.getIci());
-        stmtElig.setString(2, pce.getPrgmCaseType());
-        LocalDate now = LocalDate.now();
-        stmtElig.setInt(3, now.getYear());
-        stmtElig.setInt(4, now.getMonthValue());
-        ResultSet rsElig = stmtElig.executeQuery();
-        if (rsElig.next()) {
-            pce.setNoOfRcpt(rsElig.getInt("ELIG_NUM"));
-            pce.setNoOfChldRcpt(rsElig.getInt("CHD_NMB"));
-            // As per WI 16330: Use TOT_MTHLY_BNFT_AMT for benefit amount.
-            pce.setBnftAmt(rsElig.getBigDecimal("TOT_MTHLY_BNFT_AMT"));
-            pce.setEntlmAmt(rsElig.getBigDecimal("ENTLM_AMT"));
-            pce.setBnftRdctnAmt(rsElig.getBigDecimal("BNFT_RDCTN_AMT"));
-            pce.setBnftMnth(rsElig.getInt("BNFT_MTH"));
-            pce.setBnftYr(rsElig.getInt("BNFT_YR"));
-            pce.setVerNmb(rsElig.getInt("VER_NMB"));
-        } else {
-            pce.setNoOfRcpt(0);
-            pce.setNoOfChldRcpt(0);
-            pce.setBnftAmt(BigDecimal.ZERO);
-            pce.setEntlmAmt(BigDecimal.ZERO);
-            pce.setBnftRdctnAmt(BigDecimal.ZERO);
-            pce.setBnftMnth(0);
-            pce.setBnftYr(0);
-            pce.setVerNmb(0);
-        }
-        rsElig.close();
-        stmtElig.close();
-    }
-
-    /**
-     * Get the final PCE extract as an object.
-     */
-    public PCEExtract getPCEExtract() {
         PCEExtract extract = new PCEExtract();
-        extract.setRecords(pceExtract);
+        extract.setRecords(records);
         return extract;
     }
 
-    // -------------------------------------------------------------------
-    // Below are inner classes representing record structures (similar to EGL record types)
-    // -------------------------------------------------------------------
+    //-----------------------------------------------------------------
+    // Phase 2: Process the PCE extract in memory to accumulate pending stats.
+    // This method simulates ARX07A logic by grouping records by worker
+    // and then, for each record (if it meets the criteria), calculating:
+    //   - pendingDays = diff(lastDayOfMonth, PCE-PRGM-STS-EFF-DT)
+    //   - incrementing counters (pending cases, application counts, and buckets)
+    // per program type.
+    //-----------------------------------------------------------------
+    public static List<PendingStats> processPendingStats(PCEExtract extract, LocalDate lastDay) {
+        // First, sort the PCE records by worker key: Office code, Supervisor Unit, Function Area, Worker Type, Person Number.
+        List<PCERecord> records = new ArrayList<>(extract.getRecords());
+        records.sort(Comparator.comparing(PCERecord::getOfcCd)
+                .thenComparing(PCERecord::getSprvsUnit)
+                .thenComparing(PCERecord::getFuncAreaCd)
+                .thenComparing(PCERecord::getWrkrType)
+                .thenComparing(PCERecord::getPsnNmb));
 
-    static class ARX04W {
-        // Example fields (you would add all fields as in the EGL record)
-        String wsFileAidCd;
-        String wsFileEligCd;
-        // ... additional fields omitted for brevity
+        List<PendingStats> result = new ArrayList<>();
+        // We use grouping by worker.
+        String currentWorkerKey = null;
+        // Map program type ("SG", "TC", etc.) -> Stats accumulator.
+        Map<String, Stats> statsByProgram = new HashMap<>();
+        // Store worker details for current group.
+        String currentOfcCd = null, currentSprvsUnit = null, currentFuncAreaCd = null, currentWrkrType = null;
+        int currentPsnNmb = 0;
+        String currentWrkrId = null, currentWrkrNm = null;
 
-        public void clear() {
-            wsFileAidCd = "";
-            wsFileEligCd = "";
-            // reset other fields
+        // Compute the first day of the month (from the provided lastDay parameter).
+        LocalDate firstDay = lastDay.withDayOfMonth(1);
+        DateTimeFormatter dtf = DateTimeFormatter.ISO_LOCAL_DATE;
+
+        for (PCERecord rec : records) {
+            // Only process records that meet the criteria.
+            if (!"P".equals(rec.getPrgmCaseSts()) || !"Y".equals(rec.getPceLastRecForMnth())) {
+                continue;
+            }
+            // Create a composite key for the worker.
+            String workerKey = rec.getOfcCd() + "|" + rec.getSprvsUnit() + "|" +
+                    rec.getFuncAreaCd() + "|" + rec.getWrkrType() + "|" + rec.getPsnNmb();
+            // If we have moved to a new worker, flush the accumulated stats.
+            if (currentWorkerKey != null && !workerKey.equals(currentWorkerKey)) {
+                flushWorkerStats(result, statsByProgram, currentOfcCd, currentSprvsUnit,
+                        currentFuncAreaCd, currentWrkrType, currentPsnNmb, currentWrkrId, currentWrkrNm, lastDay);
+                statsByProgram.clear();
+            }
+            // Update current worker details.
+            currentWorkerKey = workerKey;
+            currentOfcCd = rec.getOfcCd();
+            currentSprvsUnit = rec.getSprvsUnit();
+            currentFuncAreaCd = rec.getFuncAreaCd();
+            currentWrkrType = rec.getWrkrType();
+            currentPsnNmb = rec.getPsnNmb();
+            currentWrkrId = rec.getWrkrId();
+            currentWrkrNm = rec.getWrkrNm();
+
+            // Get the program type.
+            String prgmTyp = rec.getPrgmCaseType();
+            Stats stats = statsByProgram.getOrDefault(prgmTyp, new Stats());
+            // Calculate pending days = difference between lastDay and the effective date.
+            LocalDate effDate = LocalDate.parse(rec.getStsEffDt(), dtf);
+            int pendingDays = (int) ChronoUnit.DAYS.between(effDate, lastDay);
+            stats.totalPndngDays += pendingDays;
+            stats.pndngCasesCt++;
+
+            // If application date is between firstDay and lastDay, count it.
+            LocalDate applDate = LocalDate.parse(rec.getApplDt(), dtf);
+            if (!applDate.isBefore(firstDay) && !applDate.isAfter(lastDay)) {
+                stats.numOfAplcsRcvd++;
+            }
+            // Bucket pending days into thresholds.
+            if (pendingDays < 6) {
+                stats.pndngLteq5Days++;
+            }
+            if (pendingDays > 15 && pendingDays < 31) {
+                stats.pndng16_30Days++;
+            }
+            if (pendingDays > 30 && pendingDays < 46) {
+                stats.pndng31_45Days++;
+            }
+            if (pendingDays > 45 && pendingDays < 91) {
+                stats.pndng46_90Days++;
+            }
+            if (pendingDays > 90) {
+                stats.pndngGt90Days++;
+            }
+            statsByProgram.put(prgmTyp, stats);
+        }
+        // Flush the last group if any.
+        if (currentWorkerKey != null) {
+            flushWorkerStats(result, statsByProgram, currentOfcCd, currentSprvsUnit,
+                    currentFuncAreaCd, currentWrkrType, currentPsnNmb, currentWrkrId, currentWrkrNm, lastDay);
+        }
+        return result;
+    }
+
+    // Helper method to flush the accumulated stats for one worker (for each program type)
+    private static void flushWorkerStats(List<PendingStats> result, Map<String, Stats> statsByProgram,
+                                           String ofcCd, String sprvsUnit, String funcAreaCd, String wrkrType,
+                                           int psnNmb, String wrkrId, String wrkrNm, LocalDate lastDay) {
+        for (Map.Entry<String, Stats> entry : statsByProgram.entrySet()) {
+            PendingStats ps = new PendingStats();
+            ps.setRptPrdYr(lastDay.getYear());
+            ps.setRptPrdMth(lastDay.getMonthValue());
+            ps.setRptRunDt(lastDay.toString());
+            ps.setOfcCd(ofcCd);
+            ps.setSprvsUnit(sprvsUnit);
+            ps.setFnlAreaCd(funcAreaCd);
+            ps.setWrkrTyp(wrkrType);
+            ps.setPsnNmb(psnNmb);
+            ps.setWrkrId(wrkrId);
+            ps.setWrkrNm(wrkrNm);
+            ps.setPrgmTyp(entry.getKey());
+            Stats s = entry.getValue();
+            ps.setNumOfAplcsRcvd(s.numOfAplcsRcvd);
+            ps.setPndngCasesCt(s.pndngCasesCt);
+            ps.setAvgDaysPndng(s.pndngCasesCt > 0 ? s.totalPndngDays / s.pndngCasesCt : 0);
+            // Mapping: The original code uses PNDNG-LTEQ-5-DAYS for pending <6 days,
+            // then additional buckets as defined.
+            ps.setPndngLteq6Days(s.pndngLteq5Days);
+            ps.setPndng16_30Days(s.pndng16_30Days);
+            ps.setPndng31_45Days(s.pndng31_45Days);
+            ps.setPndng46_90Days(s.pndng46_90Days);
+            ps.setPndngGt90Days(s.pndngGt90Days);
+            result.add(ps);
         }
     }
 
-    static class ARX04W2 {
-        String pi1LstDayMnth;
-        int pi1LstDayMnthCCYY;
-        int pi1LstDayMnthMM;
-        int pi1LstDayMnthDD;
+    //-----------------------------------------------------------------
+    // Supporting classes
+    //-----------------------------------------------------------------
 
-        public void clear() {
-            pi1LstDayMnth = "";
-            pi1LstDayMnthCCYY = 0;
-            pi1LstDayMnthMM = 0;
-            pi1LstDayMnthDD = 0;
-        }
-
-        public void setDate(LocalDate date) {
-            pi1LstDayMnth = date.toString();
-            pi1LstDayMnthCCYY = date.getYear();
-            pi1LstDayMnthMM = date.getMonthValue();
-            pi1LstDayMnthDD = date.getDayOfMonth();
-        }
-
-        public String getPi1LstDayMnth() {
-            return pi1LstDayMnth;
-        }
+    // Stats: accumulates counts for one program type for a given worker.
+    static class Stats {
+        int numOfAplcsRcvd = 0;
+        int pndngCasesCt = 0;
+        int totalPndngDays = 0;
+        int pndngLteq5Days = 0;
+        int pndng16_30Days = 0;
+        int pndng31_45Days = 0;
+        int pndng46_90Days = 0;
+        int pndngGt90Days = 0;
     }
 
-    static class ARX04W3 {
-        String pi1LstDayMnth;
-        int pi1LstDayMnthCCYY;
-        int pi1LstDayMnthMM;
-        int pi1LstDayMnthDD;
-
-        public void clear() {
-            pi1LstDayMnth = "";
-            pi1LstDayMnthCCYY = 0;
-            pi1LstDayMnthMM = 0;
-            pi1LstDayMnthDD = 0;
-        }
-
-        public void setDate(LocalDate date) {
-            pi1LstDayMnth = date.toString();
-            pi1LstDayMnthCCYY = date.getYear();
-            pi1LstDayMnthMM = date.getMonthValue();
-            pi1LstDayMnthDD = date.getDayOfMonth();
-        }
-    }
-
-    /**
-     * PCERecord represents one output record equivalent to SR-ARX04W1.
-     * All fields and business logic (including default values and conditional updates)
-     * are stored here.
-     */
-    static class PCERecord {
-        private String pceLastRecForMnth;
-        private String pceReinstInd;
-        private String pceReopnInd;
-        private String pceReappInd;
-        private String pceAprvlInd;
-        private String pceRedetInd;
-        private String pceConfrsInd;
-        private String pceRedetCmpltThisMnth;
-        // Many more fields as per the original record...
+    // PendingStats: represents one row in the pending stats report table.
+    static class PendingStats {
+        private int rptPrdYr;
+        private int rptPrdMth;
+        private String rptRunDt;
         private String ofcCd;
         private String sprvsUnit;
+        private String fnlAreaCd;
+        private String wrkrTyp;
         private int psnNmb;
-        private String funcAreaCd;
-        private String wrkrType;
-        private String casldId;
-        private String caseSts;
-        private String mthlyRptInd;
-        private String hohUpi;
-        private String fsSuFx;
-        private String hmlsInd;
-        private String ici;
-        private String prgmCaseType;
-        private String stsEffDt;
-        private String prgmCaseSts;
-        private String expdFsRsnCd;
-        private String initAprvlDt;
-        private String applDt;
-        private String aidCd;
-        private String eligCd;
-        private String clsreRsnCd;
-        private String multClsreRsnInd;
-        private String sysClsreDnlRsn;
-        // Eligibility fields:
-        private int noOfRcpt;
-        private int noOfChldRcpt;
-        private BigDecimal bnftAmt;
-        private BigDecimal entlmAmt;
-        private BigDecimal bnftRdctnAmt;
-        private int bnftMnth;
-        private int bnftYr;
-        private int verNmb;
-        // For RI type actions:
-        private String pceReisntDt;
+        private String wrkrId;
+        private String wrkrNm;
+        private String prgmTyp;
+        private int numOfAplcsRcvd;
+        private int pndngCasesCt;
+        private int avgDaysPndng;
+        private int pndngLteq6Days;
+        private int pndng16_30Days;
+        private int pndng31_45Days;
+        private int pndng46_90Days;
+        private int pndngGt90Days;
 
-        // Getters and setters for all fields
+        // Setters
+        public void setRptPrdYr(int yr) { this.rptPrdYr = yr; }
+        public void setRptPrdMth(int mth) { this.rptPrdMth = mth; }
+        public void setRptRunDt(String dt) { this.rptRunDt = dt; }
+        public void setOfcCd(String s) { this.ofcCd = s; }
+        public void setSprvsUnit(String s) { this.sprvsUnit = s; }
+        public void setFnlAreaCd(String s) { this.fnlAreaCd = s; }
+        public void setWrkrTyp(String s) { this.wrkrTyp = s; }
+        public void setPsnNmb(int n) { this.psnNmb = n; }
+        public void setWrkrId(String s) { this.wrkrId = s; }
+        public void setWrkrNm(String s) { this.wrkrNm = s; }
+        public void setPrgmTyp(String s) { this.prgmTyp = s; }
+        public void setNumOfAplcsRcvd(int n) { this.numOfAplcsRcvd = n; }
+        public void setPndngCasesCt(int n) { this.pndngCasesCt = n; }
+        public void setAvgDaysPndng(int n) { this.avgDaysPndng = n; }
+        public void setPndngLteq6Days(int n) { this.pndngLteq6Days = n; }
+        public void setPndng16_30Days(int n) { this.pndng16_30Days = n; }
+        public void setPndng31_45Days(int n) { this.pndng31_45Days = n; }
+        public void setPndng46_90Days(int n) { this.pndng46_90Days = n; }
+        public void setPndngGt90Days(int n) { this.pndngGt90Days = n; }
 
-        public String getIci() {
-            return ici;
+        @Override
+        public String toString() {
+            return "PendingStats{" +
+                    "rptPrdYr=" + rptPrdYr +
+                    ", rptPrdMth=" + rptPrdMth +
+                    ", rptRunDt='" + rptRunDt + '\'' +
+                    ", ofcCd='" + ofcCd + '\'' +
+                    ", sprvsUnit='" + sprvsUnit + '\'' +
+                    ", fnlAreaCd='" + fnlAreaCd + '\'' +
+                    ", wrkrTyp='" + wrkrTyp + '\'' +
+                    ", psnNmb=" + psnNmb +
+                    ", wrkrId='" + wrkrId + '\'' +
+                    ", wrkrNm='" + wrkrNm + '\'' +
+                    ", prgmTyp='" + prgmTyp + '\'' +
+                    ", numOfAplcsRcvd=" + numOfAplcsRcvd +
+                    ", pndngCasesCt=" + pndngCasesCt +
+                    ", avgDaysPndng=" + avgDaysPndng +
+                    ", pndngLteq6Days=" + pndngLteq6Days +
+                    ", pndng16_30Days=" + pndng16_30Days +
+                    ", pndng31_45Days=" + pndng31_45Days +
+                    ", pndng46_90Days=" + pndng46_90Days +
+                    ", pndngGt90Days=" + pndngGt90Days +
+                    '}';
         }
-
-        public void setIci(String ici) {
-            this.ici = ici;
-        }
-
-        public String getPrgmCaseType() {
-            return prgmCaseType;
-        }
-
-        public void setPrgmCaseType(String prgmCaseType) {
-            this.prgmCaseType = prgmCaseType;
-        }
-
-        public void setPceLastRecForMnth(String val) { this.pceLastRecForMnth = val; }
-        public void setPceReinstInd(String val) { this.pceReinstInd = val; }
-        public void setPceReopnInd(String val) { this.pceReopnInd = val; }
-        public void setPceReappInd(String val) { this.pceReappInd = val; }
-        public void setPceAprvlInd(String val) { this.pceAprvlInd = val; }
-        public void setPceRedetInd(String val) { this.pceRedetInd = val; }
-        public void setPceConfrsInd(String val) { this.pceConfrsInd = val; }
-        public void setPceRedetCmpltThisMnth(String val) { this.pceRedetCmpltThisMnth = val; }
-
-        public void setOfcCd(String val) { this.ofcCd = val; }
-        public void setSprvsUnit(String val) { this.sprvsUnit = val; }
-        public void setPsnNmb(int val) { this.psnNmb = val; }
-        public void setFuncAreaCd(String val) { this.funcAreaCd = val; }
-        public void setWrkrType(String val) { this.wrkrType = val; }
-        public void setCasldId(String val) { this.casldId = val; }
-        public void setCaseSts(String val) { this.caseSts = val; }
-        public void setMthlyRptInd(String val) { this.mthlyRptInd = val; }
-        public void setHohUpi(String val) { this.hohUpi = val; }
-        public void setFsSuFx(String val) { this.fsSuFx = val; }
-        public void setHmlsInd(String val) { this.hmlsInd = val; }
-        public void setStsEffDt(String val) { this.stsEffDt = val; }
-        public void setPrgmCaseSts(String val) { this.prgmCaseSts = val; }
-        public void setExpdFsRsnCd(String val) { this.expdFsRsnCd = val; }
-        public void setInitAprvlDt(String val) { this.initAprvlDt = val; }
-        public void setApplDt(String val) { this.applDt = val; }
-        public void setAidCd(String val) { this.aidCd = val; }
-        public void setEligCd(String val) { this.eligCd = val; }
-        public void setClsreRsnCd(String val) { this.clsreRsnCd = val; }
-        public void setMultClsreRsnInd(String val) { this.multClsreRsnInd = val; }
-        public void setSysClsreDnlRsn(String val) { this.sysClsreDnlRsn = val; }
-        public void setNoOfRcpt(int val) { this.noOfRcpt = val; }
-        public void setNoOfChldRcpt(int val) { this.noOfChldRcpt = val; }
-        public void setBnftAmt(BigDecimal val) { this.bnftAmt = val; }
-        public void setEntlmAmt(BigDecimal val) { this.entlmAmt = val; }
-        public void setBnftRdctnAmt(BigDecimal val) { this.bnftRdctnAmt = val; }
-        public void setBnftMnth(int val) { this.bnftMnth = val; }
-        public void setBnftYr(int val) { this.bnftYr = val; }
-        public void setVerNmb(int val) { this.verNmb = val; }
-        public void setPceReisntDt(String val) { this.pceReisntDt = val; }
     }
 
-    /**
-     * PCEExtract holds the output list.
-     */
+    // Simulated PCEExtract and PCERecord classes (from the ARX04A conversion)
     static class PCEExtract {
         private List<PCERecord> records;
-
-        public List<PCERecord> getRecords() {
-            return records;
-        }
-
-        public void setRecords(List<PCERecord> records) {
-            this.records = records;
-        }
+        public List<PCERecord> getRecords() { return records; }
+        public void setRecords(List<PCERecord> records) { this.records = records; }
     }
 
-    /**
-     * Office record (for H2-OFFICE)
-     */
-    static class Office {
+    static class PCERecord {
         private String ofcCd;
-
-        public String getOfcCd() {
-            return ofcCd;
-        }
-
-        public void setOfcCd(String ofcCd) {
-            this.ofcCd = ofcCd;
-        }
+        private String sprvsUnit;
+        private String funcAreaCd;
+        private String wrkrType;
+        private int psnNmb;
+        private String wrkrId;
+        private String wrkrNm;
+        private String prgmCaseType;
+        private String prgmCaseSts;
+        private String pceLastRecForMnth;
+        private String stsEffDt;
+        private String applDt;
+        // Getters and setters
+        public String getOfcCd() { return ofcCd; }
+        public void setOfcCd(String s) { this.ofcCd = s; }
+        public String getSprvsUnit() { return sprvsUnit; }
+        public void setSprvsUnit(String s) { this.sprvsUnit = s; }
+        public String getFuncAreaCd() { return funcAreaCd; }
+        public void setFuncAreaCd(String s) { this.funcAreaCd = s; }
+        public String getWrkrType() { return wrkrType; }
+        public void setWrkrType(String s) { this.wrkrType = s; }
+        public int getPsnNmb() { return psnNmb; }
+        public void setPsnNmb(int n) { this.psnNmb = n; }
+        public String getWrkrId() { return wrkrId; }
+        public void setWrkrId(String s) { this.wrkrId = s; }
+        public String getWrkrNm() { return wrkrNm; }
+        public void setWrkrNm(String s) { this.wrkrNm = s; }
+        public String getPrgmCaseType() { return prgmCaseType; }
+        public void setPrgmCaseType(String s) { this.prgmCaseType = s; }
+        public String getPrgmCaseSts() { return prgmCaseSts; }
+        public void setPrgmCaseSts(String s) { this.prgmCaseSts = s; }
+        public String getPceLastRecForMnth() { return pceLastRecForMnth; }
+        public void setPceLastRecForMnth(String s) { this.pceLastRecForMnth = s; }
+        public String getStsEffDt() { return stsEffDt; }
+        public void setStsEffDt(String s) { this.stsEffDt = s; }
+        public String getApplDt() { return applDt; }
+        public void setApplDt(String s) { this.applDt = s; }
     }
 }
