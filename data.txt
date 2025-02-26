@@ -1,369 +1,225 @@
-import java.math.BigDecimal;
-import java.sql.*;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
-import java.util.*;
+package IVA_Batch;
 
-//---------------------------------------------------------
-// This merged program simulates the functionality of ARX04A and ARX07A.
-// Phase 1: Generate the PCE extract (simulate ARX04A).
-// Phase 2: Process the in-memory PCE extract to accumulate pending-case statistics 
-//          (simulate ARX07A), grouping by worker and program type.
-//---------------------------------------------------------
-public class MergedBatch {
+import CommonMigratedParts.*;
 
-    // Simulated JDBC connection (for any DB operations during PCE generation, if needed)
-    private Connection connection;
+//*** PROGRAM=AIF02A ****
+// THIS IS A NEW APPLICATION CREATED TO FORMAT SCHOOL LUNCH
+// REPORT.
+// IT COMPARES THE PREVIOUS MONTH'S FILE FORMATTED BY AIN97A
+// WITH THE CURRENT MONTH'S FILE AND PREPARES A NEW REPORT BY
+// POPULATING THE RECORD TYPE 'A'(NEW),'D'(DELETE)
+// ***********************
+Program AIF02A type basicProgram //VAGen Info - main batch program
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
 
-    public MergedBatch() {
-        // Initialize JDBC connection if required.
-        try {
-            Class.forName("com.your.jdbc.Driver");
-            connection = DriverManager.getConnection("jdbc:yourdb://localhost:3306/yourdatabase", "user", "password");
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+  // Data Declarations
+  AIF02W AIF02W; // record
+  CEP01W CEP01W; // record
+  SR-AIF02A-NEW-REC SR-AIF02A-NEW-REC; // record
+  SR-AIF02A-OLD-REC SR-AIF02A-OLD-REC; // record
+  SR-AIF02A-OUT-REC SR-AIF02A-OUT-REC; // record
+  VDBCONTROL VDBCONTROL; // record
+  VMESSAGE VMESSAGE; // record
 
-    public static void main(String[] args) {
-        // Use current date as the processing parameter. (This must be the last day of the month.)
-        LocalDate currentDate = LocalDate.now();
-        if (!isLastDayOfMonth(currentDate)) {
-            System.err.println("ERROR: Current date (" + currentDate + ") is not the last day of the month.");
-            System.exit(1);
-        }
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
 
-        // Phase 1: Generate PCE extract (simulate ARX04A)
-        MergedBatch batch = new MergedBatch();
-        PCEExtract pceExtract = batch.generatePCEExtract();
-        System.out.println("Generated PCE extract with " + pceExtract.getRecords().size() + " records.");
+  function main()
+    // VAGen Info - initialization needed for migration
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    AIF02P9-MAIN: AIF02P9-MAIN();
+  end // end main
+end // end AIF02A
 
-        // Phase 2: Process the PCE extract to produce pending stats (simulate ARX07A)
-        List<PendingStats> pendingStatsList = processPendingStats(pceExtract, currentDate);
 
-        // In a real system, these records would be added to the TWNNMDS_PEND_STATS table.
-        // Here, we simply print them.
-        System.out.println("Pending Stats Records:");
-        for (PendingStats ps : pendingStatsList) {
-            System.out.println(ps);
-        }
-    }
+// MAIN PROCESS
+Function AIF02P9-MAIN()
+  set AIF02W empty;
 
-    // Utility: Check if a date is the last day of its month.
-    private static boolean isLastDayOfMonth(LocalDate date) {
-        return date.getDayOfMonth() == date.lengthOfMonth();
-    }
+  AIF02P9-RD-OLD-FIL();
+  AIF02P9-RD-NEW-FIL();
+  AIF02P9-PROC-PARA();
 
-    //-----------------------------------------------------------------
-    // Phase 1: Simulate the ARX04A batch to generate the PCE extract.
-    // In a full conversion, this would run many queries and business logic
-    // to build the PCERecord objects. Here we assume that logic is encapsulated.
-    //-----------------------------------------------------------------
-    public PCEExtract generatePCEExtract() {
-        // For illustration, we simulate generating a list of PCERecord objects.
-        // In your full implementation, this method would perform all the
-        // SELECT queries (e.g., from TWNPRGM_CASE_HSTRY, TWNFAM_CASE_HSTRY, etc.)
-        // and business logic (building flags, dates, worker details, etc.)
-        // exactly as in your ARX04A conversion.
-        List<PCERecord> records = new ArrayList<>();
+  /*  */
+end // end AIF02P9-MAIN
 
-        // --- Example simulated records ---
-        // Assume date strings are in ISO format ("yyyy-MM-dd").
-        PCERecord rec1 = new PCERecord();
-        rec1.setOfcCd("01");
-        rec1.setSprvsUnit("A");
-        rec1.setFuncAreaCd("X");
-        rec1.setWrkrType("1");
-        rec1.setPsnNmb(100);
-        rec1.setWrkrId("WRK12345");
-        rec1.setWrkrNm("SMITH, JOHN");
-        rec1.setPrgmCaseType("SG");   // e.g., SG record
-        rec1.setPrgmCaseSts("P");     // Only process records with status "P"
-        rec1.setPceLastRecForMnth("Y"); // Mark as last record for month
-        rec1.setStsEffDt("2025-01-20"); // Effective date for status
-        rec1.setApplDt("2025-01-15");   // Application date
-        records.add(rec1);
 
-        // Add additional simulated records for different program types...
-        PCERecord rec2 = new PCERecord();
-        rec2.setOfcCd("01");
-        rec2.setSprvsUnit("A");
-        rec2.setFuncAreaCd("X");
-        rec2.setWrkrType("1");
-        rec2.setPsnNmb(100);
-        rec2.setWrkrId("WRK12345");
-        rec2.setWrkrNm("SMITH, JOHN");
-        rec2.setPrgmCaseType("TC");   // e.g., TC record
-        rec2.setPrgmCaseSts("P");
-        rec2.setPceLastRecForMnth("Y");
-        rec2.setStsEffDt("2025-01-10");
-        rec2.setApplDt("2025-01-08");
-        records.add(rec2);
+Function AIF02P9-PROC-CHG()
+  AIF02P9-RD-OLD-FIL();
+  AIF02P9-RD-NEW-FIL();
+  /*  */
+end // end AIF02P9-PROC-CHG
 
-        // ... (simulate additional records for FM, MA, FS, TL, TN, TP as needed)
 
-        PCEExtract extract = new PCEExtract();
-        extract.setRecords(records);
-        return extract;
-    }
+Function AIF02P9-PROC-DEL()
+  SR-AIF02A-OUT-REC.SLX-RECORD = SR-AIF02A-OLD-REC.SLX-RECORD;
+  SR-AIF02A-OUT-REC.SLX-REC-TYP = "D";
+  AIF02P9-WRITE-FILE();
+  AIF02P9-RD-OLD-FIL();
+  /*  */
+end // end AIF02P9-PROC-DEL
 
-    //-----------------------------------------------------------------
-    // Phase 2: Process the PCE extract in memory to accumulate pending stats.
-    // This method simulates ARX07A logic by grouping records by worker
-    // and then, for each record (if it meets the criteria), calculating:
-    //   - pendingDays = diff(lastDayOfMonth, PCE-PRGM-STS-EFF-DT)
-    //   - incrementing counters (pending cases, application counts, and buckets)
-    // per program type.
-    //-----------------------------------------------------------------
-    public static List<PendingStats> processPendingStats(PCEExtract extract, LocalDate lastDay) {
-        // First, sort the PCE records by worker key: Office code, Supervisor Unit, Function Area, Worker Type, Person Number.
-        List<PCERecord> records = new ArrayList<>(extract.getRecords());
-        records.sort(Comparator.comparing(PCERecord::getOfcCd)
-                .thenComparing(PCERecord::getSprvsUnit)
-                .thenComparing(PCERecord::getFuncAreaCd)
-                .thenComparing(PCERecord::getWrkrType)
-                .thenComparing(PCERecord::getPsnNmb));
 
-        List<PendingStats> result = new ArrayList<>();
-        // We use grouping by worker.
-        String currentWorkerKey = null;
-        // Map program type ("SG", "TC", etc.) -> Stats accumulator.
-        Map<String, Stats> statsByProgram = new HashMap<>();
-        // Store worker details for current group.
-        String currentOfcCd = null, currentSprvsUnit = null, currentFuncAreaCd = null, currentWrkrType = null;
-        int currentPsnNmb = 0;
-        String currentWrkrId = null, currentWrkrNm = null;
+Function AIF02P9-PROC-NEW()
+  SR-AIF02A-OUT-REC.SLX-RECORD = SR-AIF02A-NEW-REC.SLX-RECORD;
+  SR-AIF02A-OUT-REC.SLX-REC-TYP = "A";
+  AIF02P9-WRITE-FILE();
+  AIF02P9-RD-NEW-FIL();
+  /*  */
+end // end AIF02P9-PROC-NEW
 
-        // Compute the first day of the month (from the provided lastDay parameter).
-        LocalDate firstDay = lastDay.withDayOfMonth(1);
-        DateTimeFormatter dtf = DateTimeFormatter.ISO_LOCAL_DATE;
 
-        for (PCERecord rec : records) {
-            // Only process records that meet the criteria.
-            if (!"P".equals(rec.getPrgmCaseSts()) || !"Y".equals(rec.getPceLastRecForMnth())) {
-                continue;
-            }
-            // Create a composite key for the worker.
-            String workerKey = rec.getOfcCd() + "|" + rec.getSprvsUnit() + "|" +
-                    rec.getFuncAreaCd() + "|" + rec.getWrkrType() + "|" + rec.getPsnNmb();
-            // If we have moved to a new worker, flush the accumulated stats.
-            if (currentWorkerKey != null && !workerKey.equals(currentWorkerKey)) {
-                flushWorkerStats(result, statsByProgram, currentOfcCd, currentSprvsUnit,
-                        currentFuncAreaCd, currentWrkrType, currentPsnNmb, currentWrkrId, currentWrkrNm, lastDay);
-                statsByProgram.clear();
-            }
-            // Update current worker details.
-            currentWorkerKey = workerKey;
-            currentOfcCd = rec.getOfcCd();
-            currentSprvsUnit = rec.getSprvsUnit();
-            currentFuncAreaCd = rec.getFuncAreaCd();
-            currentWrkrType = rec.getWrkrType();
-            currentPsnNmb = rec.getPsnNmb();
-            currentWrkrId = rec.getWrkrId();
-            currentWrkrNm = rec.getWrkrNm();
+Function AIF02P9-PROC-PARA()
+  while (AIF02W.WS-OLD-EZERT8 == "00000000" || 
+  AIF02W.WS-NEW-EZERT8 == "00000000")
 
-            // Get the program type.
-            String prgmTyp = rec.getPrgmCaseType();
-            Stats stats = statsByProgram.getOrDefault(prgmTyp, new Stats());
-            // Calculate pending days = difference between lastDay and the effective date.
-            LocalDate effDate = LocalDate.parse(rec.getStsEffDt(), dtf);
-            int pendingDays = (int) ChronoUnit.DAYS.between(effDate, lastDay);
-            stats.totalPndngDays += pendingDays;
-            stats.pndngCasesCt++;
+    if (AIF02W.WS-OLD-SSN < AIF02W.WS-NEW-SSN)
+      AIF02P9-PROC-DEL();
+    else
+      if (AIF02W.WS-OLD-SSN == AIF02W.WS-NEW-SSN)
+        AIF02P9-PROC-CHG();
+      else
+        if (AIF02W.WS-OLD-SSN > AIF02W.WS-NEW-SSN)
+          AIF02P9-PROC-NEW();
+        end
+      end
+    end
 
-            // If application date is between firstDay and lastDay, count it.
-            LocalDate applDate = LocalDate.parse(rec.getApplDt(), dtf);
-            if (!applDate.isBefore(firstDay) && !applDate.isAfter(lastDay)) {
-                stats.numOfAplcsRcvd++;
-            }
-            // Bucket pending days into thresholds.
-            if (pendingDays < 6) {
-                stats.pndngLteq5Days++;
-            }
-            if (pendingDays > 15 && pendingDays < 31) {
-                stats.pndng16_30Days++;
-            }
-            if (pendingDays > 30 && pendingDays < 46) {
-                stats.pndng31_45Days++;
-            }
-            if (pendingDays > 45 && pendingDays < 91) {
-                stats.pndng46_90Days++;
-            }
-            if (pendingDays > 90) {
-                stats.pndngGt90Days++;
-            }
-            statsByProgram.put(prgmTyp, stats);
-        }
-        // Flush the last group if any.
-        if (currentWorkerKey != null) {
-            flushWorkerStats(result, statsByProgram, currentOfcCd, currentSprvsUnit,
-                    currentFuncAreaCd, currentWrkrType, currentPsnNmb, currentWrkrId, currentWrkrNm, lastDay);
-        }
-        return result;
-    }
+  end
+  /*  */
+end // end AIF02P9-PROC-PARA
 
-    // Helper method to flush the accumulated stats for one worker (for each program type)
-    private static void flushWorkerStats(List<PendingStats> result, Map<String, Stats> statsByProgram,
-                                           String ofcCd, String sprvsUnit, String funcAreaCd, String wrkrType,
-                                           int psnNmb, String wrkrId, String wrkrNm, LocalDate lastDay) {
-        for (Map.Entry<String, Stats> entry : statsByProgram.entrySet()) {
-            PendingStats ps = new PendingStats();
-            ps.setRptPrdYr(lastDay.getYear());
-            ps.setRptPrdMth(lastDay.getMonthValue());
-            ps.setRptRunDt(lastDay.toString());
-            ps.setOfcCd(ofcCd);
-            ps.setSprvsUnit(sprvsUnit);
-            ps.setFnlAreaCd(funcAreaCd);
-            ps.setWrkrTyp(wrkrType);
-            ps.setPsnNmb(psnNmb);
-            ps.setWrkrId(wrkrId);
-            ps.setWrkrNm(wrkrNm);
-            ps.setPrgmTyp(entry.getKey());
-            Stats s = entry.getValue();
-            ps.setNumOfAplcsRcvd(s.numOfAplcsRcvd);
-            ps.setPndngCasesCt(s.pndngCasesCt);
-            ps.setAvgDaysPndng(s.pndngCasesCt > 0 ? s.totalPndngDays / s.pndngCasesCt : 0);
-            // Mapping: The original code uses PNDNG-LTEQ-5-DAYS for pending <6 days,
-            // then additional buckets as defined.
-            ps.setPndngLteq6Days(s.pndngLteq5Days);
-            ps.setPndng16_30Days(s.pndng16_30Days);
-            ps.setPndng31_45Days(s.pndng31_45Days);
-            ps.setPndng46_90Days(s.pndng46_90Days);
-            ps.setPndngGt90Days(s.pndngGt90Days);
-            result.add(ps);
-        }
-    }
 
-    //-----------------------------------------------------------------
-    // Supporting classes
-    //-----------------------------------------------------------------
+Function AIF02P9-RD-NEW-FIL()
+  AIF02W.WS-NEW-SSN = " ";
+  try
+    get next SR-AIF02A-NEW-REC ;
+  end
+  if (SR-AIF02A-NEW-REC is ioError && SR-AIF02A-NEW-REC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF02P9-RD-NEW-FIL";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF02A-NEW-REC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.UMSGINS[2] = "AIF02A";
+    /*  */
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
+  /*  */
+    if (SR-AIF02A-NEW-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF02A-NEW-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF02A-NEW-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end /* ** end check for record found*/
+  /*  */
+  if (sysVar.errorCode == "00000000")
+    AIF02W.WS-NEW = SR-AIF02A-NEW-REC.SLX-RECORD;
+  else
+    if (sysVar.errorCode == "00000102") /* end of file condition;*/
+      AIF02W.WS-NEW-SSN = "999999999";
+    end
+  end
+  AIF02W.WS-NEW-EZERT8 = sysVar.errorCode;
+  /*  */
+end // end AIF02P9-RD-NEW-FIL
 
-    // Stats: accumulates counts for one program type for a given worker.
-    static class Stats {
-        int numOfAplcsRcvd = 0;
-        int pndngCasesCt = 0;
-        int totalPndngDays = 0;
-        int pndngLteq5Days = 0;
-        int pndng16_30Days = 0;
-        int pndng31_45Days = 0;
-        int pndng46_90Days = 0;
-        int pndngGt90Days = 0;
-    }
 
-    // PendingStats: represents one row in the pending stats report table.
-    static class PendingStats {
-        private int rptPrdYr;
-        private int rptPrdMth;
-        private String rptRunDt;
-        private String ofcCd;
-        private String sprvsUnit;
-        private String fnlAreaCd;
-        private String wrkrTyp;
-        private int psnNmb;
-        private String wrkrId;
-        private String wrkrNm;
-        private String prgmTyp;
-        private int numOfAplcsRcvd;
-        private int pndngCasesCt;
-        private int avgDaysPndng;
-        private int pndngLteq6Days;
-        private int pndng16_30Days;
-        private int pndng31_45Days;
-        private int pndng46_90Days;
-        private int pndngGt90Days;
+Function AIF02P9-RD-OLD-FIL()
+  AIF02W.WS-OLD-SSN = " ";
+  try
+    get next SR-AIF02A-OLD-REC ;
+  end
+  if (SR-AIF02A-OLD-REC is ioError && SR-AIF02A-OLD-REC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF02P9-RD-OLD-FIL";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF02A-OLD-REC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.UMSGINS[2] = "AIF02A";
+    /*  */
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
+  /*  */
+    if (SR-AIF02A-OLD-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF02A-OLD-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF02A-OLD-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end /* ** end check for record found*/
+  /*  */
+  if (sysVar.errorCode == "00000000")
+    AIF02W.WS-OLD = SR-AIF02A-OLD-REC.SLX-RECORD;
+  else
+    if (sysVar.errorCode == "00000102") /* end of file condition;*/
+      AIF02W.WS-OLD-SSN = "999999999";
+    end
+  end
+  AIF02W.WS-OLD-EZERT8 = sysVar.errorCode;
+  /*  */
+end // end AIF02P9-RD-OLD-FIL
 
-        // Setters
-        public void setRptPrdYr(int yr) { this.rptPrdYr = yr; }
-        public void setRptPrdMth(int mth) { this.rptPrdMth = mth; }
-        public void setRptRunDt(String dt) { this.rptRunDt = dt; }
-        public void setOfcCd(String s) { this.ofcCd = s; }
-        public void setSprvsUnit(String s) { this.sprvsUnit = s; }
-        public void setFnlAreaCd(String s) { this.fnlAreaCd = s; }
-        public void setWrkrTyp(String s) { this.wrkrTyp = s; }
-        public void setPsnNmb(int n) { this.psnNmb = n; }
-        public void setWrkrId(String s) { this.wrkrId = s; }
-        public void setWrkrNm(String s) { this.wrkrNm = s; }
-        public void setPrgmTyp(String s) { this.prgmTyp = s; }
-        public void setNumOfAplcsRcvd(int n) { this.numOfAplcsRcvd = n; }
-        public void setPndngCasesCt(int n) { this.pndngCasesCt = n; }
-        public void setAvgDaysPndng(int n) { this.avgDaysPndng = n; }
-        public void setPndngLteq6Days(int n) { this.pndngLteq6Days = n; }
-        public void setPndng16_30Days(int n) { this.pndng16_30Days = n; }
-        public void setPndng31_45Days(int n) { this.pndng31_45Days = n; }
-        public void setPndng46_90Days(int n) { this.pndng46_90Days = n; }
-        public void setPndngGt90Days(int n) { this.pndngGt90Days = n; }
 
-        @Override
-        public String toString() {
-            return "PendingStats{" +
-                    "rptPrdYr=" + rptPrdYr +
-                    ", rptPrdMth=" + rptPrdMth +
-                    ", rptRunDt='" + rptRunDt + '\'' +
-                    ", ofcCd='" + ofcCd + '\'' +
-                    ", sprvsUnit='" + sprvsUnit + '\'' +
-                    ", fnlAreaCd='" + fnlAreaCd + '\'' +
-                    ", wrkrTyp='" + wrkrTyp + '\'' +
-                    ", psnNmb=" + psnNmb +
-                    ", wrkrId='" + wrkrId + '\'' +
-                    ", wrkrNm='" + wrkrNm + '\'' +
-                    ", prgmTyp='" + prgmTyp + '\'' +
-                    ", numOfAplcsRcvd=" + numOfAplcsRcvd +
-                    ", pndngCasesCt=" + pndngCasesCt +
-                    ", avgDaysPndng=" + avgDaysPndng +
-                    ", pndngLteq6Days=" + pndngLteq6Days +
-                    ", pndng16_30Days=" + pndng16_30Days +
-                    ", pndng31_45Days=" + pndng31_45Days +
-                    ", pndng46_90Days=" + pndng46_90Days +
-                    ", pndngGt90Days=" + pndngGt90Days +
-                    '}';
-        }
-    }
+Function AIF02P9-WRITE-FILE()
+  try
+    add SR-AIF02A-OUT-REC ;
+  end
+  if (SR-AIF02A-OUT-REC is ioError && SR-AIF02A-OUT-REC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF02P9-WRITE-FILE";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF02A-OUT-REC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    VMESSAGE.UMSGINS[2] = "AIF02A";
+    /*  */
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
+  /*  */
+    if (SR-AIF02A-OUT-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF02A-OUT-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF02A-OUT-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end /* ** end check for record found*/
+  /*  */
+end // end AIF02P9-WRITE-FILE
 
-    // Simulated PCEExtract and PCERecord classes (from the ARX04A conversion)
-    static class PCEExtract {
-        private List<PCERecord> records;
-        public List<PCERecord> getRecords() { return records; }
-        public void setRecords(List<PCERecord> records) { this.records = records; }
-    }
 
-    static class PCERecord {
-        private String ofcCd;
-        private String sprvsUnit;
-        private String funcAreaCd;
-        private String wrkrType;
-        private int psnNmb;
-        private String wrkrId;
-        private String wrkrNm;
-        private String prgmCaseType;
-        private String prgmCaseSts;
-        private String pceLastRecForMnth;
-        private String stsEffDt;
-        private String applDt;
-        // Getters and setters
-        public String getOfcCd() { return ofcCd; }
-        public void setOfcCd(String s) { this.ofcCd = s; }
-        public String getSprvsUnit() { return sprvsUnit; }
-        public void setSprvsUnit(String s) { this.sprvsUnit = s; }
-        public String getFuncAreaCd() { return funcAreaCd; }
-        public void setFuncAreaCd(String s) { this.funcAreaCd = s; }
-        public String getWrkrType() { return wrkrType; }
-        public void setWrkrType(String s) { this.wrkrType = s; }
-        public int getPsnNmb() { return psnNmb; }
-        public void setPsnNmb(int n) { this.psnNmb = n; }
-        public String getWrkrId() { return wrkrId; }
-        public void setWrkrId(String s) { this.wrkrId = s; }
-        public String getWrkrNm() { return wrkrNm; }
-        public void setWrkrNm(String s) { this.wrkrNm = s; }
-        public String getPrgmCaseType() { return prgmCaseType; }
-        public void setPrgmCaseType(String s) { this.prgmCaseType = s; }
-        public String getPrgmCaseSts() { return prgmCaseSts; }
-        public void setPrgmCaseSts(String s) { this.prgmCaseSts = s; }
-        public String getPceLastRecForMnth() { return pceLastRecForMnth; }
-        public void setPceLastRecForMnth(String s) { this.pceLastRecForMnth = s; }
-        public String getStsEffDt() { return stsEffDt; }
-        public void setStsEffDt(String s) { this.stsEffDt = s; }
-        public String getApplDt() { return applDt; }
-        public void setApplDt(String s) { this.applDt = s; }
-    }
-}
+Record AIF02W type basicRecord
+  10 WS-OLD char(275) ; 
+    15 WS-REC-TYP1 char(1) ; 
+    15 WS-FSCL-CCYY1 char(4) ; 
+    15 WS-OLD-SSN char(9) ; 
+    15 WS-FILLER1 char(261) ; // filler for - sign
+  10 WS-NEW char(275) ; 
+    15 WS-REC-TYP2 char(1) ; 
+    15 WS-FSCL-CCYY2 char(4) ; 
+    15 WS-NEW-SSN char(9) ; 
+    15 WS-FILLER2 char(261) ; // filler for - sign
+  10 WS-OLD-EZERT8 char(8) ; 
+  10 WS-NEW-EZERT8 char(8) ; 
+end // end AIF02W
+
+
