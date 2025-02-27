@@ -1,85 +1,144 @@
-package IVA_Batch;
-
-import CommonMigratedParts.*;
-
-Program AIN75A type basicProgram //VAGen Info - main batch program
-  {
-  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
-  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
-  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes, 
-  inputRecord = AIN75WS1
-  }
-
-  // Data Declarations
-  AIN7501R-INPUT AIN7501R-INPUT; // record
-  AIN75WS1 AIN75WS1 ; // record
-  CEP01W CEP01W; // record
-  VDBCOMMON VDBCOMMON; // record
-  VDBCONTROL VDBCONTROL; // record
-  VMESSAGE VMESSAGE; // record
-
-  // VAGen Info - items needed for migration
-  VAGen_EZESYS char(8);
-  VAGen_EZEREPLY num(1);
-  VAGen_EZE_WAIT_TIME bin(9,2);
-  VAGen_EZE_ITEMLEN int;
-
-  function main()
-    // VAGen Info - initialization needed for migration
-    VAGen_EZESYS = VGLib.getVAGSysType();
-    AIN75L1-MAIN: AIN75L1-MAIN();
-  end // end main
-end // end AIN75A
-
-
-Function AIN7501P1-SCAN-INP()
-  try
-    get next AIN7501R-INPUT ;
-  end
-  AIN75WS1.SDX-IN-REC = AIN7501R-INPUT.SDX-IN-REC;
-end // end AIN7501P1-SCAN-INP
-
-
-Function AIN75L1-MAIN()
-  set AIN75WS1 empty;
-  AIN7501P1-SCAN-INP(); /* THIS READS THE FIRST ACTUAL RECORD*/
-  if (AIN75WS1.SDX-FILE-TYPE == "RECN")
-    VDBCONTROL.UMSQLCODE = 0;
-    VDBCONTROL.UPROC-NM = "AIN75L1-MAIN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    VMESSAGE.UMSGCODE-JCL-ERR = 5;
-    VMESSAGE.UMSGCODE = "GEN0274";
-    VMESSAGE.UMSGINS[2] = "AIN75A";
-    VMESSAGE.UMSGINS[1] = "  ";
-    WCM00P2-TO-CEP01A();
-  else
-    if (AIN75WS1.SDX-FILE-TYPE == "TRES")
-      VDBCONTROL.UMSQLCODE = 0;
-      VDBCONTROL.UPROC-NM = "AIN75L1-MAIN";
-      VDBCONTROL.UPROC-OPT = "SCAN";
-      VMESSAGE.UMSGCODE-JCL-ERR = 6;
-      VMESSAGE.UMSGCODE = "GEN0274";
-      VMESSAGE.UMSGINS[2] = "AIN75A";
-      VMESSAGE.UMSGINS[1] = "  ";
-      WCM00P2-TO-CEP01A();
-    else
-    end
-  end
-end // end AIN75L1-MAIN
-
-
-Record AIN7501R-INPUT type serialRecord  {
-  fileName = "SDXIN"
-  }
-  4 SDX-IN-REC char(3000) ; 
-end // end AIN7501R-INPUT
-
-
-Record AIN75WS1 type basicRecord
-  3 SDX-IN-REC char(3000) ; 
-    5 SDX-DATA-1 char(24) ; 
-    5 SDX-FILE-TYPE char(4) ; 
-    5 SDX-DATA-2 char(2972) ; 
-end // end AIN75WS1
-
-
+//WNM16M04 JOB 'WN92P','NOMADS-AIN75A',
+//         CLASS=9,MSGCLASS=5,
+//         COND=(10,LE),
+//         REGION=64M,
+//         NOTIFY=WNMJH,
+//         USER=CSS01
+//*        RESTART=
+/*ROUTE  PRINT LOCAL
+//OUT1  OUTPUT ADDRESS='WELFARE        ',
+//             BUILDING='CENTRAL OFFICE',
+//             DEPT='NEVADA STATE WELFARE DIVISION',
+//             TITLE=' REPORT -       ',DEFAULT=YES,JESDS=ALL
+//JOBLIB       DD DSN=SYSP.DB.DB26.SDSNLOAD,DISP=SHR
+//             DD DSN=WNM.WN91.ZOSBATCH.EMERG.LOAD,DISP=SHR
+//             DD DSN=WNM.WN91.ZOSBATCH.PROD.LOAD,DISP=SHR
+//*
+//AIN75A01 EXEC PGM=IEFBR14
+//********************************************************************
+//*        IEFBR14 - DELETE FILES FOR NEXT STEP
+//********************************************************************
+//DD01         DD DSN=WNP.WN91.SDX.AIN22A.GOOD,
+//             DISP=(MOD,DELETE,DELETE),
+//             SPACE=(TRK,(0,0))
+//DD02         DD DSN=WNP.WN91.SDX.AIN22A.BAD,
+//             DISP=(MOD,DELETE,DELETE),
+//             SPACE=(TRK,(0,0))
+//*
+//AIN75A02 EXEC PGM=SORT,PARM='CORE=MAX'
+//********************************************************************
+//*            DFSORT - SPLIT INPUT FILE INTO 2 FILES WITH THE BAD
+//*                     BIRTH DATE RECORDS REMOVED...8/17/17 - JERRY
+//********************************************************************
+//SORTDIAG     DD DUMMY
+//SYSOUT       DD SYSOUT=*
+//SORTIN       DD DSN=WNP.WN91.SDX.AIN22A,DISP=SHR
+//OUT1         DD DSN=WNP.WN91.SDX.AIN22A.GOOD,
+//             DISP=(,CATLG,DELETE),UNIT=3390,
+//             SPACE=(CYL,(100,100),RLSE),VOL=SER=WNM062,
+//             DCB=(RECFM=FB,LRECL=3000,BLKSIZE=0)
+//OUT2         DD DSN=WNP.WN91.SDX.AIN22A.BAD,
+//             DISP=(,CATLG,DELETE),UNIT=3390,
+//             SPACE=(CYL,(1,1),RLSE),VOL=SER=WNM062,
+//             DCB=(RECFM=FB,LRECL=3000,BLKSIZE=0)
+//SORTWK01     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK02     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK03     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK04     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK05     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK06     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SYSIN        DD *
+  OPTION COPY
+  OUTFIL FNAMES=OUT1,OMIT=(102,8,CH,EQ,C'00000000')
+  OUTFIL FNAMES=OUT2,SAVE
+//*
+//*  OPTION COPY
+//*  OUTFIL FNAMES=OUT1,OMIT=(102,8,CH,EQ,C'00000000')
+//*  OUTFIL FNAMES=OUT2,SAVE
+//*
+//AIN75A03 EXEC PGM=SORT,PARM='CORE=MAX'
+//********************************************************************
+//*            DFSORT - SORT STEP
+//********************************************************************
+//SORTDIAG     DD DUMMY
+//SYSOUT       DD SYSOUT=*
+//SORTIN       DD DSN=WNP.WN91.SDX.AIN22A.GOOD,DISP=SHR
+//SORTOUT      DD DSN=WNP.WN91.AIN75A.SORTIN,
+//             DISP=(,CATLG,DELETE),UNIT=3390,
+//             SPACE=(CYL,(100,100),RLSE),VOL=SER=WNM062,
+//             DCB=(RECFM=FB,LRECL=3000,BLKSIZE=0)
+//SORTWK01     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK02     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK03     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK04     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK05     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SORTWK06     DD UNIT=SYSDA,SPACE=(CYL,(25,10),RLSE)
+//SYSIN        DD *
+  SORT FIELDS=(43,9,CH,A,20,4,CH,A,16,4,CH,A)
+//*
+//*   SORT FIELDS=(43,9,CH,A,20,4,CH,A,16,4,CH,A)
+//*
+//AIN75A04 EXEC PGM=ICETOOL,PARM='CORE=MAX'
+//********************************************************************
+//*            ICE - SORT STEP
+//********************************************************************
+//SORTDIAG     DD DUMMY
+//SYSOUT       DD SYSOUT=*
+//SORTIN       DD DSN=WNP.WN91.AIN75A.SORTIN,
+//             DISP=(OLD,DELETE,KEEP)
+//SORTOUT      DD DSN=WNP.WN91.AIN22A.INPUT,
+//             DISP=(,CATLG,DELETE),UNIT=3390,
+//             SPACE=(CYL,(5,75),RLSE),VOL=SER=WNM061,
+//             DCB=(RECFM=FB,LRECL=3000,BLKSIZE=0)
+//SORTWK01     DD UNIT=SYSDA,SPACE=(CYL,(15,15),RLSE)
+//SORTWK02     DD UNIT=SYSDA,SPACE=(CYL,(15,15),RLSE)
+//SORTWK03     DD UNIT=SYSDA,SPACE=(CYL,(15,15),RLSE)
+//SORTWK04     DD UNIT=SYSDA,SPACE=(CYL,(15,15),RLSE)
+//SORTWK05     DD UNIT=SYSDA,SPACE=(CYL,(15,15),RLSE)
+//SORTWK06     DD UNIT=SYSDA,SPACE=(CYL,(15,15),RLSE)
+//SYSPRINT     DD SYSOUT=*
+//TOOLMSG      DD SYSOUT=*
+//DFSMSG       DD SYSOUT=*
+//TOOLIN       DD *
+  SELECT FROM(SORTIN) TO(SORTOUT) ON(43,9,CH) LAST
+//*
+//*  SELECT FROM(SORTIN) TO(SORTOUT) ON(43,9,CH) LAST
+//*
+//AIN75A05 EXEC PGM=IEBGENER,DYNAMNBR=20,REGION=32M
+//********************************************************************
+//*        IEBGENER - BACKUP FILE TO A GDG
+//********************************************************************
+//SYSPRINT     DD SYSOUT=*
+//SYSUT1       DD DSN=WNP.WN91.SDX.AIN22A,DISP=SHR
+//SYSUT2       DD DSN=WNP.WN91.SDX.AIN22A.GDG(+1),
+//             DISP=(,CATLG,DELETE),UNIT=CART,
+//             DCB=WNP.WN91.SDX.AIN22A
+//SYSIN        DD DUMMY
+//*
+//AIN75A06 EXEC PGM=IEFBR14
+//********************************************************************
+//*        IEFBR14 - DELETE FILES
+//********************************************************************
+//DD01         DD DSN=WNP.WN91.SDX.AIN22A,
+//             DISP=(MOD,DELETE,DELETE),
+//             SPACE=(TRK,(0,0))
+//*
+//AIN75A07 EXEC PGM=IEFBR14
+//********************************************************************
+//*        IEFBR14 - CREATE NEW EMPTY FILES
+//********************************************************************
+//DD01         DD DSN=WNP.WN91.SDX.AIN22A,
+//             DISP=(NEW,CATLG,DELETE),UNIT=3390,
+//             SPACE=(CYL,(500,100),RLSE),VOL=SER=WNM331,
+//             DCB=(RECFM=FB,LRECL=3000,BLKSIZE=0)
+//*
+//AIN75A08 EXEC PGM=IEBGENER
+//********************************************************************
+//*        IEBGENER - FIX POSSIBLE DSORG=NONE CONDITION
+//********************************************************************
+//SYSPRINT     DD SYSOUT=*
+//SYSUT1       DD DUMMY,DCB=WNP.WN91.SDX.AIN22A
+//SYSUT2       DD DSN=WNP.WN91.SDX.AIN22A,DISP=MOD
+//SYSIN        DD DUMMY
+//*
+
