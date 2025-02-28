@@ -1,1817 +1,1340 @@
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
-<%@page import="com.ibm.ws.webservices.xml.wassysapp.systemApp"%>
-<%/*
-************************************************************************************************
-Name: [ARRIIRegisterAppIndv]		Created By: [RAJABABU MARRI]		Created on: [05/20/2002]
-Purpose: [Register Individual Information]
-Modification Logs: 
-Modified By Harish Hirasave			Date 10/07/03				Reason & description  Adding Deceased Information
-[MODIFIED NAME]		    [MM/DD/YYYY]	Marker	[REASON FOR CHANGE]
-Chetankumar Patel		 08/15/2011				WR# BRGUS00282781 - DC- SSN Edits for SSN Randomization
-deceasedVerificationCheck
-
-************************************************************************************************
-*/%>
-<%@page import="gov.illinois.ies.business.rules.driver.DcDriverConstants,
-				gov.illinois.ies.business.entities.individual.DcIndvCargo,
-				java.util.List,
-				java.util.ArrayList,java.sql.Timestamp"%>
-<%@page import="gov.illinois.framework.management.logging.FwLogger4J,gov.illinois.framework.management.logging.ILog"%>
-<%@page import="org.owasp.encoder.Encode" %>
-
 <%
-// 133955 starts
-String editMode = (String) request.getAttribute("EDIT_MODE");
-boolean isSSApp =false; 
-final ILog logger = FwLogger4J.getInstance(); 
-if(request.getAttribute(DcDriverConstants.IS_SELF_SERVICE_APP) != null){
-isSSApp =((Boolean) request.getAttribute(DcDriverConstants.IS_SELF_SERVICE_APP)).booleanValue();
-} 
-boolean enableDel = false;
-if(request.getAttribute("ENABLE_DEL") != null){
-enableDel = ((Boolean) request.getAttribute("ENABLE_DEL")).booleanValue();
-}
-// 133955 ends
-// Begin BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity -- PatelC
-boolean isMiChildApp = false;
-Boolean miChildAppFlag = (Boolean)request.getAttribute("IS_MI_CHILD_APP");
-if(miChildAppFlag != null && "true".equals(miChildAppFlag.toString())){
-	isMiChildApp = true;
-}
-// End BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity -- PatelC
-if("true".equals((String)request.getAttribute("isIndvAjxRqst"))){%>
-clearMessages();
-<%
-java.util.HashMap indvDetailsMap = (java.util.HashMap)request.getAttribute("indvDetailsMap");
-if(indvDetailsMap==null ){
-indvDetailsMap = new HashMap();
-}
-Iterator indvDetailsIte = indvDetailsMap.keySet().iterator();
-StringBuffer indvDetailsSb = new StringBuffer();
-String formAttribute ="document.form1.";
-String valueAttribute =".value=\"";
-String terminationValue = "\";";
-String elementName = "";
-String elementValue="";
-while(indvDetailsIte.hasNext()){
-elementName=(String)indvDetailsIte.next();
-elementValue=(String)indvDetailsMap.get(elementName);
+					String ssnValue = null;
+					if (dcIndvCargo.getSsn() != 0)
+					{
+						ssnValue = Long.toString(dcIndvCargo.getSsn());
+						if (ssnValue.length() < 9){
+							for(int i=ssnValue.length();i<9;i++){
+								ssnValue="0"+ssnValue;
+							}
+						}
+					}
+					if (ssnValue == null)
+					{	ssnValue = "";	}
 
-/* if(elementName.equals("secondaryLanguages")||elementName.equals("otherRace"))  */
-if(elementName.equals("secondaryLanguages")){
-%>
-var elementScriptName ='<%=elementName%>';
-var elementScriptValue ='<%=elementValue%>';
-populateMultiSelect(elementScriptName,elementScriptValue);
-<%
-}
-else{
-indvDetailsSb.append(formAttribute);
-indvDetailsSb.append(elementName);
-indvDetailsSb.append(valueAttribute);
-indvDetailsSb.append(elementValue);
-indvDetailsSb.append(terminationValue);
-}
-}
-//add javascript
-indvDetailsSb.append("disableEnableSecondaryRace();");
-%>
-<%=indvDetailsSb.toString()%>
-<%
-}else if("Y".equals((String)request.getAttribute("ERROR_MESSAGE_THROWN_INDVSEARCH"))){
+					String claimedSsnValue = null;
+					if (dcIndvCargo.getClaimedSsn() != 0)
+					{
+						claimedSsnValue = Long.toString(dcIndvCargo.getClaimedSsn());
+						if (claimedSsnValue.length() < 9){
+							for(int i=claimedSsnValue.length();i<9;i++){
+								claimedSsnValue="0"+claimedSsnValue;
+							}
+						}
+					}
+					if (claimedSsnValue == null)
+					{	claimedSsnValue = "";	}
 
-%>
+				String isOtherName = (String) request.getAttribute("hasOtherNames");
+				String isSSCN = (String) request.getAttribute("hasSscnInformation");
+				String isEmp = (String) request.getAttribute("isDhsEmployee");
 
-
-alertMe("AR3121");
-
-
-
-<%
-}else{ %>
-<%/* NOT EDITABLE - FW Page Directive, Imports, and URIs */%>
-<%@ include file = "/fwincludes/directives.jsp" %>
-<%@ include file = "/includes/ArDirectives.jsp" %>
-<%@ include file = "/includes/DcDirectives.jsp" %>
-
-<%/* EDITABLE - Page Specific Imports and URIs (You can add code to this section) */%>
-<%@page import="gov.illinois.fw.management.referencetables.*,java.util.ArrayList,gov.illinois.ies.business.rules.al.ALSOPUtil,
-gov.illinois.framework.management.util.FwCalendar,gov.illinois.framework.management.util.FwDate,
-gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCargo,gov.illinois.ies.business.entities.individual.DcIndvLanguageCargo,gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCollection
-,gov.illinois.ies.business.entities.individual.DcIndvEthnicityCollection"%>
-<%/* EDITABLE - Page Specific useBean tags(You can add code to this section) */%>
-<jsp:useBean id="cin" class="gov.illinois.ies.presentation.view.pageelements.Cin" scope="application"/>
-<jsp:useBean id="dateOfBirth" class="gov.illinois.ies.presentation.view.pageelements.DateOfBirth" scope="application"/>
-<jsp:useBean id="actualEstDateOfBirth" class="gov.illinois.ies.presentation.view.pageelements.ActualEstDateOfBirth" scope="application"/>
-<jsp:useBean id="dueDate" class="gov.illinois.ies.presentation.view.pageelements.DueDate" scope="application"/>
-<%--   Commented by Gopi on 06/12/2006 for FO131
-<jsp:useBean id="startdate" class="gov.illinois.ies.presentation.view.pageelements.Startdate" scope="application"/>
-06/12/2006 Comment End--%>
-<jsp:useBean id="verifications" class="gov.illinois.ies.presentation.view.pageelements.Verifications" scope="application"/>
-<jsp:useBean id="chipChildId" class="gov.illinois.ies.presentation.view.pageelements.ChipChildId" scope="application"/>
-<jsp:useBean id="ssn" class="gov.illinois.ies.presentation.view.pageelements.Ssn" scope="application"/>
-<%--Code added by Gopi for FO177 on 06/14/2006--%>
-<jsp:useBean id="claimedSsn" class="gov.illinois.ies.presentation.view.pageelements.ClaimedSsn" scope="application"/>
-<%--06/14/2006 End--%>
-<jsp:useBean id="gender" class="gov.illinois.ies.presentation.view.pageelements.Gender" scope="application"/>
-<jsp:useBean id="languages" class="gov.illinois.ies.presentation.view.pageelements.Languages" scope="application"/>
-
-<%--<jsp:useBean id="race" class="gov.illinois.ies.presentation.view.pageelements.Race" scope="application"/>--%>
-<%-- Changed according to ILIES-135881 --%>
-<jsp:useBean id="race" class="gov.illinois.ies.presentation.view.pageelements.Race" scope="application"/>
-<jsp:useBean id="otherRace" class="gov.illinois.ies.presentation.view.pageelements.OtherRace" scope="application"/>
-<%-- Changed according to ILIES-135881 --%>
-<jsp:useBean id="dcIndvSecondaryRaceColl" class="gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCollection" scope="request"/>
-<jsp:useBean id="dcIndvSecondaryRaceCargo" class="gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCargo" scope="request"/>
-
-<jsp:useBean id="dcIndvEthnicityColl" class="gov.illinois.ies.business.entities.individual.DcIndvEthnicityCollection" scope="request"/>
-<jsp:useBean id="dcIndvEthnicityCargo" class="gov.illinois.ies.business.entities.individual.DcIndvEthnicityCargo" scope="request"/>
-
-
-<jsp:useBean id="ethnicity" class="gov.illinois.ies.presentation.view.pageelements.Ethnicity" scope="application"/>
-<jsp:useBean id="hasSscnInformation" class="gov.illinois.ies.presentation.view.pageelements.HasSscnInformation" scope="application"/>
-<jsp:useBean id="hasOtherNames" class="gov.illinois.ies.presentation.view.pageelements.HasOtherNames" scope="application"/>
-<jsp:useBean id="isCurrentlyPregnant" class="gov.illinois.ies.presentation.view.pageelements.IsCurrentlyPregnant" scope="application"/>
-<jsp:useBean id="isDisabled" class="gov.illinois.ies.presentation.view.pageelements.IsDisabled" scope="application"/>
-<jsp:useBean id="disability" class="gov.illinois.ies.presentation.view.pageelements.Disability" scope="application"/>
-<jsp:useBean id="isDhsEmployee" class="gov.illinois.ies.presentation.view.pageelements.IsDhsEmployee" scope="application"/>
-<%--Commented by Gopi for FO131 on 06/14/2006
-<jsp:useBean id="isStateEmployee" class="gov.illinois.ies.presentation.view.pageelements.IsStateEmployee" scope="application"/>
-06/14/2006 End--%>
-<%--   Commented by Gopi on 06/07/2006 for FO131
-<jsp:useBean id="employeeNumber" class="gov.illinois.ies.presentation.view.pageelements.EmployeeNumber" scope="application"/>
-06/07/2006 Comment End--%>
-<jsp:useBean id="dcIndvCargo" class="gov.illinois.ies.business.entities.individual.DcIndvCargo" scope="request"/>
-<jsp:useBean id="dcIndvCollection" class="gov.illinois.ies.business.entities.individual.DcIndvCollection" scope="request"/>
-<jsp:useBean id="dcDisabilityCargo" class="gov.illinois.ies.business.entities.individual.DcDisabilityCargo" scope="page"/>
-<jsp:useBean id="dcIndvLanguageCargo" class="gov.illinois.ies.business.entities.individual.DcIndvLanguageCargo" scope="page"/>
-<jsp:useBean id="dcPregnanciesCargo" class="gov.illinois.ies.business.entities.individual.DcPregnanciesCargo" scope="request"/>
-<jsp:useBean id="dcIndvProfileCargo" class="gov.illinois.ies.business.entities.individual.DcIndvProfileCargo" scope="request"/>
-<jsp:useBean id="validataedBySSA" class="gov.illinois.ies.presentation.view.pageelements.ValidataedBySSA" scope="application"/>
-<jsp:useBean id="validataedPcBySSA" class="gov.illinois.ies.presentation.view.pageelements.ValidataedPcBySSA" scope="application"/> 
-<jsp:useBean id="dcIndvLanguageColl" class="gov.illinois.ies.business.entities.individual.DcIndvLanguageCollection" scope="request"/>
-<jsp:useBean id="dcDisabilityColl" class="gov.illinois.ies.business.entities.individual.DcDisabilityCollection" scope="request"/>
-<jsp:useBean id="arAppForAidCargo" class="gov.illinois.ies.business.entities.application.ArApplicationForAidCargo" scope="request"/>
-<%-- <jsp:useBean id="reqDataBroker" class="gov.illinois.ies.presentation.view.pageelements.ReqDataBroker" scope="application"/>
-<jsp:useBean id="creditReportSw" class="gov.illinois.ies.presentation.view.pageelements.CreditReportSw" scope="application"/> --%>
-
-<jsp:useBean id="highNeedProfile" class="gov.illinois.ies.presentation.view.pageelements.HighNeedProfile" scope="application"/>
-<jsp:useBean id="highNeedCriteria" class="gov.illinois.ies.presentation.view.pageelements.HighNeedCriteria" scope="application"/>
-<jsp:useBean id="nameGroup" class="gov.illinois.ies.presentation.view.pageelements.NameGroup"  scope="application"/>
-
-<%--<jsp:useBean id="source" class="gov.illinois.ies.presentation.view.pageelements.Source" scope="application"/> --%>
-<jsp:useBean id="verificationSource" class="gov.illinois.ies.presentation.view.pageelements.VerificationSource" scope="application"/>
-<jsp:useBean id="deceasedDateOfDeath" class="gov.illinois.ies.presentation.view.pageelements.DeceasedDateOfDeath" scope="application"/>
-<jsp:useBean id="deceasedVerification" class="gov.illinois.ies.presentation.view.pageelements.DeceasedVerification" scope="application"/>
-<%--ILIES-276949 Start --%>
-<jsp:useBean id="deceasedVerificationAdditional" class="gov.illinois.ies.presentation.view.pageelements.DeceasedVerificationAdditional" scope="application"/>
-<%--ILIES-276949 Start--%>
-
-<jsp:useBean id="recognizedIndianTribe" class="gov.illinois.ies.presentation.view.pageelements.RecognizedIndianTribe" scope="application"/>
-<jsp:useBean id="dateOfDeathReportDate" class="gov.illinois.ies.presentation.view.pageelements.DeceasedDateOfDeathReportDate" scope="application"/>
-
-<%--Code added for ILIES-173447 --%>
-<jsp:useBean id="individualReceivedShareOrPremiumPreviously" class="gov.illinois.ies.presentation.view.pageelements.IndividualReceivedShareOrPremiumPreviously" scope="application"/>
-<%-- Added for ILIES-192144 --%>
-<jsp:useBean id="chipPriorCoverage" class="gov.illinois.ies.presentation.view.pageelements.ChipPriorCoverage" scope="application"/>
-
-<%--Code commented by Praphull for FO511 on 11/16/2006--%>
-<%--<jsp:useBean id="healthCareNeedsProgram" class="gov.illinois.ies.presentation.view.pageelements.HealthCareNeedsProgram" scope="application"/>--%>
-<jsp:useBean id="unaccompaniedRefugee" class="gov.illinois.ies.presentation.view.pageelements.UnaccompaniedRefugee" scope="application"/>
-<%--Code added by Gopi for FO130 on 06/29/2006--%>
-<%-- <jsp:useBean id="zeroTolerance" class="gov.illinois.ies.presentation.view.pageelements.ZeroTolerance" scope="application"/> --%>
-<%--06/14/2006 End--%>
-<%--Code added by Praphull for FO511 on 11/16/2006--%>
-<jsp:useBean id="indianTribeCd" class="gov.illinois.ies.presentation.view.pageelements.IndianTribe" scope="application"/>
-<%--11/16/2006 End--%>
-<%-- Added for CR-20392 Start --%>
- <jsp:useBean id="safeDeliveryBabySw" class="gov.illinois.ies.presentation.view.pageelements.SafeDeliveryBabySw" scope="application"/>
-<%-- Added for CR-20392 End --%>
-<%-- Added for BRGUS00082000 --%>
-<jsp:useBean id="DOBVerification" class="gov.illinois.ies.presentation.view.pageelements.DOBVerification" scope="application"/>
-<%--#9-CODE-ADD-START--%>
-<jsp:useBean id="Results_item" class="gov.illinois.ies.business.entities.cases.DcIndvHhStatusCargo" scope="request"/>
-<%--#9-CODE-ADD-END--%>
-<jsp:useBean id="primaryLanguage" class="gov.illinois.ies.presentation.view.pageelements.PrimaryLanguage" scope="application"/>
-<jsp:useBean id="secondaryLanguages" class="gov.illinois.ies.presentation.view.pageelements.SecondaryLanguages" scope="application"/>
-<jsp:useBean id="individualNumber" class="gov.illinois.ies.presentation.view.pageelements.IndividualNumber" scope="application"/>
-<jsp:useBean id="inputSsn" class="gov.illinois.ies.presentation.view.pageelements.InputSsn" scope="application"/>
- <jsp:useBean id="istheindividualcurrentlyreceivingMedicare" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualcurrentlyreceivingMedicare" scope="application"/>
- <jsp:useBean id="istheindividualcurrentlyreceivingSSDSSI" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualcurrentlyreceivingSSDSSI" scope="application"/> 
-<jsp:useBean id="istheindividualcurrentlyinalong" class="gov.illinois.ies.presentation.view.pageelements.Istheindividualcurrentlyinalong" scope="application"/>
- <jsp:useBean id="reasonForBan" class="gov.illinois.ies.presentation.view.pageelements.ReasonForBan" scope="application"/>
-<jsp:useBean id="istheindividualbannedfromenterDHSHFS" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualbannedfromenterDHSHFS" scope="application"/>
-<%-- <jsp:useBean id="istheindividualcurrentlyreceivingMedicareSSDSSI" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualcurrentlyreceivingMedicareSSDSSI" scope="application"/> --%>
-
-<% 
-String switchValue = ReferenceTableManager.getValueByColumn(true,"IMPLEMENTATIONSW","CM","SWITCH");	
-%>
-	
-	
-	
-
-<%  String ARDCMODE = "ARREG";
-	ARDCMODE=(String)request.getAttribute("ARDCMODE");
-//FO511
-String loadJavascript = "";
-	String preFillByPassKey=(String)request.getAttribute("preFillByPassKey");
-if("DC".equals(ARDCMODE) )
-	//BEGIN-BRGUS00105009-upadhyayulag-call disableSaveAndPrevious(field) on load of the screen in DC
-	//BEGIN-BRGUS00107064-upadhyayulag-call disableSaveAddIndividualAndPrevious() on load of the screen in DC
-	loadJavascript = "onLoad=\"ssnVerficationSource();doNotDisplayMatchFound();disableCalender();doLoadStuff();disableIndianTribe();disableSSN();disablePriorSsnTab(document.form1);enableDisableSecondaryRace();disableSaveAndAddIndividual(document.form1);validateAddButton(document.form1);disableSaveAndPrevious(document.form1);disableSaveAddIndividualAndPrevious();indvsMessage();disableReasonForBanOnNO(); validateReasonForBan();disableDeathOfDeath(form1);disableDetailsFields();\"";//#4 CODE-MOD//BRGUS00100441-upadhyayulag-CODE-ADD-Feb 29, 2008-call disableSaveAndAddIndividual(field) on load of the screen in DC
-	//END-BRGUS00107064
-	//END-BRGUS00105009
-else
-	loadJavascript = "onLoad=\"doNotDisplayMatchFound();disableCalender();doLoadStuff();enableDisableSecondaryRace();indvsMessage();disableGenderForMPEAppl();disableDetailsFields();\"";
-
-String vsw=String.valueOf(dcIndvCargo.getVoidSw());
-/* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Starts*/ 
-	String preFillIndvIdStr = null;
-	String preFillDateOfDeathStr = null;
-	List<DcIndvCargo> preFillIndvInfoDtlsList = null;
-	try{
-		preFillIndvInfoDtlsList =(ArrayList<DcIndvCargo>) request.getAttribute("PREFILLSOLQ_INDVINFO_DTLS");
-	
-		if(null != request.getAttribute("AUDIT_ACTION") 
-				&& request.getAttribute("AUDIT_ACTION").toString().equalsIgnoreCase("Edit") 
-				&& null != preFillIndvInfoDtlsList && preFillIndvInfoDtlsList.size() > 0){
-			
-			for(DcIndvCargo cargo : preFillIndvInfoDtlsList){
-				if(null != dcIndvCargo && dcIndvCargo.getIndvId() == cargo.getIndvId()){
-					preFillIndvIdStr = (0 != cargo.getIndvId()) ? String.valueOf(cargo.getIndvId()) : null;
-					preFillDateOfDeathStr = (null != cargo.getDeathDt()) ? String.valueOf(cargo.getDeathDt()) : null;				
-					break;	
+				String isPreg = (String) request.getAttribute("isCurrentlyPregnant");
+				String isDisable = (String) request.getAttribute("isDisabled");
+ 				String isRecMedCare = (String) request.getAttribute("istheindividualcurrentlyreceivingMedicare");
+				String isRecSSDSSI = (String) request.getAttribute("istheindividualcurrentlyreceivingSSDSSI");
+ 				if(null != dcIndvProfileCargo && null != String.valueOf(dcIndvProfileCargo.getSsdSsiSw()) && "Y" == String.valueOf(dcIndvProfileCargo.getSsdSsiSw())){
+					isRecSSDSSI = dcIndvProfileCargo.getSsdSsiSw()+"";
 				}
-		    }		
-		 }	
-	}catch(Exception e){
-		logger.log("ARRIIRegisterAppIndv", logger.ERROR, "Exception occured in ARRIIRegisterAppIndv : "+e.toString());
-	}
-	/* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Ends*/
-	//FO511
-%>
-<%	
-	if(request.getAttribute("dcIndvStagingCargo")!= null) {
-			dcIndvCargo = (DcIndvCargo) request.getAttribute("dcIndvStagingCargo");
-	}
-	if(request.getAttribute("dcIndvLanguageStagingCargo")!= null) {
-		dcIndvLanguageCargo = (DcIndvLanguageCargo) request.getAttribute("dcIndvLanguageStagingCargo");
-	}
-	if(request.getAttribute("dcIndvSecondaryRaceStagingColl")!= null) {
-		dcIndvSecondaryRaceColl = (DcIndvSecondaryRaceCollection) request.getAttribute("dcIndvSecondaryRaceStagingColl");
-}
+				if(null != dcIndvProfileCargo && null != String.valueOf(dcIndvProfileCargo.getMedicareSw())  && "Y" == String.valueOf(dcIndvProfileCargo.getMedicareSw())){
+					isRecMedCare = dcIndvProfileCargo.getMedicareSw()+"";
+				}
+				String isIndCurLongTerm = (String) request.getAttribute("istheindividualcurrentlyinalong");
 
-	if(request.getAttribute("dcIndvEthnicityStagingColl")!= null) {
-		dcIndvEthnicityColl = (DcIndvEthnicityCollection) request.getAttribute("dcIndvEthnicityStagingColl");
-	} 
+				String ddate = "";java.sql.Timestamp duedates = null;
+				if (dcPregnanciesCargo.getDueDt() != null)
+				{
+				java.util.Date dedate = dcPregnanciesCargo.getDueDt();
+				    duedates = dcPregnanciesCargo.getDueDt();
+					ddate = dcPregnanciesCargo.getDueDt().toString();
+				}
+
+	ArrayList lang = new ArrayList();
+	String primaryLang="0";
+
+	ArrayList detailSelected = new ArrayList();
 	
-	if(request.getAttribute("dcIndvRMCargo") != null)
-	{
-	dcIndvCargo = (DcIndvCargo) request.getAttribute("dcIndvRMCargo");
+	if (dcIndvLanguageColl != null && dcIndvLanguageColl.size()>0){
+			for (int i = 0; i < dcIndvLanguageColl.size(); i++) {
+				dcIndvLanguageCargo = dcIndvLanguageColl.getResults(i);
+				if(dcIndvLanguageCargo.getPrimaryLanguageSw()=='Y'){
+					primaryLang=dcIndvLanguageCargo.getLanguageCd();
+				}else{
+					lang.add(dcIndvLanguageCargo.getLanguageCd());
+					}
+			}
+			
+	}
 	
-	}
-	if(request.getAttribute("dcIndvSecondaryRaceRmColl") != null)
-	{
-		dcIndvSecondaryRaceColl = (DcIndvSecondaryRaceCollection) request.getAttribute("dcIndvSecondaryRaceRmColl");
-	
-	}
-	if(request.getAttribute("dcIndvEthnicityRmColl")!= null) {
-		dcIndvEthnicityColl = (DcIndvEthnicityCollection) request.getAttribute("dcIndvEthnicityRmColl");
-	}
-	if(request.getAttribute("dcIndvLanguageRmCargo")!= null) {
-		dcIndvLanguageCargo = (DcIndvLanguageCargo) request.getAttribute("dcIndvLanguageRmCargo");
+
+	if (dcDisabilityColl != null && dcDisabilityColl.size()>0){
+			for (int i = 0; i < dcDisabilityColl.size(); i++) {
+				dcDisabilityCargo = dcDisabilityColl.getResults(i);
+				StringTokenizer str = new StringTokenizer(dcDisabilityCargo.getTypeCd(),"|");
+				while(str.hasMoreTokens()) {
+					detailSelected.add(str.nextToken());
+				}
+			}
 	}
 
-%>
-<%  String counter = "";
-	if(request.getAttribute("counter") != null){
-		counter = (String)request.getAttribute("counter");
-	}%>
-<%  String safedelBaby = null;
-	String _dcuRoles = "";
-	if(request.getAttribute("_dcuRoles") != null){
-		_dcuRoles = (String)request.getAttribute("_dcuRoles");
-	}
-	else{
-		_dcuRoles = "NonDCU";
-	}
-	String userSecurity = String.valueOf(securityAttr.getPermission());//BRGUS00101124 - upadhyayulag - String to hold access permission for the logged in user
+	String raceCode = "";
+	ArrayList races = new ArrayList();
 	
-	if("DC".equals(ARDCMODE)) {
-%>
+	if(dcIndvCargo.getRaceCd()!=null){
+		races.add(dcIndvCargo.getRaceCd());
+	}
+	
+	if (dcIndvSecondaryRaceColl != null && dcIndvSecondaryRaceColl.size()>0){
+			for (int i = 0; i < dcIndvSecondaryRaceColl.size(); i++) {
+				dcIndvSecondaryRaceCargo = dcIndvSecondaryRaceColl.getResults(i);
+				races.add(dcIndvSecondaryRaceCargo.getSecondaryRaceCd());
+			}
+	}
 
-<%/* Moved the code from below to have the variables available - WR BRGUS00163746*/ %>
-
-<%/* following code is added by praphull for FO511*/ %>
-<%!
-	static volatile String prefixName = null;
-	static volatile String firstname = null;
-	static volatile String middlename = null;
-	static volatile String lastname = null;
-	static volatile String dobdate="";
-	static volatile String mm = "";
-	static volatile String dd ="";
-	static volatile String yyyy="";
-	static volatile String variCode="";
-	
-%>
-<%
-	prefixName = String.valueOf(dcIndvCargo.getPrefixName());
-	firstname = String.valueOf(dcIndvCargo.getFirstName());
-	middlename = String.valueOf(dcIndvCargo.getMidName());
-	lastname = String.valueOf(dcIndvCargo.getLastName());
-	dobdate="";
-	mm = "";
-	dd ="";
-	yyyy="";
-
-	if (dcIndvCargo.getDobDt() != null)
-	{
-		dobdate = dcIndvCargo.getDobDt().toString();
-		String[] arrDate = dobdate.split("-");
-		dd = (arrDate[2].split(" "))[0];
-		mm= arrDate[1];
-		yyyy=arrDate[0];
-	}
-	
-	if(dcIndvCargo.getDeceasedDtVrfCd()!=null && dcIndvCargo.getIndvId()>0){
-		variCode=dcIndvCargo.getDeceasedDtVrfCd().trim();
-	}else{
-		variCode ="";
-	}
-	
-	
-%>
-<% }
-%>
-<%/* NOT EDITABLE - Head Tag Include */%>
-<jsp:include page = "/fwincludes/headTag.jsp" />
-<% 
-String disableCancelDC = (String)request.getAttribute("disableCancel");
-if("DC".equals(ARDCMODE) && disableCancelDC != null && disableCancelDC.equals("Y")){
-%>
-<%--#4 CODE-MOD-START--%>
-<%--//BEGIN-BRGUS00105009-upadhyayulag-call disableSaveAndPrevious(field) on load of the screen in DC--%>
-<%--//BEGIN-BRGUS00107064-upadhyayulag-call disableSaveAddIndividualAndPrevious() on load of the screen in DC--%>
-<TL:FWBodyTag security="<%=securityAttr.getPermission()%>"  voidSw="<%=vsw%>" other="onLoad=\"disableCancelInDC();doLoadStuff();disableCalender();disableIndianTribe();disableSSN();disablePriorSsnTab(document.form1);disableSaveAndAddIndividual(document.form1);disableSaveAndPrevious(document.form1);disableSaveAddIndividualAndPrevious();indvsMessage();storePrefill();disableReasonForBanOnNO(); validateReasonForBan();disableDeathOfDeath(form1);\"" mode="<%=pageMode%>" />
-<%--//END-BRGUS00107064--%>
-<%--//END-BRGUS00105009--%>
-<%--#4 CODE-MOD-END--%>
-<%}else if(null != preFillIndvInfoDtlsList){%>
-<TL:FWBodyTag security="<%=securityAttr.getPermission()%>"  voidSw="<%=vsw%>" other="onLoad=\"doNotDisplayMatchFound();disableCalender();disableIndianTribe();disableSSN();disablePriorSsnTab(document.form1);doLoadStuff();enableDisableSecondaryRace();indvsMessage();disableReasonForBanOnNO(); validateReasonForBan();disableDeathOfDeath(form1);\"" mode="<%=pageMode%>" />
-<%}else{%>
-<TL:FWBodyTag security="<%=securityAttr.getPermission()%>"  voidSw="<%=vsw%>" other="<%=loadJavascript%>" mode="<%=pageMode%>" />
-<%}%>
-<SCRIPT LANGUAGE="JavaScript">
-$(document).ready(function(){
-	$('#indianTribe').mousedown(function(){
-		$(this).css('width','auto');
-		$(this).css('position','absolute');
-	});
-	$('#indianTribe').change(function(){
-		$(this).css('width','100');
-		$(this).css('position','absolute');
-	});
-	$('#indianTribe').blur(function(){
-		$(this).css('width','100');
-		$(this).css('position','absolute');
-	});
-});
-</SCRIPT> 
-<%if("DC".equals(ARDCMODE)) { %>
-<script language="javascript" src="/js/dc.js" type="text/javascript"></script>
-<script>
-//BRGUS00223773 
+//Added for ILIES-152997
  
- var prName = "<%=prefixName%>";
- var fname="<%=firstname%>";
- var mname="<%=middlename%>";
- var lname="<%=lastname%>";
- var dMon="<%=mm%>";
- var dDD="<%=dd%>";
- var dYear="<%=yyyy%>";
- var gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
- var varificationCd = "<%=variCode%>";
- </script>
- <%} %>
-<TL:FWUpdateUserTag cargo="<%=dcIndvCargo%>" />
-<%/* EDITABLE - Page specific .js or .css files (You can add code to this section) */%>
-<script language="javascript" src="/js/ar.js" type="text/javascript"></script>
-
-<script language="javascript" type="text/javascript">
-function onChangeGender(){
-	if(document.form1.scriptmode.value!='DC'){
-		checkGenderBridges(document.form1.gender,document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
-	}
-}
-<%--BEGIN - BRGUS00151357 - chakalamb - check for death verf --%>
-function validateDeathVrf(){
-
-	var validVrf = true;
-	if(!document.form1.deceasedVerification.disabled){
-		var deathVrf = document.form1.deceasedVerification.value;
-		var deathVrfTxt = document.form1.deceasedVerification.options[document.form1.deceasedVerification.selectedIndex].text;
-		var defaultVrf = getDefaultValue(document.form1.deceasedVerification);
-		if(deathVrf == "MI"){
-			if(defaultVrf != "MI"){
-				validVrf = false;
-			}
-		}
-		if(!validVrf){
-			alertMe("AR3122",document.form1.deceasedVerification,'Deceased Verification',deathVrfTxt);
-		}
-	}
-	return validVrf;
-}
-<%--END - BRGUS00151357 --%>
-//BRGUS00040829
-function lengthOfChip(chipChildId){
+ArrayList ethnicitys= new ArrayList();
+if(dcIndvCargo!=null){
+	if(dcIndvCargo.getEthnicityCd()!=null){
+	ethnicitys.add(dcIndvCargo.getEthnicityCd());
 	
-var chipChildId1 = chipChildId.value;
-	if(chipChildId1.length<10 && chipChildId1.length>0){
-		alertMe("AR3104");
-		return false;
-	}
-	return true;
-
-}
-	function disableCancelInDC(){
-		var arr= new Array(1);
-		arr[0]="actionButtonCancel";//#3-CODE-MOD
-		disableElements('true',arr);
-		document.getElementById("actionButtonCancel3").disabled=true;
-		document.getElementById("actionButtonCancel1").disabled=true;
-	}
-	
-	function changeSSAValue() {
-		
-			var fname = "<%=dcIndvCargo.getFirstName() !=null ? firstname:""%>";
-			var mname = "<%=dcIndvCargo.getMidName() != null ? middlename:""%>";
-			var lname = "<%=dcIndvCargo.getLastName() !=null ? lastname:""%>";
-			var dMon="<%=mm%>";
-			var dDD="<%=dd%>";
-			var dYear="<%=yyyy%>";
-			var gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
-			if(document.form1.scriptmode.value=='DC'){
-			 	if(((document.form1.firstName.value!=fname)||( document.form1.middleName.value!=mname)||(document.form1.lastName.value!=lname)) || 
-			 	 (compareNum(document.form1.monthactualEstDateOfBirth.value,dMon)||compareNum(document.form1.dateactualEstDateOfBirth.value,dDD)||compareNum(document.form1.yearactualEstDateOfBirth.value,dYear)) || 
-					document.form1.gender.value!=gender){
-					document.form1.validataedBySSA.checked = false;
-					document.form1.validataedBySSA.value="";
-					document.getElementById("hiddenValidateSSA").value="";
-					document.form1.validataedPcBySSA.checked = false;
-					document.form1.validataedPcBySSA.value="";
-					document.getElementById("hiddenValidateSSAPC").value="";
-					//document.getElementById("validataedBySSA").onchange();
-			} else {
-				document.form1.validataedBySSA.checked = <%=String.valueOf(dcIndvCargo.getSsaValidationSw()).equals("Y")%>;
-				document.form1.validataedPcBySSA.checked = <%=String.valueOf(dcIndvCargo.getSsaPcValidationSw()).equals("Y")%>;
-				//document.getElementById("validataedBySSA").onchange();
-			}
-				
-		}
-		}
-
-		function checkpermission(form1){
-		}
-		
-		function changeDate(){
-		
-		var dobMonth = document.form1.monthactualEstDateOfBirth.value;
-		var dobDate = document.form1.dateactualEstDateOfBirth.value;
-		var dobYear = document.form1.yearactualEstDateOfBirth.value;
-		if(dobYear != "" && dobMonth != "" && dobDate != "" && dobYear != "yyyy" && dobMonth != "mm" && dobDate != "dd"){
-		
-			var age = 0;
-			var today = getToday();
-			var year = today.getFullYear();
-			var dateDiff = year-dobYear;
-			
-			age = dateDiff; 
-			if(today.getMonth()+1 < dobMonth ){
-				age--;
-			} else if(today.getMonth()+1 == dobMonth && today.getDate() < dobDate ){
-				age--;
-			}
-			if(age > 19){
-				document.getElementById("individualReceivedShareOrPremiumPreviously").selectedIndex=[1];
-			}else{
-				document.getElementById("individualReceivedShareOrPremiumPreviously").selectedIndex=[0];
-			}
-		}
-	
-		}
-
-
-		
-		//added by praphull for FO511
-		<%
-		  if ("DC".equals(ARDCMODE)){
-  		%>
-		function compareNum(var1,var2){
-			if(var1!=null && var1.substring(0,1)=='0') var1=var1.substring(1);
-			if(var2!=null && var2.substring(0,1)=='0') var2=var2.substring(1);
-			if(var1!=var2) return true;
-			else return false;
-
-		}
-		function disableIndianTribe(form1){
-			if(document.form1.recognizedIndianTribe.value != 'null' && document.form1.recognizedIndianTribe.value == 'N'){
-					document.form1.indianTribe.value="";
-					document.form1.indianTribe.disabled = true;
-					return false;
-				}
-		}
-
-		function disableSSN(form1){
-			<%-- BRGUS00119828. Disable only if the role is not Enumeration Exception --%>
-		<%	if(request.getAttribute("isEnumerationException")==null){%>
-
-		if(document.form1.validataedBySSA.checked){
-				document.form1.ssn1ssn.disabled = true;
-				document.form1.ssn2ssn.disabled = true;
-				document.form1.ssn3ssn.disabled = true;
-			}
-
-		<%}%>
-
-
-		}
-		
-		//ILIES-207951
-		function disableDeathOfDeath(form1){		
-			<% if(request.getAttribute("isDateOfDeathException")==null){ %>			
-				document.form1.monthdeceasedDateOfDeath.disabled = true;
-				document.form1.datedeceasedDateOfDeath.disabled = true;
-				document.form1.yeardeceasedDateOfDeath.disabled = true;
-				if(document.getElementById("deceased Date").getElementsByTagName('a')[0]!=null){
-				document.getElementById("deceased Date").getElementsByTagName('a')[0].onclick='';
-				}else if (document.getElementById("deceased Date2").getElementsByTagName('a')[0]!=null){
-				document.getElementById("deceased Date2").getElementsByTagName('a')[0].onclick='';
-				}
-				document.getElementById("dimg_deceasedDateOfDeath").src="../../images/calendarGray.gif";
-                document.getElementById("dimg_deceasedDateOfDeath").disabled=true;
-			
-			<% } %>
-		}
-		
-		function validateSSA(){
-		//BRGUS00223773
-			prName = "<%=prefixName%>";
-			fname = "<%=firstname%>";
-			mname = "<%=middlename%>";
-			lname = "<%=lastname%>";
-			dMon="<%=mm%>";
-			dDD="<%=dd%>";
-			dYear="<%=yyyy%>";
-			gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
-
-			<%-- BEGIN - BRGUS00154342 - chakalamb - Remove the validation for enumeration users --%>
-			<% if(!"Y".equals( (String)request.getAttribute("isEnumerationException") ) ) { %>
-			if(document.form1.validataedBySSA.checked){
-				if((prName!='null' && document.all.prefixName.value!=prName)||(fname!='null' && document.all.firstName.value!=fname)||(mname!='null' && document.all.middleName.value!=mname)||(lname!='null' && document.all.lastName.value!=lname)){
-					 	document.all.hiddenValidateSSA.value='N';
-					 	document.all.validataedBySSA.checked=false;
-					 	document.all.verificationSource.selectedIndex=-1;
-					 	return false;
-					 }
-				 if(compareNum(document.all.monthactualEstDateOfBirth.value,dMon)||compareNum(document.all.dateactualEstDateOfBirth.value,dDD)||compareNum(document.all.yearactualEstDateOfBirth.value,dYear)){
-				 	document.all.hiddenValidateSSA.value='N';
-				 	document.all.validataedBySSA.checked=false;
-				 	document.all.verificationSource.selectedIndex=-1;
-				 	return false;
-				 }
-				 if(document.all.gender.value!=gender){
-				 	document.all.hiddenValidateSSA.value='N';
-				 	document.all.validataedBySSA.checked=false;
-				 	document.all.verificationSource.selectedIndex=-1;
-				 	return false;
-				 }
-			}
-			<%}%>
-			return true;
-		}
-		<%
-			}
-		%>
-		
-	
-/* pg added for ILIES-126281 */
-function joinssnFields(field1, field2, field3, targetField,flag)
-{
-	var value1 = field1.value;
-	var value2 = field2.value;
-	var value3 = field3.value;
-	var errArr = createErrArr(field1,field2,field3);
-	targetField.value = "";
-	var len=value1.length+value2.length+value3.length;	
-
-	if(arguments[4] == null)
-	{
-		flag = "N";
-	}
-	if(flag =="Y")
-	{
-		if(value1 == "" && value2 =="" && value3 =="")
-		{
-			alertMe('GL003',errArr,targetField);
-			return false;		
-		}
-	}
-	if(len >= 9)
-	{
-		targetField.value = value1+value2+value3;
-	}
-	return true;
-}
-/* pg ended for ILIES-126281 */
-	
-	function isSSNChangeVal(){
-	   //if(document.form1.ssn.value == "")
-	   joinssnFields(document.form1.ssn1ssn,document.form1.ssn2ssn,document.form1.ssn3ssn,document.form1.ssn,'N');
-	   return validateSSNVal(document.form1.ssn,document.form1.monthactualEstDateOfBirth.value,document.form1.yearactualEstDateOfBirth.value);
-
-	}
-	function validateSSNVal(fld,mn,yr){
-	var res, first, firstInt, sec, secInt, last, lastInt;
-	var val = fld.value;
-	if(val == "") return true;
-
-	if(yr != "" && mn != ""){
-			if(  (val == "222222222" && !(mn == "02" && yr == "1937")) || (val == "444444444" && !(mn == "01" && yr == "1914")) || (val == "555555555" && !(mn == "12" && yr == "1976")) )
-			{
-				alertMe("GL050");
-				return false;
-			}
-
-		}
-	else
-	{
-		return false;
-	}
-	return true;
-}
-function isSSNChange(){
-	//if(document.form1.ssn.value == "")
-	joinssnFields(document.form1.ssn1ssn,document.form1.ssn2ssn,document.form1.ssn3ssn,document.form1.ssn,'N');
-
-	   var oldssn = document.form1.ssnNew.value;
-	   var newssn = document.form1.ssn.value;
-	   var modifiedOldSSN = 0;
-	   modifiedOldSSN = 1000000000 + parseInt(oldssn,10);
-	   var modifiedNewSSN = 0;
-	   modifiedNewSSN = 1000000000 + parseInt(newssn,10);
-	   if(modifiedOldSSN != 1000000000 && !(modifiedOldSSN == modifiedNewSSN)){
-			document.form1.hasSecondarySsnInformation.value="Y";
-		//return true;
-	   }
-	 //  return false;
-	}
-
-	function disableCalender(){
-      if(document.form1.scriptmode.value!='DC'){
-            if(document.form1.isCurrentlyPregnant.value == 'Y')
-            {
-             document.getElementById("dimg_dueDate").src="../../images/calendar.gif";
-             document.getElementById("dimg_dueDate").disabled=false;
-           }
-            else{
-               document.getElementById("dimg_dueDate").src="../../images/calendarGray.gif";
-                document.getElementById("dimg_dueDate").disabled=true;
-            }
-          }
-    }
-
-
-	function ssaCheck(form1){
-		var arDcModeVal = form1.scriptmode.value;
-		var dcuSsaCheck = form1.dcuSsaCheck.value;
-		if (arDcModeVal == 'DC' && dcuSsaCheck == 'Y') {
-			joinFields(form1.ssn1ssn,form1.ssn2ssn,form1.ssn3ssn,form1.ssn,'N');
-			var oldssn = form1.ssnNew.value;
-			var newssn = form1.ssn.value;
-			var modifiedOldSSN = 0;
-			modifiedOldSSN = 1000000000 + parseInt(oldssn,10);
-			var modifiedNewSSN = 0;
-			modifiedNewSSN = 1000000000 + parseInt(newssn,10);
-			if (form1.validataedBySSA.checked || form1.ssaValCheck.value == 'Y') {
-				form1.ssaValCheck.value = 'Y';
-			}
-			if(modifiedOldSSN != 1000000000 && !(modifiedOldSSN == modifiedNewSSN)){
-				form1.validataedBySSA.checked = false;
-			} else if(modifiedOldSSN != 1000000000 && form1.ssaValCheck.value == 'Y') {
-				form1.validataedBySSA.checked = true;
-			}
-		}
-	}
-	
-	var noinitialssnjs;
-	function doLoadStuff(){
-		/* Commented by Gopi for FO131 on 06/07/2006
-		  if(document.form1.isDhsEmployee.value=='N'){
-			//document.form1.employeeNumber.disabled = true;
-		} */
-		
-		// Change by Steve for defect - These disables are only for DC.
-		if(document.form1.scriptmode.value=='DC'){
-			//document.form1.validataedBySSA.disabled=true;
-			if ((document.form1.verificationSource.value == 'NT')|| (document.form1.verificationSource.value == 'NV')) {
-				document.form1.ssn1claimedSsn.disabled = false;
-				document.form1.ssn2claimedSsn.disabled = false;
-				document.form1.ssn3claimedSsn.disabled = false;
-			}
-		
-		
-			if(document.form1.ssn1ssn.value=="" || document.form1.ssn2ssn.value=="" || document.form1.ssn3ssn.value==""){
-				noinitialssnjs=true;
-			}
-		}
-		
-		disableChildTabs(document.form1);
-		if(document.form1.scriptmode.value =='DC'){
-		
-		//ILIES-279498 START
-		<% if(!"Y".equals((String)request.getAttribute("isAdlDateOfDeathException"))){%>
-			disableDeceasedVerificationAdl();
-		<% }else{ %>
-			enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerificationAdditional);
-		<% } %>
-		
-		//Comment added by prasad for FO348					enableFieldsOnYes(document.form1.highNeedProfile,document.form1.highNeedCriteria);
-		<%	if(!"Y".equals((String)request.getAttribute("isDateOfDeathException"))){%>
-			disableDeceasedVerification();
-			<%}else{%>
-			enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerification);
-			<%}%>
-			<% 
-			if((null==preFillDateOfDeathStr) || (null!=dcIndvCargo && dcIndvCargo.getDeathDt()==null)) { %>
-				EnableOrDisableDeathReportDate();
-				
-				<% } %>
-		}
-		if(document.form1.scriptmode.value!='DC'){
-			// Code added by Gopi for FO131 on 06/12/2006
-			disableFieldsOnNo(document.form1.isDisabled,document.form1.disability);
-			disableFieldsOnNo(document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
-			//Comment added by prasad for FO348					enableFieldsOnYes(document.form1.highNeedProfile,document.form1.highNeedCriteria);
-			checkGenderBridges(document.form1.gender,document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
-			// 06/12/2006 End
-		}
-	}
-
-
-//Addition 06/12/2006 End
-
-
-//Modified for FO713
-<%-- Begin BRGUS00099172-ThatiparthiS-Pregnany due date --%>
-	function checkGenderBridges(field1,field2,field3,field4,field5){
-		if(field1.value  == "M"){
-			field2.disabled= true;
-			field2.value= 'N';
-			disableFieldsOnNo(field2,field3,field4,field5);
-		}else if(field1.value == "F"){
-			var dobDate = document.form1.yearactualEstDateOfBirth.value;
-			var today;
-			today = getToday();
-			var date = today.getFullYear();
-			var dateDiff = date-dobDate;
-			if(dateDiff < 10 || dateDiff > 65)
-			 {
-				field2.disabled = true;
-				field3.disabled = true;
-				field4.disabled = true;
-				field5.disabled = true;
-				field2.value= 'N';
-				field3.value= 'mm';
-				field4.value= 'dd';
-				field5.value= 'yyyy';
-			 }else{
-		        field2.disabled = false;
-			   }
-		  }
-		else {
-			field2.disabled= false;
-		}
-	}
-<%-- End - BRGUS00099172 --%>
-
-function checkForDOB()
-{
-var dobDate = document.form1.yearactualEstDateOfBirth.value;
-			var today;
-			today = getToday();
-			var date = today.getFullYear();
-			var dateDiff = date-dobDate;
-
-			if(document.form1.gender.value == "F")
-			 {
-			  if(dateDiff < 10 || dateDiff > 65){
-			   	document.form1.isCurrentlyPregnant.disabled = true;
-			 }else{
-			     document.form1.isCurrentlyPregnant.disabled = false;
-			   }
-			 }
-
-}
-//End of FO713
-
-
-//Functions added by Gopi for FO177 on 06/14/2006
-	function disableEnableClaimedSSN()
-	{
-		var cmbVal = "NT";
-		var cmbVal1 = "NV";
-		var count = arguments.length;
-		flag=true;
-		if((getElementValueOrValue(arguments[0]) == cmbVal) || (getElementValueOrValue(arguments[0]) == cmbVal1)) {
-     		for(i=1;i<count;i++){
-				flag=false;
-				/* arguments[i].value="";  */
-				arguments[i].disabled = false;
-			}
-    	}
-		else
-		{
-			if(flag){
-       			for(i=1;i<count;i++){
-       				arguments[i].disabled = true;
-       				arguments[i].value="";
-       			}
-			}
-
-		}
-	}
-	function ssaCheckClaimed(form1){
-		var arDcModeVal = form1.scriptmode.value;
-		var dcuSsaCheck = form1.dcuSsaCheck.value;
-		if (arDcModeVal == 'DC' && dcuSsaCheck == 'Y') {
-			joinFields(form1.ssn1claimedSsn,form1.ssn2claimedSsn,form1.ssn3claimedSsn,form1.claimedSsn,'N');
-			var oldClaimedSsn = form1.claimedSsnNew.value;
-			var newClaimedSsn = form1.oldClaimedSsn.value;
-			var modifiedOldClaimedSSN = 0;
-			modifiedOldClaimedSSN = 1000000000 + parseInt(oldClaimedSsn,10);
-			var modifiedNewClaimedSSN = 0;
-			modifiedNewClaimedSSN = 1000000000 + parseInt(newClaimedSsn,10);
-			if (form1.validataedBySSA.checked || form1.ssaValCheck.value == 'Y') {
-				form1.ssaValCheck.value = 'Y';
-			}
-			if(modifiedOldClaimedSSN != 1000000000 && !(modifiedOldClaimedSSN == modifiedNewClaimedSSN)){
-				form1.validataedBySSA.checked = false;
-			} else if(modifiedOldClaimedSSN != 1000000000 && form1.ssaValCheck.value == 'Y') {
-				form1.validataedBySSA.checked = true;
-			}
-		}
-	}
-//Addition 06/14/2006 End
-//Functions added by Gopi for FO177 on 06/14/2006
-	function isClaimedSSNChangeVal(){
-	   // Change by Steve for defect - Source Field is only rendered for DC.
-	   // When in AR mode, simply join the fields and validate the SSN.
-	   if(document.form1.scriptmode.value=='DC'){
-		   if ((document.form1.verificationSource.value == 'NT') || (document.form1.verificationSource.value == 'NV')){
-		   		var bln1 = joinFields(document.form1.ssn1claimedSsn,document.form1.ssn2claimedSsn,document.form1.ssn3claimedSsn,document.form1.claimedSsn,'Y');
-		   		if (bln1 == false) {
-		   			return false;
-		   		}
-		   }
-		   return validateSSNVal(document.form1.claimedSsn,document.form1.monthactualEstDateOfBirth.value,document.form1.yearactualEstDateOfBirth.value);
-	   }else{
-	        //Modified by Gopi for removing the highlighting of Claimed SSN on 11/08/2006
-	    	var value1 = document.form1.ssn1claimedSsn.value;
-	    	var value2 = document.form1.ssn2claimedSsn.value;
-	    	var value3 = document.form1.ssn3claimedSsn.value;
-	        if(value1 != "" && value2 != "" && value3 != ""){
-	            joinFields(document.form1.ssn1claimedSsn,document.form1.ssn2claimedSsn,document.form1.ssn3claimedSsn,document.form1.claimedSsn,'Y');
-		   		return validateSSNVal(document.form1.claimedSsn,document.form1.monthactualEstDateOfBirth.value,document.form1.yearactualEstDateOfBirth.value);
-	        }
-	   }
-	}
-	function checkMultipleSSNValues(){
-	var action = document.getElementById("PAGE_ID");
-		if(document.form1.ssn1ssn.value!=0 && document.form1.ssn1claimedSsn.value!=0 && document.form1.ssn2ssn.value!=0 && document.form1.ssn2claimedSsn.value!=0 && document.form1.ssn3ssn.value!=0 && document.form1.ssn3claimedSsn.value!=0){
-		   alertMe("GL123",action);
-		   return false;
-		}else{
-		   return true;
-		}
-	}
-function formDate(a,b,c,d){
-		var monthdue = a.value;
-		var yeardue = b.value;
-		var sysyear = c.value;
-		var sysmonth = d.value;
-		var diff = monthdue - sysmonth;
-		var diffyear = yeardue - sysyear;
-if(yeardue == sysyear){
-			if(diff>9 || diff<0){
-			alertMe("AR028");
-			return false;
-				}
-		else{
-				return true;
-			}
-	}
-if(diffyear >1 ||diffyear<0){
- alertMe("AR028");
-	 return false;
-}
-else{
-if(diffyear ==1){
-var difference1 = 12-sysmonth;
-var difference3 = difference1*1;
-var difference2 = monthdue*1;
-var difference = difference2 + difference3;
-
-if(difference > 9){
- alertMe("AR028");
-	 return false;
-}
-else{
-return true;
-}
-}
-}
-}
-//Addition 06/15/2006 End
-//#1 CODE-ADD-START
-	 function isValidRace(field){
-		var raceVal = field.value;
-		if(raceVal == 'UN'){
-			alertMe('DC3120',field,'Unable to determine race',field);
-			return false;
-		}
-	} 
-	
-	
-	function verificationSource(){		
-		<%if("DC".equals(ARDCMODE)) {
-		if(preFillIndvIdStr==null && !"FED".equalsIgnoreCase(dcIndvCargo.getSsnVrfCd())){%>
-		if(document.getElementById("rtcheck2").value == 'FED'){
-		 	alertMe("DC4841");
-			return false;
-		}
-		<%}}%>
-	}  
-	
-//#1 CODE-ADD-END
-function validateDisability()
-{
-	if(document.form1.isDisabled.value == 'Y'){
-		return isComplete(document.form1.disability);
-	}
-}
-
-function validDueDate()
-{
-	var arDcModeVal = form1.scriptmode.value;
-	if(document.form1.isCurrentlyPregnant.value=='Y' )
-	{
-		if(arDcModeVal=='DC')
-		{
-			return isComplete(document.form1.dueDate);
-		}
 	}
 
 }
-function validateDueDate()
-{
-	if(document.form1.isCurrentlyPregnant.value=='Y' ) {
-		return isDateComplete(document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
-	}
-
-}
-
-/* pg added */
- function pregnancyDateRange()
-{
-		var cal = getToday();
-		var futureDate= getToday();
-		futureDate.setMonth(cal.getMonth()+11);
-		var enteredDate = new Date(document.form1.yeardueDate.value,document.form1.monthdueDate.value-1,document.form1.datedueDate.value);
-		 
-	if(enteredDate != "" && document.form1.isCurrentlyPregnant.value=='Y')
-	{		
-		if (enteredDate < futureDate) 
-		{
-			 return true;
-		}
-		 else
-		 {
-			 alertMe('DC058');  
-			return false;
-		 }
-	}
-	
-}
-/* pg ended */
-
-//CR-22086-START
-function enableDisableSecondaryRace(){
-}
-
-function disableEnableSecondaryRace(){
-	var selectedPrimaryRace = document.form1.race.value;
-	if(selectedPrimaryRace == "UK" || selectedPrimaryRace == " " || selectedPrimaryRace==""){
-		
-	}else{
-		/* document.form1.otherRace.disabled=false; */
-	}
-} 
-
- function disableSecondaryRaceField(){
-	
-} 
- 
-
-
-//BRGUS00111363 - End
-
-//BEGIN-BRGUS00107064-upadhyayulag-Function to disable Add Individual & Previous buttons
-function disableSaveAddIndividualAndPrevious(){
-    var val1 = "";
-    var val2 = "";
-	if(document.form1.fromArToDc != null){
-		var val1 = document.form1.fromArToDc.value;
-	}
-	//BEGIN-BRGUS00107064-upadhyayulag-Modify the repeated variable to addNewIndividual
-	if(document.form1.addNewIndividual != null){
-		var val2 = document.form1.addNewIndividual.value;
-	}
-	//END-BRGUS00107064
-	if(val1 == "Y" || val2 == "Y"){
-	   
-	    disableSaveAndPreviousButton();
-	}
-}
-//END-BRGUS00107064
-
-		function inactiveValidation(){
-			var inactiveStatus = "";
-			var pageMode = <%=pageMode%>;
-			
-			inactiveStatus = "<%=String.valueOf(dcIndvCargo.getInactiveInd())%>";
-			
-			if ( pageMode!=0 && inactiveStatus == 'Y' ) {
-				alertMe('DC4477',"");												
-				return false;
+if (dcIndvEthnicityColl != null && dcIndvEthnicityColl.size()>0){
+			for (int i = 0; i < dcIndvEthnicityColl.size(); i++) {
+				dcIndvEthnicityCargo = dcIndvEthnicityColl.getResults(i);
+				ethnicitys.add(dcIndvEthnicityCargo.getEthnicityCd());
 			}
-			return true;
-		}
-
-
-	function disableDeceasedVerification()
-	{	
-	 	document.form1.deceasedVerification.disabled = true;
 	}
-	
-	//Added for ILIES-279498
-	function disableDeceasedVerificationAdl(){
-		document.form1.deceasedVerificationAdditional.disabled = true;
-	}
-	
-	//ILIES-276949 Start
-    function deceasedVerificationDupValidate()
-    {
-        var deceasedVrf = document.getElementById('rtcheck12').value;
-        var deceasedVrfAdl = document.getElementById('rtcheck13').value;
-                    
-        var deceasedAdlField = document.form1.deceasedVerificationAdditional.FIELD_NAME;
-        if(deceasedVrf != null && deceasedVrfAdl != null){
-            if(deceasedVrf.trim() != "" && deceasedVrfAdl.trim() != ""){
-                if( deceasedVrf == deceasedVrfAdl){
-                    alertMe("AR6666",document.getElementById('rtcheck13'));
-                    return false;
-                 };
-            };
-        };
-    }
-    //ILIES-276949 End
 
-	//Added as part of SOP-810 start
-	
-function EnableOrDisableDeathReportDate(){
-	if(document.form1.deceasedVerification.disabled==false){		
-		document.form1.yeardateOfDeathReportDate.disabled=false;
-		document.form1.monthdateOfDeathReportDate.disabled=false;
-		document.form1.datedateOfDeathReportDate.disabled=false;
-		document.getElementById("dimg_dateOfDeathReportDate").src="../../images/calendar.gif";
-        document.getElementById("dimg_dateOfDeathReportDate").disabled=false;
-		//document.form1.dateOfDeathReportDate.disabled=false;
-	} else {			
-			//document.form1.dateOfDeathReportDate.disabled=true;
-			document.form1.yeardateOfDeathReportDate.disabled=true;
-			document.form1.monthdateOfDeathReportDate.disabled=true;
-			document.form1.datedateOfDeathReportDate.disabled=true;
-			document.getElementById("dimg_dateOfDeathReportDate").src="../../images/calendarGray.gif";
-            document.getElementById("dimg_dateOfDeathReportDate").disabled=true;
-		}		
-	}
-	
-//Added as part of SOP-810 end 
 
- 
-
-</script>	
-						
-<%--BRGUS00071475 Displays warning message if the current individual is HoH in any case and is marked deceased --%>
-<script language="javascript" type="text/javascript">
-function displayDeceasedWarning(){
+%>
+<select name="ssnTemp" id="ssnTemp" MULTIPLE size="2" style="display:none;">
 <%
-	if("DC".equals(ARDCMODE)) {
-		if("Y".equals((String)request.getAttribute("isIndvHeadOfHousehold"))){
+    int count = 0;
+	String[] ssnArrayTemp = (String[])request.getAttribute("SSNArray");
+	if(ssnArrayTemp!=null){
+		int ssnSize = ssnArrayTemp.length;
+		if(ssnSize>0){
+			for(int s=0;s<ssnSize;s++){
+				if(ssnArrayTemp[s]!=null){
+					out.println("<OPTION value="+ssnArrayTemp[s]+">"+ssnArrayTemp[s]+"</OPTION>");
+					count++;
+				}
+			}
+		}
+	}
+    if(count == 0){
+	   out.println("<OPTION></OPTION>");
+	}
+%>
+</select>
+<%/* NOT EDITABLE - Top of Page Include */%>
+<%@ include file = "/fwincludes/tabs.jsp" %>
+
+<%/* EDITABLE - Page Level Icon Includes (You can add code to this section) */%>
+<%
+ if ("DC".equals(ARDCMODE)){
+     String indvIdComments = dcIndvCargo.getIndvId() + "";
+%>
+ 
+  <%
+
+  //BRGUS00120360 - Arakalas - Allow 40 Quarters request in R/W mode.
+
+	if(dcIndvCargo!=null && dcIndvCargo.getIndvId() > 0){
+	if( pageMode == 0 || securityAttr.getPermission() == 0) {
+	//BRGUS00123389 -- -- changing from DC4065 to DC4068 because of merge
 	%>
-	var month= document.form1.monthdeceasedDateOfDeath;
-	var date = document.form1.datedeceasedDateOfDeath;
-	var year = document.form1.yeardeceasedDateOfDeath;
+	<img id="WTP" src="../../images/pageLevelRequestWTP.gif" onClick="alertMe('DC4068',document.getElementById('WTP'))" alt="WTP 40 Quarters" align="absmiddle"  border="0" >
 
-	if(month!=null && month.value!="" && isInteger(month.value)
-	&& date!=null && date.value!="" && isInteger(date.value)
-	&& year!=null && year.value!="" && isInteger(year.value)){
-			document.all.spaceTableClient.style.display='none';
-			document.all.messageTableClient.style.display='block';
-			document.all.messageSpanClient.style.color='GREEN';
-			document.all.messageSpanClient.innerHTML="If the deceased person is the Head of Household, ongoing programs may close. If there is another appropriate individual in the case, please designate him / her as the Head of Household, only when there is a surviving member in the case";
-			scroll(0,0);
+	<%}else { %>
+	<A HREF="/ControllerServlet?PAGE_ID=DCDID&ACTION=generateWTP&ARDCMODE=DC&CASE_NUMBER=<%= ((Long)request.getAttribute(DcConstants.CASE_NUMBER)).longValue() %> &SELECTED_INDV=<%=(dcIndvCargo!=null)?String.valueOf(dcIndvCargo.getIndvId()):"0" %>" target="_self"><img src="../../images/pageLevelRequestWTP.gif"  alt="Trigger WTP 40 Quarters Request" align="middle"  border="0" ></A>
+	<%
+	}
+	}
+	%>
+	 <%/* Code added for ILIES-169586  */%>
+	<% 	if(dcIndvCargo!=null && dcIndvCargo.getIndvId() > 0){ %>
+	<a href="#"><img id="DMR" src="../../images/shgroup.gif" onClick="openDeathInfoPopUp('<%=dcIndvCargo.getIndvId()%>');return false;" alt="Death Match Results" align="middle"  border="0" /></a>
+	<% } %>
+
+  <%
+ }
+%>
+  <%/* NOT EDITABLE - Spacer Images */%>
+  <%@ include file = "/fwincludes/spacing.jsp" %>
+
+  <%/* Added by Shilpi Bhatia for FO369.1 on 11/08/2006 */ %>
+
+
+
+ <DIV id="MainHeader" repeat="N">
+
+<%/* EDITABLE - Action Buttons (You can change this include.) */%>
+
+
+
+<%/* 11/08/2006 End */ %>
+ <%-- ILIES-154463: Moved error messages section above ARDCHeader section of the page as part of Accessibility changes --%>	
+  <%/* NOT EDITABLE - Begin Outter HTML Table  and  messages file*/%>
+   <jsp:include page = "/fwincludes/messageDisplay.jsp"/>
+  <%/* EDITABLE - Page Header Include (You can change this include.) */%>
+ <%try {%>
+ <%@ include file="/includes/ArDcHeader.jsp" %>
+ <%}catch(Exception e){
+ 	logger.log("ARRIIRegisterAppIndv", logger.ERROR, "Exception occured in ARRIIRegisterAppIndv : "+e.toString());
+ }
+%>
+
+<%
+
+   StringBuffer  sb = new StringBuffer("onclick=\"javascript: setActionFieldAndSubmit(document.form1,'"+ViewConstants.VCR_NEXT_BUTTON+"','Y'); return false;\" ");
+   String vcrNextScript = sb.toString();
+
+   sb = new StringBuffer("onclick=\"javascript: setActionFieldAndSubmit(document.form1,'"+ViewConstants.VCR_PREVIOUS_BUTTON+"','Y'); return false;\" ");
+   String vcrPrevScript = sb.toString();
+
+   sb = new StringBuffer(" onclick=\"javascript:return doReset(document.form1);disableDetailsFields();return false \" ");
+   String resetScript = sb.toString();
+   sb = new StringBuffer(" onclick=\"javascript:setSaveAddNewIndividual();setActionFieldAndSubmit(document.form1,'"+ViewConstants.ADD_ARROW_BUTTON+"');return false \" ");
+   String addArrowScript = sb.toString();
+
+   sb = new StringBuffer("onclick=\"javascript:document.form1.IS_PREVIOUS_ACTION.value='Y';setActionFieldAndSubmit(document.form1,'"+ViewConstants.PREVIOUS_BUTTON+"');return false\" " );
+   String prevScript = sb.toString();
+   
+   sb =  new StringBuffer("onclick=\"javascript:document.form1.CHECK_TO_DISABLE.value='Y';setActionFieldAndSubmit(document.form1,'"+ViewConstants.NEXT_BUTTON+"');return false\" " );
+   String nextScript = sb.toString();
+   
+   sb =  new StringBuffer("onclick=\"javascript:document.form1.IS_CANCEL_ACTION.value='Y';setActionFieldAndSubmit(document.form1,'"+ViewConstants.CANCEL_BUTTON+"','N');return false;\" " );
+   String cancelScript = sb.toString();
+
+   sb =  new StringBuffer("onclick=\"javascript:validateIndvIdSsn(document.form1);return false;\" " );
+   String searchScript = sb.toString();
+
+
+   sb=null;
+
+   String histNav="S";
+   if(request.getAttribute("histNavId")!= null) {
+	   histNav=(String)request.getAttribute("histNavId");
+   }
+ %>
+
+
+
+<%if("DC".equals(ARDCMODE)){ %> <%--BRGUS00106026 - deshmukha- Added the 'if-else' block to remove VCR and ADD buttons in AR --%>
+<DCTagLibrary:DcButtonTag			 buttonType     = "VCR_RCArPN" altId="3"
+			 vcrPrevScript="<%=vcrPrevScript%>"
+ 			 vcrNextScript="<%=vcrNextScript%>"
+ 			 resetScript="<%=resetScript%>"
+  			 buttonSecurity ="<%=String.valueOf(securityAttr.getPermission())%>"
+     		 addArrowScript="<%=addArrowScript%>"
+ 			 prevScript    ="<%=prevScript%>"
+  			 nextScript    ="<%=nextScript%>"
+			 cancelScript    ="<%=cancelScript%>"
+			 histNavInd="<%=histNav%>"
+			 tabPosition = "top"
+    			 />
+ <%} else { %>
+<%
+if(isSSApp && enableDel){ 
+String actualUrl1="/ControllerServlet?PAGE_ID=ARRII&ACTION=Previous&APPL_NUM_ARRII="+appNumber+"&Delete_IndvId="+dcIndvCargo.getIndvId()+"&DELETE_SS_INDV=true";
+String oScript1 = "onclick=\"parent.location='"+actualUrl1+"';return false;\"";
+
+if (editMode != null && editMode.equalsIgnoreCase("EDIT_MODE"))
+				{
+				%>
+<TL:FWButtonTag button="DELETE_INDIVIDUAL_BUTTON" id="deleteIndividual" name="deleteIndividual" target="_self" formName="document.form1" mode="0" />
+				<%
+				}
+				else
+				{
+				%>
+<TL:FWButtonTag button="DELETE_INDIVIDUAL_BUTTON" id="deleteIndividual" name="deleteIndividual" loadUrl="<%=actualUrl1%>" target="_self" formName="document.form1" mode="1" other="<%=oScript1%>"/>
+				<% 
+				}
+				}	
+				%>
+ 		<DCTagLibrary:DcButtonTag			 buttonType     = "RCPN" altId="4"
+			 resetScript="<%=resetScript%>"
+  			 buttonSecurity ="<%=String.valueOf(securityAttr.getPermission())%>"
+     		 prevScript    ="<%=prevScript%>"
+  			 nextScript    ="<%=nextScript%>"
+			 cancelScript    ="<%=cancelScript%>"
+			 histNavInd="<%=histNav%>"
+			 tabPosition = "top"
+    			 />
+ <% } %>
+
+
+  <%/* EDITABLE (You can add code to this section) - Page Specific Table(s) - This is each developers area for coding the presentation. */%>
+  <%String style=" ";
+  if(isRecordEdited){
+  style="visibility:hidden;display:none;";
+  }else
+  {  style="visibility:visible"; }%>
+ <DIV style ="<%=style%>">
+	<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable" role= "presentation">
+		<tr><td><H2 class="bodyDividerTableHeader">
+            Search Individual Information</H2>
+		</td></tr>
+
+	</table>
+	
+	<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyFormLabels" role="presentation">
+		<tr>
+			<td width="132">
+				<TL:FWLabelTag bean="<%=inputSsn%>"/>
+			</td>
+			<td width="228">
+				<TL:FWTextTag bean="<%=inputSsn%>"  maxlength="9" size="9" password ="Y" value="" password = "N" other="validate=\"isNumeric(document.form1.inputSsn);\""/>
+			</td>
+			<td width="130">
+				<TL:FWLabelTag bean="<%=individualNumber%>"/>
+			</td>
+			<td width="233">
+				<TL:FWTextTag bean="<%=individualNumber%>"  maxlength="13" size="13" value="" other="validate=\"isNumeric(document.form1.individualNumber);\""/>
+			</td>
+		</tr>
+	</table>
+	 
+	<table width="723" border="0" cellspacing="0" cellpadding="0" role= "presentation">
+		<tr>
+			<td>
+	    	    <DCTagLibrary:DcButtonTag buttonType="Search" altId="5"  searchScript="<%=searchScript%>"/>
+			</td>
+		</tr>
+	</table>
+</DIV>
+
+<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable" role= "presentation">
+	<tr><td><H2 class="bodyDividerTableHeader">
+		Individual Name</H2>
+	</td></tr>
+
+</table>
+
+<table width="723" border="0" class="bodyFormLabels" title="Individual Name" role= "presentation">
+	<tr>
+		<td>
+		<% String fname=dcIndvCargo.getFirstName();	
+			if(fname!=null){		
+			   fname=fname.replaceAll("\"","'");
 			}
-	<%}}%>
-}
+		   String mname=dcIndvCargo.getMidName();
+		   if(mname!=null){
+		       mname=mname.replaceAll("\"","'");
+		   }
+		   String lname=dcIndvCargo.getLastName();
+		   if(lname!=null){
+		   		lname=lname.replaceAll("\"","'");
+		   	}
+		 %>
+		<%--BRGUS00147551 changes begin here by krishnap1 : 2/19/2008 --%>
+		<TL:FWGroupNameTag nameGroupBeanId="nameGroup"  mandatoryMarker="Y"
+			prefixName ="<%=dcIndvCargo.getPrefixName()%>"
+			firstName="<%=fname%>"
+			firstNameScript="validateName(document.form1.firstName); \'onKeyup=\"changeSSAValue();\""
+		    middleName="<%=mname%>"
+			middleNameScript="validateName(document.form1.middleName);isMidNameAlpha(document.form1.middleName);\'onKeyup=\"changeSSAValue();\""
+			lastName="<%=lname%>"
+			lastNameScript="validateName(document.form1.lastName);isLastNameValid(document.form1.lastName);\'onKeyup=\"changeSSAValue();\""
+			suffixName ="<%=dcIndvCargo.getSufxName()%>"
+			 />
+		<%--#8-CODE-MOD-END--%>
+		<%--BRGUS00147551 changes end here--%>
+		</td>
+	<% //} %>
+	</tr>
+</table>
+<br>
 
+<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable" role= "presentation">
+	<tr><td><H2 class="bodyDividerTableHeader">
+		Demographic Information</H2>
+	</td></tr>
 
-function ssnVerficationSource(){
-<%
-	if("DC".equals(ARDCMODE)) {
-		if (dcIndvCargo.getSsn() !=0 && (dcIndvCargo.getSsaValidationSw() == 'Y' || dcIndvCargo.getSsaPcValidationSw()== 'Y')){
-			if(request.getAttribute("isEnumerationException")!=null){	%>
-				document.getElementById("ssn1ssn").disabled = false;
-				document.getElementById("ssn2ssn").disabled = false;
-				document.getElementById("ssn3ssn").disabled = false;
-				document.getElementById("rtcheck2").disabled = false;
-			<%}else{%>
-				document.getElementById("ssn1ssn").disabled = true;
-				document.getElementById("ssn2ssn").disabled = true;
-				document.getElementById("ssn3ssn").disabled = true;
-				document.getElementById("rtcheck2").disabled= true;
-		<%}}}%>			
-}
+</table>
 
+<table width="723" border="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+	<tr>
+		<td width="132">
+			<TL:FWLabelTag bean="<%=gender%>" labelId="genId" required="Y"/>
+		</td>
+		
+		<td width="228">
+			<TL:FWRTSelectTag lblDesc="Gender Required" referenceTableName="GENDER" bean="<%=gender%>" emptySpace="Y" selected="<%=String.valueOf(dcIndvCargo.getGenderCd())%>"  multiple="N" show="1" size="8" other="onChange=\"onChangeGender();changeSSAValue();\" validate=\"isComplete(document.form1.gender);\"" /> 		<%-- Defect# BRGUS00045145 --%>
+		</td>
+            <%--06/12/2006 End--%>
+		<td width="130">
+			<TL:FWLabelTag bean="<%=actualEstDateOfBirth%>" required = "Y" />
+		</td>
+		<td width="233">
+			<%if ("DC".equals(ARDCMODE)){%>
+				<TL:FWGroupCustomDateTag beanId = "actualEstDateOfBirth"   disableLabel="Y" futureDate = "Y" isRequired="Y" dateValue = "<%=bdate%>" pageMode = "1" DOB = "Y"   other = "onChange=\"defDisplayIndvError_Count();changeSSAValue();changeDate();calculateAge();\"" onCalendarDateSelect="defDisplayIndvError_Count();changeSSAValue();changeDate();calculateAge();"/>
+			<% }else{%>
+				<%--  BRGUS00099172-ThatiparthiS-Pregnany due date --%>
+				<TL:FWGroupCustomDateTag beanId = "actualEstDateOfBirth"   disableLabel="Y" futureDate = "Y" isRequired="Y" dateValue = "<%=bdate%>" pageMode = "1" DOB = "Y"  other = "onChange=\"checkForDOB();checkGenderBridges(document.form1.gender,document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);calculateAge();\"" onCalendarDateSelect="checkGenderBridges(document.form1.gender,document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);calculateAge();"/>
+			<% }%>
+		</td>
+	</tr>
+</table>
 
-//Janaganib:11/21/2008: BRGUS00135635:CR # 21593 Stream Line New Born Entry.
-function showUserInfo(indvId){
-	var url="/ControllerServlet?PAGE_ID=IQISU&REQUESTED_PAGE_ID=IQISU&FWPOPUP=Y&ACTION=ClickOnLink&cin="+indvId;
-	openModalDialog(url,"Individual Information",'dialogWidth:755px;dialogHeight:710px');
-	//alert("url: "+ url);
-}
-var indvDobs = new Array();
-function indvsMessage(){
-
-<%
-	java.util.HashMap indvs = new java.util.HashMap();
-	indvs = (java.util.HashMap)request.getAttribute("IndivDobs");
-	if(indvs != null){
-		java.util.Iterator itTemp = indvs.keySet().iterator();
-		String indivId1 = "";
-		String dob1 = "";
-		while(itTemp.hasNext()){
-			indivId1 = (String)itTemp.next();
-			dob1 = (String)indvs.get(indivId1);
-		%>
-			var tempDob = "<%=dob1%>";
-			indvDobs.push(new Array('<%=indivId1%>',new Date(tempDob.split("-")[0],tempDob.split("-")[1]-1,tempDob.split("-")[2])))
-		<%
+	<%
+		String bdateVrf = new String();
+		if(dcIndvCargo!=null && null!= dcIndvCargo.getDobVrfCd()){
+			bdateVrf = dcIndvCargo.getDobVrfCd();
+		}else{
+			bdateVrf ="CS";
 		}
+		if ("DC".equals(ARDCMODE)){
+	%>
+<table width="723" border="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+
+	<tr>
+		<td width="132">
+			<TL:FWLabelTag bean="<%=DOBVerification%>" id="rtcheck111" required="Y" />
+		</td>
+		<td width="591">
+			<TL:FWRTSelectTag referenceTableName ="DOBVRF" bean="<%=verifications%>" selected="<%=bdateVrf%>"
+				id="rtcheck111"  size="35"  filter="YES" filterColumn="DOB" filterValue="Y" emptySpace="Y" other="validate=\"isComplete(document.form1.verifications);conversionVerification(document.form1,document.form1.verifications) \"" /> <%--#6--%>
+		</td>
+	</tr>
+</table>
+	<%
+		}
+	%>
+
+<table width="723" border="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+	<tr>
+		
+	 <%if ("DC".equals(ARDCMODE)){%>
+		<td width="132">
+			<TL:FWLabelTag bean="<%=ssn%>" required = "N"/>
+		</td>
+		<td width="228">
+			<TL:FWGroupCustomSSNTag beanId = "ssn" SSN = "<%=ssnValue%>" pageMode = "5" disableLabel="Y"  adjacent="N" other="onChange=\"ssaCheck(document.form1)\"" script="isSSNChange();isSSNChangeVal()" />
+		</td>
+	 <%}else{ %>
+	 	<td width="132">
+	 		<TL:FWLabelTag bean="<%=ssn%>" required = "N"/>
+	 	</td>
+		<td width="228">
+			<TL:FWGroupCustomSSNTag beanId = "ssn" SSN = "<%=ssnValue%>" pageMode = "5" disableLabel="Y"  adjacent="N" other="onChange=\"ssaCheck(document.form1)\"" script="isSSNChange();isSSNChangeVal()" />
+		</td>
+	<%} %>
+	<%	if ("AR".equals(ARDCMODE) || "AM".equals(ARDCMODE)){
+	 %>
+		<td width="130">
+			<TL:FWLabelTag bean="<%=claimedSsn%>" required = "N"/>
+		</td>
+		<td width="233">
+			<TL:FWGroupCustomSSNTag beanId = "claimedSsn" SSN = "<%=claimedSsnValue%>" pageMode = "5" disableLabel="Y"   adjacent="N" script="isClaimedSSNChangeVal()" />
+	    </td>
+	<%
+		}
+	%>
+	<%
+		String ssnVrf = new String();
+	  	if(dcIndvCargo!=null ){
+		  	ssnVrf = dcIndvCargo.getSsnVrfCd();
+		}
+	  	
+	  	if(null != preFillIndvIdStr){
+	  		ssnVrf = "FED";
+	  	}
+	  	
+		if ("DC".equals(ARDCMODE)){
+			byte k =0;
+			String validated = "";
+			String checkValue = "";
+	  	  		if(dcIndvCargo!=null )
+		  		{
+				  	if(String.valueOf(dcIndvCargo.getSsaValidationSw()).equals("Y"))	{
+						validated = "Y";
+						checkValue = "Y";
+			        }else if(String.valueOf(dcIndvCargo.getSsaValidationSw()).equals("N")){
+			        	checkValue = "N";
+			        	validated="N";
+			        }
+	            }
+
+			byte enableValBySSA = 0;
+			if("Y".equals( (String)request.getAttribute("isEnumerationException") ) ) {
+				enableValBySSA = 1;
+			}
+	%>
+				
+			<td align="left">
+				<TL:FWCheckBoxTag bean="<%=validataedBySSA%>" mode = "<%=enableValBySSA%>" id="radio1" display="<%=validataedBySSA.LABEL%>" 
+					value="<%=checkValue%>" selected="<%=validated%>" other="onChange='onChangeValidateSSA()'"/>
+			</td>
+	<%
+		}
+	%>
+    </tr>
+</table>
+
+<%if ("DC".equals(ARDCMODE)){
+	String validates = "";
+	String checkValues = "";
+	if(dcIndvCargo!=null )
+	{
+		if(String.valueOf(dcIndvCargo.getSsaPcValidationSw()).equals("Y")){
+			validates = "Y";
+			checkValues = "Y";
+		}else if(String.valueOf(dcIndvCargo.getSsaPcValidationSw()).equals("N")){
+			 checkValues = "N";
+			 validates="N";
+		}
+	 }
+
+ 	byte enableValBySSAPC = 0;
+	if("Y".equals( (String)request.getAttribute("isSsaPc") ) ) {
+		enableValBySSAPC = 1;
+	} 
+%>
+	<table width="723" border="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+		<tr>
+			<td width="132">
+				<TL:FWLabelTag bean="<%=verificationSource%>" id="rtcheck2" required="Y"/>
+			</td>
+	        <td width="229">
+				<TL:FWRTSelectTag referenceTableName ="SSNVRF" bean="<%=verificationSource%>" selected="<%=ssnVrf%>" 
+				    id="rtcheck2" size="20"  emptySpace="Y" filter="YES" filterColumn="SSN" filterValue="Y" other="onChange=\"disableEnableClaimedSSN(document.form1.verificationSource,document.form1.ssn1claimedSsn,document.form1.ssn2claimedSsn,document.form1.ssn3claimedSsn);\" validate=\"if(document.form1.ssn.value!='')isComplete(document.form1.verificationSource);ssnEmptyValueCheck(document.form1.ssn1ssn,document.form1.ssn2ssn,document.form1.ssn3ssn,document.form1.ssn1claimedSsn,document.form1.ssn2claimedSsn,document.form1.ssn3claimedSsn,document.form1.verificationSource);conversionVerification(document.form1,document.form1.verificationSource);verificationSource()\"" />
+			</td>
+			 <td >
+				<TL:FWCheckBoxTag bean="<%=validataedPcBySSA%>" display="<%=validataedPcBySSA.LABEL%>" mode = "<%=enableValBySSAPC%>" id="radio4" 
+					value="<%=checkValues%>" selected="<%=validates%>" other="onChange='onChangeValidateSSAPC()'"/> 
+			</td> 
+		</tr>
+	</table>
+	<table width="723" border="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+		<tr>
+		 	<td width="132">
+		 		<TL:FWLabelTag bean="<%=claimedSsn%>" required = "N" />
+		 	</td>
+			<td width="591">
+				<TL:FWGroupCustomSSNTag beanId = "claimedSsn" SSN = "<%=claimedSsnValue%>" pageMode = "5" disableLabel="Y" mode ="<%=sRole%>"  adjacent="N" script="isClaimedSSNChangeVal()" />
+	        </td>
+		</tr>
+	</table>
+<%
 	}
 %>
-}
-<% String caseMode = (String)request.getAttribute("CASE_MODE");%>
-function testSSN(){	
-var mode= '<%=caseMode%>';
-	if(noinitialssnjs && document.form1.fromArToDc.value != "Y" && mode != "IN" ){
-		if(!(document.form1.ssn1ssn.value=="" || document.form1.ssn2ssn.value=="" || document.form1.ssn3ssn.value=="")){
-			alertMe("GL188");
-			noinitialssnjs=false;
-			return false;
-		}
-	}
-}
 
-var errorIndvs= new Array();
-function testDobs(){
-	errorIndvs= new Array();
-	var month11 = document.form1.monthactualEstDateOfBirth.value;
-	var date11 = document.form1.dateactualEstDateOfBirth.value;
-	var year11 = document.form1.yearactualEstDateOfBirth.value;
-
-	var dateYearOld = new Date (year11-1,month11,date11);
-	var dateYearNew = new Date (parseInt(year11,10)+1,month11,date11);
-	var i =0;
-	var indvId1="";
-	var dob1="";
-	for(i = 0;i<indvDobs.length;i++){
-		indvId1 = indvDobs[i][0];
-		dob1 = indvDobs[i][1];
-		if(dateYearOld<dob1 && dob1<dateYearNew){
-			errorIndvs.push(indvId1);
-		}
-	}
-	//alert(errorIndvs);
-	return displayIndvError();
-
-}
-var displayIndvError_Count = 0;
-function defDisplayIndvError_Count(){
-   //alert('defDisplayIndvError_Count');
-   displayIndvError_Count = 0;
-
-}
-function displayIndvError(){
-	var str1 = "<a onClick='showUserInfo(@);return false'href='#'>@<\/a>";
-	var messageDisp = "";
-	var i =0;
-	for(i =0;i<errorIndvs.length;i++){
-		messageDisp = messageDisp + str1.replace(/@/g,errorIndvs[i]) + " ";
-	}
-	//alert(messageDisp);
-	if(messageDisp.length > 0 && displayIndvError_Count == 0){
-	    displayIndvError_Count = displayIndvError_Count + 1;
-		alertMe("DC4075","",messageDisp);
-		return false;
-	}
-
-	return true;
-}
-
-
-</script>
-
-<script language="javascript" src="/js/dcErrorCodes.js" type="text/javascript"></script>
-<script language="javascript" type="text/javascript">
-
-function validateLanguages(){ //Primaey Language and Secondary language cant be same BRGUS00136636
-var primaryLang = document.form1.primaryLanguage.value;
-var secLangs = document.form1.secondaryLanguages;
-var size=secLangs.length;
-var i=0;
-for(i=0;i<size;i++){
-	if(secLangs.options[i].selected==true){
-		if(secLangs.options[i].value==primaryLang){
-		alertMe('DC4076',document.form1.primaryLanguage);
-		return false;
-		}
-	}
-}
-}
-
-	function isLastNameValid(lastName){
-		var strlen = lastName.value.length;
-
-		if(strlen<2){
-		alertMe("DC4106");
-		return false;
-		}
-
-	}
-
-function onChangeValidateSSA(){
-	if(document.form1.validataedBySSA.checked){
-		document.form1.hiddenValidateSSA.value = "Y";
-	}
-	else{
-		document.form1.hiddenValidateSSA.value = "";
-	}
-}
-
-function onChangeValidateSSAPC(){
-	if(document.form1.validataedPcBySSA.checked){
-		<%if(request.getAttribute("isEnumerationException")==null){%>
-		document.getElementById("ssn1ssn").disabled = true;
-		document.getElementById("ssn2ssn").disabled = true;
-		document.getElementById("ssn3ssn").disabled = true;
-		document.getElementById("rtcheck2").disabled = true;
-		 <%}%> 
-		document.form1.hiddenValidateSSAPC.value = "Y";
-	}
-	else{
-		if(!document.form1.validataedBySSA.checked){		
-		document.getElementById("ssn1ssn").disabled = false;
-		document.getElementById("ssn2ssn").disabled = false;
-		document.getElementById("ssn3ssn").disabled = false;
-		document.getElementById("rtcheck2").disabled = false;
-		document.form1.hiddenValidateSSAPC.value = "";
-		}
-	}
-}
-
-function deceasedVerificationCheck(field1,field2,field3,field4){
-
+<table width="723" border="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+ 	<tr>
+    <%//if ("DC".equals(ARDCMODE))
+		if (!(ARDCMODE.equals("AR")||ARDCMODE.equals("AM"))){   // Begin BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity -- PatelC
+			if(dcIndvCargo!=null && dcIndvCargo.getRaceCd()!= null){
+            	raceCode = String.valueOf(dcIndvCargo.getRaceCd());
+            }else{
+            	if(isMiChildApp){
+            		raceCode="UN";
+            	}
+            }
+	%>
+	  		<td width="40" align="left" valign="top">
+	  			<TL:FWLabelTag bean="<%=race%>" required = "Y"/>
+	  		</td>
+	  		<td width="190">
+	  			<TL:FWRTSelectTag referenceTableName="RACEDISPLAY" bean="<%=race%>"  selected="<%=races%>"  emptySpace="N" multiple="Y"  show = "4" size="26" other="validate=\"isComplete(document.form1.race)\""/> <%-- BRGUS00111363 - deshmukha - 06/24/2008 - To add vaidation to check Primary race and Secondary race are not the same--%>
+	  		</td>
+	  		
 	<%
-	if("DC".equals(ARDCMODE)) {
-		if( ! "Y".equals((String)request.getAttribute("isDateOfDeathException")))
-		{
-		%>	
-			if(document.form1.fileClrDOD.value!=null && document.form1.fileClrDOD.value=='Y'){
-				var newVarificationCd=field1.value;
-				var worker="";
-				var mm = field2.value;
-				var dd =field3.value;
-				var yyyy = field4.value;
-				
-				if(newVarificationCd == varificationCd)
-				{
-					return true;
-				}
-				if(varificationCd == "CV"||varificationCd =="CS"||varificationCd=="NV"||varificationCd =="OT")
-				{
-					if(newVarificationCd=="NC"||newVarificationCd=="FB"||newVarificationCd=="01"){
-						return true;
-					}
-					else
-					{
-						alertMe("DC4163");
-						return false;
-					}
-				}
-				else
-				{
-					if(varificationCd=="" || mm=="mm"||dd=="dd"||yyyy=="yyyy"){
-						return true;
-					}
-					alertMe("DC4164");
-					return false;
-				}
-			
+		} else { //  Begin BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity  -- PatelC
+            if(dcIndvCargo!=null && dcIndvCargo.getRaceCd()!= null){
+            	raceCode = String.valueOf(dcIndvCargo.getRaceCd());
+            }else{
+            	if(isMiChildApp){
+            		raceCode="UN";
+            	}
+            }
+	%>
+	  		<td width="40" align="left" valign="top">
+	  			<TL:FWLabelTag bean="<%=race%>" required = "N"/>
+	  		</td>
+	  		<td width="190">
+	  			<TL:FWRTSelectTag referenceTableName="RACEDISPLAY" bean="<%=race%>"  selected="<%=races%>" emptySpace="N" multiple="Y"  show = "4" size="26" /> <%-- BRGUS00111363 - deshmukha - 06/24/2008 - To add vaidation to check Primary race and Secondary race are not the same--%>
+	  		</td>
+	<%	}%>
+	<%	if ("DC".equals(ARDCMODE)){
+			String ethnicityCd="";
+			if(dcIndvCargo!=null && dcIndvCargo.getEthnicityCd()!=null){
+				ethnicityCd=String.valueOf(dcIndvCargo.getEthnicityCd());
+			}else{
+				if(isMiChildApp){ // Begin BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity  -- PatelC
+					ethnicityCd="UK";
+				} // End BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity  -- PatelC
 			}
-		<%
-		}
-	}
-	%>	
-
-}
-
-//Added for ILIES-279498
-function deceasedVerificationAdlCheck(field1,field2,field3,field4){
-
+	%>
+			<td width="70"  valign="top">
+				<TL:FWLabelTag bean="<%=ethnicity%>" required = "Y"/>
+      		</td>
+			<td width="235">
+				<TL:FWRTSelectTag referenceTableName="ETHNICITY" bean="<%=ethnicity%>" emptySpace="N" selected="<%=ethnicitys%>"  multiple="Y" show="4" size="26" other="validate=\"isComplete(document.form1.ethnicity)\""/>
+      		</td>
 	<%
-	if("DC".equals(ARDCMODE)) {
-		if("N".equals((String)request.getAttribute("isAdlDateOfDeathException")))
-		{
-		%>	
-			if(document.form1.fileClrDOD.value!=null && document.form1.fileClrDOD.value=='Y'){
-				var newVarificationCd=field1.value;
-				var worker="";
-				var mm = field2.value;
-				var dd =field3.value;
-				var yyyy = field4.value;
-				
-				if(newVarificationCd == varificationCd)
-				{
-					return true;
-				}
-				if(varificationCd == "CV"||varificationCd =="CS"||varificationCd=="NV"||varificationCd =="OT")
-				{
-					if(newVarificationCd=="NC"||newVarificationCd=="FB"||newVarificationCd=="01"){
-						return true;
-					}
-					else
-					{
-						alertMe("DC4163");
-						return false;
-					}
-				}
-				else
-				{
-					if(varificationCd=="" || mm=="mm"||dd=="dd"||yyyy=="yyyy"){
-						return true;
-					}
-					alertMe("DC4164");
-					return false;
-				}
-			
+		} else {
+			String ethnicityCd="";
+			if(dcIndvCargo!=null && dcIndvCargo.getEthnicityCd()!=null){
+				ethnicityCd=String.valueOf(dcIndvCargo.getEthnicityCd());
+			}else{
+				if(isMiChildApp){ // Begin BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity  -- PatelC
+					ethnicityCd="UK";
+				} // End BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity  -- PatelC
 			}
+	%>
+      		<td width="70"  valign="top">
+				<TL:FWLabelTag bean="<%=ethnicity%>" required = "N"/>
+      		</td>
+      		<td width="200">
+				<TL:FWRTSelectTag referenceTableName="ETHNICITY" bean="<%=ethnicity%>" emptySpace="N" selected="<%=ethnicitys%>"  multiple="Y" show="4" size="26" />
+      		</td>
+	  <%}%>
+	</tr>
+</table>
+
+<table  width="723" border="0" class="bodyFormLabels" title="Demographic Information" role="presentation">
+		 <tr>
+		 <td>&nbsp; </td>
+		 <td>&nbsp; </td>
+		 </tr>
+	<tr>
+	<%
+		long chipC = dcIndvCargo.getChipSeqNum();
+		String chipCId = (chipC == 0)?"":""+chipC;
+	%>
+		<td  width="134">
+			<TL:FWLabelTag bean="<%=primaryLanguage%>"  labelId="primaryLang" required="Y"/> <%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264--%>
+		</td>
+		<td width="235">
+		<!-- ILIES-266188 -->
+			<TL:FWRTSelectTag lblDesc="Primary Language Required" referenceTableName="LANGUAGE" bean="<%=primaryLanguage%>"  selected="<%=primaryLang%>" emptySpace="Y"   size="15" other="validate=\"validateLanguages();isComplete(document.form1.primaryLanguage);\""/> <%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264--%>
+		</td>
+     	<td width="150" align="right">
+     		<TL:FWLabelTag bean="<%=secondaryLanguages%>"/>
+     	</td>
+      	<td width="233">
+      		<TL:FWRTSelectTag referenceTableName="LANGUAGE" bean="<%=secondaryLanguages%>" emptySpace="N" selected="<%=lang%>"  multiple="Y" show="3" size="23" other="validate=\"validateLanguages();isComplete(document.form1.primaryLanguage);\""/>
+      	</td>
+	</tr>
+</table>
+
+<%	if ("DC".equals(ARDCMODE)){
+%>
+	<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+		<tr height="26">
+			<td width="136">
+				<TL:FWLabelTag bean="<%=deceasedDateOfDeath%>" required = "N" />
+		 	</td>
 		<%
-		}
-	}
-	%>	
-
-}
-
-function disableReasonForBanOnNO(){
-	var select1 = document.getElementById("istheindividualbannedfromenterDHSHFS");
-	var box = document.getElementById("reasonForBan");
-
-
-	for (var i = 0; i < select1.length; i++) {
-        if (select1.options[i].selected){
-	        if(select1.options[i].value != "NO"){
-	        	box.disabled = false;
+		    String deceasedDate = null;
+			byte enableDOD = 1;
+			if(dcIndvCargo!=null && dcIndvCargo.getDeathDt()!=null){
+			    deceasedDate = dcIndvCargo.getDeathDt().toString();
+			    
+			    /* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Starts*/
+				if(null != preFillDateOfDeathStr){
+					deceasedDate = preFillDateOfDeathStr;
+				}
+				/* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Ends*/
+				
+			    if(!"Y".equals( (String)request.getAttribute("isDateOfDeathException") ) && "Y".equals(String.valueOf(dcIndvCargo.getFileClearanceSw()))){
+					enableDOD = 0;
+				}
+		%>
+		
+		
+         <%-- Defect BRGUS00044501	added onCalendarDateSelect event to execute when a date is selected in the date picker --%>
+         <%--BRGUS00071475 Displays warning message if the current individual is HoH in any case and is marked deceased --%>
+			<td width="587" id="deceased Date"  >
+				<TL:FWGroupCustomDateTag
+					beanId     = "deceasedDateOfDeath"
+					isRequired = "N"
+					pageMode   = "1"
+					futureDate   = "Y"
+					
+					disableLabel="Y"
+					dateValue  = "<%=deceasedDate%>"
+					mode="<%=enableDOD%>"
+					isGreater  = "actualEstDateOfBirth"
+					
+					yearscript = "compareDates(document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardeceasedDateOfDeath,document.form1.yearactualEstDateOfBirth,document.form1.monthactualEstDateOfBirth,document.form1.dateactualEstDateOfBirth,document.form1.yeardeceasedDateOfDeath,'Deceased Date','Date of Birth')"
+					onCalendarDateSelect="enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerification); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.monthdateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.datedateOfDeathReportDate);enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerificationAdditional)"					
+					other = "onChange=\"enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerification); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.monthdateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.datedateOfDeathReportDate);enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerificationAdditional)\""/>
+			
+			</td>
+		<% } else { 
+			/* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Starts*/
+			if(null != preFillDateOfDeathStr){
+				deceasedDate = preFillDateOfDeathStr;
+			}
+			/* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Ends*/		
+		%>
+          	<td width="587" id="deceased Date" >
+          		<TL:FWGroupCustomDateTag
+					beanId     = "deceasedDateOfDeath"
+					isRequired = "N"
+					pageMode   = "1"
+					futureDate   = "Y"
+					
+					disableLabel="Y"
+					dateValue  = "<%=deceasedDate%>"
+					isGreater  = "actualEstDateOfBirth"
+					
+					yearscript = "compareDates(document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardeceasedDateOfDeath,document.form1.yearactualEstDateOfBirth,document.form1.monthactualEstDateOfBirth,document.form1.dateactualEstDateOfBirth,document.form1.yeardeceasedDateOfDeath,'Deceased Date','Date of Birth')"
+					onCalendarDateSelect="enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerification); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.monthdateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.datedateOfDeathReportDate);enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerificationAdditional)"					
+					other = "onChange=\"enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerification); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.monthdateOfDeathReportDate); enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.datedateOfDeathReportDate);enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerificationAdditional)\""/>
+			</td>
+         <% } %>
+		</tr>
+		</table>
+		
+		<!-- Added>>> "Date of Death-Report Date" -->
+		<!--Modified as part of SOP-810 start  -->
+		<%		
+		if(null!=deceasedDate || null!=preFillDateOfDeathStr){
+		
+		 %>
+		 
+		<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyFormLabels" title="Demographic Information" role= "presentation">
+		<tr height="26">
+			<td width="136">
+				<TL:FWLabelTag bean="<%=dateOfDeathReportDate%>" required = "N" />
+		 	</td>
+		 	<%
+		 	
+		    String deathReportDate = "";
+			//byte enableDOD = 1;
+			if(dcIndvCargo!=null && dcIndvCargo.getDeathReportDate()!=null){
+			    deathReportDate = dcIndvCargo.getDeathReportDate().toString();
+			   
+			}			
+			    
+			%>
+			
+			<td width="587" id="deceased Date2">
+				<TL:FWGroupCustomDateTag			
+					beanId     = "dateOfDeathReportDate"
+					isRequired = "Y"
+					pageMode   = "1"
+					futureDate   = "N"
+					disableLabel="Y"
+					dateValue  = "<%=deathReportDate%>"
+					mode="<%=enableDOD%>"
+					futureDate   = "N"
+					isGreater  = "actualEstDateOfBirth"
+					title = "<%=dateOfDeathReportDate.getLABEL()%>"
+				/> 
+			</td>
+		</tr>
+		</table>
+		<% } else { %>
+		<table width="723" border="0" cellspacing="0" cellpadding="0"   class="bodyFormLabels" title="Demographic Information" role= "presentation">
+		<tr height="26">
+			<td width="136">
+				<TL:FWLabelTag bean="<%=dateOfDeathReportDate%>" required ="N" />
+		 	</td>
+		 	<%
+		 	
+		    String deathReportDate = "";
+			//byte enableDOD = 1;
+			if(dcIndvCargo!=null && dcIndvCargo.getDeathReportDate()!=null){
+			    deathReportDate = dcIndvCargo.getDeathReportDate().toString();
+			   
+			}			
+			    
+			%>
+			
+			<td width="587" id="deceased Date2">
+				<TL:FWGroupCustomDateTag			
+					beanId     = "dateOfDeathReportDate"
+					isRequired = "Y"
+					pageMode   = "1"
+					futureDate   = "N"
+					disableLabel="Y"
+					dateValue  = "<%=deathReportDate%>"
+					futureDate   = "N"
+					isGreater  = "actualEstDateOfBirth"
+					title = "<%=dateOfDeathReportDate.getLABEL()%>"
+				/>
+			</td>
+		</tr>
+		</table>
+		
+		
+		<%  } %>
+		
+          
+	<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyFormLabels" title="Demographic Information" role= "presentation" >
+		<tr height="26">
+			<td width="136">
+				<TL:FWLabelTag bean="<%=deceasedVerification%>" id="rtcheck12" required = "N" />
+			</td>
+			<td width="587">
+        <%
+			String decVrf = "";
+			if(dcIndvCargo != null && dcIndvCargo.getDeceasedDtVrfCd()!=null)
+   			{
+      			decVrf = dcIndvCargo.getDeceasedDtVrfCd().trim();
+   			}
+			enableDOD = 1;
+			String deceasedConvCheck ="conversionVerification("+deceasedVerification.LABEL+"~document.form1, document.form1."+deceasedVerification.FIELD_NAME+")";
+			String mandatoryVerificationCheck = "isComplete(document.form1."+deceasedVerification.FIELD_NAME+")";
+			String verificationCheck = "deceasedVerificationCheck(document.form1."+deceasedVerification.FIELD_NAME+",document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardeceasedDateOfDeath)";
+			String deceasedValidate = "validate = \""+deceasedConvCheck+ ";" + mandatoryVerificationCheck +";"+verificationCheck+ "\"";
+		%>
+        		<TL:FWRTSelectTag bean="<%=deceasedVerification%>" id="rtcheck12"  size="30"   emptySpace="Y" selected="<%=decVrf%>" filter="YES" filterColumn="DEATH" filterValue="Y" referenceTableName ="DEATHVRF" other = "<%=deceasedValidate%>"/>
+			</td>
+		<%
+			String zeroToleranceSw = new String();
+			String checkToleranceValue = "N";
+	  	  	if(dcIndvCargo!=null){
+				if(String.valueOf(dcIndvCargo.getZeroToleranceSw()).equals("Y")){
+					zeroToleranceSw = "Y";
+					checkToleranceValue = "Y";
+			    }
 	        }
-	        else{
-	        	box.value = "";
-	        	box.disabled = true;
-	      	}
-	    }
+		%>
+	        
+		</tr>
+		<tr height="26">
+			<td width="136">
+				<TL:FWLabelTag bean="<%=deceasedVerificationAdditional%>" id="rtcheck13" required = "N" />
+			</td>
+			<td width="587">
+        <%
+			String decVrfAdl = "";
+			if(dcIndvCargo != null && dcIndvCargo.getDeceasedDtVrfAdlCd()!=null)
+   			{
+      			decVrfAdl = dcIndvCargo.getDeceasedDtVrfAdlCd().trim();
+   			}
+			enableDOD = 1;
+			String deceasedConvCheckAdl ="conversionVerification("+deceasedVerificationAdditional.LABEL+"~document.form1, document.form1."+deceasedVerificationAdditional.FIELD_NAME+")";
+			String verificationCheckAdl = "deceasedVerificationAdlCheck(document.form1."+deceasedVerificationAdditional.FIELD_NAME+",document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.yeardeceasedDateOfDeath)";
+			String deceasedDupValidate ="deceasedVerificationDupValidate(document.form1."+deceasedVerificationAdditional.FIELD_NAME+")";
+            String deceasedValidateAdl = "validate = \""+deceasedConvCheckAdl+ ";"+verificationCheckAdl + ";"+ deceasedDupValidate +"\"";
+			
+		%>
+        		<TL:FWRTSelectTag bean="<%=deceasedVerificationAdditional%>" id="rtcheck13"  size="30"   emptySpace="Y" selected="<%=decVrfAdl%>" filter="YES" filterColumn="DEATH" filterValue="Y" referenceTableName ="DEATHVRF" other = "<%=deceasedValidateAdl%>"/>
+			</td>
+		
+		<%
+			String zeroToleranceSw1 = new String();
+			String checkToleranceValue1 = "N";
+	  	  	if(dcIndvCargo!=null)
+		  	 {
+				if(String.valueOf(dcIndvCargo.getZeroToleranceSw()).equals("Y"))
+				{
+						zeroToleranceSw1 = "Y";
+						checkToleranceValue1 = "Y";
+				 }
+	        }
+		%>
+	        
+		</tr>
+	</table>
+<%
 	}
-}
-//Added for ILIES-192144
+%>
+<br>
+
+<jsp:include page="../ar/ARRIIRegisterAppIndvExt.jsp" flush="true">
+	<jsp:param value="<%dcIndvCargo %>" name="dcIndvCargo"/>
+	<jsp:param value="<%=isSSApp %>" name="isSSApp"/>
+</jsp:include>
+
+<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable" role= "presentation">
+	<tr><td><H2 class="bodyDividerTableHeader">
+		Other Information</H2>
+	</td></tr>
+
+</table>
+<% if (!("DC".equals(ARDCMODE))){%>
+<table width="723" border="0" class="bodyFormLabels" title="Other Information" role="presentation">
+    <tr valign="top">
+    	<td>
+    		<table class="bodyFormLabels" width ="720" cellpadding="0" cellspacing="0" role="presentation" border=0>
+    			<tr>
+    				<td width="35%" height="30">
+	     				<TL:FWLabelTag bean="<%=hasOtherNames%>" colon="N"/>  <%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264 (Width changed)--%>
+	     			</td>
+	     			<td width="15%">
+	     				<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=hasOtherNames%>" size="5" emptySpace="N" selected="<%=isOtherName%>"  multiple="N" show="1" other="onChange=\"disableSscnAliasTabs(document.form1)\"" />
+	     			</td>
+	     			<td width="35%" height="30" colspan="1"> 
+		 				<TL:FWLabelTag bean="<%=istheindividualcurrentlyreceivingMedicare%>" colon="N" question="Y"/>
+		    		</td>
+			      	<td width="15%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=istheindividualcurrentlyreceivingMedicare%>" size="5" emptySpace="N" selected="<%=isRecMedCare%>" multiple="N" show="1"/>
+			      	</td> 
+	     		</tr>
+	     		<tr>
+	     			<td width="35%" height="30">
+    					<TL:FWLabelTag bean="<%=hasSscnInformation%>" colon="N"/><%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264 (Width changed)--%>
+    				</td>
+    				<td width="15%">
+    					<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=hasSscnInformation%>" size="5" emptySpace="N" selected="<%=isSSCN%>"  multiple="N" show="1" other="onChange=\"checkpermission(document.form1);disableSscnAliasTabs(document.form1);\""/>
+    				</td>
+    				<td width="35%" height="30">
+						<TL:FWLabelTag bean="<%=istheindividualcurrentlyreceivingSSDSSI%>" colon="N" question="Y"/>  
+		   			</td>
+			      	<td width="15%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=istheindividualcurrentlyreceivingSSDSSI%>" size="5" emptySpace="N" selected="<%=isRecSSDSSI%>"  multiple="N" show="1"/>
+			      	</td>
+	     		</tr>
+	     		<tr>
+	     			<td width="35%" height="30">
+    					<TL:FWLabelTag bean="<%=isDhsEmployee%>" colon="N"/>
+    				</td>
+    				<td width="15%">
+    					<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=isDhsEmployee%>" size="5" emptySpace="N" selected="<%=isEmp%>"  multiple="N" show="1"/>
+    				</td>
+    					<% if (!("DC".equals(ARDCMODE))){%>
+			 		<td width="35%" height="30">
+			 			<TL:FWLabelTag bean="<%=istheindividualcurrentlyinalong%>" colon="N"/>
+			      	</td>
+			      	<td width="15%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=istheindividualcurrentlyinalong%>" size="5" emptySpace="N" selected="<%=isIndCurLongTerm%>"  multiple="N" show="1"/>
+			      	</td>
+			      	<%}else{%>
+			      	<td width="35%" height="30">
+				  		<TL:FWLabelTag bean="<%=istheindividualbannedfromenterDHSHFS%>" colon="N" />
+			      	</td>
+			      	<td width="15%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="BANNED" bean="<%=istheindividualbannedfromenterDHSHFS%>" size="5" emptySpace="N" selected="<%=isindivban%>"  multiple="N" show="1" other="onChange=\"disableReasonForBanOnNO();\""/>
+			      	</td>
+					<%} %>
+	     		</tr>
+	     		
+	     		<tr>
+	     			<% if ("DC".equals(ARDCMODE)){ %>
+	     				<td width="35%" height="30">
+						<TL:FWLabelTag bean="<%=individualReceivedShareOrPremiumPreviously%>"  />
+			        </td>
+			        <td width="15%">
+				    <% String chipPriorCov = (String) request.getAttribute("individualReceivedShareOrPremiumPreviously"); 
+				    if(chipPriorCov != null && (chipPriorCov.equalsIgnoreCase("Y") || chipPriorCov.equalsIgnoreCase("N"))){ 
+				    %>
+				    <TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+				        			 multiple="N" selected="<%=chipPriorCov %>" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+					<%} else if(dcIndvCargo!=null && dcIndvCargo.getDobDt() != null ) {
+					java.sql.Timestamp dobDt = dcIndvCargo.getDobDt();
+					Calendar dob = Calendar.getInstance();  
+					dob.setTime(new java.util.Date(dobDt.getTime()));  	
+					Calendar today = Calendar.getInstance();  
+					int age = today.get(Calendar.YEAR) - dob.get(Calendar.YEAR);  
+					if (today.get(Calendar.MONTH) < dob.get(Calendar.MONTH)) {
+						 age--;  
+					} else if (today.get(Calendar.MONTH) == dob.get(Calendar.MONTH)
+						 && today.get(Calendar.DAY_OF_MONTH) < dob.get(Calendar.DAY_OF_MONTH)) {
+						 age--;  
+					}
+					if(age<19){   %>
+						<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="N" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+			        	
+					<%} else if(dcIndvCargo.getPrevReceivedChipPriorCov() == 'Y' ) { %>
+					
+						<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="Y" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+			       
+			        <%} else { %>
+					
+						<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />					
+					
+					<%-- Else/if added to catch the case where a new individual is added added for ILIES-179596 --%>		
+			
+					<%  } 	} else if(dcIndvCargo != null){ %>
+			
+					<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+			
+					<%
+					}
+					%>
+					</td>
+					<td width="30%" height="30">
+	      				<TL:FWLabelTag bean="<%=reasonForBan%>" colon="N"/>
+	      			</td>
+	      			<td  width="20%" align="right">
+						<TL:FWTextTag bean="<%=reasonForBan%>"  size="28" style="form150" value="<%=reasonFBan%>" />
+					</td>
+					<% }%>
+					
+					<%if (!("DC".equals(ARDCMODE))){%>
+						<td width="35%" height="30">
+							<TL:FWLabelTag bean="<%=isCurrentlyPregnant%>" colon="N"/>
+						</td>
+						<td width="15%">
+							<TL:FWRTSelectTag referenceTableName="YESNO" size="5" bean="<%=isCurrentlyPregnant%>" emptySpace="N" selected="<%=isPreg%>" multiple="N" show="1" other="onChange=\"disableFieldsOnNo(document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);disableCalender();\""/>
+						</td>
+						<td width="30%" height="30">
+		      				<TL:FWLabelTag bean="<%=dueDate%>" colon="Y"/>
+		      			</td>
+		      			<td  width="20%" align="right">
+				     	 	<%if ("DC".equals(ARDCMODE)){%>
+				     	 		<%-- ILIES-213726:IES_Register Individual_Pregnancy Due Date: update validate manual entry --%>
+						 		<TL:FWGroupCustomDateTag beanId="dueDate"  pastDate = "Y" dateValue = "<%=ddate%>"  pageMode = "1" disableLabel = "Y" other="validate='validateDueDate(); pregnancyDateRange()'"/>
+							<% }else{%>
+								<%-- ILIES-213726:IES_Register Individual_Pregnancy Due Date: update validate manual entry --%>
+								<TL:FWGroupCustomDateTag beanId="dueDate"  pastDate = "Y" dateValue = "<%=ddate%>"  pageMode = "1"  disableLabel = "Y" other="validate='validateDueDate(); pregnancyDateRange()'"/>
+							<% }%>
+		      			</td>
+					<% }%>
+					
+	     		</tr>
+	     		
+	     		<tr>
+	     			<% if ("DC".equals(ARDCMODE)){ %>
+	     					<%	if(dcIndvCargo != null && dcIndvCargo.getChipActiveCoverageSw() == 'Y' ){
+	     							if(switchValue != null && switchValue.equalsIgnoreCase("Y")) {
+	     						%>
+	     						<td width="35%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>"  /></td>
+	     						<% }  else { %>
+	     						<td width="35%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" required="Y" /></td>
+	     						<% } %>
+								<td width="15%"><TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=chipPriorCoverage%>"	emptySpace="Y" multiple="N" selected="Y" show="1" other="validate=''" /></td>
+	     					<% }else if(dcIndvCargo != null && dcIndvCargo.getChipActiveCoverageSw() == 'N'){ 
+	     						if(switchValue != null && switchValue.equalsIgnoreCase("Y")) { %>
+	     						<td width="35%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" /></td>
+	     						<% } else { %>
+	     						<td width="35%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" required="Y" /></td>
+	     						<% } %>
+								<td width="15%"><TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=chipPriorCoverage%>"	emptySpace="Y" multiple="N" selected="N" show="1" other="validate=''" /></td>
+							<%} else{ 
+							     if(switchValue != null && switchValue.equalsIgnoreCase("Y")) { %>
+							     <td width="35%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>"  /></td>
+							     <% } else { %>
+								<td width="35%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" required="Y" /></td>
+								<% } %>
+								<td width="15%"><TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=chipPriorCoverage%>"	emptySpace="Y" multiple="N" selected="" show="1" other="validate=''" /></td>
+	     					<%}%>
+	     			<%} %>
+	     		 
+	     			<%if (!("DC".equals(ARDCMODE))){%>
+						<td width="35%" height="30">
+			      			<TL:FWLabelTag bean="<%=isDisabled%>" colon="N"/>
+			      		</td>
+			      		<td width="15%">
+			      			<TL:FWRTSelectTag referenceTableName="YESNO" size="5" bean="<%=isDisabled%>" emptySpace="N" selected="<%=isDisable%>"  multiple="N" show="1"   other="onChange=\"disableFieldsOnNo(document.form1.isDisabled,document.form1.disability);\""/>
+			      		</td>
+			      		<td width="30%">
+	   						<TL:FWLabelTag bean="<%=disability%>"/>
+	   					</td>
+			      		<td  width="20%" align="right">
+			      			<TL:FWRTSelectTag referenceTableName="DISABILITYTYPE"   bean="<%=disability%>" emptySpace="N"  selected="<%=detailSelected%>" multiple="Y" show="3" size="10" other="validate=\"validateDisability();validDueDate(); \""/>
+			      		</td>
+					<%} %>
+	     		
+	     		</tr>
+	     		
+	     			<% if ("DC".equals(ARDCMODE)){ %>
+	     			<tr>
+	     				<td width="35%" height="30">
+							<TL:FWLabelTag bean="<%=recognizedIndianTribe%>" question="Y"/> <%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264 (Width changed)--%>
+		          		</td>
+		            	<td width="15%">
+		            		<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=recognizedIndianTribe%>" emptySpace="N"
+		        				 multiple="N" selected="<%=indianTribe%>"  show="1"  other="onChange=\"enableFieldsOnYes(document.form1.recognizedIndianTribe,document.form1.indianTribe);if(document.form1.recognizedIndianTribe.value == 'Y') \""/>
+		        		</td>
+	     			</tr>
+	     			<tr>
+	     			<td width="35%" height="30">
+						<TL:FWLabelTag bean="<%=indianTribeCd%>" />
+		            </td>
+		            <td width="15%">
+		            	<TL:FWRTSelectTag referenceTableName="INDIANTRIBE" bean="<%=indianTribeCd%>" emptySpace="Y"
+		        			size="50" style="form150" multiple="N" selected="<%=indianTribeCode%>" show="1"  />
+		        	</td>
+		        	</tr>
+	     			<%} %>
+    		</table>
+    	</td>
+   	</tr>
+</table>
+	<%} else{%>
+<table width="723" border="0" class="bodyFormLabels" title="Other Information" role="presentation">
+    <tr valign="top">
+    	<td>
+  			<table class="bodyFormLabels" width ="350" cellpadding="0" cellspacing="0" role="presentation">
+  				<tr>
+	   			  	<td width="70%" height="30">
+	     				<TL:FWLabelTag bean="<%=hasOtherNames%>" colon="N"/>  <%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264 (Width changed)--%>
+	     			</td>
+	     			<td width="30%">
+	     				<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=hasOtherNames%>" size="5" emptySpace="N" selected="<%=isOtherName%>"  multiple="N" show="1" other="onChange=\"disableSscnAliasTabs(document.form1)\"" />
+	     			</td>
+    			</tr>
+    			<tr>
+    			  	<td width="70%" height="30">
+    					<TL:FWLabelTag bean="<%=hasSscnInformation%>" colon="N"/><%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264 (Width changed)--%>
+    				</td>
+    				<td width="30%">
+    					<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=hasSscnInformation%>" size="5" emptySpace="N" selected="<%=isSSCN%>"  multiple="N" show="1" other="onChange=\"checkpermission(document.form1);disableSscnAliasTabs(document.form1);\""/>
+    				</td>
+    			</tr>
+    			<tr>
+    			  	<td width="70%" height="30">
+    					<TL:FWLabelTag bean="<%=isDhsEmployee%>" colon="N"/>
+    				</td>
+    				<td width="30%">
+    					<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=isDhsEmployee%>" size="5" emptySpace="N" selected="<%=isEmp%>"  multiple="N" show="1"/>
+    				</td>
+    			</tr>
+    		<% if ("DC".equals(ARDCMODE)){ %>
+		  		<tr>
+					<td width="70%" height="30">
+					  <% if(switchValue != null && switchValue.equalsIgnoreCase("Y")) { %>
+					  <TL:FWLabelTag bean="<%=individualReceivedShareOrPremiumPreviously%>" />
+					  <%  } else  {%>
+						<TL:FWLabelTag bean="<%=individualReceivedShareOrPremiumPreviously%>"  required="Y"/>
+						<% } %>
+			        </td>
+			        <td width="30%">
+			    <% String chipPriorCov = (String) request.getAttribute("individualReceivedShareOrPremiumPreviously"); 
+			    if(chipPriorCov != null && (chipPriorCov.equalsIgnoreCase("Y") || chipPriorCov.equalsIgnoreCase("N"))){ 
+			    %>
+			    <TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="<%=chipPriorCov %>" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+				<%} else if(dcIndvCargo!=null && dcIndvCargo.getDobDt() != null ) {
+					java.sql.Timestamp dobDt = dcIndvCargo.getDobDt();
+					Calendar dob = Calendar.getInstance();  
+					dob.setTime(new java.util.Date(dobDt.getTime()));  	
+					Calendar today = Calendar.getInstance();  
+					int age = today.get(Calendar.YEAR) - dob.get(Calendar.YEAR);  
+					if (today.get(Calendar.MONTH) < dob.get(Calendar.MONTH)) {
+						 age--;  
+					} else if (today.get(Calendar.MONTH) == dob.get(Calendar.MONTH)
+						 && today.get(Calendar.DAY_OF_MONTH) < dob.get(Calendar.DAY_OF_MONTH)) {
+						 age--;  
+					}
+					if(age<19){   %>
+						<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="N" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+			        	
+					<%} else if(dcIndvCargo.getPrevReceivedChipPriorCov() == 'Y' ) { %>
+					
+						<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="Y" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+			       
+			        <%} else { %>
+					
+						<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+					<%  } 	} else if(dcIndvCargo != null){ %>
+			
+					<TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=individualReceivedShareOrPremiumPreviously%>" emptySpace="Y"
+			        			 multiple="N" selected="" show="1"  other="validate=\"isComplete(document.form1.individualReceivedShareOrPremiumPreviously);\"  onChange=\"disableChipPriorCoverage()\" " />
+					<%
+					}
+					%>
+					</td>
+			   </tr>
+			    	<%	if(dcIndvCargo != null && dcIndvCargo.getChipActiveCoverageSw() == 'Y' ){ %>
+    			<tr>
+				<% if(switchValue != null && switchValue.equalsIgnoreCase("Y")) {  %>
+				<td width="70%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>"  /></td>
+				<% } else { %>
+					<td width="70%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" required="Y" /></td>
+				<% } %>
+					<td width="30%"><TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=chipPriorCoverage%>"	emptySpace="Y" multiple="N" selected="Y" show="1" other="validate=''" /></td>
+				</tr>
+			      	<% }else if(dcIndvCargo != null && dcIndvCargo.getChipActiveCoverageSw() == 'N'){ %>
+			    <tr>
+			    <% if(switchValue != null && switchValue.equalsIgnoreCase("Y")) {  %>
+			    <td width="70%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" /></td>
+			    <% } else { %>
+					<td width="70%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" required="Y" /></td>
+				<% } %>	
+					<td width="30%"><TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=chipPriorCoverage%>"	emptySpace="Y" multiple="N" selected="N" show="1" other="validate=''" /></td>
+			 	</tr>
+			      	<%} else{%>
+			     <tr>
+			       <% if(switchValue != null && switchValue.equalsIgnoreCase("Y")) {  %>
+			       <td width="70%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>"  /></td>
+			       <% } else { %>
+					<td width="70%" height="30"id="chipPriorID"><TL:FWLabelTag bean="<%=chipPriorCoverage%>" required="Y" /></td>
+					<% } %>	
+					<td width="30%"><TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=chipPriorCoverage%>"	emptySpace="Y" multiple="N" selected="" show="1" other="validate=''" /></td>
+				</tr>
+			      	<%}%>
+			  	<tr>
+					<td width="70%" height="30">
+						<TL:FWLabelTag bean="<%=recognizedIndianTribe%>" question="Y"/> <%--CODE-AG-MOD-01/30/2007-DEFECT#BRGUS00026264 (Width changed)--%>
+		            </td>
+		            <td width="30%">
+		            <TL:FWRTSelectTag size="5" referenceTableName="YESNO" bean="<%=recognizedIndianTribe%>" emptySpace="N"
+		        			 multiple="N" selected="<%=indianTribe%>" show="1"  other="onChange=\"enableFieldsOnYes(document.form1.recognizedIndianTribe,document.form1.indianTribe);if(document.form1.recognizedIndianTribe.value == 'Y') document.form1.indianTribe.selectedIndex=0;\""/>
+		        	</td>
+		        </tr>
+		        <tr>
+		  			<td width="70%" height="30">
+						<TL:FWLabelTag bean="<%=indianTribeCd%>" />
+		            </td>
+		            <td width="30%">
+		            	<TL:FWRTSelectTag referenceTableName="INDIANTRIBE" bean="<%=indianTribeCd%>" emptySpace="Y"
+		        			size="50" style="form150" multiple="N" selected="<%=indianTribeCode%>" show="1"  />
+		        	</td>
+		      	</tr> 
+				<%}%>	
+				<%if (!("DC".equals(ARDCMODE))){%>
+				<tr>
+					<td width="70%" height="30">
+						<TL:FWLabelTag bean="<%=isCurrentlyPregnant%>" colon="N"/>
+					</td>
+					<td width="30%">
+						<TL:FWRTSelectTag referenceTableName="YESNO" size="5" bean="<%=isCurrentlyPregnant%>" emptySpace="N" selected="<%=isPreg%>" multiple="N" show="1" other="onChange=\"disableFieldsOnNo(document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);disableCalender();\""/>
+
+					</td>
+				</tr>
+				<tr>
+		      		<td width="70%" height="30">
+		      			<TL:FWLabelTag bean="<%=isDisabled%>" colon="N"/>
+		      		</td>
+		      		<td width="30%">
+		      			<TL:FWRTSelectTag referenceTableName="YESNO" size="5" bean="<%=isDisabled%>" emptySpace="N" selected="<%=isDisable%>"  multiple="N" show="1"   other="onChange=\"disableFieldsOnNo(document.form1.isDisabled,document.form1.disability);\""/>
+		      		</td>
+	      		</tr>
+	      		<%} %>
+			</table>
+		</td>
+		<td>
+			<table class="bodyFormLabels" width="350" cellpadding="0" cellspacing="0" role="presentation">
+	    		<tr>
+					<td width="75%" height="30" colspan="1"> 
+		 				<TL:FWLabelTag bean="<%=istheindividualcurrentlyreceivingMedicare%>" colon="N" question="Y"/>
+		    		</td>
+			      	<td width="25%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=istheindividualcurrentlyreceivingMedicare%>" size="5" emptySpace="N" selected="<%=isRecMedCare%>" multiple="N" show="1"/>
+			      	</td> 
+		      	</tr>
+		      	<tr>
+		   			<td width="75%" height="30">
+						<TL:FWLabelTag bean="<%=istheindividualcurrentlyreceivingSSDSSI%>" colon="N" question="Y"/>  
+		   			</td>
+			      	<td width="25%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=istheindividualcurrentlyreceivingSSDSSI%>" size="5" emptySpace="N" selected="<%=isRecSSDSSI%>"  multiple="N" show="1"/>
+			      	</td>
+	   			</tr>
+				<tr>
+			      	<% if (!("DC".equals(ARDCMODE))){%>
+			 		<td width="75%" height="30">
+			 			<TL:FWLabelTag bean="<%=istheindividualcurrentlyinalong%>" colon="N"/>
+			      	</td>
+			      	<td width="25%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=istheindividualcurrentlyinalong%>" size="5" emptySpace="N" selected="<%=isIndCurLongTerm%>"  multiple="N" show="1"/>
+			      	</td>
+			      	<%}else{%>
+			      	<td width="75%" height="30">
+				  		<TL:FWLabelTag bean="<%=istheindividualbannedfromenterDHSHFS%>" colon="N" />
+			      	</td>
+			      	<td width="25%"  align="right">
+			      		<TL:FWRTSelectTag referenceTableName="BANNED" bean="<%=istheindividualbannedfromenterDHSHFS%>" size="5" emptySpace="N" selected="<%=isindivban%>"  multiple="N" show="1" other="onChange=\"disableReasonForBanOnNO();\""/>
+			      	</td>
+					<%} %>
+			  	</tr>
+			</table>
+			
+			<table class="bodyFormLabels" width="350" cellpadding="0" cellspacing="0" role="presentation">
+			   <% if ("DC".equals(ARDCMODE)){%>
+					<tr>
+					<td width="60%" height="30">
+	      				<TL:FWLabelTag bean="<%=reasonForBan%>" colon="N"/>
+	      			</td>
+	      			<td  width="40%" align="right">
+						<TL:FWTextTag bean="<%=reasonForBan%>"  size="28" style="form150" value="<%=reasonFBan%>" />
+					</td>
+				 </tr>
+				<% }%>			
+				<%if (!("DC".equals(ARDCMODE))){%>
+				<tr>
+					<td width="60%" height="30">
+		      			<TL:FWLabelTag bean="<%=dueDate%>" colon="Y"/>
+		      		</td>
+		      		<td  width="40%" align="right">
+		     	 	<%if ("DC".equals(ARDCMODE)){%>
+				 		<TL:FWGroupCustomDateTag beanId="dueDate"  pastDate = "Y" dateValue = "<%=ddate%>"  pageMode = "1" disableLabel = "Y" other="validate=\"validateDueDate(); pregnancyDateRange()\""/>
+					<% }else{%>
+						<TL:FWGroupCustomDateTag beanId="dueDate"  pastDate = "Y" dateValue = "<%=ddate%>"  pageMode = "1"  disableLabel = "Y" other="validate=\"validateDueDate(); pregnancyDateRange()\""/>
+					<% }%>
+		      		</td>
+				</tr>
+				<tr>
+					<td width="60%">
+	   						<TL:FWLabelTag bean="<%=disability%>"/>
+	   					</td>
+		      		<td  width="40%" align="right">
+		      			<TL:FWRTSelectTag referenceTableName="DISABILITYTYPE"   bean="<%=disability%>" emptySpace="N"  selected="<%=detailSelected%>" multiple="Y" show="3" size="10" other="validate=\"validateDisability();validDueDate(); \""/>
+		      		</td>
+				</tr>
+					      	<%} %>
+			</table>
+		</td>
+	</tr>
+</table>
+	<%} %>
+	<input type = "hidden" name = "defaultTime" id = "defaultTime" value = "<%=sysdate.toString()%>" >
+<br>
+<%/* EDITABLE - Comments (You can add code to this section) */%>
+<%if ("DC".equals(ARDCMODE)){%>
+	<%@ include file="/includes/DcType2DatesInclude.jsp" %> <%--#9-CODE-ADD--%>
+	 <%@ include file = "/includes/Comments.jsp" %>
+	<%
+  		String DC_TYPE2_CARGO = "Results_item";
+   	%>
+	<%@ include file="/includes/DcType2DatesIncludeNonDetails.jsp" %>
+<%}%>
+</DIV>
+<%/* EDITABLE - Action Buttons (You can change this include.) */%>
+
+
+<%if("DC".equals(ARDCMODE)){ %> <%--BRGUS00106026 - deshmukha- Added the 'if-else' block to remove VCR and ADD buttons in AR --%>
+<DCTagLibrary:DcButtonTag			 buttonType     = "VCR_RCArPN"
+			 vcrPrevScript="<%=vcrPrevScript%>"  altId="1"
+ 			 vcrNextScript="<%=vcrNextScript%>"
+ 			 resetScript="<%=resetScript%>"
+ 			 buttonSecurity ="<%=String.valueOf(securityAttr.getPermission())%>"
+     		 addArrowScript="<%=addArrowScript%>"
+ 			 prevScript    ="<%=prevScript%>"
+  			 nextScript    ="<%=nextScript%>"
+			 cancelScript    ="<%=cancelScript%>"
+			 histNavInd="<%=histNav%>"
+
+    			 />
+ <% } else { %>
+    	     <DCTagLibrary:DcButtonTag			 buttonType     = "RCPN"  altId="2"
+			 resetScript="<%=resetScript%>"
+ 			 buttonSecurity ="<%=String.valueOf(securityAttr.getPermission())%>"
+     	     prevScript    ="<%=prevScript%>"
+  			 nextScript    ="<%=nextScript%>"
+			 cancelScript    ="<%=cancelScript%>"
+			 histNavInd="<%=histNav%>"
+    			 />
+
+<% } %> 
+<script language="javascript">
+$(document).ready(function(){
+	disableDetailsFields();
+	calculateAge();
+});	
+</script>
+<%/* NOT EDITABLE - End Outer HTML Table */%>
+<%@ include file = "/fwincludes/endTable.jsp" %>
 <%
 	if ("DC".equals(ARDCMODE)){
 %>
-function disableChipPriorCoverage(){
-	var select1 = document.getElementById("individualReceivedShareOrPremiumPreviously");
-	var box = document.getElementById("chipPriorCoverage");
-	var pageMode = <%=pageMode%>;
+	<script language="javascript">
+	$(document).ready(function(){
+		disableChipPriorCoverage();
+	});
 	
-	var medicaidExpansionSw = "<%=switchValue%>" ;
-	
-	if(medicaidExpansionSw == "Y") {
-	
-	$('#individualReceivedShareOrPremiumPreviously').prop( "disabled", true );
-	$('#chipPriorCoverage').prop( "disabled", true );
-	}
-	else {
-	for (var i = 0; i < select1.length; i++) {
-        if (select1.options[i].selected){
-	        if(select1.options[i].value != "Y"){ 
-	        	box.disabled = true;
-	        	box.value = "";   	
-	        	$('#chipPriorID').find('IMG').hide();
-	        	$('#chipPriorID').find('b').remove();
-	        	
-	        		
-	        	$('#chipPriorCoverage').attr('validate', '');
-				}
-	        else{
-	        	//box.value = "";
-	        	
-	        	if(pageMode != 0){
-		        	box.disabled = false;
-		        	$('#chipPriorID').find('IMG').show();		        
-		            $('#chipPriorID').find('label').append("<b class='hidden'>Required<\/b>" );
-		        	$('#chipPriorCoverage').attr('validate', 'isComplete(document.form1.chipPriorCoverage);');
-	        	}
-	      	}
-	    }
-	}
-	} 
-}
-<%
-}
-%>
+	</script>
 
-// Added for the ILIES project
-// Store all the values coming from different columns and tables that are bound to the same field
-// Check for at least one occurence of "Y" and prevent the field from being overwritten
-var index = 0;
-var preFillValues = new Array();
-<% String check = String.valueOf( request.getAttribute( "IS_SELF_SERVICE_APP" ) ); %>
-
-function storePrefill()
-{
-	var value = document.form1.istheindividualcurrentlyreceivingMedicare.value;
-	var run = "<%=check%>";
-	preFillValues[index] = value;
-	index += 1;
-	
-	if ( preFillValues.length < 4 && run == 'true' )
-	{
-		for ( var i = 0; i < preFillValues.length; i++ )
-		{
-			if ( preFillValues[i] == 'Y' )
-			{
-				document.form1.istheindividualcurrentlyreceivingMedicare.value = 'Y';
-				break;
-			}
-		}
-	}
-}
-
-</script>
-
-<%
-	String otherAppTypeCd = "";
-	boolean isOtherAppType = false;
-
-	if (arAppForAidCargo != null) {
-		otherAppTypeCd = arAppForAidCargo.getOtherAppTypeCd();
-	}
-	if (otherAppTypeCd != null && (otherAppTypeCd.equals("CS") || otherAppTypeCd.equals("MO"))) {
-		isOtherAppType = true;
-	}
-
-	byte sRole = 1;
-	boolean isRecordEdited = false;
-	 if(request.getAttribute("EDIT_FLAG")!=null && ((Boolean)request.getAttribute("EDIT_FLAG")).booleanValue()==true){
-	 isRecordEdited = true;
-	 }
-	if(!("DC".equals(ARDCMODE)) && dcIndvCargo != null && dcIndvCargo.getFileClearanceSw()=='Y' && !isOtherAppType
-	 && isRecordEdited){
-
-	}
-
-%>
-
-<%
-  String flSw = "Y";
-	if(dcIndvCargo != null && (dcIndvCargo.getFileClearanceSw() != 0 && dcIndvCargo.getFileClearanceSw() == 'Y')&&isRecordEdited) {//#5 CODE-MOD
-   		flSw = "N";
-	}else{
-		flSw= "Y";
-		if(userSecurity.equals("0")){
-		    flSw= "N";
-		}
-}
-%>
-
-<%  //if the individual is already file cleared, do not pre fill if the IS_INDV_FILE_CLEARED is null or N then only prefill
-	if("Y".equals((String)request.getParameter("IS_INDV_FILE_CLEARED"))){ %>
-	<ARTagLibrary:FWPrefillTag  preFill = "N"/>
-<% } else { %>
-	<ARTagLibrary:FWPrefillTag  preFill = "Y"/>
-<% } %>
-
-<%/* EDITABLE WITH PERMISSION (You can add code to this section) - Body and Form Tags */%>
-
-<form name="form1" method="post" action="/ControllerServlet" target="_self">
-<input type="hidden" name="validateInactiveIndv" value="" validate="inactiveValidation()" id="validateInactiveIndv">
-<%/* NOT EDITABLE - Framework Hidden Fields */%>
-<%@ include file = "/fwincludes/hiddenFields.jsp" %>
-
-<%if("DC".equals(ARDCMODE)) { %>
-<input type="hidden" name="counter" value="<%=counter%>" id="counter">
-<input type="hidden" name="validateDeathVrf" validate = "validateDeathVrf()" id="validateDeathVrf">
-<input type="hidden" name="fileClrDOD" value="<%=dcIndvCargo.getFileClearanceSw() %>" id="fileClrDOD">
-<input type="hidden" name="preFillByPass" id="preFillByPass" value="<%=preFillByPassKey%>" id="preFillByPass">
-<input type="hidden" name="<%=gov.illinois.ies.business.broker.SelfServiceBrokerConstants.SS_XREF_TYPE_IND%>" id="<%=gov.illinois.ies.business.broker.SelfServiceBrokerConstants.SS_XREF_TYPE_IND%>" value = "<%=gov.illinois.ies.business.broker.SelfServiceBrokerConstants.SS_XREF_TYPE_RMC%>" />
-<% } %>
-<input type="hidden" name="RM_IND" id="RM_IND" value="<%=request.getAttribute("RM_IND")%>">
-<input type=hidden name="_dcuRoles" id="_dcuRoles" value=<%=_dcuRoles%>>
-<input type="hidden" name="currentIndividual" id="currentIndividual" value="<%=request.getAttribute("indvIdNotCleared") %>" />
-<input type="hidden" name="individualId" id="individualId">
-<%/* EDITABLE - Page Specific Hidden Fields (You can add code to this section) */%>
-<%
-	String isAddNewIndividual = "";
-	if(request.getAttribute("addNewIndividual") != null){
-		isAddNewIndividual = (String)request.getAttribute("addNewIndividual");
-	}
-%>
-<input type="hidden" name="addNewIndividual" id="addNewIndividual" value="<%=isAddNewIndividual%>">
-<input type="hidden" name="saveAddNewIndividual" id="saveAddNewIndividual" value=""><%--BRGUS00107064-upadhyayulag-Variable to identify if request is to add new individual--%>
-<%
-	String isFromArToDc = "";
-	if(request.getAttribute("fromArToDc") != null){
-	    isFromArToDc = (String)request.getAttribute("fromArToDc");
-	}
-%>
-<%
-	String addDisable = "";
-	if(request.getAttribute("addDisable") != null){
-	    addDisable = (String)request.getAttribute("addDisable");
-	}
-%>
-<input type="hidden" name="addDisable" value="<%=addDisable%>" id="addDisable">
-<input type="hidden" name="fromArToDc" value="<%=isFromArToDc%>" id="fromArToDc">
-<%
-String val = null;
-String val2 = null;
-if (request.getAttribute("navigation1") == null)
-{
-  val = "";
-  }
-else
-{
-val = (String)request.getAttribute("navigation1");
-}
-//
-if (request.getAttribute("AddArrow1") == null)
-{
-  val2 = "";
-  }
-else
-{
-val2 = (String)request.getAttribute("AddArrow1");
-}
-
-	FwCalendar calendar = FwCalendar.getInstance();
-						 FwDate date = calendar.getDate();
-						java.sql.Timestamp  sysdate = date.getTimestamp();
-						Date sysdateee = sysdate;
-						int month = sysdate.getMonth()+1;
-						int year = sysdate.getYear()+1900;
-						
-
-%>
-<input type="hidden" name="sysMonth" value="<%=month%>" id="sysMonth">
-<input type="hidden" name="sysYear" value="<%=year%>" id="sysYear">
-
-<%--#4 CODE-ADD-START--%>
-<input type="hidden" name="priorSsnTab" id="priorSsnTab" value="<%=(request.getAttribute("priorSsnTab")!=null)?(String)request.getAttribute("priorSsnTab"):""%>">
-<%--#4 CODE-ADD-END--%>
-
-<%
-
-	long invalidSSN = 0;
-	try {
-	if(request.getAttribute("invalidSSN") != null){
-		invalidSSN = ((Long)request.getAttribute("invalidSSN")).longValue();
-	}
-	} catch(Exception e ) {
-	    //e.printStackTrace();
-	}
-	
-%>
-<input type="hidden" name="invalidSSN" value="<%=invalidSSN%>" id="invalidSSN">
-<input type="hidden" name="navigation" value="<%=val%>" id="navigation">
-<%	  if ("DC".equals(ARDCMODE)){
-%>
-<input type="hidden" name="validateSSA" value="<%=pageMode%>" validate="validateSSA()" id="validateSSA"><%--FO511 praphull --%>
 <%} %>
-<input type="hidden" name="CURRENT_PAGE_MODE" value="<%=pageMode%>" validate="checkMultipleSSNValues()" id="CURRENT_PAGE_MODE">
-
-<%-- %>FO511 starts--%>
-<%
-char hdnVal='\0';
-if (dcIndvCargo!=null){
-	hdnVal=dcIndvCargo.getSsaValidationSw();
-}
-
-char hdnnVal='\0';
-if (dcIndvCargo!=null){
-	hdnnVal=dcIndvCargo.getSsaPcValidationSw();
-}
-
-%>
-<input type="hidden" name="hiddenValidateSSA" value="<%=hdnVal%>" id="hiddenValidateSSA">
-<input type="hidden" name="hiddenValidateSSAPC" value="<%=hdnnVal%>" id="hiddenValidateSSAPC">
-<%-- %>FO511 ends --%>
-<input type="hidden" name="AddArrow" value="<%=val2%>" id="AddArrow">
-<input type="hidden" name="mode" value="<%=request.getAttribute("mode")%>" id="mode">
-<input type="hidden" name="editRowId" value="<%=null != request.getAttribute("editRowId") ? request.getAttribute("editRowId") : ""%>" id="editRowId">
-<input type="hidden" name="scriptmode" id="scriptmode" value="<%=request.getAttribute("ARDCMODE")%>">
-<input type="hidden" name="ssnFlag" id="ssnFlag" value="<%=request.getAttribute("SSNFlag")%>">
-<input type="hidden" name="ssnNew" id="ssnNew" value="<%=(dcIndvCargo!=null)?Long.toString(dcIndvCargo.getSsn()):"0"%>">
-<%--Code added by Gopi for FO177 on 06/15/2006--%>
-<input type="hidden" name="claimedSsnNew" id="claimedSsnNew" value="<%=(dcIndvCargo!=null)?Long.toString(dcIndvCargo.getClaimedSsn()):"0"%>">
-<%--06/15/2006 End--%>
-<input type="hidden" name="aliasLen" id="aliasLen" value="<%=request.getAttribute("dcAliasSize")%>">
-<input type="hidden" name="sscnLen" id="sscnLen" value="<%=request.getAttribute("dcIndvSscnSize")%>">
-<input type="hidden" name="hasSecondarySsnInformation" value="N" id="hasSecondarySsnInformation">
-<input type="hidden" name="dcuSsaCheck" value="N" id="dcuSsaCheck">
-<input type="hidden" name="ssaValCheck" value="N" id="ssaValCheck">
-<input type="hidden" name="disableCancel" value="<%=disableCancelDC%>" id="disableCancel">
-<input type="hidden" name="lastIndvInLoop" value="<%=request.getAttribute("lastIndvInLoop")%>" id="lastIndvInLoop">
-<input type="hidden" name="inPageId" value ="INSIS" id="inPageId">
-<input type="hidden" name="cin" id="cin" value="<%=(dcIndvCargo!=null)?String.valueOf(dcIndvCargo.getIndvId()):"0"%>">
-<input type="hidden" name="isPrevSSCN" id="isPrevSSCN" value="<%=request.getAttribute("prevSSCN")%>">
-<input type="hidden" name="indvFileClrSw" id="indvFileClrSw" value="<%=flSw%>">
-<%-- <input type="hidden" name=""  value="" /> --%>
-<input type="hidden" name="validateDates" id="validateDates" validate="testDobs();">
-<input type="hidden" name="validateSSN" id="validateSSN" validate="testSSN();">
-<input type="hidden" name="IS_CANCEL_ACTION" id="IS_CANCEL_ACTION" value="N">
-<input type="hidden" name="IS_PREVIOUS_ACTION" id="IS_PREVIOUS_ACTION" value="N">
-<input type="hidden" name="CHECK_TO_DISABLE" id="CHECK_TO_DISABLE" value="N">
-<input type="hidden" name="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_TRACK_ID%>" id="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_TRACK_ID%>" value = "<%=Encode.forHtmlAttribute(request.getParameter(gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_TRACK_ID))%>" />
-<input type="hidden" name="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_CHANGE_SEQ_NUM%>" id="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_CHANGE_SEQ_NUM%>" value = "<%=Encode.forHtmlAttribute(request.getParameter(gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_CHANGE_SEQ_NUM))%>" />
-<input type ="hidden" name="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_INDV_SEQ_NUM%>" id="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_INDV_SEQ_NUM%>" value = "<%=Encode.forHtmlAttribute(request.getParameter(gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_INDV_SEQ_NUM))%>" />  
-
- <% 
- // 133955 starts
- ArDcAppCasesCargo arDcAppCargo2=(ArDcAppCasesCargo)request.getAttribute("arDcAppCasesCargo");
-		String appNumber = ((arDcAppCargo2==null || arDcAppCargo2.getAppNum() == null)? "":arDcAppCargo2.getAppNum());
-// 133955 ends
- 
- if(("AR".equals(ARDCMODE))){
- 		ArDcAppCasesCargo arDcAppCargo1=(ArDcAppCasesCargo)request.getAttribute("arDcAppCasesCargo");
-		String appnum1 = ((arDcAppCargo1==null || arDcAppCargo1.getAppNum() == null)? "":arDcAppCargo1.getAppNum());
-		char MPESw = (Character)request.getAttribute("MPESw");
-		 MPESw = ((MPESw=='\0' || MPESw == 'N')? 'N':MPESw);
-		String editVal="";
-		%>
-			<input type="hidden" name="MPESw" id="MPESw" value="<%=MPESw%>">
-			<input type="hidden" name="APPL_NUM" id="APPL_NUM" value="<%=appnum1%>">
-	   <%	if( ((Boolean)request.getAttribute("EDIT_FLAG"))== null){
-	   			editVal="0";
-	   %>
-	   		<input type = "hidden" name = "editFlagIndv" id = "editFlagIndv" value = "<%=editVal%>" />
-	   <%}else if(((Boolean)request.getAttribute("EDIT_FLAG")).booleanValue()==true){
-	   		editVal="1";
-	   	%>
-	   		<input type = "hidden" name = "editFlagIndv" id = "editFlagIndv" value = "<%=editVal%>" />
-	   		<%if(dcIndvCargo!=null){
-	   			String editIndvFcSwStr=String.valueOf(dcIndvCargo.getFileClearanceSw());
-	   			//If the user has Read-Only permission,schedule Individual Summary screen.
-	   			if(userSecurity.equals("0")){
-		   			editIndvFcSwStr = "Y";
-	   			}
-	   			if("Y".equals(editIndvFcSwStr)){
-	   			if(!isRecordEdited){
-	   			editIndvFcSwStr="N";
-	   			}
-	   			}
-	   		%>
-	   		<input type = "hidden" name = "editIndvFcSw" id = "editIndvFcSw" value = "<%=editIndvFcSwStr%>" />
-
-	   		<%
-	   		}
-	   }
-	}
-					String bdate = null;
-					String indianTribe = null;
-					String indianTribeCode=null;//FO511
-					String needsProgram = null;
-					String refugeeMinor = null;
-					String reasonFBan = null;
-					String isindivban = null;
-					
-					if (dcIndvCargo.getDobDt() != null)
-					{
-						bdate = dcIndvCargo.getDobDt().toString();
-					}
-					if (bdate == null)
-					{	bdate = "";	}
-
-
-					if (dcIndvCargo != null && dcIndvCargo.getRefugeeMinorSw() != 0)
-					{
-						refugeeMinor = String.valueOf(dcIndvCargo.getRefugeeMinorSw());
-					}
-					// Added for CR-20392 Start
-					if (dcIndvCargo != null && dcIndvCargo.getSafeDeliveryBabySw() != 0)
-					{
-						safedelBaby = String.valueOf(dcIndvCargo.getSafeDeliveryBabySw());
-					}// Added for CR-20392 End
-					if (dcIndvCargo != null && dcIndvCargo.getFedRcgnzdIndianTribeSw() != 0)
-					{
-						indianTribe = String.valueOf(dcIndvCargo.getFedRcgnzdIndianTribeSw());
-					}
-					//added for FO511
-					if (dcIndvCargo != null && dcIndvCargo.getIndianTribeCd()!=null &&!dcIndvCargo.getIndianTribeCd().equals(""))
-					{
-						indianTribeCode = String.valueOf(dcIndvCargo.getIndianTribeCd());
-					}
-					else
-						indianTribeCode="";
-					if(dcIndvCargo != null && dcIndvCargo.getBannedReason()!=null && !dcIndvCargo.getBannedReason().equals("") ){
-						reasonFBan=dcIndvCargo.getBannedReason();
-					
-					}
-					else{
-					reasonFBan=" ";
-					
-					}
-					if(dcIndvCargo != null && dcIndvCargo.getBannedFromCallingCd()!=null && !dcIndvCargo.getBannedFromCallingCd().equals("") ){
-						isindivban=dcIndvCargo.getBannedFromCallingCd();
-					
-					}
-					else{
-					isindivban=" ";
-					
-					}
-					
-					
-
-%>
- <SCRIPT type="text/javascript">
-
- var prName = "<%=prefixName%>";
- var fname="<%=firstname%>";
- var mname="<%=middlename%>";
- var lname="<%=lastname%>";
- var dMon="<%=mm%>";
- var dDD="<%=dd%>";
- var dYear="<%=yyyy%>";
- var gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
- 
- 
- function disableGenderForMPEAppl(){
- if(document.getElementById("MPESw") != null && document.getElementById("MPESw").value =='Y'){
- 	document.getElementById("gender").value = 'F';
- 	document.getElementById("gender").disabled = true;
- }
- }
- 
- function validateReasonForBan(){
-   
-    var reason=document.getElementById("reasonForBan").value;
-    var dropdownVal=document.getElementById("istheindividualbannedfromenterDHSHFS").value;
-    if(dropdownVal!='NO' && reason==''){
-    	alertMe("GL003");
-    }
- }
-  
- function validateAddButton(){
-    var val1 = "";
- 
-	if(document.form1.addDisable != null){
-		var val1 = document.form1.addDisable.value;
-	}
-	if (val1 =="Y"){
-	disableAddIndividual();
-	}
- }
- // Code added for ILIES-169586
- function openDeathInfoPopUp(indvId){
-	var url="/ControllerServlet?PAGE_ID=DCDRP&REQUESTED_PAGE_ID=DCDRP&FWPOPUP=Y&ACTION=ClickOnLink&cin="+indvId;
-	openModalDialog(url,"Death Match Results",'dialogWidth:750px;dialogHeight:650px');
-}
- 
-</SCRIPT>
+   <%} %>
