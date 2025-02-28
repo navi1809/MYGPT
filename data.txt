@@ -1,546 +1,1817 @@
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"> 
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<%@page import="com.ibm.ws.webservices.xml.wassysapp.systemApp"%>
 <%/*
-********************************************************************************************
-Name: [ARRARRegisterAppAuthRep.jsp]		Created By: [RAJABABU MARRI]		Created on: [05/14/2002]
-Purpose: [YOUR PURPOSE]
-Modification Logs:
-Modified By 			Date				Reason & description
-[MODIFIED NAME]		    [MM/DD/YYYY]		[REASON FOR CHANGE]
-Mahesh M			03/22/2004		Help modifications:Page elements not used
-Praphull K          11/08/2006      FO-521    
-Amruta Gadre		05/17/2007		Defect#BRGUS00046896 
-Rahul Asar			07/26/2007		Defect # BRGUS00044504 Change in reference table values.
-********************************************************************************************
+************************************************************************************************
+Name: [ARRIIRegisterAppIndv]		Created By: [RAJABABU MARRI]		Created on: [05/20/2002]
+Purpose: [Register Individual Information]
+Modification Logs: 
+Modified By Harish Hirasave			Date 10/07/03				Reason & description  Adding Deceased Information
+[MODIFIED NAME]		    [MM/DD/YYYY]	Marker	[REASON FOR CHANGE]
+Chetankumar Patel		 08/15/2011				WR# BRGUS00282781 - DC- SSN Edits for SSN Randomization
+deceasedVerificationCheck
+
+************************************************************************************************
 */%>
-
-<%/* NOT EDITABLE - FW Page Directive, Imports, and URIs */%>
-<%@ include file = "/fwincludes/directives.jsp" %> 
-
-<%
-indicators.put("skipClosingForm","true");
-indicators.put("w3c","true");
-%>
-
-<%/* EDITABLE - Page Specific Imports and URIs (You can add code to this section) */%>
-<%@ include file = "/includes/ArDirectives.jsp" %>
-<%@ include file = "/includes/DcDirectives.jsp" %>
-<%/* EDITABLE - Page Specific Imports and URIs (You can add code to this section) */%>
-<%@ page import="gov.illinois.fw.management.referencetables.ReferenceTableManager"%>
-<%/* EDITABLE - Page Specific useBean tags(You can add code to this section) */%>
-<jsp:useBean id="phoneNumber" class="gov.illinois.ies.presentation.view.pageelements.PhoneNumber" scope="application"/>
-<jsp:useBean id="arAuthRepAddrCargo" class="gov.illinois.ies.business.entities.application.ArAppAddrCargo" scope="request"/>
-<jsp:useBean id="arDcAppCasesCargo" class="gov.illinois.ies.business.entities.application.ArApplicationForAidCargo" scope="request"/>
-<jsp:useBean id="authRepVrf" class="gov.illinois.ies.presentation.view.pageelements.AuthRepVrf" scope="application"/>
-<jsp:useBean id="workNumber" class="gov.illinois.ies.presentation.view.pageelements.WorkNumber" scope="application"/>
-<jsp:useBean id="otherNumber" class="gov.illinois.ies.presentation.view.pageelements.OtherNumber" scope="application"/>
-<jsp:useBean id="authrepCaregiver" class="gov.illinois.ies.presentation.view.pageelements.AuthrepCaregiver" scope="application"/>
-<jsp:useBean id="relationshipToIndividual" class="gov.illinois.ies.presentation.view.pageelements.RelationshipToIndividual" scope="application"/>
-<jsp:useBean id="nameGroup" class="gov.illinois.ies.presentation.view.pageelements.NameGroup" scope="application"/>
-<jsp:useBean id="addressGroup" class="gov.illinois.ies.presentation.view.pageelements.AddressGroup" scope="application"/>
-<jsp:useBean id="addressValidation" class="gov.illinois.ies.presentation.view.pageelements.AddressValidation" scope="application"/>
-<jsp:useBean id="actionCd" class="gov.illinois.ies.presentation.view.pageelements.ActionCd" scope="application"/> 
-<jsp:useBean id="dynaLoad" class="gov.illinois.ies.presentation.view.pageelements.DynaLoad" scope="application"/>
-
-
-<% 
-	 //chakalamb ss code start	
-	 boolean isSSApp = false;
-	 String ssAppNumDisp = "";
-	 if(request.getAttribute("IS_SELF_SERVICE_APP") != null){
-		isSSApp = ((Boolean)request.getAttribute("IS_SELF_SERVICE_APP")).booleanValue();
-		ssAppNumDisp = (String)request.getAttribute("SELF_SERVICE_APP_NUM");
-	 }
-	 //chakalamb ss code end
-	 java.util.ArrayList repDynaList = new java.util.ArrayList();
-	 if (request.getAttribute("repDynaList")!=null){
-	 	repDynaList = (java.util.ArrayList)request.getAttribute("repDynaList");
-	 }
-%>
+<%@page import="gov.illinois.ies.business.rules.driver.DcDriverConstants,
+				gov.illinois.ies.business.entities.individual.DcIndvCargo,
+				java.util.List,
+				java.util.ArrayList,java.sql.Timestamp"%>
+<%@page import="gov.illinois.framework.management.logging.FwLogger4J,gov.illinois.framework.management.logging.ILog"%>
+<%@page import="org.owasp.encoder.Encode" %>
 
 <%
-//BRGUS00044504-RA-Care giver Question should be enabled in case of Filing Auth Rep only.
-byte careGiverMode = 1;
-String rtFilter="ARFILTER";
-
-if(arDcAppCasesCargo.getAuthRepInd() == 'S'){
-	careGiverMode = 0;
-	rtFilter = "SERFILTER";
+// 133955 starts
+String editMode = (String) request.getAttribute("EDIT_MODE");
+boolean isSSApp =false; 
+final ILog logger = FwLogger4J.getInstance(); 
+if(request.getAttribute(DcDriverConstants.IS_SELF_SERVICE_APP) != null){
+isSSApp =((Boolean) request.getAttribute(DcDriverConstants.IS_SELF_SERVICE_APP)).booleanValue();
+} 
+boolean enableDel = false;
+if(request.getAttribute("ENABLE_DEL") != null){
+enableDel = ((Boolean) request.getAttribute("ENABLE_DEL")).booleanValue();
 }
+// 133955 ends
+// Begin BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity -- PatelC
+boolean isMiChildApp = false;
+Boolean miChildAppFlag = (Boolean)request.getAttribute("IS_MI_CHILD_APP");
+if(miChildAppFlag != null && "true".equals(miChildAppFlag.toString())){
+	isMiChildApp = true;
+}
+// End BRGUS00247031 - Interfaces - MICHILD - Prefill for race/ethnicity -- PatelC
+if("true".equals((String)request.getAttribute("isIndvAjxRqst"))){%>
+clearMessages();
+<%
+java.util.HashMap indvDetailsMap = (java.util.HashMap)request.getAttribute("indvDetailsMap");
+if(indvDetailsMap==null ){
+indvDetailsMap = new HashMap();
+}
+Iterator indvDetailsIte = indvDetailsMap.keySet().iterator();
+StringBuffer indvDetailsSb = new StringBuffer();
+String formAttribute ="document.form1.";
+String valueAttribute =".value=\"";
+String terminationValue = "\";";
+String elementName = "";
+String elementValue="";
+while(indvDetailsIte.hasNext()){
+elementName=(String)indvDetailsIte.next();
+elementValue=(String)indvDetailsMap.get(elementName);
+
+/* if(elementName.equals("secondaryLanguages")||elementName.equals("otherRace"))  */
+if(elementName.equals("secondaryLanguages")){
 %>
-
-<% //FO510
-String addressValidationSw1 = "BLANK";
-			if(arAuthRepAddrCargo != null && arAuthRepAddrCargo.getValidationSw()!=0){
-			
-				addressValidationSw1 = ""+arAuthRepAddrCargo.getValidationSw();
-			}
-			
- %>
-
-<%/* NOT EDITABLE - Head Tag Include */%>
-<%@ include file = "/fwincludes/headTag.jsp" %>
-
-<TL:FWBodyTag security="<%=securityAttr.getPermission()%>" mode="<%= pageMode%>" other="onLoad=\"checkAddValidation();disableChildTabOnLoad(document.form2,'authrep');displayHeaderValuesForSS();\" onUpdate=\"document.getElementById('softHardEditMode').value='';\""/>
-<%/* EDITABLE - Page specific .js or .css files (You can add code to this section) */%>
-<script src="/js/ar.js" type="text/javascript"></script>
-<script src="/js/dc.js" type="text/javascript"></script>
-<script type="text/javascript">
-	var city;
-	var county;
-	
-	var zipCode5;
-	var zipCode4;
-	var displayRules = new Array(2);
-	displayRules[0] = '~prefixName~ ~firstName~ ~middleName~ ~lastName~ ~suffixName~';
-	displayRules[1] = 'relationshipToIndividual';
-	dyna_table_accessibility='Y';
-	dyna_table_ambiguous_links='Y';
-	
-	var isUpadteCall = false;
-	var isAddCall = false; 
-
-	</script>
-<script src="/js/dynaTable.js" type="text/javascript"></script>
-<script type="text/javascript" >
-function checkAddValidation(){
-<%-- 
-var a='<%=addressValidationSw1%>';
-if(a=='BLANK'){
-form2.addressValidation.value='Y';
-form2.addressValidation.disabled = true;
+var elementScriptName ='<%=elementName%>';
+var elementScriptValue ='<%=elementValue%>';
+populateMultiSelect(elementScriptName,elementScriptValue);
+<%
 }
 else{
-form2.addressValidation.disabled =false;
+indvDetailsSb.append(formAttribute);
+indvDetailsSb.append(elementName);
+indvDetailsSb.append(valueAttribute);
+indvDetailsSb.append(elementValue);
+indvDetailsSb.append(terminationValue);
+}
+}
+//add javascript
+indvDetailsSb.append("disableEnableSecondaryRace();");
+%>
+<%=indvDetailsSb.toString()%>
+<%
+}else if("Y".equals((String)request.getAttribute("ERROR_MESSAGE_THROWN_INDVSEARCH"))){
+
+%>
+
+
+alertMe("AR3121");
+
+
+
+<%
+}else{ %>
+<%/* NOT EDITABLE - FW Page Directive, Imports, and URIs */%>
+<%@ include file = "/fwincludes/directives.jsp" %>
+<%@ include file = "/includes/ArDirectives.jsp" %>
+<%@ include file = "/includes/DcDirectives.jsp" %>
+
+<%/* EDITABLE - Page Specific Imports and URIs (You can add code to this section) */%>
+<%@page import="gov.illinois.fw.management.referencetables.*,java.util.ArrayList,gov.illinois.ies.business.rules.al.ALSOPUtil,
+gov.illinois.framework.management.util.FwCalendar,gov.illinois.framework.management.util.FwDate,
+gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCargo,gov.illinois.ies.business.entities.individual.DcIndvLanguageCargo,gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCollection
+,gov.illinois.ies.business.entities.individual.DcIndvEthnicityCollection"%>
+<%/* EDITABLE - Page Specific useBean tags(You can add code to this section) */%>
+<jsp:useBean id="cin" class="gov.illinois.ies.presentation.view.pageelements.Cin" scope="application"/>
+<jsp:useBean id="dateOfBirth" class="gov.illinois.ies.presentation.view.pageelements.DateOfBirth" scope="application"/>
+<jsp:useBean id="actualEstDateOfBirth" class="gov.illinois.ies.presentation.view.pageelements.ActualEstDateOfBirth" scope="application"/>
+<jsp:useBean id="dueDate" class="gov.illinois.ies.presentation.view.pageelements.DueDate" scope="application"/>
+<%--   Commented by Gopi on 06/12/2006 for FO131
+<jsp:useBean id="startdate" class="gov.illinois.ies.presentation.view.pageelements.Startdate" scope="application"/>
+06/12/2006 Comment End--%>
+<jsp:useBean id="verifications" class="gov.illinois.ies.presentation.view.pageelements.Verifications" scope="application"/>
+<jsp:useBean id="chipChildId" class="gov.illinois.ies.presentation.view.pageelements.ChipChildId" scope="application"/>
+<jsp:useBean id="ssn" class="gov.illinois.ies.presentation.view.pageelements.Ssn" scope="application"/>
+<%--Code added by Gopi for FO177 on 06/14/2006--%>
+<jsp:useBean id="claimedSsn" class="gov.illinois.ies.presentation.view.pageelements.ClaimedSsn" scope="application"/>
+<%--06/14/2006 End--%>
+<jsp:useBean id="gender" class="gov.illinois.ies.presentation.view.pageelements.Gender" scope="application"/>
+<jsp:useBean id="languages" class="gov.illinois.ies.presentation.view.pageelements.Languages" scope="application"/>
+
+<%--<jsp:useBean id="race" class="gov.illinois.ies.presentation.view.pageelements.Race" scope="application"/>--%>
+<%-- Changed according to ILIES-135881 --%>
+<jsp:useBean id="race" class="gov.illinois.ies.presentation.view.pageelements.Race" scope="application"/>
+<jsp:useBean id="otherRace" class="gov.illinois.ies.presentation.view.pageelements.OtherRace" scope="application"/>
+<%-- Changed according to ILIES-135881 --%>
+<jsp:useBean id="dcIndvSecondaryRaceColl" class="gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCollection" scope="request"/>
+<jsp:useBean id="dcIndvSecondaryRaceCargo" class="gov.illinois.ies.business.entities.individual.DcIndvSecondaryRaceCargo" scope="request"/>
+
+<jsp:useBean id="dcIndvEthnicityColl" class="gov.illinois.ies.business.entities.individual.DcIndvEthnicityCollection" scope="request"/>
+<jsp:useBean id="dcIndvEthnicityCargo" class="gov.illinois.ies.business.entities.individual.DcIndvEthnicityCargo" scope="request"/>
+
+
+<jsp:useBean id="ethnicity" class="gov.illinois.ies.presentation.view.pageelements.Ethnicity" scope="application"/>
+<jsp:useBean id="hasSscnInformation" class="gov.illinois.ies.presentation.view.pageelements.HasSscnInformation" scope="application"/>
+<jsp:useBean id="hasOtherNames" class="gov.illinois.ies.presentation.view.pageelements.HasOtherNames" scope="application"/>
+<jsp:useBean id="isCurrentlyPregnant" class="gov.illinois.ies.presentation.view.pageelements.IsCurrentlyPregnant" scope="application"/>
+<jsp:useBean id="isDisabled" class="gov.illinois.ies.presentation.view.pageelements.IsDisabled" scope="application"/>
+<jsp:useBean id="disability" class="gov.illinois.ies.presentation.view.pageelements.Disability" scope="application"/>
+<jsp:useBean id="isDhsEmployee" class="gov.illinois.ies.presentation.view.pageelements.IsDhsEmployee" scope="application"/>
+<%--Commented by Gopi for FO131 on 06/14/2006
+<jsp:useBean id="isStateEmployee" class="gov.illinois.ies.presentation.view.pageelements.IsStateEmployee" scope="application"/>
+06/14/2006 End--%>
+<%--   Commented by Gopi on 06/07/2006 for FO131
+<jsp:useBean id="employeeNumber" class="gov.illinois.ies.presentation.view.pageelements.EmployeeNumber" scope="application"/>
+06/07/2006 Comment End--%>
+<jsp:useBean id="dcIndvCargo" class="gov.illinois.ies.business.entities.individual.DcIndvCargo" scope="request"/>
+<jsp:useBean id="dcIndvCollection" class="gov.illinois.ies.business.entities.individual.DcIndvCollection" scope="request"/>
+<jsp:useBean id="dcDisabilityCargo" class="gov.illinois.ies.business.entities.individual.DcDisabilityCargo" scope="page"/>
+<jsp:useBean id="dcIndvLanguageCargo" class="gov.illinois.ies.business.entities.individual.DcIndvLanguageCargo" scope="page"/>
+<jsp:useBean id="dcPregnanciesCargo" class="gov.illinois.ies.business.entities.individual.DcPregnanciesCargo" scope="request"/>
+<jsp:useBean id="dcIndvProfileCargo" class="gov.illinois.ies.business.entities.individual.DcIndvProfileCargo" scope="request"/>
+<jsp:useBean id="validataedBySSA" class="gov.illinois.ies.presentation.view.pageelements.ValidataedBySSA" scope="application"/>
+<jsp:useBean id="validataedPcBySSA" class="gov.illinois.ies.presentation.view.pageelements.ValidataedPcBySSA" scope="application"/> 
+<jsp:useBean id="dcIndvLanguageColl" class="gov.illinois.ies.business.entities.individual.DcIndvLanguageCollection" scope="request"/>
+<jsp:useBean id="dcDisabilityColl" class="gov.illinois.ies.business.entities.individual.DcDisabilityCollection" scope="request"/>
+<jsp:useBean id="arAppForAidCargo" class="gov.illinois.ies.business.entities.application.ArApplicationForAidCargo" scope="request"/>
+<%-- <jsp:useBean id="reqDataBroker" class="gov.illinois.ies.presentation.view.pageelements.ReqDataBroker" scope="application"/>
+<jsp:useBean id="creditReportSw" class="gov.illinois.ies.presentation.view.pageelements.CreditReportSw" scope="application"/> --%>
+
+<jsp:useBean id="highNeedProfile" class="gov.illinois.ies.presentation.view.pageelements.HighNeedProfile" scope="application"/>
+<jsp:useBean id="highNeedCriteria" class="gov.illinois.ies.presentation.view.pageelements.HighNeedCriteria" scope="application"/>
+<jsp:useBean id="nameGroup" class="gov.illinois.ies.presentation.view.pageelements.NameGroup"  scope="application"/>
+
+<%--<jsp:useBean id="source" class="gov.illinois.ies.presentation.view.pageelements.Source" scope="application"/> --%>
+<jsp:useBean id="verificationSource" class="gov.illinois.ies.presentation.view.pageelements.VerificationSource" scope="application"/>
+<jsp:useBean id="deceasedDateOfDeath" class="gov.illinois.ies.presentation.view.pageelements.DeceasedDateOfDeath" scope="application"/>
+<jsp:useBean id="deceasedVerification" class="gov.illinois.ies.presentation.view.pageelements.DeceasedVerification" scope="application"/>
+<%--ILIES-276949 Start --%>
+<jsp:useBean id="deceasedVerificationAdditional" class="gov.illinois.ies.presentation.view.pageelements.DeceasedVerificationAdditional" scope="application"/>
+<%--ILIES-276949 Start--%>
+
+<jsp:useBean id="recognizedIndianTribe" class="gov.illinois.ies.presentation.view.pageelements.RecognizedIndianTribe" scope="application"/>
+<jsp:useBean id="dateOfDeathReportDate" class="gov.illinois.ies.presentation.view.pageelements.DeceasedDateOfDeathReportDate" scope="application"/>
+
+<%--Code added for ILIES-173447 --%>
+<jsp:useBean id="individualReceivedShareOrPremiumPreviously" class="gov.illinois.ies.presentation.view.pageelements.IndividualReceivedShareOrPremiumPreviously" scope="application"/>
+<%-- Added for ILIES-192144 --%>
+<jsp:useBean id="chipPriorCoverage" class="gov.illinois.ies.presentation.view.pageelements.ChipPriorCoverage" scope="application"/>
+
+<%--Code commented by Praphull for FO511 on 11/16/2006--%>
+<%--<jsp:useBean id="healthCareNeedsProgram" class="gov.illinois.ies.presentation.view.pageelements.HealthCareNeedsProgram" scope="application"/>--%>
+<jsp:useBean id="unaccompaniedRefugee" class="gov.illinois.ies.presentation.view.pageelements.UnaccompaniedRefugee" scope="application"/>
+<%--Code added by Gopi for FO130 on 06/29/2006--%>
+<%-- <jsp:useBean id="zeroTolerance" class="gov.illinois.ies.presentation.view.pageelements.ZeroTolerance" scope="application"/> --%>
+<%--06/14/2006 End--%>
+<%--Code added by Praphull for FO511 on 11/16/2006--%>
+<jsp:useBean id="indianTribeCd" class="gov.illinois.ies.presentation.view.pageelements.IndianTribe" scope="application"/>
+<%--11/16/2006 End--%>
+<%-- Added for CR-20392 Start --%>
+ <jsp:useBean id="safeDeliveryBabySw" class="gov.illinois.ies.presentation.view.pageelements.SafeDeliveryBabySw" scope="application"/>
+<%-- Added for CR-20392 End --%>
+<%-- Added for BRGUS00082000 --%>
+<jsp:useBean id="DOBVerification" class="gov.illinois.ies.presentation.view.pageelements.DOBVerification" scope="application"/>
+<%--#9-CODE-ADD-START--%>
+<jsp:useBean id="Results_item" class="gov.illinois.ies.business.entities.cases.DcIndvHhStatusCargo" scope="request"/>
+<%--#9-CODE-ADD-END--%>
+<jsp:useBean id="primaryLanguage" class="gov.illinois.ies.presentation.view.pageelements.PrimaryLanguage" scope="application"/>
+<jsp:useBean id="secondaryLanguages" class="gov.illinois.ies.presentation.view.pageelements.SecondaryLanguages" scope="application"/>
+<jsp:useBean id="individualNumber" class="gov.illinois.ies.presentation.view.pageelements.IndividualNumber" scope="application"/>
+<jsp:useBean id="inputSsn" class="gov.illinois.ies.presentation.view.pageelements.InputSsn" scope="application"/>
+ <jsp:useBean id="istheindividualcurrentlyreceivingMedicare" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualcurrentlyreceivingMedicare" scope="application"/>
+ <jsp:useBean id="istheindividualcurrentlyreceivingSSDSSI" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualcurrentlyreceivingSSDSSI" scope="application"/> 
+<jsp:useBean id="istheindividualcurrentlyinalong" class="gov.illinois.ies.presentation.view.pageelements.Istheindividualcurrentlyinalong" scope="application"/>
+ <jsp:useBean id="reasonForBan" class="gov.illinois.ies.presentation.view.pageelements.ReasonForBan" scope="application"/>
+<jsp:useBean id="istheindividualbannedfromenterDHSHFS" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualbannedfromenterDHSHFS" scope="application"/>
+<%-- <jsp:useBean id="istheindividualcurrentlyreceivingMedicareSSDSSI" class="gov.illinois.ies.presentation.view.pageelements.IstheindividualcurrentlyreceivingMedicareSSDSSI" scope="application"/> --%>
+
+<% 
+String switchValue = ReferenceTableManager.getValueByColumn(true,"IMPLEMENTATIONSW","CM","SWITCH");	
+%>
+	
+	
+	
+
+<%  String ARDCMODE = "ARREG";
+	ARDCMODE=(String)request.getAttribute("ARDCMODE");
+//FO511
+String loadJavascript = "";
+	String preFillByPassKey=(String)request.getAttribute("preFillByPassKey");
+if("DC".equals(ARDCMODE) )
+	//BEGIN-BRGUS00105009-upadhyayulag-call disableSaveAndPrevious(field) on load of the screen in DC
+	//BEGIN-BRGUS00107064-upadhyayulag-call disableSaveAddIndividualAndPrevious() on load of the screen in DC
+	loadJavascript = "onLoad=\"ssnVerficationSource();doNotDisplayMatchFound();disableCalender();doLoadStuff();disableIndianTribe();disableSSN();disablePriorSsnTab(document.form1);enableDisableSecondaryRace();disableSaveAndAddIndividual(document.form1);validateAddButton(document.form1);disableSaveAndPrevious(document.form1);disableSaveAddIndividualAndPrevious();indvsMessage();disableReasonForBanOnNO(); validateReasonForBan();disableDeathOfDeath(form1);disableDetailsFields();\"";//#4 CODE-MOD//BRGUS00100441-upadhyayulag-CODE-ADD-Feb 29, 2008-call disableSaveAndAddIndividual(field) on load of the screen in DC
+	//END-BRGUS00107064
+	//END-BRGUS00105009
+else
+	loadJavascript = "onLoad=\"doNotDisplayMatchFound();disableCalender();doLoadStuff();enableDisableSecondaryRace();indvsMessage();disableGenderForMPEAppl();disableDetailsFields();\"";
+
+String vsw=String.valueOf(dcIndvCargo.getVoidSw());
+/* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Starts*/ 
+	String preFillIndvIdStr = null;
+	String preFillDateOfDeathStr = null;
+	List<DcIndvCargo> preFillIndvInfoDtlsList = null;
+	try{
+		preFillIndvInfoDtlsList =(ArrayList<DcIndvCargo>) request.getAttribute("PREFILLSOLQ_INDVINFO_DTLS");
+	
+		if(null != request.getAttribute("AUDIT_ACTION") 
+				&& request.getAttribute("AUDIT_ACTION").toString().equalsIgnoreCase("Edit") 
+				&& null != preFillIndvInfoDtlsList && preFillIndvInfoDtlsList.size() > 0){
+			
+			for(DcIndvCargo cargo : preFillIndvInfoDtlsList){
+				if(null != dcIndvCargo && dcIndvCargo.getIndvId() == cargo.getIndvId()){
+					preFillIndvIdStr = (0 != cargo.getIndvId()) ? String.valueOf(cargo.getIndvId()) : null;
+					preFillDateOfDeathStr = (null != cargo.getDeathDt()) ? String.valueOf(cargo.getDeathDt()) : null;				
+					break;	
+				}
+		    }		
+		 }	
+	}catch(Exception e){
+		logger.log("ARRIIRegisterAppIndv", logger.ERROR, "Exception occured in ARRIIRegisterAppIndv : "+e.toString());
+	}
+	/* ILIES-137198 Pre-Fill IES fields using Clearance Information - Part 2 - SOLQ :: Ends*/
+	//FO511
+%>
+<%	
+	if(request.getAttribute("dcIndvStagingCargo")!= null) {
+			dcIndvCargo = (DcIndvCargo) request.getAttribute("dcIndvStagingCargo");
+	}
+	if(request.getAttribute("dcIndvLanguageStagingCargo")!= null) {
+		dcIndvLanguageCargo = (DcIndvLanguageCargo) request.getAttribute("dcIndvLanguageStagingCargo");
+	}
+	if(request.getAttribute("dcIndvSecondaryRaceStagingColl")!= null) {
+		dcIndvSecondaryRaceColl = (DcIndvSecondaryRaceCollection) request.getAttribute("dcIndvSecondaryRaceStagingColl");
 }
 
- --%>
-}
-//chakalamb ss code start
-function displayHeaderValuesForSS(){
-	//This code is to populate the app num and status in the header.
-	<% if(isSSApp){%>
-		document.getElementById("SS_APP_NUM_DISPLAY").innerHTML='<%=ssAppNumDisp%>';
-		var appStatus = document.getElementById("appHeaderStatus").innerHTML;
-		if(appStatus == null || appStatus.length == 0){
-			document.getElementById("appHeaderStatus").innerHTML="Application pending";
-		}
-	<% } %>
-}
-//chakalamb ss code end
+	if(request.getAttribute("dcIndvEthnicityStagingColl")!= null) {
+		dcIndvEthnicityColl = (DcIndvEthnicityCollection) request.getAttribute("dcIndvEthnicityStagingColl");
+	} 
+	
+	if(request.getAttribute("dcIndvRMCargo") != null)
+	{
+	dcIndvCargo = (DcIndvCargo) request.getAttribute("dcIndvRMCargo");
+	
+	}
+	if(request.getAttribute("dcIndvSecondaryRaceRmColl") != null)
+	{
+		dcIndvSecondaryRaceColl = (DcIndvSecondaryRaceCollection) request.getAttribute("dcIndvSecondaryRaceRmColl");
+	
+	}
+	if(request.getAttribute("dcIndvEthnicityRmColl")!= null) {
+		dcIndvEthnicityColl = (DcIndvEthnicityCollection) request.getAttribute("dcIndvEthnicityRmColl");
+	}
+	if(request.getAttribute("dcIndvLanguageRmCargo")!= null) {
+		dcIndvLanguageCargo = (DcIndvLanguageCargo) request.getAttribute("dcIndvLanguageRmCargo");
+	}
 
-function checkSpecialChar(){
-	var field= document.form2.city.value;
-    var iChars = "~`!#$%^&*+=-[]\\\';,/{}|\":<>?";
+%>
+<%  String counter = "";
+	if(request.getAttribute("counter") != null){
+		counter = (String)request.getAttribute("counter");
+	}%>
+<%  String safedelBaby = null;
+	String _dcuRoles = "";
+	if(request.getAttribute("_dcuRoles") != null){
+		_dcuRoles = (String)request.getAttribute("_dcuRoles");
+	}
+	else{
+		_dcuRoles = "NonDCU";
+	}
+	String userSecurity = String.valueOf(securityAttr.getPermission());//BRGUS00101124 - upadhyayulag - String to hold access permission for the logged in user
+	
+	if("DC".equals(ARDCMODE)) {
+%>
 
-    for (var i = 0; i < field.length; i++) {
-       if (iChars.indexOf(field.charAt(i)) != -1) {
-           alertMe('AR3125');
-           return false;
-       }
-    }
-    return true;
-}
+<%/* Moved the code from below to have the variables available - WR BRGUS00163746*/ %>
 
-	function validateAddress() {
-		var city = document.form2.city;
-  		var zip4 = document.form2.zipCode4;
-  		var zip5 = document.form2.zipCode5;
-  		var check = true;
-  		var search = "[^A-Za-z\s]+";
-  		var result = city.value.match( search );
-  		
-  		if (result != null && result != " " ) {
-  			alertMe( 'GL006', city, city );
-  			check = false;
-  		}
-  		if(zip5 != null & zip5 != "undefined") {
-  			if(zip5.value.trim() == "") {
-  				alertMe( 'GL003', zip5, zip5 );
-  				check = false;
-  			}
-  		}
-  		if(city != null & city != "undefined") {
-  			if(city.value.trim() == ""){
-  				alertMe( 'GL003', city, city );
-  				check = false;
-  			}
-  		}
- 		if (checkZipCodeDchma(zip5, zip4) == false) {
-    		check = false;
-    	}
-   		if ( check == false ) {
-   			return false;
-   		}
-		return true;
+<%/* following code is added by praphull for FO511*/ %>
+<%!
+	static volatile String prefixName = null;
+	static volatile String firstname = null;
+	static volatile String middlename = null;
+	static volatile String lastname = null;
+	static volatile String dobdate="";
+	static volatile String mm = "";
+	static volatile String dd ="";
+	static volatile String yyyy="";
+	static volatile String variCode="";
+	
+%>
+<%
+	prefixName = String.valueOf(dcIndvCargo.getPrefixName());
+	firstname = String.valueOf(dcIndvCargo.getFirstName());
+	middlename = String.valueOf(dcIndvCargo.getMidName());
+	lastname = String.valueOf(dcIndvCargo.getLastName());
+	dobdate="";
+	mm = "";
+	dd ="";
+	yyyy="";
+
+	if (dcIndvCargo.getDobDt() != null)
+	{
+		dobdate = dcIndvCargo.getDobDt().toString();
+		String[] arrDate = dobdate.split("-");
+		dd = (arrDate[2].split(" "))[0];
+		mm= arrDate[1];
+		yyyy=arrDate[0];
 	}
 	
-	function checkZipCodeDchma(field1,field2){
-	if(isZero(field1)){
-		if(isZero(field2)){
-			if(isMaxSetDchma(field1)){
-				return isMaxSetDchma(field2);
-			}
-			else return false;
-		}
-		else return false;
+	if(dcIndvCargo.getDeceasedDtVrfCd()!=null && dcIndvCargo.getIndvId()>0){
+		variCode=dcIndvCargo.getDeceasedDtVrfCd().trim();
+	}else{
+		variCode ="";
 	}
-	else return false;
-}		
-	function isMaxSetDchma(field){
-		var val=field.value;
-		if(val==null || val.length <= 0) return true;
-		var maxLen=field.maxLength;
-		if(val.length < maxLen){
-			alertMe('GL008',field,field);
-			return false;
-		}
-		return true;
-	}
-  		
-function checkZipCodeForAllZeroes(){
-	var field= document.form2.zipCode5.value;
-       if (field==='00000') {
-           alertMe('AR3126');
-           return false;
-       }
-    return true;
-}
+	
+	
+%>
+<% }
+%>
+<%/* NOT EDITABLE - Head Tag Include */%>
+<jsp:include page = "/fwincludes/headTag.jsp" />
+<% 
+String disableCancelDC = (String)request.getAttribute("disableCancel");
+if("DC".equals(ARDCMODE) && disableCancelDC != null && disableCancelDC.equals("Y")){
+%>
+<%--#4 CODE-MOD-START--%>
+<%--//BEGIN-BRGUS00105009-upadhyayulag-call disableSaveAndPrevious(field) on load of the screen in DC--%>
+<%--//BEGIN-BRGUS00107064-upadhyayulag-call disableSaveAddIndividualAndPrevious() on load of the screen in DC--%>
+<TL:FWBodyTag security="<%=securityAttr.getPermission()%>"  voidSw="<%=vsw%>" other="onLoad=\"disableCancelInDC();doLoadStuff();disableCalender();disableIndianTribe();disableSSN();disablePriorSsnTab(document.form1);disableSaveAndAddIndividual(document.form1);disableSaveAndPrevious(document.form1);disableSaveAddIndividualAndPrevious();indvsMessage();storePrefill();disableReasonForBanOnNO(); validateReasonForBan();disableDeathOfDeath(form1);\"" mode="<%=pageMode%>" />
+<%--//END-BRGUS00107064--%>
+<%--//END-BRGUS00105009--%>
+<%--#4 CODE-MOD-END--%>
+<%}else if(null != preFillIndvInfoDtlsList){%>
+<TL:FWBodyTag security="<%=securityAttr.getPermission()%>"  voidSw="<%=vsw%>" other="onLoad=\"doNotDisplayMatchFound();disableCalender();disableIndianTribe();disableSSN();disablePriorSsnTab(document.form1);doLoadStuff();enableDisableSecondaryRace();indvsMessage();disableReasonForBanOnNO(); validateReasonForBan();disableDeathOfDeath(form1);\"" mode="<%=pageMode%>" />
+<%}else{%>
+<TL:FWBodyTag security="<%=securityAttr.getPermission()%>"  voidSw="<%=vsw%>" other="<%=loadJavascript%>" mode="<%=pageMode%>" />
+<%}%>
+<SCRIPT LANGUAGE="JavaScript">
+$(document).ready(function(){
+	$('#indianTribe').mousedown(function(){
+		$(this).css('width','auto');
+		$(this).css('position','absolute');
+	});
+	$('#indianTribe').change(function(){
+		$(this).css('width','100');
+		$(this).css('position','absolute');
+	});
+	$('#indianTribe').blur(function(){
+		$(this).css('width','100');
+		$(this).css('position','absolute');
+	});
+});
+</SCRIPT> 
+<%if("DC".equals(ARDCMODE)) { %>
+<script language="javascript" src="/js/dc.js" type="text/javascript"></script>
+<script>
+//BRGUS00223773 
+ 
+ var prName = "<%=prefixName%>";
+ var fname="<%=firstname%>";
+ var mname="<%=middlename%>";
+ var lname="<%=lastname%>";
+ var dMon="<%=mm%>";
+ var dDD="<%=dd%>";
+ var dYear="<%=yyyy%>";
+ var gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
+ var varificationCd = "<%=variCode%>";
+ </script>
+ <%} %>
+<TL:FWUpdateUserTag cargo="<%=dcIndvCargo%>" />
+<%/* EDITABLE - Page specific .js or .css files (You can add code to this section) */%>
+<script language="javascript" src="/js/ar.js" type="text/javascript"></script>
 
-function isMaxSet(field){
-	var val=field.value;
-	if(val==null || val.length <= 0) return true;
-	var maxLen=field.maxLength;
-	if(val.length < maxLen){
-		alertMe('GL008',field,field);
+<script language="javascript" type="text/javascript">
+function onChangeGender(){
+	if(document.form1.scriptmode.value!='DC'){
+		checkGenderBridges(document.form1.gender,document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
+	}
+}
+<%--BEGIN - BRGUS00151357 - chakalamb - check for death verf --%>
+function validateDeathVrf(){
+
+	var validVrf = true;
+	if(!document.form1.deceasedVerification.disabled){
+		var deathVrf = document.form1.deceasedVerification.value;
+		var deathVrfTxt = document.form1.deceasedVerification.options[document.form1.deceasedVerification.selectedIndex].text;
+		var defaultVrf = getDefaultValue(document.form1.deceasedVerification);
+		if(deathVrf == "MI"){
+			if(defaultVrf != "MI"){
+				validVrf = false;
+			}
+		}
+		if(!validVrf){
+			alertMe("AR3122",document.form1.deceasedVerification,'Deceased Verification',deathVrfTxt);
+		}
+	}
+	return validVrf;
+}
+<%--END - BRGUS00151357 --%>
+//BRGUS00040829
+function lengthOfChip(chipChildId){
+	
+var chipChildId1 = chipChildId.value;
+	if(chipChildId1.length<10 && chipChildId1.length>0){
+		alertMe("AR3104");
+		return false;
+	}
+	return true;
+
+}
+	function disableCancelInDC(){
+		var arr= new Array(1);
+		arr[0]="actionButtonCancel";//#3-CODE-MOD
+		disableElements('true',arr);
+		document.getElementById("actionButtonCancel3").disabled=true;
+		document.getElementById("actionButtonCancel1").disabled=true;
+	}
+	
+	function changeSSAValue() {
+		
+			var fname = "<%=dcIndvCargo.getFirstName() !=null ? firstname:""%>";
+			var mname = "<%=dcIndvCargo.getMidName() != null ? middlename:""%>";
+			var lname = "<%=dcIndvCargo.getLastName() !=null ? lastname:""%>";
+			var dMon="<%=mm%>";
+			var dDD="<%=dd%>";
+			var dYear="<%=yyyy%>";
+			var gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
+			if(document.form1.scriptmode.value=='DC'){
+			 	if(((document.form1.firstName.value!=fname)||( document.form1.middleName.value!=mname)||(document.form1.lastName.value!=lname)) || 
+			 	 (compareNum(document.form1.monthactualEstDateOfBirth.value,dMon)||compareNum(document.form1.dateactualEstDateOfBirth.value,dDD)||compareNum(document.form1.yearactualEstDateOfBirth.value,dYear)) || 
+					document.form1.gender.value!=gender){
+					document.form1.validataedBySSA.checked = false;
+					document.form1.validataedBySSA.value="";
+					document.getElementById("hiddenValidateSSA").value="";
+					document.form1.validataedPcBySSA.checked = false;
+					document.form1.validataedPcBySSA.value="";
+					document.getElementById("hiddenValidateSSAPC").value="";
+					//document.getElementById("validataedBySSA").onchange();
+			} else {
+				document.form1.validataedBySSA.checked = <%=String.valueOf(dcIndvCargo.getSsaValidationSw()).equals("Y")%>;
+				document.form1.validataedPcBySSA.checked = <%=String.valueOf(dcIndvCargo.getSsaPcValidationSw()).equals("Y")%>;
+				//document.getElementById("validataedBySSA").onchange();
+			}
+				
+		}
+		}
+
+		function checkpermission(form1){
+		}
+		
+		function changeDate(){
+		
+		var dobMonth = document.form1.monthactualEstDateOfBirth.value;
+		var dobDate = document.form1.dateactualEstDateOfBirth.value;
+		var dobYear = document.form1.yearactualEstDateOfBirth.value;
+		if(dobYear != "" && dobMonth != "" && dobDate != "" && dobYear != "yyyy" && dobMonth != "mm" && dobDate != "dd"){
+		
+			var age = 0;
+			var today = getToday();
+			var year = today.getFullYear();
+			var dateDiff = year-dobYear;
+			
+			age = dateDiff; 
+			if(today.getMonth()+1 < dobMonth ){
+				age--;
+			} else if(today.getMonth()+1 == dobMonth && today.getDate() < dobDate ){
+				age--;
+			}
+			if(age > 19){
+				document.getElementById("individualReceivedShareOrPremiumPreviously").selectedIndex=[1];
+			}else{
+				document.getElementById("individualReceivedShareOrPremiumPreviously").selectedIndex=[0];
+			}
+		}
+	
+		}
+
+
+		
+		//added by praphull for FO511
+		<%
+		  if ("DC".equals(ARDCMODE)){
+  		%>
+		function compareNum(var1,var2){
+			if(var1!=null && var1.substring(0,1)=='0') var1=var1.substring(1);
+			if(var2!=null && var2.substring(0,1)=='0') var2=var2.substring(1);
+			if(var1!=var2) return true;
+			else return false;
+
+		}
+		function disableIndianTribe(form1){
+			if(document.form1.recognizedIndianTribe.value != 'null' && document.form1.recognizedIndianTribe.value == 'N'){
+					document.form1.indianTribe.value="";
+					document.form1.indianTribe.disabled = true;
+					return false;
+				}
+		}
+
+		function disableSSN(form1){
+			<%-- BRGUS00119828. Disable only if the role is not Enumeration Exception --%>
+		<%	if(request.getAttribute("isEnumerationException")==null){%>
+
+		if(document.form1.validataedBySSA.checked){
+				document.form1.ssn1ssn.disabled = true;
+				document.form1.ssn2ssn.disabled = true;
+				document.form1.ssn3ssn.disabled = true;
+			}
+
+		<%}%>
+
+
+		}
+		
+		//ILIES-207951
+		function disableDeathOfDeath(form1){		
+			<% if(request.getAttribute("isDateOfDeathException")==null){ %>			
+				document.form1.monthdeceasedDateOfDeath.disabled = true;
+				document.form1.datedeceasedDateOfDeath.disabled = true;
+				document.form1.yeardeceasedDateOfDeath.disabled = true;
+				if(document.getElementById("deceased Date").getElementsByTagName('a')[0]!=null){
+				document.getElementById("deceased Date").getElementsByTagName('a')[0].onclick='';
+				}else if (document.getElementById("deceased Date2").getElementsByTagName('a')[0]!=null){
+				document.getElementById("deceased Date2").getElementsByTagName('a')[0].onclick='';
+				}
+				document.getElementById("dimg_deceasedDateOfDeath").src="../../images/calendarGray.gif";
+                document.getElementById("dimg_deceasedDateOfDeath").disabled=true;
+			
+			<% } %>
+		}
+		
+		function validateSSA(){
+		//BRGUS00223773
+			prName = "<%=prefixName%>";
+			fname = "<%=firstname%>";
+			mname = "<%=middlename%>";
+			lname = "<%=lastname%>";
+			dMon="<%=mm%>";
+			dDD="<%=dd%>";
+			dYear="<%=yyyy%>";
+			gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
+
+			<%-- BEGIN - BRGUS00154342 - chakalamb - Remove the validation for enumeration users --%>
+			<% if(!"Y".equals( (String)request.getAttribute("isEnumerationException") ) ) { %>
+			if(document.form1.validataedBySSA.checked){
+				if((prName!='null' && document.all.prefixName.value!=prName)||(fname!='null' && document.all.firstName.value!=fname)||(mname!='null' && document.all.middleName.value!=mname)||(lname!='null' && document.all.lastName.value!=lname)){
+					 	document.all.hiddenValidateSSA.value='N';
+					 	document.all.validataedBySSA.checked=false;
+					 	document.all.verificationSource.selectedIndex=-1;
+					 	return false;
+					 }
+				 if(compareNum(document.all.monthactualEstDateOfBirth.value,dMon)||compareNum(document.all.dateactualEstDateOfBirth.value,dDD)||compareNum(document.all.yearactualEstDateOfBirth.value,dYear)){
+				 	document.all.hiddenValidateSSA.value='N';
+				 	document.all.validataedBySSA.checked=false;
+				 	document.all.verificationSource.selectedIndex=-1;
+				 	return false;
+				 }
+				 if(document.all.gender.value!=gender){
+				 	document.all.hiddenValidateSSA.value='N';
+				 	document.all.validataedBySSA.checked=false;
+				 	document.all.verificationSource.selectedIndex=-1;
+				 	return false;
+				 }
+			}
+			<%}%>
+			return true;
+		}
+		<%
+			}
+		%>
+		
+	
+/* pg added for ILIES-126281 */
+function joinssnFields(field1, field2, field3, targetField,flag)
+{
+	var value1 = field1.value;
+	var value2 = field2.value;
+	var value3 = field3.value;
+	var errArr = createErrArr(field1,field2,field3);
+	targetField.value = "";
+	var len=value1.length+value2.length+value3.length;	
+
+	if(arguments[4] == null)
+	{
+		flag = "N";
+	}
+	if(flag =="Y")
+	{
+		if(value1 == "" && value2 =="" && value3 =="")
+		{
+			alertMe('GL003',errArr,targetField);
+			return false;		
+		}
+	}
+	if(len >= 9)
+	{
+		targetField.value = value1+value2+value3;
+	}
+	return true;
+}
+/* pg ended for ILIES-126281 */
+	
+	function isSSNChangeVal(){
+	   //if(document.form1.ssn.value == "")
+	   joinssnFields(document.form1.ssn1ssn,document.form1.ssn2ssn,document.form1.ssn3ssn,document.form1.ssn,'N');
+	   return validateSSNVal(document.form1.ssn,document.form1.monthactualEstDateOfBirth.value,document.form1.yearactualEstDateOfBirth.value);
+
+	}
+	function validateSSNVal(fld,mn,yr){
+	var res, first, firstInt, sec, secInt, last, lastInt;
+	var val = fld.value;
+	if(val == "") return true;
+
+	if(yr != "" && mn != ""){
+			if(  (val == "222222222" && !(mn == "02" && yr == "1937")) || (val == "444444444" && !(mn == "01" && yr == "1914")) || (val == "555555555" && !(mn == "12" && yr == "1976")) )
+			{
+				alertMe("GL050");
+				return false;
+			}
+
+		}
+	else
+	{
 		return false;
 	}
 	return true;
 }
+function isSSNChange(){
+	//if(document.form1.ssn.value == "")
+	joinssnFields(document.form1.ssn1ssn,document.form1.ssn2ssn,document.form1.ssn3ssn,document.form1.ssn,'N');
 
-function validateButton()
-{
-	if(document.getElementById("ACTION") != null && document.getElementById("ACTION").value == 'Previous')
-	{
-		document.getElementById("dynaTableValidate").value = "N";
+	   var oldssn = document.form1.ssnNew.value;
+	   var newssn = document.form1.ssn.value;
+	   var modifiedOldSSN = 0;
+	   modifiedOldSSN = 1000000000 + parseInt(oldssn,10);
+	   var modifiedNewSSN = 0;
+	   modifiedNewSSN = 1000000000 + parseInt(newssn,10);
+	   if(modifiedOldSSN != 1000000000 && !(modifiedOldSSN == modifiedNewSSN)){
+			document.form1.hasSecondarySsnInformation.value="Y";
+		//return true;
+	   }
+	 //  return false;
 	}
-	else
-	{
-		document.getElementById("dynaTableValidate").value = "Y";
+
+	function disableCalender(){
+      if(document.form1.scriptmode.value!='DC'){
+            if(document.form1.isCurrentlyPregnant.value == 'Y')
+            {
+             document.getElementById("dimg_dueDate").src="../../images/calendar.gif";
+             document.getElementById("dimg_dueDate").disabled=false;
+           }
+            else{
+               document.getElementById("dimg_dueDate").src="../../images/calendarGray.gif";
+                document.getElementById("dimg_dueDate").disabled=true;
+            }
+          }
+    }
+
+
+	function ssaCheck(form1){
+		var arDcModeVal = form1.scriptmode.value;
+		var dcuSsaCheck = form1.dcuSsaCheck.value;
+		if (arDcModeVal == 'DC' && dcuSsaCheck == 'Y') {
+			joinFields(form1.ssn1ssn,form1.ssn2ssn,form1.ssn3ssn,form1.ssn,'N');
+			var oldssn = form1.ssnNew.value;
+			var newssn = form1.ssn.value;
+			var modifiedOldSSN = 0;
+			modifiedOldSSN = 1000000000 + parseInt(oldssn,10);
+			var modifiedNewSSN = 0;
+			modifiedNewSSN = 1000000000 + parseInt(newssn,10);
+			if (form1.validataedBySSA.checked || form1.ssaValCheck.value == 'Y') {
+				form1.ssaValCheck.value = 'Y';
+			}
+			if(modifiedOldSSN != 1000000000 && !(modifiedOldSSN == modifiedNewSSN)){
+				form1.validataedBySSA.checked = false;
+			} else if(modifiedOldSSN != 1000000000 && form1.ssaValCheck.value == 'Y') {
+				form1.validataedBySSA.checked = true;
+			}
+		}
 	}
 	
+	var noinitialssnjs;
+	function doLoadStuff(){
+		/* Commented by Gopi for FO131 on 06/07/2006
+		  if(document.form1.isDhsEmployee.value=='N'){
+			//document.form1.employeeNumber.disabled = true;
+		} */
+		
+		// Change by Steve for defect - These disables are only for DC.
+		if(document.form1.scriptmode.value=='DC'){
+			//document.form1.validataedBySSA.disabled=true;
+			if ((document.form1.verificationSource.value == 'NT')|| (document.form1.verificationSource.value == 'NV')) {
+				document.form1.ssn1claimedSsn.disabled = false;
+				document.form1.ssn2claimedSsn.disabled = false;
+				document.form1.ssn3claimedSsn.disabled = false;
+			}
+		
+		
+			if(document.form1.ssn1ssn.value=="" || document.form1.ssn2ssn.value=="" || document.form1.ssn3ssn.value==""){
+				noinitialssnjs=true;
+			}
+		}
+		
+		disableChildTabs(document.form1);
+		if(document.form1.scriptmode.value =='DC'){
+		
+		//ILIES-279498 START
+		<% if(!"Y".equals((String)request.getAttribute("isAdlDateOfDeathException"))){%>
+			disableDeceasedVerificationAdl();
+		<% }else{ %>
+			enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerificationAdditional);
+		<% } %>
+		
+		//Comment added by prasad for FO348					enableFieldsOnYes(document.form1.highNeedProfile,document.form1.highNeedCriteria);
+		<%	if(!"Y".equals((String)request.getAttribute("isDateOfDeathException"))){%>
+			disableDeceasedVerification();
+			<%}else{%>
+			enableDeceasedVerification(document.form1.yeardeceasedDateOfDeath,document.form1.monthdeceasedDateOfDeath,document.form1.datedeceasedDateOfDeath,document.form1.deceasedVerification);
+			<%}%>
+			<% 
+			if((null==preFillDateOfDeathStr) || (null!=dcIndvCargo && dcIndvCargo.getDeathDt()==null)) { %>
+				EnableOrDisableDeathReportDate();
+				
+				<% } %>
+		}
+		if(document.form1.scriptmode.value!='DC'){
+			// Code added by Gopi for FO131 on 06/12/2006
+			disableFieldsOnNo(document.form1.isDisabled,document.form1.disability);
+			disableFieldsOnNo(document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
+			//Comment added by prasad for FO348					enableFieldsOnYes(document.form1.highNeedProfile,document.form1.highNeedCriteria);
+			checkGenderBridges(document.form1.gender,document.form1.isCurrentlyPregnant,document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
+			// 06/12/2006 End
+		}
+	}
+
+
+//Addition 06/12/2006 End
+
+
+//Modified for FO713
+<%-- Begin BRGUS00099172-ThatiparthiS-Pregnany due date --%>
+	function checkGenderBridges(field1,field2,field3,field4,field5){
+		if(field1.value  == "M"){
+			field2.disabled= true;
+			field2.value= 'N';
+			disableFieldsOnNo(field2,field3,field4,field5);
+		}else if(field1.value == "F"){
+			var dobDate = document.form1.yearactualEstDateOfBirth.value;
+			var today;
+			today = getToday();
+			var date = today.getFullYear();
+			var dateDiff = date-dobDate;
+			if(dateDiff < 10 || dateDiff > 65)
+			 {
+				field2.disabled = true;
+				field3.disabled = true;
+				field4.disabled = true;
+				field5.disabled = true;
+				field2.value= 'N';
+				field3.value= 'mm';
+				field4.value= 'dd';
+				field5.value= 'yyyy';
+			 }else{
+		        field2.disabled = false;
+			   }
+		  }
+		else {
+			field2.disabled= false;
+		}
+	}
+<%-- End - BRGUS00099172 --%>
+
+function checkForDOB()
+{
+var dobDate = document.form1.yearactualEstDateOfBirth.value;
+			var today;
+			today = getToday();
+			var date = today.getFullYear();
+			var dateDiff = date-dobDate;
+
+			if(document.form1.gender.value == "F")
+			 {
+			  if(dateDiff < 10 || dateDiff > 65){
+			   	document.form1.isCurrentlyPregnant.disabled = true;
+			 }else{
+			     document.form1.isCurrentlyPregnant.disabled = false;
+			   }
+			 }
+
+}
+//End of FO713
+
+
+//Functions added by Gopi for FO177 on 06/14/2006
+	function disableEnableClaimedSSN()
+	{
+		var cmbVal = "NT";
+		var cmbVal1 = "NV";
+		var count = arguments.length;
+		flag=true;
+		if((getElementValueOrValue(arguments[0]) == cmbVal) || (getElementValueOrValue(arguments[0]) == cmbVal1)) {
+     		for(i=1;i<count;i++){
+				flag=false;
+				/* arguments[i].value="";  */
+				arguments[i].disabled = false;
+			}
+    	}
+		else
+		{
+			if(flag){
+       			for(i=1;i<count;i++){
+       				arguments[i].disabled = true;
+       				arguments[i].value="";
+       			}
+			}
+
+		}
+	}
+	function ssaCheckClaimed(form1){
+		var arDcModeVal = form1.scriptmode.value;
+		var dcuSsaCheck = form1.dcuSsaCheck.value;
+		if (arDcModeVal == 'DC' && dcuSsaCheck == 'Y') {
+			joinFields(form1.ssn1claimedSsn,form1.ssn2claimedSsn,form1.ssn3claimedSsn,form1.claimedSsn,'N');
+			var oldClaimedSsn = form1.claimedSsnNew.value;
+			var newClaimedSsn = form1.oldClaimedSsn.value;
+			var modifiedOldClaimedSSN = 0;
+			modifiedOldClaimedSSN = 1000000000 + parseInt(oldClaimedSsn,10);
+			var modifiedNewClaimedSSN = 0;
+			modifiedNewClaimedSSN = 1000000000 + parseInt(newClaimedSsn,10);
+			if (form1.validataedBySSA.checked || form1.ssaValCheck.value == 'Y') {
+				form1.ssaValCheck.value = 'Y';
+			}
+			if(modifiedOldClaimedSSN != 1000000000 && !(modifiedOldClaimedSSN == modifiedNewClaimedSSN)){
+				form1.validataedBySSA.checked = false;
+			} else if(modifiedOldClaimedSSN != 1000000000 && form1.ssaValCheck.value == 'Y') {
+				form1.validataedBySSA.checked = true;
+			}
+		}
+	}
+//Addition 06/14/2006 End
+//Functions added by Gopi for FO177 on 06/14/2006
+	function isClaimedSSNChangeVal(){
+	   // Change by Steve for defect - Source Field is only rendered for DC.
+	   // When in AR mode, simply join the fields and validate the SSN.
+	   if(document.form1.scriptmode.value=='DC'){
+		   if ((document.form1.verificationSource.value == 'NT') || (document.form1.verificationSource.value == 'NV')){
+		   		var bln1 = joinFields(document.form1.ssn1claimedSsn,document.form1.ssn2claimedSsn,document.form1.ssn3claimedSsn,document.form1.claimedSsn,'Y');
+		   		if (bln1 == false) {
+		   			return false;
+		   		}
+		   }
+		   return validateSSNVal(document.form1.claimedSsn,document.form1.monthactualEstDateOfBirth.value,document.form1.yearactualEstDateOfBirth.value);
+	   }else{
+	        //Modified by Gopi for removing the highlighting of Claimed SSN on 11/08/2006
+	    	var value1 = document.form1.ssn1claimedSsn.value;
+	    	var value2 = document.form1.ssn2claimedSsn.value;
+	    	var value3 = document.form1.ssn3claimedSsn.value;
+	        if(value1 != "" && value2 != "" && value3 != ""){
+	            joinFields(document.form1.ssn1claimedSsn,document.form1.ssn2claimedSsn,document.form1.ssn3claimedSsn,document.form1.claimedSsn,'Y');
+		   		return validateSSNVal(document.form1.claimedSsn,document.form1.monthactualEstDateOfBirth.value,document.form1.yearactualEstDateOfBirth.value);
+	        }
+	   }
+	}
+	function checkMultipleSSNValues(){
+	var action = document.getElementById("PAGE_ID");
+		if(document.form1.ssn1ssn.value!=0 && document.form1.ssn1claimedSsn.value!=0 && document.form1.ssn2ssn.value!=0 && document.form1.ssn2claimedSsn.value!=0 && document.form1.ssn3ssn.value!=0 && document.form1.ssn3claimedSsn.value!=0){
+		   alertMe("GL123",action);
+		   return false;
+		}else{
+		   return true;
+		}
+	}
+function formDate(a,b,c,d){
+		var monthdue = a.value;
+		var yeardue = b.value;
+		var sysyear = c.value;
+		var sysmonth = d.value;
+		var diff = monthdue - sysmonth;
+		var diffyear = yeardue - sysyear;
+if(yeardue == sysyear){
+			if(diff>9 || diff<0){
+			alertMe("AR028");
+			return false;
+				}
+		else{
+				return true;
+			}
+	}
+if(diffyear >1 ||diffyear<0){
+ alertMe("AR028");
+	 return false;
+}
+else{
+if(diffyear ==1){
+var difference1 = 12-sysmonth;
+var difference3 = difference1*1;
+var difference2 = monthdue*1;
+var difference = difference2 + difference3;
+
+if(difference > 9){
+ alertMe("AR028");
+	 return false;
+}
+else{
+return true;
+}
+}
+}
+}
+//Addition 06/15/2006 End
+//#1 CODE-ADD-START
+	 function isValidRace(field){
+		var raceVal = field.value;
+		if(raceVal == 'UN'){
+			alertMe('DC3120',field,'Unable to determine race',field);
+			return false;
+		}
+	} 
+	
+	
+	function verificationSource(){		
+		<%if("DC".equals(ARDCMODE)) {
+		if(preFillIndvIdStr==null && !"FED".equalsIgnoreCase(dcIndvCargo.getSsnVrfCd())){%>
+		if(document.getElementById("rtcheck2").value == 'FED'){
+		 	alertMe("DC4841");
+			return false;
+		}
+		<%}}%>
+	}  
+	
+//#1 CODE-ADD-END
+function validateDisability()
+{
+	if(document.form1.isDisabled.value == 'Y'){
+		return isComplete(document.form1.disability);
+	}
+}
+
+function validDueDate()
+{
+	var arDcModeVal = form1.scriptmode.value;
+	if(document.form1.isCurrentlyPregnant.value=='Y' )
+	{
+		if(arDcModeVal=='DC')
+		{
+			return isComplete(document.form1.dueDate);
+		}
+	}
+
+}
+function validateDueDate()
+{
+	if(document.form1.isCurrentlyPregnant.value=='Y' ) {
+		return isDateComplete(document.form1.monthdueDate,document.form1.datedueDate,document.form1.yeardueDate);
+	}
+
+}
+
+/* pg added */
+ function pregnancyDateRange()
+{
+		var cal = getToday();
+		var futureDate= getToday();
+		futureDate.setMonth(cal.getMonth()+11);
+		var enteredDate = new Date(document.form1.yeardueDate.value,document.form1.monthdueDate.value-1,document.form1.datedueDate.value);
+		 
+	if(enteredDate != "" && document.form1.isCurrentlyPregnant.value=='Y')
+	{		
+		if (enteredDate < futureDate) 
+		{
+			 return true;
+		}
+		 else
+		 {
+			 alertMe('DC058');  
+			return false;
+		 }
+	}
+	
+}
+/* pg ended */
+
+//CR-22086-START
+function enableDisableSecondaryRace(){
+}
+
+function disableEnableSecondaryRace(){
+	var selectedPrimaryRace = document.form1.race.value;
+	if(selectedPrimaryRace == "UK" || selectedPrimaryRace == " " || selectedPrimaryRace==""){
+		
+	}else{
+		/* document.form1.otherRace.disabled=false; */
+	}
+} 
+
+ function disableSecondaryRaceField(){
+	
+} 
+ 
+
+
+//BRGUS00111363 - End
+
+//BEGIN-BRGUS00107064-upadhyayulag-Function to disable Add Individual & Previous buttons
+function disableSaveAddIndividualAndPrevious(){
+    var val1 = "";
+    var val2 = "";
+	if(document.form1.fromArToDc != null){
+		var val1 = document.form1.fromArToDc.value;
+	}
+	//BEGIN-BRGUS00107064-upadhyayulag-Modify the repeated variable to addNewIndividual
+	if(document.form1.addNewIndividual != null){
+		var val2 = document.form1.addNewIndividual.value;
+	}
+	//END-BRGUS00107064
+	if(val1 == "Y" || val2 == "Y"){
+	   
+	    disableSaveAndPreviousButton();
+	}
+}
+//END-BRGUS00107064
+
+		function inactiveValidation(){
+			var inactiveStatus = "";
+			var pageMode = <%=pageMode%>;
+			
+			inactiveStatus = "<%=String.valueOf(dcIndvCargo.getInactiveInd())%>";
+			
+			if ( pageMode!=0 && inactiveStatus == 'Y' ) {
+				alertMe('DC4477',"");												
+				return false;
+			}
+			return true;
+		}
+
+
+	function disableDeceasedVerification()
+	{	
+	 	document.form1.deceasedVerification.disabled = true;
+	}
+	
+	//Added for ILIES-279498
+	function disableDeceasedVerificationAdl(){
+		document.form1.deceasedVerificationAdditional.disabled = true;
+	}
+	
+	//ILIES-276949 Start
+    function deceasedVerificationDupValidate()
+    {
+        var deceasedVrf = document.getElementById('rtcheck12').value;
+        var deceasedVrfAdl = document.getElementById('rtcheck13').value;
+                    
+        var deceasedAdlField = document.form1.deceasedVerificationAdditional.FIELD_NAME;
+        if(deceasedVrf != null && deceasedVrfAdl != null){
+            if(deceasedVrf.trim() != "" && deceasedVrfAdl.trim() != ""){
+                if( deceasedVrf == deceasedVrfAdl){
+                    alertMe("AR6666",document.getElementById('rtcheck13'));
+                    return false;
+                 };
+            };
+        };
+    }
+    //ILIES-276949 End
+
+	//Added as part of SOP-810 start
+	
+function EnableOrDisableDeathReportDate(){
+	if(document.form1.deceasedVerification.disabled==false){		
+		document.form1.yeardateOfDeathReportDate.disabled=false;
+		document.form1.monthdateOfDeathReportDate.disabled=false;
+		document.form1.datedateOfDeathReportDate.disabled=false;
+		document.getElementById("dimg_dateOfDeathReportDate").src="../../images/calendar.gif";
+        document.getElementById("dimg_dateOfDeathReportDate").disabled=false;
+		//document.form1.dateOfDeathReportDate.disabled=false;
+	} else {			
+			//document.form1.dateOfDeathReportDate.disabled=true;
+			document.form1.yeardateOfDeathReportDate.disabled=true;
+			document.form1.monthdateOfDeathReportDate.disabled=true;
+			document.form1.datedateOfDeathReportDate.disabled=true;
+			document.getElementById("dimg_dateOfDeathReportDate").src="../../images/calendarGray.gif";
+            document.getElementById("dimg_dateOfDeathReportDate").disabled=true;
+		}		
+	}
+	
+//Added as part of SOP-810 end 
+
+ 
+
+</script>	
+						
+<%--BRGUS00071475 Displays warning message if the current individual is HoH in any case and is marked deceased --%>
+<script language="javascript" type="text/javascript">
+function displayDeceasedWarning(){
+<%
+	if("DC".equals(ARDCMODE)) {
+		if("Y".equals((String)request.getAttribute("isIndvHeadOfHousehold"))){
+	%>
+	var month= document.form1.monthdeceasedDateOfDeath;
+	var date = document.form1.datedeceasedDateOfDeath;
+	var year = document.form1.yeardeceasedDateOfDeath;
+
+	if(month!=null && month.value!="" && isInteger(month.value)
+	&& date!=null && date.value!="" && isInteger(date.value)
+	&& year!=null && year.value!="" && isInteger(year.value)){
+			document.all.spaceTableClient.style.display='none';
+			document.all.messageTableClient.style.display='block';
+			document.all.messageSpanClient.style.color='GREEN';
+			document.all.messageSpanClient.innerHTML="If the deceased person is the Head of Household, ongoing programs may close. If there is another appropriate individual in the case, please designate him / her as the Head of Household, only when there is a surviving member in the case";
+			scroll(0,0);
+			}
+	<%}}%>
+}
+
+
+function ssnVerficationSource(){
+<%
+	if("DC".equals(ARDCMODE)) {
+		if (dcIndvCargo.getSsn() !=0 && (dcIndvCargo.getSsaValidationSw() == 'Y' || dcIndvCargo.getSsaPcValidationSw()== 'Y')){
+			if(request.getAttribute("isEnumerationException")!=null){	%>
+				document.getElementById("ssn1ssn").disabled = false;
+				document.getElementById("ssn2ssn").disabled = false;
+				document.getElementById("ssn3ssn").disabled = false;
+				document.getElementById("rtcheck2").disabled = false;
+			<%}else{%>
+				document.getElementById("ssn1ssn").disabled = true;
+				document.getElementById("ssn2ssn").disabled = true;
+				document.getElementById("ssn3ssn").disabled = true;
+				document.getElementById("rtcheck2").disabled= true;
+		<%}}}%>			
+}
+
+
+//Janaganib:11/21/2008: BRGUS00135635:CR # 21593 Stream Line New Born Entry.
+function showUserInfo(indvId){
+	var url="/ControllerServlet?PAGE_ID=IQISU&REQUESTED_PAGE_ID=IQISU&FWPOPUP=Y&ACTION=ClickOnLink&cin="+indvId;
+	openModalDialog(url,"Individual Information",'dialogWidth:755px;dialogHeight:710px');
+	//alert("url: "+ url);
+}
+var indvDobs = new Array();
+function indvsMessage(){
+
+<%
+	java.util.HashMap indvs = new java.util.HashMap();
+	indvs = (java.util.HashMap)request.getAttribute("IndivDobs");
+	if(indvs != null){
+		java.util.Iterator itTemp = indvs.keySet().iterator();
+		String indivId1 = "";
+		String dob1 = "";
+		while(itTemp.hasNext()){
+			indivId1 = (String)itTemp.next();
+			dob1 = (String)indvs.get(indivId1);
+		%>
+			var tempDob = "<%=dob1%>";
+			indvDobs.push(new Array('<%=indivId1%>',new Date(tempDob.split("-")[0],tempDob.split("-")[1]-1,tempDob.split("-")[2])))
+		<%
+		}
+	}
+%>
+}
+<% String caseMode = (String)request.getAttribute("CASE_MODE");%>
+function testSSN(){	
+var mode= '<%=caseMode%>';
+	if(noinitialssnjs && document.form1.fromArToDc.value != "Y" && mode != "IN" ){
+		if(!(document.form1.ssn1ssn.value=="" || document.form1.ssn2ssn.value=="" || document.form1.ssn3ssn.value=="")){
+			alertMe("GL188");
+			noinitialssnjs=false;
+			return false;
+		}
+	}
+}
+
+var errorIndvs= new Array();
+function testDobs(){
+	errorIndvs= new Array();
+	var month11 = document.form1.monthactualEstDateOfBirth.value;
+	var date11 = document.form1.dateactualEstDateOfBirth.value;
+	var year11 = document.form1.yearactualEstDateOfBirth.value;
+
+	var dateYearOld = new Date (year11-1,month11,date11);
+	var dateYearNew = new Date (parseInt(year11,10)+1,month11,date11);
+	var i =0;
+	var indvId1="";
+	var dob1="";
+	for(i = 0;i<indvDobs.length;i++){
+		indvId1 = indvDobs[i][0];
+		dob1 = indvDobs[i][1];
+		if(dateYearOld<dob1 && dob1<dateYearNew){
+			errorIndvs.push(indvId1);
+		}
+	}
+	//alert(errorIndvs);
+	return displayIndvError();
+
+}
+var displayIndvError_Count = 0;
+function defDisplayIndvError_Count(){
+   //alert('defDisplayIndvError_Count');
+   displayIndvError_Count = 0;
+
+}
+function displayIndvError(){
+	var str1 = "<a onClick='showUserInfo(@);return false'href='#'>@<\/a>";
+	var messageDisp = "";
+	var i =0;
+	for(i =0;i<errorIndvs.length;i++){
+		messageDisp = messageDisp + str1.replace(/@/g,errorIndvs[i]) + " ";
+	}
+	//alert(messageDisp);
+	if(messageDisp.length > 0 && displayIndvError_Count == 0){
+	    displayIndvError_Count = displayIndvError_Count + 1;
+		alertMe("DC4075","",messageDisp);
+		return false;
+	}
+
 	return true;
 }
 
+
 </script>
-<ARTagLibrary:FWPrefillTag preFill = "Y" formName="form2"/>
-<%/* EDITABLE WITH PERMISSION (You can add code to this section) - Body and Form Tags */%> 
 
+<script language="javascript" src="/js/dcErrorCodes.js" type="text/javascript"></script>
+<script language="javascript" type="text/javascript">
 
-<%/* EDITABLE - Additional JSP Scriplets (You can add code to this section)*/%> 
+function validateLanguages(){ //Primaey Language and Secondary language cant be same BRGUS00136636
+var primaryLang = document.form1.primaryLanguage.value;
+var secLangs = document.form1.secondaryLanguages;
+var size=secLangs.length;
+var i=0;
+for(i=0;i<size;i++){
+	if(secLangs.options[i].selected==true){
+		if(secLangs.options[i].value==primaryLang){
+		alertMe('DC4076',document.form1.primaryLanguage);
+		return false;
+		}
+	}
+}
+}
 
-<%            
-            String phone =  null;
-			//String authRepCareGiver = null;
-			String relationshipIndv = null;
-			String workPh = null;
-			String otherPh = null;
-			
-            /* if (arDcAppCasesCargo != null)
-            {
-				if ( arDcAppCasesCargo.getAuthrepPhNum() != null)
-					{  phone = arDcAppCasesCargo.getAuthrepPhNum().toString();	}
-				//if ( arDcAppCasesCargo.getAuthrepCaregiverSw() != 0)
-					//{  authRepCareGiver = String.valueOf(arDcAppCasesCargo.getAuthrepCaregiverSw());	}
-				if ( arDcAppCasesCargo.getRelationshipIndvCd() != null)
-					{  relationshipIndv = arDcAppCasesCargo.getRelationshipIndvCd();	}
-				if ( arDcAppCasesCargo.getAuthrepWorkNum() != null)
-					{  workPh = arDcAppCasesCargo.getAuthrepWorkNum();	}
-				if ( arDcAppCasesCargo.getAuthrepOtherNum() != null)
-					{  otherPh = arDcAppCasesCargo.getAuthrepOtherNum();	}
-					
-					
-            } */
-			if (phone == null)
-				{  phone = "";	}
-			if (workPh == null)
-				{  workPh = "";	}
-			if (otherPh == null)
-				{  otherPh = "";	}		
+	function isLastNameValid(lastName){
+		var strlen = lastName.value.length;
+
+		if(strlen<2){
+		alertMe("DC4106");
+		return false;
+		}
+
+	}
+
+function onChangeValidateSSA(){
+	if(document.form1.validataedBySSA.checked){
+		document.form1.hiddenValidateSSA.value = "Y";
+	}
+	else{
+		document.form1.hiddenValidateSSA.value = "";
+	}
+}
+
+function onChangeValidateSSAPC(){
+	if(document.form1.validataedPcBySSA.checked){
+		<%if(request.getAttribute("isEnumerationException")==null){%>
+		document.getElementById("ssn1ssn").disabled = true;
+		document.getElementById("ssn2ssn").disabled = true;
+		document.getElementById("ssn3ssn").disabled = true;
+		document.getElementById("rtcheck2").disabled = true;
+		 <%}%> 
+		document.form1.hiddenValidateSSAPC.value = "Y";
+	}
+	else{
+		if(!document.form1.validataedBySSA.checked){		
+		document.getElementById("ssn1ssn").disabled = false;
+		document.getElementById("ssn2ssn").disabled = false;
+		document.getElementById("ssn3ssn").disabled = false;
+		document.getElementById("rtcheck2").disabled = false;
+		document.form1.hiddenValidateSSAPC.value = "";
+		}
+	}
+}
+
+function deceasedVerificationCheck(field1,field2,field3,field4){
+
+	<%
+	if("DC".equals(ARDCMODE)) {
+		if( ! "Y".equals((String)request.getAttribute("isDateOfDeathException")))
+		{
+		%>	
+			if(document.form1.fileClrDOD.value!=null && document.form1.fileClrDOD.value=='Y'){
+				var newVarificationCd=field1.value;
+				var worker="";
+				var mm = field2.value;
+				var dd =field3.value;
+				var yyyy = field4.value;
 				
-			String ARDCMODE = "ARREG";
-			ARDCMODE=(String)request.getAttribute("ARDCMODE");
-			/* String addressValidationSw = "";
-			if(arAuthRepAddrCargo != null){
-				addressValidationSw = ""+arAuthRepAddrCargo.getValidationSw();
-			} */				
-%>
-<%/* NOT EDITABLE - Top of Page Include */%>
-<%@ include file = "/fwincludes/tabs.jsp" %>
-
-<% /*  Added by Shilpi Bhatia for FO369.1 on 11/08/2006 */ %>
-
-<%/* EDITABLE - Action Buttons (You can change this include.) */%>	            
-
-  <%/* FO369.1 Ends */ %>
-                 
-<%	if ("DC".equals(ARDCMODE)){
-    	String caseNum = arDcAppCasesCargo.getCaseNum() + "";
-%>
-	<DCTagLibrary:Comments keyOne = "<%=caseNum%>" keyTwo = "0" />
-<%	}%>
-<%/* EDITABLE - Page Level Icon Includes (You can add code to this section) */%>
-
-<%/* NOT EDITABLE - Spacer Images */%>
-<%@ include file = "/fwincludes/spacing.jsp" %>                      
-
-<form name="form2" action="/ControllerServlet">
-
-<%/* NOT EDITABLE - Framework Hidden Fields */%>
-<%-- <%@ include file = "/fwincludes/hiddenFields.jsp" %> --%>
-
-<%/* EDITABLE - Page Specific Hidden Fields (You can add code to this section) */%>
-	<input type="hidden" name="navigation" id="navigation">
-	<input type="hidden" name="ardcmode" id="ardcmode" value="<%=request.getAttribute("ARDCMODE")%>">
-	<!-- <input type="hidden" name = "cityCountyZip" id = "cityCountyZip" validate ="voidValidations(this.form2,this.form2.residencyCounty,'County');"> -->
-	<input type="hidden" name = "cityCountyZip" id = "cityCountyZip" validate ="voidValidationsCountyOptional(this.form2,this.form2.residencyCounty,'County');">
-	<input type="hidden"  name="streetValidate" id="streetValidate" validate = "validateStreetName(this.form2);">
-	<input type="hidden" name ="streetNumberVal" id = "streetNumberVal" validate ="validateStreetNumber(form2);">
-	<input type="hidden" name="checkSpecialChar" id="checkSpecialChar" validate="checkSpecialChar()">
-    <input type="hidden" name="checkZipCodeForAllZeroes" id="checkZipCodeForAllZeroes" validate="checkZipCodeForAllZeroes()">
-    <input type="hidden" name="validateAddress" id="validateAddress" validate="validateAddress();validateCounty();">
-    
-    <!-- For Dyna Table -->
-    <input type="hidden" name="appNum" id="appNum">
-    <input type="hidden" name="appAddrSeq" id="appAddrSeq">
-    <input type="hidden" name="repSeqNum" id="repSeqNum">
-	<input type="hidden" name="addrType" id="addrType" value="AA">
-	<input type="hidden" name="authHistSeq" id="authHistSeq">
-	<input type="hidden" name="addrHistSeq" id="addrHistSeq">
-
-<%/* EDITABLE - Page Header Include (You can change this include.) */%>
-<DIV id='MainHeader' repeat="N">
-<%@ include file="/fwincludes/messageDisplay.jsp" %>
-<%@ include file = "/includes/ArDcHeader.jsp" %> 
-<%/* NOT EDITABLE - Begin Outter HTML Table  and  messages file*/%>
-
-
-<%--<%@ include file = "/fwincludes/actionButtonRPN.jsp" %>--%>  
-<jsp:include page="/fwdynamicinclude/actionButtonRPN.jsp" >
-<jsp:param name="fw_buttonOnTop" value="true" />
-</jsp:include>
-
-
-<% /*  Added by Shilpi Bhatia for FO369.1 on 11/08/2006 */ %>
-
-
-
-<%/* FO369.1 Ends */ %>
-
-
-<%/* EDITABLE (You can add code to this section) - Page Specific Table(s) - This is each developers area for coding the presentation. */%>		  
-<!-- 		<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable">
-          <caption><H2 class="bodyDividerTableHeader">  -->
-            <h2 class="bodyDividerTableHeader" style="width:723px">Filing Representative Information</H2>
-<!--           </caption>
-          <tr><td></td></tr>
-        </table>
- -->                
-    	<table width="723" border="0" class="bodyFormLabels" role="presentation" title="Filing Representative Information">
-		  <tr> 
-			<td>
-			</td>
-		  </tr>
-		  <tr>
-			<td>
-			<TL:FWGroupNameTag nameGroupBeanId="nameGroup"  mandatoryMarker="Y"  
-				prefixName ="" 
-				firstName=""			
-				firstNameScript="validateName(document.form2.firstName)"
-				middleName="" 
-				middleNameScript="validateName(document.form2.middleName)"
-				lastName=""
-				lastNameScript="validateName(document.form2.lastName)" 
-				suffixName ="" 
-				
-				formName="form2"/>
-			</td>
-		  </tr>
-		 </table>
-<%-- 		 <table width="723" border="0" class="bodyFormLabels">
-		  <tr height="27" > 
-			<td width="225"><TL:FWLabelTag bean="<%=authrepCaregiver%>" question="Y"/>
-			</td>
-			<%//BRGUS00044504-RA-Added-mode to caregiver question%>
-			<td><TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=authrepCaregiver%>" mode="<%=careGiverMode%>" emptySpace="N" selected="<%=authRepCareGiver%>" multiple="N" show="1" size="5"/>
-			</td>
-		CODE-AG-MOD-START-05/17/2007-Defect#BRGUS00046896
-		</tr>
-		</table> --%>
-		
-		<table width="723" border="0" class="bodyFormLabels" role="presentation" title="Filing Representative Information">
-		 <tr height="27" > 
-			<td width="160"><TL:FWLabelTag bean="<%=relationshipToIndividual%>" />
-			</td>
-			<%//BRGUS00044504-RA-Change in Reference Table values. Use filter for Filing & Ser RT values%>			
-			<%--<td width="200"><TL:FWRTSelectTag referenceTableName="ARAUTHREPRELATIONSHIP" bean="<%=relationshipToIndividual%>" size="40" emptySpace="Y" selected="<%=relationshipIndv%>" multiple="N" show="1"/>
-			</td>--%>
-			<td width="200"><TL:FWRTSelectTag referenceTableName="ARAUTHREPRELATIONSHIP" filter="YES" filterColumn="<%=rtFilter%>" filterValue="Y" bean="<%=relationshipToIndividual%>" size="40" emptySpace="Y" selected="<%=relationshipIndv%>" multiple="N" show="1"/>
-			</td>
-		<%--CODE-AG-MOD-END-05/17/2007-Defect#BRGUS00046896--%>		
-		 </tr>
-		 </table> 
-		
-		<%
-			if ("DC".equals(ARDCMODE)){
-				String authRepVrfCd =  "";
-				if (arDcAppCasesCargo != null){
-					if ( arDcAppCasesCargo.getAuthrepIndvIdVrfCd() != null){  
-						authRepVrfCd = arDcAppCasesCargo.getAuthrepIndvIdVrfCd(); 
+				if(newVarificationCd == varificationCd)
+				{
+					return true;
+				}
+				if(varificationCd == "CV"||varificationCd =="CS"||varificationCd=="NV"||varificationCd =="OT")
+				{
+					if(newVarificationCd=="NC"||newVarificationCd=="FB"||newVarificationCd=="01"){
+						return true;
+					}
+					else
+					{
+						alertMe("DC4163");
+						return false;
 					}
 				}
-		%>
-		<table width="723" border="0" class="bodyFormLabels" role="presentation" title="Authorized Representative">
-        <tr>
-		<td width="250" ><!-- <img src="/images/bulletRequired.gif" alt="Mandatory Field" title="Mandatory Field">&nbsp; --><TL:FWLabelTag bean="<%=authRepVrf%>" required="Y" /></td>
-   		<td width="100"> 
-	    <TL:FWRTSelectTag referenceTableName="IDVERIFICATION" bean="<%=authRepVrf%>" emptySpace="Y" selected="" 
-	    	multiple="N" show="1" style="form250" other="validate=\"isComplete(document.form1.authRepVrf)\"" />
-   		</td>
-   		<td width="230"> </td>		
-	    </tr>
-	    </table> 
-	     
-    	<%	} %>	
- 
-        <br>
-		 
-<!-- 		<table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable" role="presentation">
-          <caption><H2 class="bodyDividerTableHeader"> --> 
-             <h2 class="bodyDividerTableHeader" style="width:723px">Address Information</H2>
-<!--           </caption>
-        </table>
- -->		  
-		  <table width="722" border="0" class="bodyFormLabels" role="presentation" title="Address Information">
-           <tr height="27"> 
-            <td width="43" > 
-			 <%if (!"DC".equals(ARDCMODE)){%>
-			 <%-- BRGUS00113650 - pulaguma - Modified the tag to display post direction field --%>
-            <TL:FWARDCGroupAddressTag beanId="arAuthRepAddrCargo" packageName="application" addressGroupBeanId="addressGroup" formName="form2" county="Y" region="N" isRequired ="Y" isCountyRequired ="N" isCityOrZipRequired="N" attnCareOfFlag="N" />
-			<%-- 			  
-			<TL:FWGroupAddressTag beanId="arAuthRepAddrCargo" addressGroupBeanId="addressGroup" packageName="application" county="Y" isCountyRequired ="N" isRequired="Y" isCityOrZipRequired="N" isZip4Required="N"/>
+				else
+				{
+					if(varificationCd=="" || mm=="mm"||dd=="dd"||yyyy=="yyyy"){
+						return true;
+					}
+					alertMe("DC4164");
+					return false;
+				}
 			
-			--%>
-			 
-			  
-			  <%} else{%>
-			  <TL:FWARDCGroupAddressTag beanId="arAuthRepAddrCargo" packageName="cases" addressGroupBeanId="addressGroup" formName="form2" county="Y" region="N" isRequired ="Y" isCountyRequired ="N" isCityOrZipRequired="N" attnCareOfFlag="N" />
-			  <%--
-			  <TL:FWGroupAddressTag beanId="arAuthRepAddrCargo" addressGroupBeanId="addressGroup" packageName="cases" county="Y" isCountyRequired ="N" isRequired="Y" isCityOrZipRequired="N" isZip4Required="N"/>
-			  End of BRGUS00113650
-			 --%>
-			  <%}%>
- 		    </td>
-		   </tr>	
-		 </table>		
-        <table width="722" border="0" class="bodyFormLabels" role="presentation" title="Address Validation">
-          <tr height="27"> 
-            <td width="120" height="26"  >
-			<TL:FWLabelTag bean="<%=addressValidation%>" colon="N"/>              
-            </td>
-            <td width="120" height="26"  >
-			<TL:FWRTSelectTag referenceTableName="YESNO" bean="<%=addressValidation%>"  emptySpace="N" selected="Y" multiple="N" show="1" style="form50"/>			 
-            </td>
-          <td width="450" height="26"  ></td>
-          </tr>
-        </table>
-         <br>
-		 			
-<!--         <table width="723" border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable">
-          <caption><H2 class="bodyDividerTableHeader">  -->
-             <h2 class="bodyDividerTableHeader" style="width:723px">Contact Information</H2>
-<!--           </caption>
-        </table>
- -->        
-		<table width="723" border="0" class="bodyFormLabels" role="presentation" title="Contact Information">		 
-          <tr> 
-            <td height="28" width="60"> 
-				<TL:FWGroupPhoneTag beanId = "phoneNumber" pageMode = "1" phone = "" formName="form2"/>			
-            </td>
-			<td height="28" width="60"> 
-				<TL:FWGroupPhoneTag beanId = "workNumber" pageMode = "1" phone = "" formName="form2"/>			
-            </td>
-			<td height="28" width="60"> 
-				<TL:FWGroupPhoneTag beanId = "otherNumber" pageMode = "1" phone = "" formName="form2"/>			
-            </td>
-          </tr>
-        </table>
-         <br>
+			}
+		<%
+		}
+	}
+	%>	
+
+}
+
+//Added for ILIES-279498
+function deceasedVerificationAdlCheck(field1,field2,field3,field4){
+
+	<%
+	if("DC".equals(ARDCMODE)) {
+		if("N".equals((String)request.getAttribute("isAdlDateOfDeathException")))
+		{
+		%>	
+			if(document.form1.fileClrDOD.value!=null && document.form1.fileClrDOD.value=='Y'){
+				var newVarificationCd=field1.value;
+				var worker="";
+				var mm = field2.value;
+				var dd =field3.value;
+				var yyyy = field4.value;
+				
+				if(newVarificationCd == varificationCd)
+				{
+					return true;
+				}
+				if(varificationCd == "CV"||varificationCd =="CS"||varificationCd=="NV"||varificationCd =="OT")
+				{
+					if(newVarificationCd=="NC"||newVarificationCd=="FB"||newVarificationCd=="01"){
+						return true;
+					}
+					else
+					{
+						alertMe("DC4163");
+						return false;
+					}
+				}
+				else
+				{
+					if(varificationCd=="" || mm=="mm"||dd=="dd"||yyyy=="yyyy"){
+						return true;
+					}
+					alertMe("DC4164");
+					return false;
+				}
+			
+			}
+		<%
+		}
+	}
+	%>	
+
+}
+
+function disableReasonForBanOnNO(){
+	var select1 = document.getElementById("istheindividualbannedfromenterDHSHFS");
+	var box = document.getElementById("reasonForBan");
+
+
+	for (var i = 0; i < select1.length; i++) {
+        if (select1.options[i].selected){
+	        if(select1.options[i].value != "NO"){
+	        	box.disabled = false;
+	        }
+	        else{
+	        	box.value = "";
+	        	box.disabled = true;
+	      	}
+	    }
+	}
+}
+//Added for ILIES-192144
 <%
-boolean forceFill=false;
-if(repDynaList==null || repDynaList.size()==0){
-	forceFill = true;
-	repDynaList.add("");
-}%>
+	if ("DC".equals(ARDCMODE)){
+%>
+function disableChipPriorCoverage(){
+	var select1 = document.getElementById("individualReceivedShareOrPremiumPreviously");
+	var box = document.getElementById("chipPriorCoverage");
+	var pageMode = <%=pageMode%>;
+	
+	var medicaidExpansionSw = "<%=switchValue%>" ;
+	
+	if(medicaidExpansionSw == "Y") {
+	
+	$('#individualReceivedShareOrPremiumPreviously').prop( "disabled", true );
+	$('#chipPriorCoverage').prop( "disabled", true );
+	}
+	else {
+	for (var i = 0; i < select1.length; i++) {
+        if (select1.options[i].selected){
+	        if(select1.options[i].value != "Y"){ 
+	        	box.disabled = true;
+	        	box.value = "";   	
+	        	$('#chipPriorID').find('IMG').hide();
+	        	$('#chipPriorID').find('b').remove();
+	        	
+	        		
+	        	$('#chipPriorCoverage').attr('validate', '');
+				}
+	        else{
+	        	//box.value = "";
+	        	
+	        	if(pageMode != 0){
+		        	box.disabled = false;
+		        	$('#chipPriorID').find('IMG').show();		        
+		            $('#chipPriorID').find('label').append("<b class='hidden'>Required<\/b>" );
+		        	$('#chipPriorCoverage').attr('validate', 'isComplete(document.form1.chipPriorCoverage);');
+	        	}
+	      	}
+	    }
+	}
+	} 
+}
+<%
+}
+%>
 
-		<TL:FWSelectTag bean="<%=dynaLoad%>" id="dynaLoad"
-			size="5" multiple="Y" value="<%=repDynaList%>"
-			display="<%=repDynaList%>" />
-			
-<%if(forceFill){%>
-	<script>
-		document.getElementById("dynaLoad").options.length=0;
-	</script>
-<%}%>
+// Added for the ILIES project
+// Store all the values coming from different columns and tables that are bound to the same field
+// Check for at least one occurence of "Y" and prevent the field from being overwritten
+var index = 0;
+var preFillValues = new Array();
+<% String check = String.valueOf( request.getAttribute( "IS_SELF_SERVICE_APP" ) ); %>
 
-		<%@ include file = "/fwincludes/dynaTableButton.jsp" %> 
- <DIV id="ResultsTableHeader">
- <table width="723" class="bodytitleArea" role="presentation" title="Representatives Summary">
-  <tr><td><H2 class="bodyDividerTableHeader">
- Representatives Summary</H2>
- </td></tr>
- </table>
-<table width="723"  border="0" cellspacing="0" cellpadding="0" class="bodyDividerTable searchResultsBody" id="resultTableHeader" title="Representatives Summary" summary="Representatives Summary">
- 	<thead>
-		<tr class="bodyDividerTableHeader" Id="headerRow"> 
-      		<th scope="col" class="bodyDividerTableResultsHeader rowHeader" dyntable-rowindex-decorator=" row ~" width="300">
-      			<A href="" onkeyup="if((event.keyCode || event.charCode) == 32)return sortDynaTable(resultTableHeader,0)" onClick="javascript: return sortDynaTable(resultTableHeader,0)">
-      				<img src="/images/bulletRotated.gif" alt="Sort Representative Name Descending" title="Sort Representative Name Descending" align="absmiddle" border="0" name="sortImage0" dataType="AI">
-      			</A>
-      			Representative Name
-      		</th>   
-      		<th scope="col" class="bodyDividerTableResultsHeader" width="273">
-      			<A href="" onkeyup="if((event.keyCode || event.charCode) == 32)return sortDynaTable(resultTableHeader,1)" onClick="javascript: return sortDynaTable(resultTableHeader,1)">
-      				<img src="/images/bulletRotated.gif" alt="Sort Relationship to Individual Descending" title="Sort Relationship to Individual Descending" align="absmiddle" border="0" name="sortImage1" dataType="AI">
-      			</A>
-      			Relationship to Individual
-      		</th>     
-      		<th scope="col" class="bodyDividerTableResultsHeader" width="150">&nbsp;
-      				<TL:FWLabelTag bean="<%=actionCd%>" colon="N"/>
-      		</th>
-		</tr>       
-     </thead>
-     <tbody><tr><td></td></tr></tbody>
-    </table>
-   </DIV>
- </DIV>
- </form>
-<%@ include file = "/fwincludes/dynaTable.jsp" %>
-<script>
-		document.getElementById("dynaResetButton").alt = 'Reset Contact Information';
-	</script>
-<%/* EDITABLE - Comments (You can add code to this section) */%>	
-<%-- <%	if ("DC".equals(ARDCMODE)){%>
-	<%@ include file = "/includes/Comments.jsp" %> 	
-<%	}%> --%>
-<input type="hidden" id = "softHardEditMode" name = "softHardEditMode" value="<%=softHardEditMode%>">
-<%--ILIES-280141 When Authorized Rep is not being added in App reg process and in data collection, if the auth rep question answered "Yes" in Household Information page and 
-no information to provide in Representative page, user can go back to Household page by clicking previous - for this, the validation is removed for previous button--%>
-<input type="hidden" name="dynaTableValidate" id="dynaTableValidate" validate="validateButton();" value="">
-<%/* EDITABLE - Action Buttons (You can change this include.) */%>	            
-<%--<%@ include file = "/fwincludes/actionButtonRPN.jsp" %>--%> 
-<jsp:include page="/fwdynamicinclude/actionButtonRPN.jsp" >
-	<jsp:param name="fw_buttonOnTop" value="false" />
-</jsp:include>
-                 
-<%/* NOT EDITABLE - End Outer HTML Table */%>	            
-<%@ include file = "/fwincludes/dynaTableEnd.jsp" %>
+function storePrefill()
+{
+	var value = document.form1.istheindividualcurrentlyreceivingMedicare.value;
+	var run = "<%=check%>";
+	preFillValues[index] = value;
+	index += 1;
+	
+	if ( preFillValues.length < 4 && run == 'true' )
+	{
+		for ( var i = 0; i < preFillValues.length; i++ )
+		{
+			if ( preFillValues[i] == 'Y' )
+			{
+				document.form1.istheindividualcurrentlyreceivingMedicare.value = 'Y';
+				break;
+			}
+		}
+	}
+}
+
+</script>
+
+<%
+	String otherAppTypeCd = "";
+	boolean isOtherAppType = false;
+
+	if (arAppForAidCargo != null) {
+		otherAppTypeCd = arAppForAidCargo.getOtherAppTypeCd();
+	}
+	if (otherAppTypeCd != null && (otherAppTypeCd.equals("CS") || otherAppTypeCd.equals("MO"))) {
+		isOtherAppType = true;
+	}
+
+	byte sRole = 1;
+	boolean isRecordEdited = false;
+	 if(request.getAttribute("EDIT_FLAG")!=null && ((Boolean)request.getAttribute("EDIT_FLAG")).booleanValue()==true){
+	 isRecordEdited = true;
+	 }
+	if(!("DC".equals(ARDCMODE)) && dcIndvCargo != null && dcIndvCargo.getFileClearanceSw()=='Y' && !isOtherAppType
+	 && isRecordEdited){
+
+	}
+
+%>
+
+<%
+  String flSw = "Y";
+	if(dcIndvCargo != null && (dcIndvCargo.getFileClearanceSw() != 0 && dcIndvCargo.getFileClearanceSw() == 'Y')&&isRecordEdited) {//#5 CODE-MOD
+   		flSw = "N";
+	}else{
+		flSw= "Y";
+		if(userSecurity.equals("0")){
+		    flSw= "N";
+		}
+}
+%>
+
+<%  //if the individual is already file cleared, do not pre fill if the IS_INDV_FILE_CLEARED is null or N then only prefill
+	if("Y".equals((String)request.getParameter("IS_INDV_FILE_CLEARED"))){ %>
+	<ARTagLibrary:FWPrefillTag  preFill = "N"/>
+<% } else { %>
+	<ARTagLibrary:FWPrefillTag  preFill = "Y"/>
+<% } %>
+
+<%/* EDITABLE WITH PERMISSION (You can add code to this section) - Body and Form Tags */%>
+
+<form name="form1" method="post" action="/ControllerServlet" target="_self">
+<input type="hidden" name="validateInactiveIndv" value="" validate="inactiveValidation()" id="validateInactiveIndv">
+<%/* NOT EDITABLE - Framework Hidden Fields */%>
+<%@ include file = "/fwincludes/hiddenFields.jsp" %>
+
+<%if("DC".equals(ARDCMODE)) { %>
+<input type="hidden" name="counter" value="<%=counter%>" id="counter">
+<input type="hidden" name="validateDeathVrf" validate = "validateDeathVrf()" id="validateDeathVrf">
+<input type="hidden" name="fileClrDOD" value="<%=dcIndvCargo.getFileClearanceSw() %>" id="fileClrDOD">
+<input type="hidden" name="preFillByPass" id="preFillByPass" value="<%=preFillByPassKey%>" id="preFillByPass">
+<input type="hidden" name="<%=gov.illinois.ies.business.broker.SelfServiceBrokerConstants.SS_XREF_TYPE_IND%>" id="<%=gov.illinois.ies.business.broker.SelfServiceBrokerConstants.SS_XREF_TYPE_IND%>" value = "<%=gov.illinois.ies.business.broker.SelfServiceBrokerConstants.SS_XREF_TYPE_RMC%>" />
+<% } %>
+<input type="hidden" name="RM_IND" id="RM_IND" value="<%=request.getAttribute("RM_IND")%>">
+<input type=hidden name="_dcuRoles" id="_dcuRoles" value=<%=_dcuRoles%>>
+<input type="hidden" name="currentIndividual" id="currentIndividual" value="<%=request.getAttribute("indvIdNotCleared") %>" />
+<input type="hidden" name="individualId" id="individualId">
+<%/* EDITABLE - Page Specific Hidden Fields (You can add code to this section) */%>
+<%
+	String isAddNewIndividual = "";
+	if(request.getAttribute("addNewIndividual") != null){
+		isAddNewIndividual = (String)request.getAttribute("addNewIndividual");
+	}
+%>
+<input type="hidden" name="addNewIndividual" id="addNewIndividual" value="<%=isAddNewIndividual%>">
+<input type="hidden" name="saveAddNewIndividual" id="saveAddNewIndividual" value=""><%--BRGUS00107064-upadhyayulag-Variable to identify if request is to add new individual--%>
+<%
+	String isFromArToDc = "";
+	if(request.getAttribute("fromArToDc") != null){
+	    isFromArToDc = (String)request.getAttribute("fromArToDc");
+	}
+%>
+<%
+	String addDisable = "";
+	if(request.getAttribute("addDisable") != null){
+	    addDisable = (String)request.getAttribute("addDisable");
+	}
+%>
+<input type="hidden" name="addDisable" value="<%=addDisable%>" id="addDisable">
+<input type="hidden" name="fromArToDc" value="<%=isFromArToDc%>" id="fromArToDc">
+<%
+String val = null;
+String val2 = null;
+if (request.getAttribute("navigation1") == null)
+{
+  val = "";
+  }
+else
+{
+val = (String)request.getAttribute("navigation1");
+}
+//
+if (request.getAttribute("AddArrow1") == null)
+{
+  val2 = "";
+  }
+else
+{
+val2 = (String)request.getAttribute("AddArrow1");
+}
+
+	FwCalendar calendar = FwCalendar.getInstance();
+						 FwDate date = calendar.getDate();
+						java.sql.Timestamp  sysdate = date.getTimestamp();
+						Date sysdateee = sysdate;
+						int month = sysdate.getMonth()+1;
+						int year = sysdate.getYear()+1900;
+						
+
+%>
+<input type="hidden" name="sysMonth" value="<%=month%>" id="sysMonth">
+<input type="hidden" name="sysYear" value="<%=year%>" id="sysYear">
+
+<%--#4 CODE-ADD-START--%>
+<input type="hidden" name="priorSsnTab" id="priorSsnTab" value="<%=(request.getAttribute("priorSsnTab")!=null)?(String)request.getAttribute("priorSsnTab"):""%>">
+<%--#4 CODE-ADD-END--%>
+
+<%
+
+	long invalidSSN = 0;
+	try {
+	if(request.getAttribute("invalidSSN") != null){
+		invalidSSN = ((Long)request.getAttribute("invalidSSN")).longValue();
+	}
+	} catch(Exception e ) {
+	    //e.printStackTrace();
+	}
+	
+%>
+<input type="hidden" name="invalidSSN" value="<%=invalidSSN%>" id="invalidSSN">
+<input type="hidden" name="navigation" value="<%=val%>" id="navigation">
+<%	  if ("DC".equals(ARDCMODE)){
+%>
+<input type="hidden" name="validateSSA" value="<%=pageMode%>" validate="validateSSA()" id="validateSSA"><%--FO511 praphull --%>
+<%} %>
+<input type="hidden" name="CURRENT_PAGE_MODE" value="<%=pageMode%>" validate="checkMultipleSSNValues()" id="CURRENT_PAGE_MODE">
+
+<%-- %>FO511 starts--%>
+<%
+char hdnVal='\0';
+if (dcIndvCargo!=null){
+	hdnVal=dcIndvCargo.getSsaValidationSw();
+}
+
+char hdnnVal='\0';
+if (dcIndvCargo!=null){
+	hdnnVal=dcIndvCargo.getSsaPcValidationSw();
+}
+
+%>
+<input type="hidden" name="hiddenValidateSSA" value="<%=hdnVal%>" id="hiddenValidateSSA">
+<input type="hidden" name="hiddenValidateSSAPC" value="<%=hdnnVal%>" id="hiddenValidateSSAPC">
+<%-- %>FO511 ends --%>
+<input type="hidden" name="AddArrow" value="<%=val2%>" id="AddArrow">
+<input type="hidden" name="mode" value="<%=request.getAttribute("mode")%>" id="mode">
+<input type="hidden" name="editRowId" value="<%=null != request.getAttribute("editRowId") ? request.getAttribute("editRowId") : ""%>" id="editRowId">
+<input type="hidden" name="scriptmode" id="scriptmode" value="<%=request.getAttribute("ARDCMODE")%>">
+<input type="hidden" name="ssnFlag" id="ssnFlag" value="<%=request.getAttribute("SSNFlag")%>">
+<input type="hidden" name="ssnNew" id="ssnNew" value="<%=(dcIndvCargo!=null)?Long.toString(dcIndvCargo.getSsn()):"0"%>">
+<%--Code added by Gopi for FO177 on 06/15/2006--%>
+<input type="hidden" name="claimedSsnNew" id="claimedSsnNew" value="<%=(dcIndvCargo!=null)?Long.toString(dcIndvCargo.getClaimedSsn()):"0"%>">
+<%--06/15/2006 End--%>
+<input type="hidden" name="aliasLen" id="aliasLen" value="<%=request.getAttribute("dcAliasSize")%>">
+<input type="hidden" name="sscnLen" id="sscnLen" value="<%=request.getAttribute("dcIndvSscnSize")%>">
+<input type="hidden" name="hasSecondarySsnInformation" value="N" id="hasSecondarySsnInformation">
+<input type="hidden" name="dcuSsaCheck" value="N" id="dcuSsaCheck">
+<input type="hidden" name="ssaValCheck" value="N" id="ssaValCheck">
+<input type="hidden" name="disableCancel" value="<%=disableCancelDC%>" id="disableCancel">
+<input type="hidden" name="lastIndvInLoop" value="<%=request.getAttribute("lastIndvInLoop")%>" id="lastIndvInLoop">
+<input type="hidden" name="inPageId" value ="INSIS" id="inPageId">
+<input type="hidden" name="cin" id="cin" value="<%=(dcIndvCargo!=null)?String.valueOf(dcIndvCargo.getIndvId()):"0"%>">
+<input type="hidden" name="isPrevSSCN" id="isPrevSSCN" value="<%=request.getAttribute("prevSSCN")%>">
+<input type="hidden" name="indvFileClrSw" id="indvFileClrSw" value="<%=flSw%>">
+<%-- <input type="hidden" name=""  value="" /> --%>
+<input type="hidden" name="validateDates" id="validateDates" validate="testDobs();">
+<input type="hidden" name="validateSSN" id="validateSSN" validate="testSSN();">
+<input type="hidden" name="IS_CANCEL_ACTION" id="IS_CANCEL_ACTION" value="N">
+<input type="hidden" name="IS_PREVIOUS_ACTION" id="IS_PREVIOUS_ACTION" value="N">
+<input type="hidden" name="CHECK_TO_DISABLE" id="CHECK_TO_DISABLE" value="N">
+<input type="hidden" name="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_TRACK_ID%>" id="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_TRACK_ID%>" value = "<%=Encode.forHtmlAttribute(request.getParameter(gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_TRACK_ID))%>" />
+<input type="hidden" name="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_CHANGE_SEQ_NUM%>" id="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_CHANGE_SEQ_NUM%>" value = "<%=Encode.forHtmlAttribute(request.getParameter(gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_CHANGE_SEQ_NUM))%>" />
+<input type ="hidden" name="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_INDV_SEQ_NUM%>" id="<%=gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_INDV_SEQ_NUM%>" value = "<%=Encode.forHtmlAttribute(request.getParameter(gov.illinois.ies.business.broker.RMCBrokerConstants.RMC_INDV_SEQ_NUM))%>" />  
+
+ <% 
+ // 133955 starts
+ ArDcAppCasesCargo arDcAppCargo2=(ArDcAppCasesCargo)request.getAttribute("arDcAppCasesCargo");
+		String appNumber = ((arDcAppCargo2==null || arDcAppCargo2.getAppNum() == null)? "":arDcAppCargo2.getAppNum());
+// 133955 ends
+ 
+ if(("AR".equals(ARDCMODE))){
+ 		ArDcAppCasesCargo arDcAppCargo1=(ArDcAppCasesCargo)request.getAttribute("arDcAppCasesCargo");
+		String appnum1 = ((arDcAppCargo1==null || arDcAppCargo1.getAppNum() == null)? "":arDcAppCargo1.getAppNum());
+		char MPESw = (Character)request.getAttribute("MPESw");
+		 MPESw = ((MPESw=='\0' || MPESw == 'N')? 'N':MPESw);
+		String editVal="";
+		%>
+			<input type="hidden" name="MPESw" id="MPESw" value="<%=MPESw%>">
+			<input type="hidden" name="APPL_NUM" id="APPL_NUM" value="<%=appnum1%>">
+	   <%	if( ((Boolean)request.getAttribute("EDIT_FLAG"))== null){
+	   			editVal="0";
+	   %>
+	   		<input type = "hidden" name = "editFlagIndv" id = "editFlagIndv" value = "<%=editVal%>" />
+	   <%}else if(((Boolean)request.getAttribute("EDIT_FLAG")).booleanValue()==true){
+	   		editVal="1";
+	   	%>
+	   		<input type = "hidden" name = "editFlagIndv" id = "editFlagIndv" value = "<%=editVal%>" />
+	   		<%if(dcIndvCargo!=null){
+	   			String editIndvFcSwStr=String.valueOf(dcIndvCargo.getFileClearanceSw());
+	   			//If the user has Read-Only permission,schedule Individual Summary screen.
+	   			if(userSecurity.equals("0")){
+		   			editIndvFcSwStr = "Y";
+	   			}
+	   			if("Y".equals(editIndvFcSwStr)){
+	   			if(!isRecordEdited){
+	   			editIndvFcSwStr="N";
+	   			}
+	   			}
+	   		%>
+	   		<input type = "hidden" name = "editIndvFcSw" id = "editIndvFcSw" value = "<%=editIndvFcSwStr%>" />
+
+	   		<%
+	   		}
+	   }
+	}
+					String bdate = null;
+					String indianTribe = null;
+					String indianTribeCode=null;//FO511
+					String needsProgram = null;
+					String refugeeMinor = null;
+					String reasonFBan = null;
+					String isindivban = null;
+					
+					if (dcIndvCargo.getDobDt() != null)
+					{
+						bdate = dcIndvCargo.getDobDt().toString();
+					}
+					if (bdate == null)
+					{	bdate = "";	}
+
+
+					if (dcIndvCargo != null && dcIndvCargo.getRefugeeMinorSw() != 0)
+					{
+						refugeeMinor = String.valueOf(dcIndvCargo.getRefugeeMinorSw());
+					}
+					// Added for CR-20392 Start
+					if (dcIndvCargo != null && dcIndvCargo.getSafeDeliveryBabySw() != 0)
+					{
+						safedelBaby = String.valueOf(dcIndvCargo.getSafeDeliveryBabySw());
+					}// Added for CR-20392 End
+					if (dcIndvCargo != null && dcIndvCargo.getFedRcgnzdIndianTribeSw() != 0)
+					{
+						indianTribe = String.valueOf(dcIndvCargo.getFedRcgnzdIndianTribeSw());
+					}
+					//added for FO511
+					if (dcIndvCargo != null && dcIndvCargo.getIndianTribeCd()!=null &&!dcIndvCargo.getIndianTribeCd().equals(""))
+					{
+						indianTribeCode = String.valueOf(dcIndvCargo.getIndianTribeCd());
+					}
+					else
+						indianTribeCode="";
+					if(dcIndvCargo != null && dcIndvCargo.getBannedReason()!=null && !dcIndvCargo.getBannedReason().equals("") ){
+						reasonFBan=dcIndvCargo.getBannedReason();
+					
+					}
+					else{
+					reasonFBan=" ";
+					
+					}
+					if(dcIndvCargo != null && dcIndvCargo.getBannedFromCallingCd()!=null && !dcIndvCargo.getBannedFromCallingCd().equals("") ){
+						isindivban=dcIndvCargo.getBannedFromCallingCd();
+					
+					}
+					else{
+					isindivban=" ";
+					
+					}
+					
+					
+
+%>
+ <SCRIPT type="text/javascript">
+
+ var prName = "<%=prefixName%>";
+ var fname="<%=firstname%>";
+ var mname="<%=middlename%>";
+ var lname="<%=lastname%>";
+ var dMon="<%=mm%>";
+ var dDD="<%=dd%>";
+ var dYear="<%=yyyy%>";
+ var gender="<%=String.valueOf(dcIndvCargo.getGenderCd())%>";
+ 
+ 
+ function disableGenderForMPEAppl(){
+ if(document.getElementById("MPESw") != null && document.getElementById("MPESw").value =='Y'){
+ 	document.getElementById("gender").value = 'F';
+ 	document.getElementById("gender").disabled = true;
+ }
+ }
+ 
+ function validateReasonForBan(){
+   
+    var reason=document.getElementById("reasonForBan").value;
+    var dropdownVal=document.getElementById("istheindividualbannedfromenterDHSHFS").value;
+    if(dropdownVal!='NO' && reason==''){
+    	alertMe("GL003");
+    }
+ }
+  
+ function validateAddButton(){
+    var val1 = "";
+ 
+	if(document.form1.addDisable != null){
+		var val1 = document.form1.addDisable.value;
+	}
+	if (val1 =="Y"){
+	disableAddIndividual();
+	}
+ }
+ // Code added for ILIES-169586
+ function openDeathInfoPopUp(indvId){
+	var url="/ControllerServlet?PAGE_ID=DCDRP&REQUESTED_PAGE_ID=DCDRP&FWPOPUP=Y&ACTION=ClickOnLink&cin="+indvId;
+	openModalDialog(url,"Death Match Results",'dialogWidth:750px;dialogHeight:650px');
+}
+ 
+</SCRIPT>
