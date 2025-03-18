@@ -1,1 +1,701 @@
-{"notice_date":"2025-01-01", "address":"3295 N NELLIS BLVD TRLR 41", "city":"LAS VEGAS", "state":"NV", "zip":"89115"}
+package gov.illinois.ies.business.batch.in;
+
+import gov.illinois.framework.exceptions.FwException;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.management.util.PMDRules;
+import gov.illinois.fw.batch.Adapter.BatchParameter;
+import gov.illinois.fw.batch.Controller.TIERSBatchController;
+import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.fw.batch.entities.FwBatchRunControlCargo;
+import gov.illinois.fw.batch.entities.FwBatchRunControlCollection;
+import gov.illinois.fw.batch.split.AbortJobException;
+import gov.illinois.fw.business.exceptions.ApplicationException;
+import gov.illinois.fw.business.exceptions.FrameworkException;
+import gov.illinois.fw.business.exceptions.TIERSBatchException;
+import gov.illinois.fw.business.exceptions.TIERSRunTimeException;
+import gov.illinois.fw.management.logger.LogLevel;
+import gov.illinois.fw.management.logger.Logger;
+import gov.illinois.ies.business.batch.ffm.outbound.INInterfacesHelper;
+import gov.illinois.ies.business.batch.ffm.outbound.InterfacesException;
+import gov.illinois.ies.business.batch.ffm.outbound.InterfacesExceptionVO;
+import gov.illinois.ies.business.batch.ffm.outbound.OutboundFFMBatchBO;
+import gov.illinois.ies.business.batch.ffm.outbound.OutboundFFMBatchContants;
+import gov.illinois.ies.business.entities.cases.DcCaseProgramIndvCargo;
+import gov.illinois.ies.business.entities.cases.DcCaseProgramIndvCollection;
+import gov.illinois.ies.business.entities.eligibility.EdEligNoticeReasonsCollection;
+import gov.illinois.ies.business.entities.eligibility.EdIndvEligibilityCargo;
+import gov.illinois.ies.business.entities.eligibility.EdIndvEligibilityCollection;
+import gov.illinois.ies.business.entities.eligibility.EdIndvNoticeReasonsCollection;
+import gov.illinois.ies.business.entities.interfaces.InFfmInboundAppsCargo;
+import gov.illinois.ies.business.entities.interfaces.InFfmOutboundQueueCargo;
+import gov.illinois.ies.business.entities.interfaces.InFfmOutboundQueueCollection;
+import gov.illinois.ies.business.rules.in.INUtility;
+import gov.illinois.ies.data.oracle.interfaces.OutboundEligibilityVO;
+
+import java.sql.Connection;
+import java.sql.Timestamp;
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * @author ashimishra
+ * 
+ */
+public class FFMOutboundBatch extends SFAbstractBatch {
+	TIERSBatchController batchController;
+	private String currDtStr = null;
+	private static Connection conn;
+	private INUtility inUtil = null;
+	private final String parmDtFormat = "MM/dd/yyyy";
+	private final String fileFormatDt = "yyyyMMdd";
+	public int exitStatus = 0;
+	private OutboundFFMBatchBO outboundFFMBatchBO = null;
+	private int parameterValue = 50;
+	private String batchRunDate = null;
+	private String batchRunEndDate = null;
+	private static Map<String, Timestamp> dateRangeMap = null;
+	private static final Logger logger = Logger.getInstance();
+	private FwBatchRunControlCollection fwBatchRunControlColl = null;
+	private FwBatchRunControlCargo[] fwBatchRunControlResults = null;
+	private static String strArgs = null;
+	private static StringBuffer errorMessageName = new StringBuffer();
+	private static StringBuffer errorMessageValue = new StringBuffer();
+	
+	private List<InFfmInboundAppsCargo> inFfmInboundAppsCargoList = null;
+	private List<OutboundEligibilityVO> edEligNoticeReasonsCargoList = null;
+	private List<OutboundEligibilityVO> edIndvNoticeReasonsCargoList = null;
+	private Map<Long, Set<Long>> dcCaseIndvMap = new HashMap<Long, Set<Long>>();
+	private Map<Long, List<Long>> edIndvEligibilityIndvMap = new HashMap<Long, List<Long>>();
+	private Set<Long> edFPAppMedDeniedSet = new HashSet<Long>();
+	Map<Long, List<InFfmOutboundQueueCargo>> inFFMOutboundQueueMap = new HashMap<Long, List<InFfmOutboundQueueCargo>>();
+	
+	/**
+	 * Field msgBuffer.
+	 */
+	private static StringBuffer msgExpSummary = new StringBuffer();
+	
+	/**
+	 * Field msgBuffer.
+	 */
+	private static StringBuffer msgExpDetails = new StringBuffer();
+
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		FFMOutboundBatch batch = null;
+		try {
+			batch = new FFMOutboundBatch();
+			strArgs = args[0];
+			batch.init(args);
+		} catch (Exception e) {
+			batch.exitStatus = BatchConstants.EXIT_FAILURE;
+			batch.writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in FFMOutboundBatch - main(): ", e.getMessage(), BatchConstants.REPORT_BODY, false,
+					BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+		} finally {
+			if (batch.exitStatus == BatchConstants.EXIT_FAILURE) {
+				try {
+					batch.abort();
+				} catch (TIERSBatchException e) {
+					batch.exitStatus = BatchConstants.EXIT_FAILURE;
+					batch.writeExceptionRecord(BatchConstants.FATAL, jobId + ": Error while trying to abort the batch: ", e.getMessage(), BatchConstants.REPORT_BODY, false,
+							BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+				}
+			} else {
+				try {
+					batch.complete();
+				} catch (TIERSBatchException e) {
+					batch.exitStatus = BatchConstants.EXIT_FAILURE;
+					batch.writeExceptionRecord(BatchConstants.FATAL, jobId + ": Error while trying to complete the batch: ", e.getMessage(), BatchConstants.REPORT_BODY, false,
+							BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+				}
+			}
+			System.exit(batch.exitStatus);
+		}
+	}
+
+	/**
+	 * This method implements the initialization process for this class.
+	 * 
+	 * @param aArgs
+	 *            String[] which is an array of Strings
+	 * @throws Exception
+	 */
+	private void init(String[] aArgs) throws AbortJobException {
+		try {
+			// Do all the initialization process
+			begin(aArgs[0], true);
+			inUtil = new INUtility();
+			currDtStr = inUtil.formatTimeStamp(inUtil.getDateAsTimeStamp(asOfDate, parmDtFormat), fileFormatDt);
+		} catch (Exception e) {
+			writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in init(): ", e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL,
+					BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+			throw new AbortJobException(e.getMessage(), e);
+		}
+	}
+
+	@Override
+	protected void processRecord(Object obj) throws Exception {
+	}
+
+	@Override
+	protected void preProcess() throws ApplicationException {
+		try {
+			setJobId(jobId);
+			batchController = getTIERSBatchController();
+			batchController.setJobId(jobId);	
+			conn = getConnection();
+			outboundFFMBatchBO = new OutboundFFMBatchBO(batchController, conn);
+		} catch (Exception e) {
+			writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in preProcess(): ", e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL,
+					BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+			throw new ApplicationException(e.getMessage(), e);
+		}
+	}
+
+	// @Override
+	protected void process() throws ApplicationException {
+		try {
+			dateRangeMap = getDateRangeMap();
+			logger.Log(LogLevel.DEBUG, "***** Started Processing the Records ***** ");
+
+			// Construct InFfmOutboundQueue cargo list and Insert into Outbound queue table and Update InFfmInboundApps table with status
+			inFfmInboundAppsCargoList = outboundFFMBatchBO.fetchInFfmInboundAppsRecords(parameterValue);
+			
+			// Get the data from ED_ELIG_NOTICE_REASONS
+			edEligNoticeReasonsCargoList = fetchEdEligNoticeReasons(dateRangeMap.get("startTime"), dateRangeMap.get("endTime"));
+			int edPreQuery1 = edEligNoticeReasonsCargoList==null?0:edEligNoticeReasonsCargoList.size();
+			logger.Log(ILog.ERROR, "COUNTER ******* In OutboundFFMBatchBO.processIesApplicationRecords: RECORDS FROM edEligNoticeReasonsCargoList ::" + edPreQuery1);
+			
+			// Get the data from ED_INDV_NOTICE_REASONS
+			edIndvNoticeReasonsCargoList = fetchEdIndvNoticeReasons(dateRangeMap.get("startTime"), dateRangeMap.get("endTime"));
+			int edPreQuery2 = edIndvNoticeReasonsCargoList==null?0:edIndvNoticeReasonsCargoList.size();
+			logger.Log(ILog.ERROR, "COUNTER ******* In OutboundFFMBatchBO.processIesApplicationRecords: RECORDS FROM edIndvNoticeReasonsCargoList ::" + edPreQuery2);
+			// populate the IN_OUTBOUND_FFM_STAGING and IN_OUTBOUND_FFM_QUEUE table
+			
+			Set<Long> caseNumSet = new HashSet<Long>();
+			Set<Long> noticeReasoncaseNumSet = new HashSet<Long>();
+			
+			if(inFfmInboundAppsCargoList != null) {
+				for (int i = 0; i < inFfmInboundAppsCargoList.size(); i++) {
+					if(inFfmInboundAppsCargoList.get(i) != null && inFfmInboundAppsCargoList.get(i).getCaseNum() > 0) {
+						caseNumSet.add(inFfmInboundAppsCargoList.get(i).getCaseNum());
+					}
+				}
+			}
+			
+			if(edEligNoticeReasonsCargoList != null) {
+				for (int i = 0; i < edEligNoticeReasonsCargoList.size(); i++) {
+					if(edEligNoticeReasonsCargoList.get(i) != null && edEligNoticeReasonsCargoList.get(i).getCaseNum() > 0) {
+						noticeReasoncaseNumSet.add(edEligNoticeReasonsCargoList.get(i).getCaseNum());
+					}
+				}
+			}
+			
+			if(edIndvNoticeReasonsCargoList != null) {
+				for (int i = 0; i < edIndvNoticeReasonsCargoList.size(); i++) {
+					if(edIndvNoticeReasonsCargoList.get(i) != null && edIndvNoticeReasonsCargoList.get(i).getCaseNum() > 0) {
+						noticeReasoncaseNumSet.add(edIndvNoticeReasonsCargoList.get(i).getCaseNum());
+					}
+				}
+			}
+			
+			caseNumSet.addAll(noticeReasoncaseNumSet);
+			
+			if (caseNumSet.size() > 0) {
+				dcCaseIndvMap= getDcCaseProgramIndvMap(caseNumSet);
+				edIndvEligibilityIndvMap = outboundFFMBatchBO.fetchEDEligibilityDataForCase(caseNumSet);
+				edFPAppMedDeniedSet = getFPAppMedDeniedCaseSet(caseNumSet);
+			}
+			if (noticeReasoncaseNumSet.size() > 0)
+				inFFMOutboundQueueMap = outboundFFMBatchBO.fetchOutboundDataByCaseNumToSendFFM(noticeReasoncaseNumSet);
+			
+			
+			outboundFFMBatchBO.insertandUpdate(inFfmInboundAppsCargoList, inFFMOutboundQueueMap);
+
+			// Fetch from IES tables Insert into outbound Staging table Fetch
+			// from outbound staging table Insert into Outbound queue table
+			// Update outbound staging table with status
+			processIesApplicationRecords();
+
+			// Send the data to FFM outbound for processing and also saving in
+			// FFM xml in outbound table.
+			outboundFFMBatchBO.sendDataToFFM();
+			
+
+		} catch (Exception e) {
+			writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in process(): ", e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL,
+					BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+			throw new ApplicationException(e.getMessage(), e);
+		}
+	}
+
+
+	/**
+	 * 
+	 * purpose : This method is responsible for Insert the data in FFM_OUTBOUD_QUEUE tables
+	 * 
+	 * @param startDate
+	 *            Start Date Format - 2013-09-01 00:00:00.00
+	 * @param endDate
+	 *            End Date Format - 2013-09-19 00:00:00.00
+	 * @throws FrameworkException
+	 * @throws ApplicationException
+	 */
+
+	public void processIesApplicationRecords() throws Exception {
+		try {
+			
+			// populate Staging and Queue table for FFM_OUTBOUND .Save in DB
+			InFfmOutboundQueueCollection inFfmOutboundQueueCollection = null;
+			InFfmOutboundQueueCargo inFfmOutboundQueueCargo = null;
+			Set<Long> indvIdSet = new HashSet<Long>();
+			List<Long> edIndvEligibilityIndvList = new ArrayList<Long>();
+
+			if (edEligNoticeReasonsCargoList != null && edEligNoticeReasonsCargoList.size() > 0) {
+				logger.Log(LogLevel.DEBUG, "edEligNoticeReasonsCargoList size:" + edEligNoticeReasonsCargoList.size());
+				for (OutboundEligibilityVO edEligNoticeRsn : edEligNoticeReasonsCargoList) {
+					try {
+						if (isOutboundDataRecordAlreadyExists(edEligNoticeRsn.getCaseNum(), edEligNoticeRsn.getDiActionDate(), inFFMOutboundQueueMap)) {
+							logger.Log(LogLevel.DEBUG, "OutboundEligibilityVO =" + edEligNoticeRsn.toString());
+							
+							// Call to DC_CASE_PROGRAM_INDV to get the Individuals in the Case
+							if (dcCaseIndvMap != null && dcCaseIndvMap.size() > 0 && dcCaseIndvMap.get(edEligNoticeRsn.getCaseNum()) != null) {
+								indvIdSet = new HashSet<Long>();
+								Set<Long> indvIdsSet = dcCaseIndvMap.get(edEligNoticeRsn.getCaseNum());
+								indvIdSet.addAll(indvIdsSet);
+							}
+							
+							edIndvEligibilityIndvList.clear();
+							if (!indvIdSet.isEmpty()) {
+								List<Long> indvList = edIndvEligibilityIndvMap.get(edEligNoticeRsn.getCaseNum());
+								if(indvList != null) {
+									for (Long indvLong : indvList) {
+										if(indvIdSet.contains(indvLong)){
+											edIndvEligibilityIndvList.add(indvLong);
+										}
+									}
+								}
+							}
+							
+							inFfmOutboundQueueCargo = new InFfmOutboundQueueCargo();
+							inFfmOutboundQueueCargo.setCaseNum(edEligNoticeRsn.getCaseNum());
+							inFfmOutboundQueueCargo.setDiActionDt(edEligNoticeRsn.getDiActionDate());
+							inFfmOutboundQueueCargo.setSendToFfmInd(OutboundFFMBatchContants.N_CONSTANT);
+							if (indvIdSet.isEmpty() || ((edIndvEligibilityIndvList.size() == indvIdSet.size()) && !edFPAppMedDeniedSet.contains(edEligNoticeRsn.getCaseNum()))) {
+								inFfmOutboundQueueCargo.setSendToFfmInd(OutboundFFMBatchContants.sendToFfmInd_X);
+							}
+							inFfmOutboundQueueCollection = new InFfmOutboundQueueCollection(conn);
+							inFfmOutboundQueueCollection.setCargo(inFfmOutboundQueueCargo);
+							if (inFfmOutboundQueueCollection != null && inFfmOutboundQueueCollection.size() > 0) {
+								inFfmOutboundQueueCollection.insert(inFfmOutboundQueueCollection);
+								if(inFFMOutboundQueueMap.containsKey(inFfmOutboundQueueCargo.getCaseNum())){
+									List<InFfmOutboundQueueCargo> list = inFFMOutboundQueueMap.get(inFfmOutboundQueueCargo.getCaseNum());
+									list.add(inFfmOutboundQueueCargo);
+									inFFMOutboundQueueMap.put(inFfmOutboundQueueCargo.getCaseNum(), list);
+								} else {
+									List<InFfmOutboundQueueCargo> list = new ArrayList<InFfmOutboundQueueCargo>();
+									list.add(inFfmOutboundQueueCargo);
+									inFFMOutboundQueueMap.put(inFfmOutboundQueueCargo.getCaseNum(), list);
+								}
+							}
+						}
+					} catch (FwException e) {
+						throw e;
+					} catch (TIERSRunTimeException e) {
+						throw e;
+					} catch (Exception e) {
+						// PMD_Override - R6 - Exception is not being propagated
+						// because the job needs to continue processing records per
+						// business logic.
+						PMDRules.markApprovedCatchBlock("R6");
+						writeExceptionRecord(BatchConstants.BATCH_ERROR, "Exception in processIesApplicationRecords() edEligNoticeReasonsCargoList" + edEligNoticeRsn.getCaseNum(),
+								"edIndvNoticeReasonsCargoList CASE_NUM:" + edEligNoticeRsn.getCaseNum() + " Exception:" + e, BatchConstants.REPORT_BODY, true,
+								BatchConstants.LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+					}
+				}
+			}
+
+			if (edIndvNoticeReasonsCargoList != null && edIndvNoticeReasonsCargoList.size() > 0) {
+				logger.Log(LogLevel.DEBUG, "edIndvNoticeReasonsCargoList size:" + edIndvNoticeReasonsCargoList.size());
+				for (OutboundEligibilityVO edIndvNoticeReasonsCargo : edIndvNoticeReasonsCargoList) {
+					try {
+						if (isOutboundDataRecordAlreadyExists(edIndvNoticeReasonsCargo.getCaseNum(), edIndvNoticeReasonsCargo.getDiActionDate(), inFFMOutboundQueueMap)) {
+							
+							// Call to DC_CASE_PROGRAM_INDV to get the Individuals in the Case
+							if (dcCaseIndvMap != null && dcCaseIndvMap.size() > 0 && dcCaseIndvMap.get(edIndvNoticeReasonsCargo.getCaseNum()) != null) {
+								indvIdSet = new HashSet<Long>();
+								Set<Long> indvIdsSet = dcCaseIndvMap.get(edIndvNoticeReasonsCargo.getCaseNum());
+								indvIdSet.addAll(indvIdsSet);
+							}
+							
+							edIndvEligibilityIndvList.clear();
+							if (!indvIdSet.isEmpty()) {
+								List<Long> indvList = edIndvEligibilityIndvMap.get(edIndvNoticeReasonsCargo.getCaseNum());
+								if(indvList != null) {
+									for (Long indvLong : indvList) {
+										if(indvIdSet.contains(indvLong)){
+											edIndvEligibilityIndvList.add(indvLong);
+										}
+									}
+								}
+							}
+							
+							inFfmOutboundQueueCargo = new InFfmOutboundQueueCargo();
+							inFfmOutboundQueueCargo.setCaseNum(edIndvNoticeReasonsCargo.getCaseNum());
+							inFfmOutboundQueueCargo.setDiActionDt(edIndvNoticeReasonsCargo.getDiActionDate());
+							inFfmOutboundQueueCargo.setSendToFfmInd(OutboundFFMBatchContants.N_CONSTANT);
+							if (indvIdSet.isEmpty() || ((edIndvEligibilityIndvList.size() == indvIdSet.size()) && !edFPAppMedDeniedSet.contains(edIndvNoticeReasonsCargo.getCaseNum()))) {
+								inFfmOutboundQueueCargo.setSendToFfmInd(OutboundFFMBatchContants.sendToFfmInd_X);
+							}
+							inFfmOutboundQueueCollection = new InFfmOutboundQueueCollection(conn);
+							inFfmOutboundQueueCollection.setCargo(inFfmOutboundQueueCargo);
+							if (inFfmOutboundQueueCollection != null && inFfmOutboundQueueCollection.size() > 0)
+								inFfmOutboundQueueCollection.insert(inFfmOutboundQueueCollection);
+						}
+					} catch (FwException e) {
+						throw e;
+					} catch (TIERSRunTimeException e) {
+						throw e;
+					} catch (Exception e) {
+						// PMD_Override - R6 - Exception is not being propagated
+						// because the job needs to continue processing records per
+						// business logic.
+						PMDRules.markApprovedCatchBlock("R6");
+						writeExceptionRecord(BatchConstants.BATCH_ERROR, "Exception in processIesApplicationRecords() edIndvNoticeReasonsCargoList" + edIndvNoticeReasonsCargo.getCaseNum(),
+								"edIndvNoticeReasonsCargoList CASE_NUM:" + edIndvNoticeReasonsCargo.getCaseNum() + " Exception:" + e, BatchConstants.REPORT_BODY, true,
+								BatchConstants.LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);
+					}
+				}
+			}
+			// PMD_Override - R5 - Commiting the IN_FFM_OUT_BOUND_QUEUE data.
+			PMDRules.markApprovedStatement("R5");
+			conn.commit();
+		} catch (Exception e) {
+			conn.rollback();
+			throw e;
+		}
+	}
+
+	/**
+	 * @param Start
+	 *            Date
+	 * @param End
+	 *            Date
+	 * @return
+	 */
+	private List<OutboundEligibilityVO> fetchEdEligNoticeReasons(Timestamp startDate, Timestamp endDate) throws InterfacesException {
+
+		EdEligNoticeReasonsCollection edEligNoticeReasonsCollection;
+		OutboundEligibilityVO[] edEligNoticeReasonsCargoArray;
+		List<OutboundEligibilityVO> edEligNoticeReasonsCargoList = null;
+		List argumentsList = new ArrayList();
+		Object[] methodArgs = new Object[1];
+
+		argumentsList.add(startDate);
+		argumentsList.add(endDate);
+
+		methodArgs[0] = argumentsList;
+		try {
+
+			edEligNoticeReasonsCollection = new EdEligNoticeReasonsCollection(conn);
+
+			edEligNoticeReasonsCargoArray = (OutboundEligibilityVO[]) edEligNoticeReasonsCollection.select("findByOutboundFFMRec", methodArgs);
+		} catch (Exception e) {
+			logger.Log(LogLevel.FATAL, "Exception in fetchEdEligNoticeReasons method of OutboundFFMBatchBO : " + e.getMessage());
+			throw new InterfacesException("Error While getting the ED Eligibility Records for Processing", e);
+		}
+
+		if (edEligNoticeReasonsCargoArray != null && edEligNoticeReasonsCargoArray.length > 0) {
+			edEligNoticeReasonsCargoList = Arrays.asList(edEligNoticeReasonsCargoArray);
+		}
+
+		return edEligNoticeReasonsCargoList;
+	}
+
+	/**
+	 * @param Start
+	 *            Date
+	 * @param End
+	 *            Date
+	 * @return
+	 */
+	private List<OutboundEligibilityVO> fetchEdIndvNoticeReasons(Timestamp startDate, Timestamp endDate) throws InterfacesException {
+		
+		EdIndvNoticeReasonsCollection edIndvNoticeReasonsCollection;
+		OutboundEligibilityVO[] edIndvNoticeReasonsCargoArray;
+		List<OutboundEligibilityVO> edIndvNoticeReasonsCargoList = null;
+		List argumentsList = new ArrayList();
+		Object[] methodArgs = new Object[1];
+
+		argumentsList.add(startDate);
+		argumentsList.add(endDate);
+
+		methodArgs[0] = argumentsList;
+		try {
+			edIndvNoticeReasonsCollection = new EdIndvNoticeReasonsCollection(conn);
+			edIndvNoticeReasonsCargoArray = (OutboundEligibilityVO[]) edIndvNoticeReasonsCollection.select("findByOutboundFFMRec", methodArgs);
+		} catch (Exception e) {
+			logger.Log(LogLevel.FATAL, "Exception in fetchEdIndvNoticeReasons method of OutboundFFMBatchBO : " + e.getMessage());
+			throw new InterfacesException("Error While getting the ED Indv Eligibility Records for Processing", e);
+		}
+
+		if (edIndvNoticeReasonsCargoArray != null && edIndvNoticeReasonsCargoArray.length > 0) {
+			edIndvNoticeReasonsCargoList = Arrays.asList(edIndvNoticeReasonsCargoArray);
+		}
+		return edIndvNoticeReasonsCargoList;
+	}
+
+	
+	private boolean isOutboundDataRecordAlreadyExists(long caseNum, Timestamp edbcRunDate, Map<Long, 
+			List<InFfmOutboundQueueCargo>> inFFMOutboundQueueMap) throws Exception {
+		boolean flag = true;
+		if(inFFMOutboundQueueMap != null && inFFMOutboundQueueMap.get(caseNum) != null) {
+			List<InFfmOutboundQueueCargo> list = inFFMOutboundQueueMap.get(caseNum);
+			for (InFfmOutboundQueueCargo inFfmOutboundQueueCargo : list) {
+				if(("P".equalsIgnoreCase(inFfmOutboundQueueCargo.getSendToFfmInd()) && edbcRunDate.equals(inFfmOutboundQueueCargo.getDiActionDt()))
+						|| !inFfmOutboundQueueCargo.getSendToFfmInd().equalsIgnoreCase("P")) {
+					flag = false;
+					break;
+				}
+			}
+		}
+		return flag;
+	}
+
+	/**
+	 * Returns HashMap with Case Number as Key and List of DcCaseProgramCargo as Value
+	 * @param casesList
+	 * @return
+	 * @throws ApplicationException
+	 * @throws FrameworkException
+	 */
+	public Map<Long, Set<Long>> getDcCaseProgramIndvMap(Set<Long> caseNumSet) throws ApplicationException, FrameworkException {
+		Map<Long, Set<Long>> dcCaseProgramIndvMap = new HashMap<Long, Set<Long>>();
+		DcCaseProgramIndvCollection dcCaseProgIndvColl = null;
+		if(conn == null){
+			dcCaseProgIndvColl = new DcCaseProgramIndvCollection();
+		}else{
+			dcCaseProgIndvColl = new DcCaseProgramIndvCollection(conn);
+		}
+		DcCaseProgramIndvCargo[] dcProgramIndvCargosArr = (DcCaseProgramIndvCargo[]) dcCaseProgIndvColl.select("findByCaseNumbersAndPrograms", new Object[]{caseNumSet});
+		if(dcProgramIndvCargosArr != null && dcProgramIndvCargosArr.length > 0){
+			for (DcCaseProgramIndvCargo dcCaseProgramIndvCargo : dcProgramIndvCargosArr) {
+				if(dcCaseProgramIndvMap.containsKey(dcCaseProgramIndvCargo.getCaseNum())){
+					Set<Long> cargoSet =  dcCaseProgramIndvMap.get(dcCaseProgramIndvCargo.getCaseNum());
+					cargoSet.add(dcCaseProgramIndvCargo.getIndvId());
+					dcCaseProgramIndvMap.put(dcCaseProgramIndvCargo.getCaseNum(), cargoSet);
+				}else{
+					Set<Long> cargoSet =  new HashSet<Long>();
+					cargoSet.add(dcCaseProgramIndvCargo.getIndvId());
+					dcCaseProgramIndvMap.put(dcCaseProgramIndvCargo.getCaseNum(), cargoSet);	
+				}
+			}
+		}
+		return dcCaseProgramIndvMap;
+	}
+	
+	private Set<Long> getFPAppMedDeniedCaseSet(Set<Long> caseNumSet) throws ApplicationException, FrameworkException
+	{
+		Set<Long> fpAppMedDeniedCaseSet = new HashSet<Long>();
+		Set<Long> fpAppCaseSet = new HashSet<Long>();
+		EdIndvEligibilityCollection edIndvEligibilityCollection = new EdIndvEligibilityCollection(conn);
+
+		EdIndvEligibilityCargo[] eligibilityCargoArray = (EdIndvEligibilityCargo[]) edIndvEligibilityCollection.select("findFpApprovedByCase", new Object[]
+		{
+			caseNumSet
+		});
+		if (eligibilityCargoArray != null && eligibilityCargoArray.length > 0)
+		{
+			for (EdIndvEligibilityCargo eligibilityCargo : eligibilityCargoArray)
+			{
+				fpAppCaseSet.add(eligibilityCargo.getCaseNum());
+			}
+		}
+		EdIndvEligibilityCargo[] eligibilityArray = (EdIndvEligibilityCargo[]) edIndvEligibilityCollection.select("findMedDeniedByCase", new Object[]
+		{
+			fpAppCaseSet
+		});
+		
+		if (eligibilityArray != null && eligibilityArray.length > 0)
+		{
+			for (EdIndvEligibilityCargo eligibilityCargo : eligibilityArray)
+			{
+				fpAppMedDeniedCaseSet.add(eligibilityCargo.getCaseNum());
+			}
+		}
+		
+		return fpAppMedDeniedCaseSet;
+	}
+
+	/**
+	 * @return
+	 * @throws TIERSBatchException
+	 * @throws ParseException
+	 * @throws InterfacesException
+	 */
+	public Map<String, Timestamp> getDateRangeMap() throws TIERSBatchException, ParseException, InterfacesException {
+		BatchParameter bP = tbc.getParameters();
+		ArrayList params = bP.getFunctionalParameters();
+
+		Map<String, Timestamp> dateRangeMap = null;
+		String year = "";
+		String month = "";
+		String day = "";
+		String lastSuccessyear = "";
+		String lastSuccessmonth = "";
+		String lastSuccessday = "";
+		String lastSuccessDtStr = getSuccessfulLastRunDt();
+		
+		if (params == null || params.size() < 1) {
+			batchRunDate = bP.getAsOfDate();
+			if(lastSuccessDtStr!=null){
+				lastSuccessyear = lastSuccessDtStr.substring(0,4); 
+				lastSuccessmonth = lastSuccessDtStr.substring(5,7);
+				lastSuccessday = lastSuccessDtStr.substring(8,10);
+			}
+			if(batchRunDate != null) {
+				 year = batchRunDate.substring(6,10); 
+				 month = batchRunDate.substring(0,2);
+				 day = batchRunDate.substring(3,5);	
+			}else {
+				throw new InterfacesException(InterfacesExceptionVO.BATCH_PARAMETER_NOT_PRESENT);
+			}
+			if(lastSuccessDtStr!=null && (lastSuccessyear!=null && !lastSuccessyear.equalsIgnoreCase("")) && (lastSuccessmonth!=null && !lastSuccessmonth.equalsIgnoreCase("")) && (lastSuccessday!=null && !lastSuccessday.equalsIgnoreCase(""))){
+				 dateRangeMap = OutboundFFMBatchContants.getDateRange( INInterfacesHelper.getTimeStampFromString(lastSuccessyear, lastSuccessmonth, lastSuccessday),INInterfacesHelper.getTimeStampFromString(year, month, day));
+			}else{
+				 dateRangeMap = OutboundFFMBatchContants.getPreviousDateRange(INInterfacesHelper.getTimeStampFromString(year, month, day));				
+			}
+			
+		}else{			
+			if(params.size() == 1) {				
+				String parameterVal=(String) params.get(0);				
+				if(parameterVal!=null && !parameterVal.trim().equals("")){
+					parameterValue = Integer.parseInt(parameterVal);
+				}
+				
+				batchRunDate = bP.getAsOfDate();
+				if(lastSuccessDtStr!=null){
+					lastSuccessyear = lastSuccessDtStr.substring(0,4); 
+					lastSuccessmonth = lastSuccessDtStr.substring(5,7);
+					lastSuccessday = lastSuccessDtStr.substring(8,10);	
+				}
+				if(batchRunDate != null) {
+					 year = batchRunDate.substring(6,10); 
+					 month = batchRunDate.substring(0,2);
+					 day = batchRunDate.substring(3,5);	
+				}else {
+					throw new InterfacesException(InterfacesExceptionVO.BATCH_PARAMETER_NOT_PRESENT);
+				} 
+				if(lastSuccessDtStr!=null && (lastSuccessyear!=null && !lastSuccessyear.equalsIgnoreCase("")) && (lastSuccessmonth!=null && !lastSuccessmonth.equalsIgnoreCase("")) && (lastSuccessday!=null && !lastSuccessday.equalsIgnoreCase(""))){
+					 dateRangeMap = OutboundFFMBatchContants.getDateRange( INInterfacesHelper.getTimeStampFromString(lastSuccessyear, lastSuccessmonth, lastSuccessday),INInterfacesHelper.getTimeStampFromString(year, month, day));
+				}else{
+					 dateRangeMap = OutboundFFMBatchContants.getPreviousDateRange(INInterfacesHelper.getTimeStampFromString(year, month, day));				
+				}
+				
+			} else if(params.size() == 2) {
+				String parameterVal=(String) params.get(0);				
+				if(parameterVal!=null && !parameterVal.trim().equals("")){
+					parameterValue = Integer.parseInt(parameterVal);
+				}
+				
+				batchRunDate = (String) params.get(1);
+				if(batchRunDate != null) {
+					 year = batchRunDate.substring(6,10); 
+					 month = batchRunDate.substring(0,2);
+					 day = batchRunDate.substring(3,5);
+	
+					 dateRangeMap = OutboundFFMBatchContants.getDateRange(INInterfacesHelper.getTimeStampFromString(year, month, day));
+				}
+				
+			} else if(params.size() == 3) {
+				String parameterVal=(String) params.get(0);				
+				if(parameterVal!=null && !parameterVal.trim().equals("")){
+					parameterValue = Integer.parseInt(parameterVal);
+				}
+				
+				String endYear = "";
+				String endMonth = "";
+				String endDay = "";
+				
+				batchRunDate = (String) params.get(1);
+				if(batchRunDate != null) {
+					 year = batchRunDate.substring(6,10); 
+					 month = batchRunDate.substring(0,2);
+					 day = batchRunDate.substring(3,5);
+				}
+				
+				batchRunEndDate = (String) params.get(2);
+				if(batchRunEndDate != null) {
+					 endYear = batchRunEndDate.substring(6,10); 
+					 endMonth = batchRunEndDate.substring(0,2);
+					 endDay = batchRunEndDate.substring(3,5);
+				}
+				dateRangeMap = OutboundFFMBatchContants.getDateRange(INInterfacesHelper.getTimeStampFromString(year, month, day), INInterfacesHelper.getTimeStampFromString(endYear, endMonth, endDay));
+			} else {
+				throw new InterfacesException(InterfacesExceptionVO.BATCH_PARAMETER_NOT_PRESENT);
+			}
+		}
+
+		
+		return dateRangeMap;
+	}
+	
+	
+	/**
+	 * This is to get the last successful run date.
+	 * 
+	 * @return last successful run Date 
+	 * @throws TIERSBatchException
+	 */
+	
+	private String getSuccessfulLastRunDt() throws TIERSBatchException {
+		fwBatchRunControlColl = new FwBatchRunControlCollection(conn);
+
+		Object[] object = new Object[1];
+		String lastRunDate = null;
+		object[0] = strArgs;
+		try {
+			fwBatchRunControlResults = (FwBatchRunControlCargo[]) fwBatchRunControlColl.select("findBySuccessfulLastRun",object);
+			if(fwBatchRunControlResults!= null && fwBatchRunControlResults.length > 0) {
+				lastRunDate = fwBatchRunControlResults[0].getAsOfDt().toString().substring(0, 10);
+			}
+			return lastRunDate;
+		} catch (Exception e) {
+			msgExpSummary = new StringBuffer();
+			msgExpDetails = new StringBuffer();
+			msgExpSummary.append("FFMOutboundBatch :: getSuccessfulLastRunDt() :: findBySuccessfulLastRun failed");
+			msgExpDetails.append("Exception:").append(e.getMessage());
+			errorMessageName =  new StringBuffer();
+			errorMessageValue =  new StringBuffer();
+			errorMessageName.append("FW_BATCH_RUN_CONTROL - JOB_ID");
+			errorMessageValue.append("FW_BATCH_RUN_CONTROL - "+strArgs);
+			writeExceptionRecord(BatchConstants.FATAL, msgExpSummary.toString(), msgExpDetails.toString(), BatchConstants.REPORT_BODY, 
+					false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.WARNING, BatchConstants.DEFAULT_LOGGER_FILE, false, null, null, errorMessageName.toString(), errorMessageValue.toString());
+			throw new TIERSBatchException(e.getMessage(),e);
+		}
+	}
+	
+
+	// @Override
+	protected void postProcess() throws ApplicationException {
+		try {
+			// Summary report
+			tbc.insertSummaryRecord(outboundFFMBatchBO.recordsRead, outboundFFMBatchBO.processedRecords, outboundFFMBatchBO.totalExceptions);
+			// log Audit Information
+			outboundFFMBatchBO.logAuditInfo();
+
+		} catch (Exception e) {
+			writeExceptionRecord(BatchConstants.FATAL, jobId + ": Exception in postProcess(): ", e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.FATAL,
+					BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+			throw new ApplicationException(e.getMessage(), e);
+		}
+	}
+
+}
