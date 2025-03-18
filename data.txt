@@ -1,2027 +1,518 @@
-
-package gov.illinois.fw.batch.Controller;
-
-import gov.illinois.framework.exceptions.FwException;
-import gov.illinois.framework.factories.FwServiceFactory;
-import gov.illinois.framework.management.context.IContexts;
-import gov.illinois.framework.management.error.FwErrorLogBean;
-import gov.illinois.framework.management.error.FwErrorLogContextBean;
-import gov.illinois.framework.management.error.FwErrorLogDetailsBean;
-import gov.illinois.framework.management.logging.ILog;
-import gov.illinois.framework.management.util.FwCalendar;
-import gov.illinois.framework.management.util.FwConstants;
-import gov.illinois.framework.management.util.FwMessageQueueValidator;
-import gov.illinois.framework.management.util.FwProperty;
-import gov.illinois.framework.management.util.FwPropertyLoader;
-import gov.illinois.framework.management.util.PMDRules;
-import gov.illinois.framework.management.util.SystemOperator;
-import gov.illinois.framework.security.crypto.FwCryptoUtil;
-import gov.illinois.framework.util.PrintWrapper;
-import gov.illinois.fw.batch.AbstractBatch;
-import gov.illinois.fw.batch.Adapter.BatchFile;
-import gov.illinois.fw.batch.Adapter.BatchParameter;
-import gov.illinois.fw.batch.HelperClasses.BatchConstants;
-import gov.illinois.fw.batch.HelperClasses.DataFormatter;
-import gov.illinois.fw.batch.HelperClasses.FileSorter;
-import gov.illinois.fw.batch.StreamHandler.ControlReportGenerator;
-import gov.illinois.fw.batch.StreamHandler.ExceptionReportGenerator;
-import gov.illinois.fw.batch.StreamHandler.ExtractProcessor;
-import gov.illinois.fw.batch.StreamHandler.FileAssembler;
-import gov.illinois.fw.batch.StreamHandler.ReferenceTableReader;
-import gov.illinois.fw.batch.dynamicscheduler.manager.BatchDynamicScheduleManager;
-import gov.illinois.fw.batch.entities.FwBatchContextCargo;
-import gov.illinois.fw.batch.entities.FwBatchContextCollection;
-import gov.illinois.fw.batch.entities.FwBatchExceptionsCargo;
-import gov.illinois.fw.batch.entities.FwBatchFileControlCargo;
-import gov.illinois.fw.batch.entities.FwBatchFtpRunControlCargo;
-import gov.illinois.fw.batch.entities.FwBatchFtpRunControlCollection;
-import gov.illinois.fw.batch.entities.FwBatchRunControlCargo;
-import gov.illinois.fw.batch.entities.FwBatchRunControlCollection;
-import gov.illinois.fw.batch.monitor.performance.FwPerformanceStatistics;
-import gov.illinois.fw.business.exceptions.ApplicationException;
-import gov.illinois.fw.business.exceptions.FileNotFoundException;
-import gov.illinois.fw.business.exceptions.FrameworkException;
-import gov.illinois.fw.business.exceptions.RecordNotExistsException;
-import gov.illinois.fw.business.exceptions.RunningProcessException;
-import gov.illinois.fw.business.exceptions.TIERSBatchException;
-import gov.illinois.fw.business.helperclasses.TIERSConstants;
-import gov.illinois.fw.management.error.handler.ErrorConstants;
-import gov.illinois.fw.management.logger.Debug;
-import gov.illinois.fw.management.logger.Logger;
-import gov.illinois.fw.management.referencetables.ReferenceTableManager;
-import gov.illinois.fw.management.util.IPropertyLoader;
-import gov.illinois.fw.management.util.PropertyLoader;
-import gov.illinois.fw.management.util.sockets.IDSSocketPool;
-import gov.illinois.fw.persistence.connection.ConnectionManager;
-import gov.illinois.ies.utils.FWUtils;
-
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.lang.reflect.Method;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Savepoint;
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.GregorianCalendar;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.StringTokenizer;
-import java.util.Vector;
-
-import javax.ejb.EJBException;
-
-import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang.StringEscapeUtils;
-import org.apache.commons.lang.StringUtils;
-
 /**
- * This class<code>TIERSBatchController</code> is the main batch controller-
- * the entry point into batch controller 
- */
-
-public class TIERSBatchController implements ITIERSBatchController {
-
-    /**
-     * Field operatingSystem.
+     * Returns information on whether a file or stream to persist has been
+     * opened 
+     * @return boolean returns true or false
      */
-    public static String operatingSystem;
+    public boolean getFilePersitence() {
+        return gfilePersistence;
+    }
 
     /**
-     * Field batchController.
-     */
-    private static TIERSBatchController batchController = null;
-
-    /**
-     * Field inputFileNames.
-     */
-    private String[] inputFileNames;
-
-    /**
-     * Field outputFileNames.
-     */
-    private String[] outputFileNames;
-
-    /**
-     * Field runNos.
-     */
-    private int[] runNos;
-
-    /**
-     * Field parms.
-     */
-    private Vector parms = null;
-
-    //private List gParameter = null;
-    /**
-     * Field lookupTable.
-     */
-    private HashMap lookupTable = null;
-
-    /**
-     * Field jobId.
-     */
-    private String jobId = null;
-
-    /**
-     * Field parallelRunId.
-     */
-    private String parallelRunId = null;
-    /**
-     * Field isLoadUtility.
-     */
-    public boolean isLoadUtility = false;
-
-    /**
-     * Field asOfDate.
-     */
-    private String asOfDate = null;
-
-    /**
-     * Field programName.
-     */
-    private String programName = null;
-
-    /**
-     * Field currentRunNo.
-     */
-    private int currentRunNo = 0;
-
-    /**
-     * Field currentRunNoSet.
-     */
-    private boolean currentRunNoSet = false;
-
-    /**
-     * Field adjustedrunNo.
-     */
-    private int adjustedrunNo = 0;
-
-    /**
-     * Field adjustedrunNoSet.
-     */
-    private boolean adjustedrunNoSet = false;
-
-    /**
-     * Field commitSize.
-     */
-    private int commitSize = 100000;
-
-    /**
-     * Field commitSizeSet.
-     */
-    private boolean commitSizeSet = false;
-
-    /**
-     * Field propsFileName.
-     */
-    private String propsFileName = null;
-
-    /**
-     * Field dependentJobId.
-     */
-    private String dependentJobId = null;
-
-    /**
-     * Field chunkFactor.
-     */
-    private int chunkFactor = 1;
-
-    /**
-     * Field overWriteFlag.
-     */
-    private boolean overWriteFlag = false;
-
-    /**
-     * Field startDateTime.
-     */
-    private String startDateTime = null;
-
-    /**
-     * Field restartProgram.
-     */
-    private char restartProgram = BatchConstants.NOTAPPLICABLE;
-
-    /**
-     * Field parallelRunProgram.
-     */
-    private char parallelRunProgram = BatchConstants.NOTAPPLICABLE;
-
-    /**
-     * Field batchProperty.
-     */
-    Properties batchProperty = null;
-    
-    /**
-     * Field informaticaProperties
-     */
-    Properties informaticaProperties = null;
-    
-    /**
-     * Field MessagingProperty.
-     */
-    Properties MessagingProperty = null;
-
-    /**
-     * Field createUpdateUserId.
-     */
-    String createUpdateUserId = null;
-
-    /**
-     * Field env.
-     */
-    private String env = null;
-
-    /**
-     * Field recordNum.
-     */
-    private int recordNum = 0;
-
-    /**
-     * Field gparallelStream.
-     */
-    private boolean gparallelStream = false;
-
-    /**
-     * Field gcaller.
-     */
-    private Object gcaller = null;
-
-    /**
-     * Field gcallerThread.
-     */
-    private Thread gcallerThread = null;
-
-    /**
-     * Field gjobSuspend.
-     */
-    private boolean gjobSuspend = false; //probed by RMI
-
-    /**
-     * Field gjobSuspendOnCommit.
-     */
-    private boolean gjobSuspendOnCommit = false; //probed by RMI
-
-    /**
-     * Field gsingleFTP.
-     */
-    private char gsingleFTP = BatchConstants.NOTAPPLICABLE;
-
-    /**
-     * Field glastInstance.
-     */
-    private boolean glastInstance = false;
-
-    /**
-     * Field POST_JOB_PROCESS.
-     */
-    private final String POST_JOB_PROCESS = "postJobProcess";
-    //Added By Anup 02/21/05
-    /**
-     * Field gparallelJobsSet.
-     */
-    private boolean gparallelJobsSet = false;
-
-    /**
-     * Field gparallelJobs.
-     */
-    private int gparallelJobs = 0;
-
-    /**
-     * Field gfilePersistence.
-     */
-    private boolean gfilePersistence = false;
-
-    //System pointers
-    /**
-     * Field logger.
-     */
-    ILog logger = null;
-
-    //Create other Batch Frameworks objects.
-    /**
-     * Field exp.
-     */
-    private ExtractProcessor exp = new ExtractProcessor();
-
-    /**
-     * Field fa.
-     */
-    private FileAssembler fa = new FileAssembler();
-
-    /**
-     * Field crg.
-     */
-    private ControlReportGenerator crg = new ControlReportGenerator();
-
-    /**
-     * Field brcDAO.
-     */
-    private BatchRunController brcDAO = new BatchRunController();
-
-    /**
-     * Field bpcDAO.
-     */
-    private BatchParameterController bpcDAO = new BatchParameterController();
-
-    /**
-     * Field bfcDAO.
-     */
-    private BatchFileController bfcDAO = new BatchFileController();
-
-    /**
-     * Field excRepGen.
-     */
-    private ExceptionReportGenerator excRepGen = null;
-
-    /**
-     * Field batchExcController.
-     */
-    private BatchExceptionController batchExcController;
-
-    /**
-     * Field batchOutputFileCollection.
-     */
-    private Map batchOutputFileCollection = new HashMap();
-
-    /**
-     * Field batchInputFileCollection.
-     */
-    private Map batchInputFileCollection = new HashMap();
-
-    /**
-     * Field bsc.
-     */
-    private BatchSummaryController bsc = new BatchSummaryController();
-
-    /**
-     * Field batchConnManager.
-     */
-    private BatchConnectionManager batchConnManager = BatchConnectionManager
-            .getBatchConnectionManger();
-    
-	/**
-	 * Field batchSummaryRecordNum.
-	 */
-	private long batchSummaryRecordNum = 0;
-
-    //private BatchParallelRunController bpc = new
-    // BatchParallelRunController();
-    /**
-     * Field bcrcDAO.
-     */
-    private BatchRestartController bcrcDAO = new BatchRestartController();
-
-    /**
-     * Field bprcDAO.
-     */
-    private BatchParallelRunController bprcDAO = new BatchParallelRunController();
-
-    /**
-     * Field bdsDAO.
-     */
-    private BatchDynamicScheduleManager bdsDAO = new BatchDynamicScheduleManager();
-    
-    /**
-     * Error Context field
-     * 
-     */
-    private FwErrorLogContextBean errorLogContext = new FwErrorLogContextBean();    
-    private long errorLogContextId =0;
-    private FwErrorLogBean errorLogBean = new FwErrorLogBean();
-    private ArrayList errorLogDetailsBeanArr = new ArrayList();
-    private Map<String, Object> connSavePoint = new HashMap<String, Object>();
-
-    private String thresholdValue;
-    private boolean fromPostProcess;
-    private boolean redirectedPostProcess;
-    public boolean postProcessCalled;
-    public boolean fatalExceptionSaved;
-    
-    public static volatile boolean stop = false;
-    
-	//ILIES-274613 Okta Integration
-    private boolean oktaAuthentication = false;
-	private String employeeGroupId;
-	private String externalProviderGroupId;
-    
-    /**
-     * TIERSBatchController constructor comment.
+     * Gets Output File adapter in stream format given a logical file 
+     * @param aOutLogicalFileName
+     * @return BatchFile
      * @throws TIERSBatchException
      */
-    public TIERSBatchController() throws TIERSBatchException {
-        try {
-        	ConnectionManager.getConnectionManager().setAllowDataSourceConnection(false);
-            IContexts contexts = (IContexts) FwServiceFactory.getInstance()
-                    .create(IContexts.class);
-            contexts.setOnlineMode(false);
-            PrintWrapper.install();
-            batchProperty = FwPropertyLoader
-                    .getProperties(BatchConstants.PROPERTIES_FILE);
-            MessagingProperty = FwPropertyLoader
-            .getProperties(FwConstants.MESSAGING_PROPERTY_FILE);
-            //Add properties from logging.properties
-            loadLoggingProperties(batchProperty,
-                    FwConstants.LOGGING_PROPERTY_FILE);
-            //
-            ReferenceTableManager.setProperties(batchProperty);
-            env = batchProperty
-                    .getProperty(BatchConstants.PROPERTY_TAG_ENVIRONMENT);
-            operatingSystem = batchProperty
-                    .getProperty(BatchConstants.PROPERTY_TAG_OS);
-            setDebug(batchProperty);
-            addController();
-            
-        	//ILIES-274613 
-            getOktaProperties();
-            
-            //GET CONNECTION FOR ERROR LOG
-          //  errorLogConnection = getConnection();
-        } catch (Exception ex) {
-             throw new TIERSBatchException(
-                    "Error in constructing the Controller " + ex.getMessage(), ex);
-        }
-    }
+    public BatchFile getOutputFileStream(String aOutLogicalFileName)
+            throws TIERSBatchException {
+        int irunNum = 0;
+        String sAsOfDate = null;
+        BufferedOutputStream bw = null;
+        BatchFile batFile = new BatchFile();
+        String soutputFileName = null;
+        String sFileName = null;
+        gfilePersistence = true;
 
-    
-    /**
-     * Load properties only for matching key 
-     * @return String returns URL
-     */
-    public String getUrl() throws Exception{
-        String url = null;
-        if (FwConstants.PROPERTY_TRUE
-				.equalsIgnoreCase((String) batchProperty
-						.get(FwConstants.CLUSTER))){
-            String nodeID = (String) SystemOperator.getInstance()
-			.execute(FwConstants.NODE_ID_CMD).get(0);
-            
-            url = batchProperty.getProperty(nodeID+"_URL");
-        }else{
-            url = batchProperty.getProperty("URL");
-        }
-        
-     return url;
-    }
-        
-    /**
-     * Load properties only for matching key 
-     * @param batchProperty batchProperty 
-     * @param propertiesfileName logging property file 
-     * @return Properties 
-     */
-    private Properties loadLoggingProperties(Properties batchProperty,
-            String propertiesfileName) throws TIERSBatchException {
-        Properties props = new Properties();
-        String parameterName = null;
-        String parameterValue = null;
         try {
-            IPropertyLoader propLoader = PropertyLoader.getInstance();
-            props = propLoader.getPropertyFromBundle(
-                    TIERSConstants.DEFAULT_LOCALE, propertiesfileName);
-            batchProperty.put(FwConstants.ERROR_LOG_FILE, (String) props
-                    .get(FwConstants.ERROR_LOG_FILE));
-            batchProperty.put(ErrorConstants.ERROR_LOG_PATH, (String) props
-                    .get(ErrorConstants.ERROR_LOG_PATH));
-            batchProperty.put(FwConstants.DEBUG, (String) props
-                    .get(FwConstants.DEBUG));
-            batchProperty.put(FwConstants.TIMER_LOG, (String) props
-                    .get(FwConstants.TIMER_LOG));
-            batchProperty.put(FwConstants.LOGGING_PERSISTENCE_BEFORE,
-                    (String) props.get(FwConstants.LOGGING_PERSISTENCE_BEFORE));
-            batchProperty.put(FwConstants.LOGGING_PERSISTENCE_AFTER,
-                    (String) props.get(FwConstants.LOGGING_PERSISTENCE_AFTER));
-            return props;
+            insertFileControlRecord(jobId, aOutLogicalFileName);
         } catch (Exception e) {
             throw new TIERSBatchException(
-                    "Error in constructing the Controller while getting logging properites: "+e.getMessage(), e);
+                    "Error in inserting the o/p file information into file control table."
+                            + e.getMessage(), e);
         }
-    }
-
-    /**
-     * This method sets the context 
-     * @param ajobId The identifier for the job
-     */
-    public void createContext(String ajobId) {
-        Map sessionInfo = new HashMap();
-        IContexts contexts = (IContexts) FwServiceFactory.getInstance().create(
-                IContexts.class);
-        sessionInfo.put(FwConstants.SESSION_USER_ID, ajobId);
-        contexts.createContext(sessionInfo);
-    }
-
-    /**
-     * This method adds tbc to controller list
-     */
-    private void addController() {
-        if (batchController == null) {
-            batchController = this;
-        }
-    }
-
-    /**
-     * TIERSBatchController constructor comment. 
-     * @param aPath path to be passed
-     * @throws TIERSBatchException
-     */
-    public TIERSBatchController(String aPath) throws TIERSBatchException {
-        try {
-        	ConnectionManager.getConnectionManager().setAllowDataSourceConnection(false);
-            IContexts contexts = (IContexts) FwServiceFactory.getInstance()
-                    .create(IContexts.class);
-            contexts.setOnlineMode(false);
-            //Assign the argument aPath to path to use while invoking getRunNo
-            // from getOutputFileNames of File Assembler
-            propsFileName = aPath;
-            batchProperty = new Properties();
-            batchProperty.load(new FileInputStream(new File(FilenameUtils.normalize(propsFileName))));
-            ReferenceTableManager.setProperties(batchProperty);
-            env = batchProperty
-                    .getProperty(BatchConstants.PROPERTY_TAG_ENVIRONMENT);
-            operatingSystem = batchProperty
-                    .getProperty(BatchConstants.PROPERTY_TAG_OS);
-            logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
-            setDebug(batchProperty);
-            addController();
-        } catch (Exception ex) {
-            throw new TIERSBatchException(
-                    "Error in constructing the Controller: "+ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * Sets the debug property 
-     * @param abatchProperty
-     */
-    private void setDebug(Properties abatchProperty) {
-        if (batchProperty.getProperty(BatchConstants.DEBUG).equals("Y")) {
-            Debug.setAssert(true);
-            Debug.setAssertFlag(true);
-        } else {
-            Debug.setAssert(false);
-            Debug.setAssertFlag(true);
-        }
-    }
-
-    /**
-     * This method is not a singleton but to just to get the reference to the
-     * same tbc 
-     * @return TIERSBatchController
-     * @throws TIERSBatchException
-     */
-    public static synchronized TIERSBatchController getInstance()
-            throws TIERSBatchException {
-        if (batchController == null) {
-            batchController = new TIERSBatchController();
-        }
-        return batchController;
-    }
-
-    /**
-     * Sends report only if the flag is set 
-     * @return boolean
-     */
-    public boolean isSendReport() {
-        return "Y"
-                .equals(batchProperty.getProperty(BatchConstants.SEND_REPORT));
-    }
-
-    /**
-     * TIERSBatchController constructor
-     * @param tbProps batch properties
-     */
-    public TIERSBatchController(Properties tbProps) {
-    	ConnectionManager.getConnectionManager().setAllowDataSourceConnection(false);
-        IContexts contexts = (IContexts) FwServiceFactory.getInstance().create(
-                IContexts.class);
-        contexts.setOnlineMode(false);
-        batchProperty = tbProps;
-        ReferenceTableManager.setProperties(batchProperty);
-        addController();
-    }
-
-    /**
-     * This method sets caller 
-     * @param acaller setting callRef
-     */
-    public void setCallerRef(Object acaller) {
-        gcaller = acaller;
-    }
-
-    /**
-     * This method gets caller 
-     * @return Object
-     */
-    public Object getCallerRef() {
-        return gcaller;
-    }
-
-    /**
-     * This method sets caller thread 
-     * @param acallerthread
-     *            Thread
-     */
-    public void setCallerThread(Thread acallerthread) {
-        gcallerThread = acallerthread;
-    }
-
-    /**
-     * This method gets caller thread 
-     * @return Thread
-     */
-    public Thread getCallerThread() {
-        return gcallerThread;
-    }
-
-    /**
-     * This method sets suspend flag 
-     * @param asuspendflag sets true or false
-     */
-    public void setJobSuspendFlag(boolean asuspendflag) {
-        gjobSuspend = asuspendflag;
-    }
-
-    /**
-     * This method gets suspend flag 
-     * @return boolean
-     */
-    public boolean getJobSuspendFlag() {
-        return gjobSuspend;
-    }
-
-    /**
-     * This method sets suspend flag 
-     * @param asuspendflag sets true or false
-     */
-    public void setJobSuspendOnCommitFlag(boolean asuspendflag) {
-        gjobSuspendOnCommit = asuspendflag;
-    }
-
-    /**
-     * This method gets suspend flag 
-     * @return boolean returns true or false
-     */
-    public boolean getJobSuspendOnCommitFlag() {
-        return gjobSuspendOnCommit;
-    }
-
-	/**
-	 * This method starts the job formally
-	 * 
-	 * @throws TIERSBatchException
-	 */
-	public void start() throws TIERSBatchException {
-		try {
-			insertRunControlRecord();
-			validateMQManager();
-		} catch (Exception ex) {
-			// PMD_Override - R2 - This start() method does not require a
-			// writeException() because - if exception comes, method is throwing
-			// it to calling method
-			PMDRules.markApprovedCatchBlock("R2");
-			throw new TIERSBatchException("Error in starting the Job:"
-					+ ex.getMessage(), ex);
-		}
-	}
-    
-    /**
-     * This method initializes SSA 
-     * @throws TIERSBatchException
-     */
-    public void initIDSSocketPool() throws TIERSBatchException {
-        try {
-            IDSSocketPool.getInstance().initIDSSocketPool(getTIERSProperties());
-        } catch (Exception se) {
-            throw new TIERSBatchException(
-                    "IDS Socket pool is not initialized due to SSAException "
-                            + se.getMessage(), se);
-        }
-    }
-
-    /**
-     * This method is for external signal to stop the job
-     * @throws TIERSBatchException
-     */
-    public void forcestop() throws TIERSBatchException {
-        if (getCallerRef() != null) {
-            ((AbstractBatch) getCallerRef()).forcestop();
-        }
-    }
-
-    /**
-     * This method is for external signal to suspend the job
-     * @throws TIERSBatchException
-     */
-    public void forcesuspend() throws TIERSBatchException {
-        getCallerThread().suspend(); //the application cannot implement polling
-                                     // for a variable
-    }
-
-    /**
-     * This method is for external signal to suspend the job
-     * @throws TIERSBatchException
-     */
-    public void forceresume() throws TIERSBatchException {
-        getCallerThread().resume(); //the application cannot implement polling
-                                    // for a variable
-        setJobSuspendOnCommitFlag(false);
-    }
-
-	/**
-	 * This method stops the tbc
-	 * 
-	 * @param aStatus
-	 *            status to be processed
-	 * @throws TIERSBatchException
-	 */
-	public void stop(String aStatus) throws TIERSBatchException {
-		if(FWUtils.isFatalExceptionOccurred()){
-			aStatus = BatchConstants.ABORT;
-		}
-		BatchReportQueueManager brQManager = null;
-		
-		if (!brcDAO.gRunningProcessExceptionFound) {
-
-			try {
-				
-				if (isSendReport()) {
-					try {
-
-						if (isParallelRunProgram()) {
-							if (isLastParallelInstance()) {
-								// this puts a lock that must be released only
-								// by updateRunControlRecord method
-								brQManager = BatchReportQueueManager
-										.getInstance(
-												getTIERSBatchControllerConnection(),
-												getJobId(), getAsOfDate(),
-												getParallelRunNum(), this);
-								brQManager.populateData();
-							}
-						} else {
-							brQManager = BatchReportQueueManager.getInstance(
-									getTIERSBatchControllerConnection(),
-									getJobId(), getAsOfDate(),
-									getCurrentRunNum(), this);
-							brQManager.populateData();
-						}
-					} catch (Exception exception) {
-
-						getLogger().log(
-								FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-								ILog.ERROR,
-								"Error in tbc.stop with BatchReportQueueManager. Message: "
-										+ exception.getMessage(), exception);
-						throw new TIERSBatchException(
-								"Error in tbc.stop with BatchReportQueueManager. Message: "
-										+ exception.getMessage(), exception);
-
-					}
-				}
-				
-				if (aStatus.equals(BatchConstants.END)) {
-
-					if (isParallelRunProgram() && isSingleFTP()) {
-						if (isLastParallelInstance()) {
-							// this puts a lock that must be released only by
-							// updateRunControlRecord method
-
-							bfcDAO.sendMessageforFTP(
-									getTIERSBatchControllerConnection(), jobId,
-									createUpdateUserId,
-									batchOutputFileCollection);
-						}
-					} else {
-						bfcDAO.sendMessageforFTP(
-								getTIERSBatchControllerConnection(), jobId,
-								createUpdateUserId, batchOutputFileCollection);
-					}
-				}
-				
-				try {
-					if (isParallelRunProgram()) {
-						closeFiles(aStatus, getConnection());
-						// new connection is used to get nested transaction such
-						// that the lock from isLastParallelInstance(above) is
-						// not disturbed
-					} else {
-						closeFiles(aStatus, getTIERSBatchControllerConnection());
-					}
-					
-				} catch (Exception exception) {
-					getLogger().log(
-							FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-							ILog.ERROR,
-							"Error in tbc.stop with closing files. Message: "
-									+ exception.getMessage(), exception);
-					throw new TIERSBatchException(
-							"Error in tbc.stop with closing files. Message: "
-									+ exception.getMessage(), exception);
-				}
-				
-				updateRunControlRecord(aStatus);
-				if (isLastParallelInstance()) {
-					postjobProcessCallback();
-				}
-				try {
-					String eventId = getDependentJobId();
-					if (eventId != null && eventId != "") {
-						schedule(getDependentJobId());
-					}
-
-				} catch (Exception e) {
-					getLogger().log(
-							FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-							ILog.ERROR,
-							"Error in tbc.stop with scheduling dependent jobs. Message: "
-									+ e.getMessage(), e);
-					throw new TIERSBatchException(
-							"Error in tbc.stop with scheduling dependent jobs. Message: "
-									+ e.getMessage(), e);
-				}
-				FwPerformanceStatistics.getInstance().persistTime(jobId,
-						getAsOfDate(), getCurrentRunNum(),
-						getTIERSProperties(),
-						getTIERSBatchControllerConnection());
-				
-			} catch (Exception ex) {
-				try {
-					updateRunControlRecord(BatchConstants.ABORT);
-				} catch (Exception e) {
-					getLogger().log(
-							FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-							ILog.ERROR,
-							"Error in tbc.stop with aborting job. Message: "
-									+ e.getMessage(), e);
-					throw new TIERSBatchException(
-							"Error in tbc.stop with scheduling dependent jobs. Message: "
-									+ e.getMessage(), e);
-				}
-
-				getLogger().log(
-						FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-						ILog.ERROR,
-						"Error in tbc.stop. Job has been aborted. Message: "
-								+ ex.getMessage(), ex);
-				throw new TIERSBatchException(
-						"Error in tbc.stop. Job has been aborted. Message: "
-								+ ex.getMessage(), ex);
-
-			}
-			finally{
-				closeConnections();
-				if(!isLoadUtility){
-					if(aStatus.equals(BatchConstants.END)){
-						System.exit(BatchConstants.EXIT_SUCCESS);
-					}else{
-						System.exit(BatchConstants.EXIT_FAILURE);
-					}
-				}
-			}
-		}
-	}
-
-	/**
-	 * This method closes the alloted connection
-	 * 
-	 * @throws java.sql.SQLException
-	 * @throws TIERSBatchException
-	 */
-	private void closeConnections() throws TIERSBatchException {
-		logConnectionInfo();
-		if(!isLoadUtility){
-			batchConnManager.closeConnections();
-		}
-	}
-
-	/**
-	 * This method calls back for end of the job processing
-	 * 
-	 * @throws TIERSBatchException
-	 */
-	private void postjobProcessCallback() throws TIERSBatchException {
-		try {
-			Method[] methods = getCallerRef().getClass().getMethods();
-			int methodLength = methods.length;
-			for (int i = 0; i < methodLength; i++) {
-				if (methods[i].getName().equals(POST_JOB_PROCESS)) {
-					methods[i].invoke(getCallerRef(), null);
-					return;
-				}
-			}
-		} catch (Exception ex) {
-			getLogger().log(
-					FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-					ILog.ERROR,
-					"Error in postjobProcessCallback. Message: "
-							+ ex.getMessage(), ex);
-			throw new TIERSBatchException(
-					"Error in postjobProcessCallback. Message: "
-							+ ex.getMessage(), ex);
-		}
-	}
-
-	/**
-	 * This method closes the files and records the same in the DB tables
-	 * 
-	 * @param astatus
-	 *            status to be processed
-	 * @param aconn
-	 *            batch Connection
-	 * @throws TIERSBatchException
-	 */
-	private void closeFiles(String astatus, Connection aconn)
-			throws TIERSBatchException {
-
-		try {
-			exp.closeFiles();
-		} catch (Exception ex) {
-			getLogger().log(FwConstants.LOGGING_CATEGORY_FRAMEWORK, ILog.ERROR,
-					"Error closing files. Message: " + ex.getMessage(), ex);
-			throw new TIERSBatchException("Error closing files. Message: "
-					+ ex.getMessage(), ex);
-		}
-		
-		bfcDAO.updateFileStatus(aconn, getJobId(), batchOutputFileCollection,
-				batchInputFileCollection, astatus, createUpdateUserId);
-
-	}
-
-    /**
-     * This method closes the files
-     * @param lookupTable 
-     * @return boolean returns true or false
-     * @throws TIERSBatchException
-     */
-    public boolean closeFiles(HashMap lookupTable) throws TIERSBatchException {
-        try {
-            return exp.closeFiles(lookupTable);
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in closing Files: "
-                    + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * This method formats a number(long) to a required length by padding with
-     * trailing White Space or Zero character.
-     * @param aNumberToFormat number to be processed
-     * @param aLength length of number
-     * @param aPadWith padding whitespace or zero character
-     * @return String returns formatNumber
-     * @throws TIERSBatchException
-     * @throws Exception
-     */
-    public String formatNumber(long aNumberToFormat, int aLength,
-            String aPadWith) throws TIERSBatchException, Exception {
-        String formattedNumber = null;
-        try {
-            formattedNumber = crg.formatNumber(String.valueOf(aNumberToFormat),
-                    aLength, aPadWith);
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in formatting Number: "
-                    + ex.getMessage(), ex);
-        }
-
-        if (formattedNumber == null) {
-            throw new TIERSBatchException("Formatted Number is NULL");
-        } else {
-            return formattedNumber;
-        }
-    }
-
-    // BRGUS00266110 - NaredlaS - Modified the method for batch restart logic
-    /**
-     * This method indicates whether the program is restart.
-     * @param void
-     * @return boolean returns true or false
-     */
-    public boolean isRestartProgram() {
-        if (restartProgram == BatchConstants.YES) {
-            return true;
-        } else if (restartProgram == BatchConstants.NO) {
-            return false;
-        }
-        
-		boolean restartFlag = false;
-
-		if (getBatchRestartFlag(jobId).equalsIgnoreCase("Y"))
-			restartFlag = true;
-		else
-			restartFlag = false;
-
-		return restartFlag;
-		
-        /*try {
-            ReferenceTableReader refTableRead = ReferenceTableReader
-                    .getInstance();
-            restartProgram = refTableRead.readReferenceTable(
-                    BatchConstants.RT_BATCH_JOB_CONTROL, jobId,
-                    BatchConstants.RF_RESTART_PROGRAM).toCharArray()[0];
-            if (restartProgram == BatchConstants.YES) {
-                return true;
-            } else {
-                restartProgram = BatchConstants.NO;
-                return false;
-            }
-        } catch (Exception e) {
-            try {
-                ReferenceTableReader refTableRead = ReferenceTableReader
-                        .getInstance();
-                restartProgram = refTableRead.readReferenceTable(
-                        BatchConstants.RT_BATCH_JOB_CONTROL,
-                        BatchConstants.DEFAULT_JOBID,
-                        BatchConstants.RF_RESTART_PROGRAM).toCharArray()[0];
-                if (restartProgram == BatchConstants.YES) {
-                    return true;
-                } else {
-                    restartProgram = BatchConstants.NO;
-                    return false;
-                }
-            } catch (Exception ex) {
-                restartProgram = BatchConstants.NO;
-                return false;
-            }
-        }*/
-    }
-
-    /**
-     * This method indicates whether the program is parallel
-     * @return boolean returns true or false
-     */
-    public boolean isParallelRunProgram() {
-        if (parallelRunProgram == BatchConstants.YES) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * This method indicates whether the program has parallel streams
-     * @param aparallelStream sets true or false
-     */
-    public void setParallelStream(boolean aparallelStream) {
-        this.gparallelStream = aparallelStream;
-    }
-
-    /**
-     * This method indicates whether the program has parallel streams
-     * @return boolean returns true or false
-     */
-    public boolean getParallelStream() {
-        return this.gparallelStream;
-    }
-
-    /**
-     * This method formats a number(long) to a required length by padding with
-     * trailing White Space or Zero character.
-     * @param aNumberToFormat number to be processed
-     * @param aLength length of number
-     * @param aPadWith padding whitespace or zero character
-     * @return String returns formatNumber
-     * @throws TIERSBatchException
-     * @throws Exception
-     */
-    public String formatNumber(String aNumberToFormat, int aLength,
-            String aPadWith) throws TIERSBatchException, Exception {
-        String formattedNumber = null;
-        try {
-            formattedNumber = crg.formatNumber(aNumberToFormat, aLength,
-                    aPadWith);
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in formatting Number "
-                    + ex.getMessage(), ex);
-        }
-
-        if (formattedNumber == null) {
-            throw new TIERSBatchException("Formatted Number is NULL");
-        } else {
-            return formattedNumber;
-        }
-    }
-
-    /**
-     * Get Receive File 
-     * @param logicalFileName  file name from the external source
-     * @param runNum Has the run number of the particular run
-     * @param asOfDt Has the as of date of the job
-     * @return String returns receive file name
-     * @throws TIERSBatchException
-     */
-    public String getReceiveFileName(String logicalFileName, int runNum,
-            String asOfDt) throws TIERSBatchException {
-        return bfcDAO.getReceiveFileName(getTIERSBatchControllerConnection(),
-                jobId, logicalFileName, runNum, asOfDt);
-    }
-
-    /**
-     * This method formats a String to a required length by padding with
-     * trailing White Space character.
-     * @param aStringToFormat string to be processed
-     * @param aLength length of number
-     * @return String returns formatNumber
-     * @throws TIERSBatchException
-     */
-    public String formatString(String aStringToFormat, int aLength)
-            throws TIERSBatchException {
-        String formattedText = null;
-        try {
-            formattedText = crg.formatString(aStringToFormat, aLength);
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in formatting String: "
-                    + ex.getMessage(), ex);
-        }
-
-        if (formattedText == null) {
-            throw new TIERSBatchException("Formatted Text is NULL");
-        } else {
-            return formattedText;
-        }
-    }
-
-    /**
-     * This method generates a summary/control report.
-     * @param aSpecificHeaderLines 
-     * @param aLogicalReportFileName 
-     * @param aStartTime 
-     * @param aEndTime 
-     * @param aReportBodyLines 
-     * @param aBuffWriterSummary 
-     * @param aPadWith 
-     * @throws TIERSBatchException
-     */
-    public void generateReport(String[] aSpecificHeaderLines,
-            String aLogicalReportFileName, String aStartTime, String aEndTime,
-            String[][] aReportBodyLines, BufferedWriter aBuffWriterSummary,
-            String aPadWith) throws TIERSBatchException {
-        String[] rfn = new String[1];
-        rfn[0] = aLogicalReportFileName;
-        try {
-            crg.setHeaderInfo(jobId.substring(0, 2), jobId, programName,
-                    asOfDate);
-            crg.generateReport(aSpecificHeaderLines, aLogicalReportFileName,
-                    aStartTime, aEndTime, aReportBodyLines, aBuffWriterSummary,
-                    aPadWith);
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in generating Report "
-                    + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * This method generates a summary/control report.
-     * @param aSpecificHeaderLines 
-     * @param aLogicalReportFileName
-     * @param aStartTime 
-     * @param aEndTime 
-     * @param aReportBodyLines 
-     * @param aPadWith 
-     * @throws TIERSBatchException  
-     */
-    public void generateReport(String[] aSpecificHeaderLines,
-            String aLogicalReportFileName, String aStartTime, String aEndTime,
-            String[][] aReportBodyLines, String aPadWith)
-            throws TIERSBatchException {
-        try {
-            crg.setHeaderInfo(jobId.substring(0, 2), jobId, programName,
-                    asOfDate);
-            crg.generateReport(aSpecificHeaderLines, aLogicalReportFileName,
-                    aStartTime, aEndTime, aReportBodyLines,
-                    getSummaryReportFileHandle(), aPadWith);
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in generating Report "
-                    + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * This method inserts summary records into FW_BATCH_SUMMARY Table.
-     * @param aReportLines 
-     * @param aColumnTypes 
-     * @return boolean returns true or false
-     * @throws TIERSBatchException
-     */
-    public boolean generateReport(String[] aReportLines, String[] aColumnTypes)
-			throws TIERSBatchException {
-		boolean inserSummarySuccessful = false;
-		try {
-
-			int runNo = this.getMaximumRunNo();
-			runNo++;
-			// This temp_JobID was created to handle the Load utility issue with
-			// Run_Control table entry
-			String temp_JobId = "";
-
-			if (isLoadUtility) {
-				temp_JobId = jobId.substring(0, 9) + "LDU";
-			} else {
-				temp_JobId = jobId;
-			}
-			long maxRecordNum = bsc.getMaxRecordNumByJobId(
-					getTIERSBatchControllerConnection(), temp_JobId, asOfDate,
-					runNo, programName, getParallelRunNum());
-			
-			int reportLength = aReportLines.length;
-			for (int i = 0; i < reportLength; i++) {
-				batchSummaryRecordNum = maxRecordNum + i + 1;
-				inserSummarySuccessful = bsc.insertSummaryRecord(
-						getTIERSBatchControllerConnection(), temp_JobId,
-						asOfDate, runNo, batchSummaryRecordNum,
-						aReportLines[i], createUpdateUserId, programName,
-						aColumnTypes[i], getParallelRunNum());
-			}
-
-		} catch (Exception ex) {
-			getLogger().log(
-					FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-					ILog.ERROR,
-					"Error generating Summary Report. Message: "
-							+ ex.getMessage(), ex);
-			throw new TIERSBatchException(
-					"Error generating Summary Report. Message: "
-							+ ex.getMessage(), ex);
-		}
-		
-		return inserSummarySuccessful;
-	}
-
-    /**
-     * Removes LkUp Attribute for parallel Run 
-     * @deprecated since <unknown>
-     * @throws TIERSBatchException
-     */
-    public void removeLookupParallelRunAttributes() throws TIERSBatchException {
-        bprcDAO.removeLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), jobId);
-    }
-
-    /**
-     * Removes LkUp Attribute for parallel Run 
-     * @param ajobId The identifier for the job
-     * @throws TIERSBatchException
-     */
-    public void removeLookupParallelRunAttributes(String dependentJobId, String jobId)
-            throws TIERSBatchException {
-        bprcDAO.removeLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), dependentJobId, jobId);
-    }
-
-    /**
-     * Removes LkUp Attribute for parallel Run 
-     * @param ajobId The identifier for the job
-     * @throws TIERSBatchException
-     */
-    public void removeLookupParallelRunAttributes(String ajobId)
-            throws TIERSBatchException {
-        bprcDAO.removeLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), ajobId);
-    }
-    
-    /**
-     * Get Attribute for parallel Run 
-     * @return Map retuns map of parallel runAttributes
-     * @throws TIERSBatchException
-     */
-    public Map getLookupParallelRunAttributes() throws TIERSBatchException {
-        return bprcDAO.getLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), jobId, getParallelRunId());
-    }
-
-    /**
-     * Get attribute for unprocessed parallel Run 
-     * @return Map retuns map of parallel runAttributes
-     * @throws TIERSBatchException
-     */
-    public Map getNextLookupParallelRunAttributes() throws TIERSBatchException {
-        return bprcDAO.getNextLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), getJobId(),
-                getParallelRunId());
-    }
-
-    /**
-     * Is First Job 
-     * @return boolean returns true or false
-     * @throws TIERSBatchException
-     */
-    public boolean isFirstJob() throws TIERSBatchException {
-        return brcDAO.isFirstJob(getTIERSBatchControllerConnection(), jobId,
-                this.getAsOfDate());
-    }
-
-    /**
-     * Gets Attributes for parallel run from lookup table 
-     * @param aJobId The identifier for the job
-     * @param aParallelRunId Has the run Id of the parallel run
-     * @return Map retuns map of parallel runAttributes
-     * @throws TIERSBatchException
-     */
-    public Map getLookupParallelRunAttributes(String aJobId,
-            String aParallelRunId) throws TIERSBatchException {
-        return bprcDAO.getLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), aJobId, aParallelRunId);
-    }
-
-    /**
-     * Gets Attributes for parallel run from lookup table 
-     * @param aJobId The identifier for the job
-     * @return Map retuns map of parallel runAttributes
-     * @throws TIERSBatchException
-     */
-    public Map getLookupParallelRunAttributes(String aJobId)
-            throws TIERSBatchException {
-        return bprcDAO.getLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), aJobId);
-    }
-
-    /**
-     * Sets Lookup Attributes for parallel 
-     * @param aJobId The identifier for the job
-     * @param aParallelRunId Has the run Id of the parallel run
-     * @param aParallel retuns map of parallel runAttributes
-     * @throws TIERSBatchException
-     */
-    public void setLookupParallelRunAttributes(String aJobId,
-            String aParallelRunId, Map aParallel) throws TIERSBatchException {
-        bprcDAO.setLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), aJobId, aParallelRunId,
-                aParallel, createUpdateUserId);
-
-    }
-
-    /**
-     * Gets Dependent Job Attribute for parallel Run 
-     * @return ArrayList retuns arraylistof dependentJob parallel runAttributes
-     * @throws TIERSBatchException
-     */
-    public ArrayList getDependentJobParallelRunAttributes()
-            throws TIERSBatchException {
-        Map attribute = bprcDAO.getLookupParallelRunAttributes(
-                getTIERSBatchControllerConnection(), getDependentJobId());
-        Set keys = attribute.keySet();
-        Iterator it = keys.iterator();
-        ArrayList parallelAttributes = new ArrayList();
-        while (it.hasNext()) {
-            parallelAttributes.add(it.next());
-        }
-        return parallelAttributes;
-    }
-
-    /**
-     * Sets Dependent Job Lookup Attributes for parallel 
-     * @param aParallel setting attributes
-     * @throws TIERSBatchException
-     */
-    public void setDependentJobParallelRunAttributes(ArrayList aParallel)
-            throws TIERSBatchException {
-        removeLookupParallelRunAttributes(getDependentJobId());
-        int aParallelSize = aParallel.size();
-        for (int i = 0; i < aParallelSize; i++) {
-            bprcDAO.setLookupParallelRunAttributes(
-                    getTIERSBatchControllerConnection(), getDependentJobId(),
-                    "" + (i + 1), (HashMap) aParallel.get(i),
-                    createUpdateUserId);
-        }
-    }
-    
-    /**
-     * Sets Dependent Job Lookup Attributes for parallel 
-     * @param aParallel setting attributes
-     * @throws TIERSBatchException
-     */
-    public void setDependentJobParallelRunAttributes(ArrayList<Map<String, String>> aParallel, String jobId)
-            throws TIERSBatchException {
-        removeLookupParallelRunAttributes(getDependentJobId(), jobId);
-        int aParallelSize = aParallel.size();
-        String dependentJobId = getDependentJobId();
-        for (int i = 0; i < aParallelSize; i++) {
-            bprcDAO.setLookupParallelRunAttributes(
-                    getTIERSBatchControllerConnection(),  
-                    dependentJobId.substring(0, 6)+((String.valueOf((i + 1)).length() == 1) ?("0"+(i + 1)) : (i + 1))+dependentJobId.substring(8, dependentJobId.length()),
-                    "" + (i + 1), (HashMap<String, String>) aParallel.get(i),
-                    createUpdateUserId);
-        }
-    }
-    
-    /**
-     * Sets Dependent Job Lookup Attributes for parallel 
-     * @param aParallel setting attributes
-     * @throws TIERSBatchException
-     */
-    public void setAutoRedePacketDependentJobParallelRunAttributes(ArrayList<Map<String, String>> aParallel, String jobId)
-            throws TIERSBatchException {
-        removeLookupParallelRunAttributes(getDependentJobId(), jobId);
-        //removeLookupParallelRunAttributes("ED-XX458-MLY", jobId);
-        int aParallelSize = aParallel.size();
-        String dependentJobId = getDependentJobId();
-        for (int i = 0; i < aParallelSize; i++) {
-        	if(jobId.equalsIgnoreCase("ED-PX458-MLY") || jobId.equalsIgnoreCase("ED-PX459-MLY")){
-                bprcDAO.setLookupParallelRunAttributes(
-                        getTIERSBatchControllerConnection(),  
-                        dependentJobId.substring(0, 6)+((String.valueOf((i + 1)).length() == 1) ?("X"+(i + 1)) : (i + 1))+dependentJobId.substring(8, dependentJobId.length()),
-                        "" + (i + 1), (HashMap<String, String>) aParallel.get(i),
-                        createUpdateUserId);
-        	} else if(jobId.equalsIgnoreCase("ED-PD458-ALY")){
-                bprcDAO.setLookupParallelRunAttributes(
-                        getTIERSBatchControllerConnection(),  
-                        dependentJobId.substring(0, 6)+((String.valueOf((i + 1)).length() == 1) ?("D"+(i + 1)) : (i + 1))+dependentJobId.substring(8, dependentJobId.length()),
-                        "" + (i + 1), (HashMap<String, String>) aParallel.get(i),
-                        createUpdateUserId);
-        	}
-        }
-    }
-
-    /**
-     * This method gets RestartAttributes
-     * @return Map returns map of restart attributes 
-     * @throws TIERSBatchException
-     */
-    public Map getRestartAttributes() throws TIERSBatchException {
         try {
             if (isParallelRunProgram()) {
-                return bcrcDAO.getRestartAttributes(
-                        getTIERSBatchControllerConnection(), jobId,
-                        getParallelRunId(), asOfDate, brcDAO
-                                .getAdjustedMaximumRunNoInt(
-                                        getTIERSBatchControllerConnection(),
-                                        jobId, asOfDate, getParallelRunId(),
-                                        true));
+                irunNum = getParallelRunNum();
             } else {
-                return bcrcDAO.getRestartAttributes(
-                        getTIERSBatchControllerConnection(), jobId,
-                        getParallelRunId(), asOfDate, brcDAO
-                                .getAdjustedMaximumRunNoInt(
-                                        getTIERSBatchControllerConnection(),
-                                        jobId, asOfDate, true));
+                irunNum = getAdjustedMaximumRunNo();
             }
-        } catch (Exception e) {
-            throw new TIERSBatchException("Error in un-serializing the object "
-                    + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * This method gets ParallelAttributes of the Run
-     * @return Map 
-     * @throws TIERSBatchException
-     */
-    public Map getParallelRunAttributes() throws TIERSBatchException {
-        try {
-            return bprcDAO.getParallelRunAttributes(
+            sAsOfDate = getAsOfDate();
+            sFileName = bfcDAO.getPhysicalFileName(
                     getTIERSBatchControllerConnection(), jobId,
-                    getParallelRunId(), asOfDate, getParallelRunNum());
-        } catch (Exception e) {
-            throw new TIERSBatchException("Error in un-serializing the object "
-                    + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Lock for parallel Job 
-     * @throws TIERSBatchException
-     */
-    public void getParallelJobLock() throws TIERSBatchException {
-		int prllelRunNum = getParallelRunNum();
-		getLogger().log("correspondence", ILog.DEBUG, "Got ParallelRunNum = " + prllelRunNum);
-        bprcDAO.getParallelJobLock(getTIERSBatchControllerConnection(), jobId,
-				asOfDate, prllelRunNum);
-    }
-
-    /**
-     * This method gets ParallelAttributes of the Job
-     * @return Map 
-     * @throws TIERSBatchException
-     */
-    public Map getParallelJobAttributes() throws TIERSBatchException {
-        try {
-            return bprcDAO.getParallelJobAttributes(
-                    getTIERSBatchControllerConnection(), jobId, asOfDate,
-                    getParallelRunNum());
-        } catch (Exception e) {
-            throw new TIERSBatchException("Error in un-serializing the object "
-                    + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Releases Lock for parallel Job 
-     * @throws TIERSBatchException
-     */
-    public void releaseParallelJobLock() throws TIERSBatchException {
-        try {
-            getTIERSBatchControllerConnection().commit();
-        } catch (Exception e) {
-            throw new TIERSBatchException("Error in un-serializing the object "
-                    + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * This method sets ParallelAttributes of the Run
-     * @param aParallel 
-     * @throws TIERSBatchException
-     */
-    public void setParallelAttributes(Map aParallel) throws TIERSBatchException {
-        try {
-            bprcDAO.setParallelAttributes(getTIERSBatchControllerConnection(),
-                    jobId, getParallelRunId(), getParallelRunNum(), asOfDate,
-                    aParallel, createUpdateUserId);
-        } catch (Exception e) {
-            throw new TIERSBatchException("Error in un-serializing the object "
-                    + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Sets RestartAttributes
-     * @param aRestart 
-     * @param localConn batch Connection
-     * @throws TIERSBatchException
-     */
-    public void setRestartAttributes(Map aRestart, Connection localConn)
-            throws TIERSBatchException {
-        try {
-            if (isParallelRunProgram()) {
-                bcrcDAO.setRestartAttributes(jobId, getParallelRunId(),
-                        asOfDate, localConn, aRestart,  brcDAO
-                                .getAdjustedMaximumRunNo(localConn, jobId,
-                                        asOfDate, getParallelRunId(), true),
-                        createUpdateUserId);
+                    aOutLogicalFileName);
+            if (sFileName == null) {
+                soutputFileName = fa.getOutputFileNames(jobId,
+                        aOutLogicalFileName, overWriteFlag, irunNum, sAsOfDate,
+                        env);
             } else {
-                bcrcDAO.setRestartAttributes(jobId, getParallelRunId(),
-                        asOfDate, localConn, aRestart,  brcDAO
-                                .getAdjustedMaximumRunNo(localConn, jobId,
-                                        asOfDate, true), createUpdateUserId);
-            }
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in serializing the object "
-                    + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * This method returns As Of Date obtained from FW_Batch_Parameter_Control
-     * Table. 
-     * @return String returns as of date
-     * @throws TIERSBatchException   
-     */
-    public String getAsOfDate() throws TIERSBatchException {
-        if (asOfDate == null) {
-            asOfDate = bpcDAO.findAsOfDate(getTIERSBatchControllerConnection(),
-                    jobId);
-        }
-
-        if (asOfDate == null) {
-            throw new TIERSBatchException("AS OF DATE is null");
-        } else {
-            return asOfDate;
-        }
-    }
-
-    /**
-     * This method sets As Of Date
-     * @param aAsOfDt sets asofDate
-     */
-    public void setAsOfDate(String aAsOfDt) {
-        this.asOfDate = aAsOfDt;
-    }
-
-    /**
-     * This method flushes the buffered writer
-     * @throws TIERSBatchException
-     */
-
-    public void flushAll() throws TIERSBatchException {
-        try {
-        	exp.flushAll();
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error while closing files. "
-                    + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * This method rollsback the buffered writer
-     * @throws TIERSBatchException
-     */
-    public void fileRollbackAll() throws TIERSBatchException {
-        try {
-            if (isParallelRunProgram()) {
-                bfcDAO.lockOutputFiles(getTIERSBatchControllerConnection(),
-                        getJobId(), getAsOfDate());
-            }
-            exp.rollbackAll();
-            if (isParallelRunProgram()) {
-                bfcDAO.unlockOutputFiles(getTIERSBatchControllerConnection(),
-                        getJobId(), getAsOfDate());
-            }
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error while closing files. "
-                    + ex.getMessage(), ex);
-        }
-    }
-
-    /**
-     * This method returns commitsize for that program.
-     * @return int
-     * @throws TIERSBatchException
-     */
-    public int getCommitSize() throws TIERSBatchException {
-        if (!commitSizeSet) { //This kind of flaging looks cranky, and creates
-                              // Double Checked Locking but the seriousness is
-                              // non-existent, as fw is anyway not threadsafe
-            try {
-                ReferenceTableReader refTableRead = ReferenceTableReader
-                        .getInstance();
-                commitSize = Integer.valueOf(
-                        refTableRead.readReferenceTable(
-                                BatchConstants.RT_BATCH_JOB_CONTROL, jobId,
-                                BatchConstants.RF_COMMIT_SIZE)).intValue();
-                commitSizeSet = true;
-            } catch (Exception e) {
-                try {
-                    ReferenceTableReader refTableRead = ReferenceTableReader
-                            .getInstance();
-                    commitSize = Integer.valueOf(
-                            refTableRead.readReferenceTable(
-                                    BatchConstants.RT_BATCH_JOB_CONTROL,
-                                    BatchConstants.DEFAULT_JOBID,
-                                    BatchConstants.RF_COMMIT_SIZE)).intValue();
-                    commitSizeSet = true;
-                } catch (Exception ex) {
-                    throw new TIERSBatchException(
-                            "Error in reading the reference table to get commit size: "
-                                    + ex.getMessage(), ex);
-                }
-            }
-
-        }
-        return commitSize;
-    }
-
-    //Anup 02/21/05
-    //Added method below to get the number of parallel jobs that are scheduled
-    // for a given job ID
-    /**
-     * This method returns number of parallel jobs for that program.
-     * @param ljobId The identifier for the job
-     * @return int returns number of parallel jobIds
-     * @throws TIERSBatchException  
-     */
-    public int getParallelJobs(String ljobId) throws TIERSBatchException {
-        if (!gparallelJobsSet) {
-        	String refValue = null;
-            try {
-                ReferenceTableReader refTableRead = ReferenceTableReader
-                        .getInstance();
-                refValue = refTableRead.readReferenceTable(
-                        BatchConstants.RT_BATCH_JOB_CONTROL, ljobId,
-                        BatchConstants.RF_PARALLEL_JOBS);
-            } catch (Exception e) {
-            	throw new FwException(FwConstants.LOGGING_CATEGORY_FRAMEWORK, ILog.ERROR, e);
-            }
-            if(refValue != null && !refValue.trim().isEmpty()){
-            	gparallelJobs = new Integer(refValue).intValue();
-            	gparallelJobsSet = true;
-            }else{
-	           	gparallelJobs = 0;
-	            gparallelJobsSet = true;
-            }
-        }
-        return gparallelJobs;
-    }
-
-    /**
-     * This method returns a connection to database.
-     * @return Connection returns batch Connection
-     * @throws TIERSBatchException
-     */
-    public Connection getTIERSBatchControllerConnection()
-            throws TIERSBatchException {
-        try {
-            return BatchConnectionManager.getBatchConnectionManger()
-                    .getTIERSBatchControllerConnection();
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in getting connection "
-                    + ex.getMessage(), ex);
-        }
-    }
-    
-    /**
-     * This method returns a connection to database.
-     * @return Connection returns batch Connection
-     * @throws TIERSBatchException
-     */
-    public Connection getConnectionForWriteException() throws TIERSBatchException {
-        try {
-            return BatchConnectionManager.getBatchConnectionManger().getConnectionForWriteException();
-                    
-        } catch (Exception ex) {
-            throw new TIERSBatchException("Error in getting connection for writing exception records"
-                    + ex.getMessage(), ex);
-        }
-    }
-    
-
-    /**
-     * Savepointing for pre J2SE1.4
-     * @param conn Batch Connection
-     * @param aSavepoint savepoint
-     * @throws TIERSBatchException
-     */
-    public void savepoint(Connection conn, String aSavepoint)
-            throws TIERSBatchException {
-    	
-    	Savepoint tSavepoint;
-		try {
-			tSavepoint = conn.setSavepoint(aSavepoint);
-	    	connSavePoint.put(aSavepoint, tSavepoint);
-	    	
-		} catch (SQLException e) {
-			  throw new TIERSBatchException("Error while setting Savepoint "
-	                    + e.getMessage(), e);
-		}
-
-    }
-
-    /**
-     * Rollback for pre J2SE1.4
-     * @param conn Batch Connection
-     * @param aSavepoint 
-     * @throws TIERSBatchException
-     */
-    public void rollback(Connection conn, String aSavepoint)
-			throws TIERSBatchException {
-
-		try {
-
-			conn.rollback((Savepoint) connSavePoint.get(aSavepoint));
-
-		} catch (Exception ex) {
-			getLogger().log(
-					FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-					ILog.ERROR,
-					"Error in connection rollback call. Message: "
-							+ ex.getMessage(), ex);
-			throw new TIERSBatchException(
-					"Error in connection rollback call. Message: "
-							+ ex.getMessage(), ex);
-		}
-	}
-    
-    /**
-     * Commit used for Impact LTC batch specific to commit each processed record.
-     *  
-     * @param conn
-     * @throws TIERSBatchException
-     */
-    public void ltcCommit(Connection conn)
-			throws TIERSBatchException {
-		try {
-			conn.commit();
-		} catch (Exception ex) {
-			getLogger().log(
-					FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-					ILog.ERROR,
-					"Error in connection commit call. Message: "
-							+ ex.getMessage(), ex);
-			throw new TIERSBatchException(
-					"Error in connection commit call. Message: "
-							+ ex.getMessage(), ex);
-		}
-	}
-
-    /**
-     * This method returns a connection to database.
-     * @return Connection Batch Connection
-     * @throws TIERSBatchException
-     */
-    public Connection getConnection() throws TIERSBatchException {
-    	String jobId = getJobId();
-    	String className = this.getClass().getName();
-        Connection conn =  batchConnManager.getConnection(batchProperty,jobId,className);       
-        
-        return conn;
-    }
-    /**
-     * This method returns a connection to database.
-     * @return Connection Batch Connection
-     * @throws TIERSBatchException
-     */
-    public Connection getRPConnection() throws TIERSBatchException {
-    	String jobId = getJobId();
-    	String className = this.getClass().getName();
-        Connection con =  batchConnManager.getRPConnection(batchProperty,jobId,className);       
-        
-        return con;
-    }
-
-	/**
-	 * This method creates a connection for Archival process.
-	 * 
-	 * @return
-	 * @throws TIERSBatchException
-	 */
-	public Connection getArchConnection() throws TIERSBatchException {
-		try {
-			String driver = FwPropertyLoader.getPropertyOf(
-					FwConstants.APPLICATION_PROPERTY_FILE, "DRIVER");
-			String url = FwPropertyLoader.getPropertyOf(
-					FwConstants.APPLICATION_PROPERTY_FILE, "ARCH_URL");
-			String user = FwPropertyLoader.getPropertyOf(
-					FwConstants.APPLICATION_PROPERTY_FILE, "ARCH_USER");
-			String password = FwCryptoUtil
-					.getValidBase64DecodedString(FwPropertyLoader
-							.getPropertyOf(
-									FwConstants.APPLICATION_PROPERTY_FILE,
-									"ARCH_PASSWORD"));
-			Class.forName(driver);
-			// PMD_Override - R3 - Connection can not be close because method is
-			// returning the object to calling method . Not closing Connection.
-			PMDRules.markApprovedStatement("R3");
-			Connection conn = DriverManager.getConnection(url, user, password);
-			return conn;
-		} catch (Exception ex) {
-			getLogger().log(
-					FwConstants.LOGGING_CATEGORY_FRAMEWORK,
-					ILog.ERROR,
-					"Error getting archive connection. Message: "
-							+ ex.getMessage(), ex);
-			throw new TIERSBatchException(
-					"Error getting archive connection. Message: "
-							+ ex.getMessage(), ex);
-		}
-	}
-
-   public Connection getConnection(String dbName) throws TIERSBatchException{
-	   if(StringUtils.isNotEmpty(dbName)){
-		   if(dbName.equalsIgnoreCase("REPLICA")){
-			   return getRPConnection();
-		   }else if(dbName.equalsIgnoreCase("ARCHIVE")){
-			   return getArchConnection();
-		   }
-	   }
-	   return getConnection();
-   }
-   
-   public void closeConnection(String dbName, Connection conn){
-	   if(StringUtils.isNotEmpty(dbName) && (dbName.equalsIgnoreCase("ARCHIVE") || dbName.equalsIgnoreCase("REPLICA"))){
-		   try {
-			   if(conn != null && !conn.isClosed())
-				   conn.close();
-		   } catch (SQLException e) {
-			   throw new FwException(FwConstants.LOGGING_CATEGORY_FRAMEWORK, ILog.ERROR, e);
-		   }
-	   }
-   }
-    
-    /**
-     * This method returns the Environment name (dev/tst/uat/prd).
-     * @return String
-     * @throws TIERSBatchException
-     */
-    public String getEnv() throws TIERSBatchException {
-        if (env == null) {
-            throw new TIERSBatchException("Env variable has NULL value");
-        } else {
-            return env;
-        }
-    }
-
-    /**
-     * This method returns the Global As Of Date (parameter of the record with
-     * "ZZ" as Job Id and Program Name).
-     * @return String returns globalAsOfdate
-     * @throws TIERSBatchException
-     */
-    public String getGlobalAsOfDate() throws TIERSBatchException {
-        String globalAsOfDate = null;
-        try {
-            globalAsOfDate = bpcDAO
-                    .findGlobalAsOfDate(getTIERSBatchControllerConnection());
-        } catch (Exception ex) {
-            throw new TIERSBatchException(
-                    "Error in getting the Global As Of Date: "+ex.getMessage(), ex);
-        }
-
-        if (globalAsOfDate == null) {
-            throw new TIERSBatchException("Global As Of Date is NULL");
-        } else {
-            return globalAsOfDate;
-        }
-    }
-
-    /**
-     * This method returns an array of input file names.
-     * @deprecated
-     * @param aInputJobIds
-     * @param aInpLogicalFileNamesAndDates
-     * @return String[] 
-     * @throws TIERSBatchException
-     */
-    public String[] getInputFileNames(String[] aInputJobIds,
-            String[][] aInpLogicalFileNamesAndDates) throws TIERSBatchException {
-
-        runNos = new int[aInpLogicalFileNamesAndDates.length];
-        int runNosLength = runNos.length;
-        try {
-            for (int i = 0; i < runNosLength; i++) {
-                runNos[i] = bfcDAO.getRunNo(
-                        getTIERSBatchControllerConnection(), aInputJobIds[i],
-                        aInpLogicalFileNamesAndDates[i][0], getAsOfDate(),
-                        BatchConstants.INPUT_FILE_MODE);
+                soutputFileName = fa.getOutputFileNames(jobId, sFileName,
+                        overWriteFlag, irunNum, sAsOfDate, env);
             }
         } catch (Exception ex) {
             throw new TIERSBatchException(
-                    "Error in getting the Run Number in getting the Input File Name: "+ex.getMessage(), ex);
+                    "Error in getting the File Name or File Run Num: "+ex.getMessage(), ex);
         }
 
-        StringBuffer[] inputFileNamesBuffer = fa.getInputFileNames(
-                aInputJobIds, aInpLogicalFileNamesAndDates, env, runNos);
-        String[] inputFileNamesLocal = new String[inputFileNamesBuffer.length];
-        int inputFileNamesBufferLength = inputFileNamesBuffer.length;
-        for (int i = 0; i < inputFileNamesBufferLength; i++) {
-            inputFileNamesLocal[i] = inputFileNamesBuffer[i].toString();
-        }
-        if (inputFileNamesLocal == null) {
-            throw new TIERSBatchException("Input File Names Array is NULL");
+        if (soutputFileName == null) {
+            throw new TIERSBatchException(
+                    "Input File Name cannot be constructed");
         } else {
-            return inputFileNamesLocal;
+            try {
+                bw = exp.openOutputStream(soutputFileName,
+                        (isRestartProgram() || isParallelRunProgram())); //if
+                                                                         // it
+                                                                         // is
+                                                                         // restart
+                                                                         // or
+                                                                         // parallel
+                                                                         // the
+                                                                         // file
+                                                                         // will
+                                                                         // be
+                                                                         // opened
+                                                                         // in
+                                                                         // append
+                                                                         // mode
+            } catch (Exception ex) {
+                throw new TIERSBatchException(ex.getMessage(), ex);
+            }
+            try {
+                batFile.setTIERSBatchControllerHandle(this);
+                batFile.setRunNum(irunNum);
+                batFile.setJobId(jobId);
+                batFile.setAsOfDt(sAsOfDate);
+                batFile.setPhysicalFileName(soutputFileName);
+                batFile.setLogicalFileName(aOutLogicalFileName);
+                batFile.setBufferedOutputStream(bw);
+            } catch (Exception ex) {
+                throw new TIERSBatchException(
+                        "Not able to return Batch File Adapter: "+ex.getMessage(), ex);
+            }
+            batchOutputFileCollection
+                    .put(batFile.getLogicalFileName(), batFile);
+            return batFile;
+        }
+    }
+
+    /**
+     * Gets Output File for Parallel Jobs 
+     * @param aOutLogicalFileName
+     * @return BatchFile
+     * @throws TIERSBatchException
+     */
+    public BatchFile getOutPutFilenameForParllelJobs(String aOutLogicalFileName)
+            throws TIERSBatchException {
+        int  irunNum = 0;
+        String sAsOfDate = null;
+        BufferedWriter bw = null;
+        BatchFile batFile = new BatchFile();
+        String soutputFileName = null;
+        String sFileName = null;
+        gfilePersistence = true;
+        try {
+            insertFileControlRecordForParllelRun(jobId, aOutLogicalFileName);
+        } catch (Exception e) {
+            throw new TIERSBatchException(
+                    "Error in inserting the o/p file information into file control table."
+                            + e.getMessage(), e);
+        }
+        try {
+            if (isParallelRunProgram() && !getParallelStream()) {
+               // irunNum = getParallelRunNum();
+                irunNum = Integer.parseInt(brcDAO.getParallelRunNum());
+            } else {
+                irunNum = getAdjustedMaximumRunNo();
+                irunNum = brcDAO.getMaximumRunNoParallelJobInt(
+                        getTIERSBatchControllerConnection(), jobId, asOfDate);
+                irunNum++;
+            }
+            sAsOfDate = getAsOfDate();
+            sFileName = bfcDAO.getPhysicalFileName(
+                    getTIERSBatchControllerConnection(), jobId,
+                    aOutLogicalFileName);
+            if (sFileName == null) {
+                soutputFileName = fa.getOutputFileNames(jobId,
+                        aOutLogicalFileName, overWriteFlag, irunNum, sAsOfDate,
+                        env);
+            } else {
+                soutputFileName = fa.getOutputFileNames(jobId, sFileName,
+                        overWriteFlag, irunNum, sAsOfDate, env);
+            }
+        } catch (Exception ex) {
+            throw new TIERSBatchException(
+                    "Error in getting the File Name or File Run Num: "+ex.getMessage(), ex);
+        }
+        if (soutputFileName == null) {
+            throw new TIERSBatchException(
+                    "Input File Name cannot be constructed");
+        } else {
+            try {
+                bw = exp.openOutputFile(soutputFileName,
+                        (isRestartProgram() || isParallelRunProgram())); //if
+                                                                         // it
+                                                                         // is
+                                                                         // restart
+                                                                         // or
+                                                                         // parallel
+                                                                         // the
+                                                                         // file
+                                                                         // will
+                                                                         // be
+                                                                         // opened
+                                                                         // in
+                                                                         // append
+                                                                         // mode
+            } catch (Exception ex) {
+                throw new TIERSBatchException(ex.getMessage(), ex);
+            }
+            try {
+                batFile.setTIERSBatchControllerHandle(this);
+                batFile.setRunNum(irunNum);
+                batFile.setJobId(jobId);
+                batFile.setAsOfDt(sAsOfDate);
+                batFile.setPhysicalFileName(soutputFileName);
+                batFile.setLogicalFileName(aOutLogicalFileName);
+                batFile.setBufferedWriter(bw);
+            } catch (Exception ex) {
+                throw new TIERSBatchException(
+                        "Not able to return Batch File Adapter: "+ex.getMessage(), ex);
+            }
+            batchOutputFileCollection
+                    .put(batFile.getLogicalFileName(), batFile);
+            return batFile;
+        }
+    }
+
+    /**
+     * Gets Output File in writer format given a logical file name 
+     * @param aOutLogicalFileName 
+     * @return BatchFile 
+     * @throws TIERSBatchException
+     */
+    public BatchFile getOutputFileName(String aOutLogicalFileName)
+            throws TIERSBatchException {
+        int irunNum = 0;
+        String sAsOfDate = null;
+        BufferedWriter bw = null;
+        BatchFile batFile = new BatchFile();
+        String soutputFileName = null;
+        String sFileName = null;
+        gfilePersistence = true;
+        try {
+            insertFileControlRecord(jobId, aOutLogicalFileName);
+        } catch (Exception e) {
+            throw new TIERSBatchException(
+                    "Error in inserting the o/p file information into file control table."
+                            + e.getMessage(), e);
+        }
+        try {
+            if (isParallelRunProgram() && !getParallelStream()) {
+                irunNum = getParallelRunNum();
+            } else {
+                irunNum = getAdjustedMaximumRunNo();
+            }
+            sAsOfDate = getAsOfDate();
+            sFileName = bfcDAO.getPhysicalFileName(
+                    getTIERSBatchControllerConnection(), jobId,
+                    aOutLogicalFileName);
+            if (sFileName == null) {
+                soutputFileName = fa.getOutputFileNames(jobId,
+                        aOutLogicalFileName, overWriteFlag, irunNum, sAsOfDate,
+                        env);
+            } else {
+                soutputFileName = fa.getOutputFileNames(jobId, sFileName,
+                        overWriteFlag, irunNum, sAsOfDate, env);
+            }
+        } catch (Exception ex) {
+            throw new TIERSBatchException(
+                    "Error in getting the File Name or File Run Num: "+ex.getMessage(), ex);
+        }
+        if (soutputFileName == null) {
+            throw new TIERSBatchException(
+                    "Input File Name cannot be constructed");
+        } else {
+            try {
+                bw = exp.openOutputFile(soutputFileName,
+                        (isRestartProgram() || isParallelRunProgram())); //if
+                                                                         // it
+                                                                         // is
+                                                                         // restart
+                                                                         // or
+                                                                         // parallel
+                                                                         // the
+                                                                         // file
+                                                                         // will
+                                                                         // be
+                                                                         // opened
+                                                                         // in
+                                                                         // append
+                                                                         // mode
+            } catch (Exception ex) {
+                throw new TIERSBatchException(ex.getMessage(), ex);
+            }
+            try {
+                batFile.setTIERSBatchControllerHandle(this);
+                batFile.setRunNum(irunNum);
+                batFile.setJobId(jobId);
+                batFile.setAsOfDt(sAsOfDate);
+                batFile.setPhysicalFileName(soutputFileName);
+                batFile.setLogicalFileName(aOutLogicalFileName);
+                batFile.setBufferedWriter(bw);
+            } catch (Exception ex) {
+                throw new TIERSBatchException(
+                        "Not able to return Batch File Adapter: "+ex.getMessage(), ex);
+            }
+            batchOutputFileCollection
+                    .put(batFile.getLogicalFileName(), batFile);
+            return batFile;
+        }
+    }
+  //ILIES-197052 
+    /**
+     * Gets Output File in writer format given a logical file name 
+     * @param aOutLogicalFileName , parentJobId
+     * @return BatchFile 
+     * @throws TIERSBatchException
+     */
+    public BatchFile getOutputFileNameInterfaceJobSplit(String aOutLogicalFileName,String parentJobId)
+    throws TIERSBatchException {
+		int irunNum = 0;
+		String sAsOfDate = null;
+		BufferedWriter bw = null;
+		BatchFile batFile = new BatchFile();
+		String soutputFileName = null;
+		String sFileName = null;
+		gfilePersistence = true;
+		try {
+		    insertFileControlRecord(jobId, aOutLogicalFileName);
+		} catch (Exception e) {
+		    throw new TIERSBatchException(
+		            "Error in inserting the o/p file information into file control table."
+		                    + e.getMessage(), e);
+		}
+		try {
+		    if (isParallelRunProgram() && !getParallelStream()) {
+		        irunNum = getParallelRunNum();
+		    } else {
+		        irunNum = getAdjustedMaximumRunNo();
+		    }
+		    sAsOfDate = getAsOfDate();
+		    sFileName = bfcDAO.getPhysicalFileName(
+		            getTIERSBatchControllerConnection(), jobId,
+		            aOutLogicalFileName);
+		    if (sFileName == null) {
+		        soutputFileName = fa.getOutputFileNames(parentJobId,
+		                aOutLogicalFileName, overWriteFlag, irunNum, sAsOfDate,
+		                env);
+		    } else {
+		        soutputFileName = fa.getOutputFileNames(parentJobId, sFileName,
+		                overWriteFlag, irunNum, sAsOfDate, env);
+		    }
+		} catch (Exception ex) {
+		    throw new TIERSBatchException(
+		            "Error in getting the File Name or File Run Num: "+ex.getMessage(), ex);
+		}
+		if (soutputFileName == null) {
+		    throw new TIERSBatchException(
+		            "Input File Name cannot be constructed");
+		} else {
+		    try {
+		        bw = exp.openOutputFile(soutputFileName,
+		                (isRestartProgram() || isParallelRunProgram())); //if
+		                                                                 // it
+		                                                                 // is
+		                                                                 // restart
+		                                                                 // or
+		                                                                 // parallel
+		                                                                 // the
+		                                                                 // file
+		                                                                 // will
+		                                                                 // be
+		                                                                 // opened
+		                                                                 // in
+		                                                                 // append
+		                                                                 // mode
+		    } catch (Exception ex) {
+		        throw new TIERSBatchException(ex.getMessage(), ex);
+		    }
+		    try {
+		        batFile.setTIERSBatchControllerHandle(this);
+		        batFile.setRunNum(irunNum);
+		        batFile.setJobId(jobId);
+		        batFile.setAsOfDt(sAsOfDate);
+		        batFile.setPhysicalFileName(soutputFileName);
+		        batFile.setLogicalFileName(aOutLogicalFileName);
+		        batFile.setBufferedWriter(bw);
+		    } catch (Exception ex) {
+		        throw new TIERSBatchException(
+		                "Not able to return Batch File Adapter: "+ex.getMessage(), ex);
+		    }
+		    batchOutputFileCollection
+		            .put(batFile.getLogicalFileName(), batFile);
+		    return batFile;
+		}
+	}
+	//ILIES-180619  Batch Run is taking prior month of DOB  
+    /**
+     * Gets Output File in writer format given a logical file name 
+     * @param aOutLogicalFileName 
+     * @return BatchFile 
+     * @throws TIERSBatchException
+     */
+    public BatchFile getOutputFileName(String aOutLogicalFileName, String cutOffDate)
+            throws TIERSBatchException {
+        int irunNum = 0;
+        String sAsOfDate = null;
+        BufferedWriter bw = null;
+        BatchFile batFile = new BatchFile();
+        String soutputFileName = null;
+        String sFileName = null;
+        gfilePersistence = true;
+        try {
+            insertFileControlRecord(jobId, aOutLogicalFileName);
+        } catch (Exception e) {
+            throw new TIERSBatchException(
+                    "Error in inserting the o/p file information into file control table."
+                            + e.getMessage(), e);
+        }
+        try {
+            if (isParallelRunProgram() && !getParallelStream()) {
+                irunNum = getParallelRunNum();
+            } else {
+                irunNum = getAdjustedMaximumRunNo();
+            }
+            sAsOfDate = cutOffDate;
+            sFileName = bfcDAO.getPhysicalFileName(
+                    getTIERSBatchControllerConnection(), jobId,
+                    aOutLogicalFileName);
+            if (sFileName == null) {
+                soutputFileName = fa.getOutputFileNames(jobId,
+                        aOutLogicalFileName, overWriteFlag, irunNum, sAsOfDate,
+                        env);
+            } else {
+                soutputFileName = fa.getOutputFileNames(jobId, sFileName,
+                        overWriteFlag, irunNum, sAsOfDate, env);
+            }
+        } catch (Exception ex) {
+            throw new TIERSBatchException(
+                    "Error in getting the File Name or File Run Num: "+ex.getMessage(), ex);
+        }
+        if (soutputFileName == null) {
+            throw new TIERSBatchException(
+                    "Input File Name cannot be constructed");
+        } else {
+            try {
+                bw = exp.openOutputFile(soutputFileName,
+                        (isRestartProgram() || isParallelRunProgram())); //if
+                                                                         // it
+                                                                         // is
+                                                                         // restart
+                                                                         // or
+                                                                         // parallel
+                                                                         // the
+                                                                         // file
+                                                                         // will
+                                                                         // be
+                                                                         // opened
+                                                                         // in
+                                                                         // append
+                                                                         // mode
+            } catch (Exception ex) {
+                throw new TIERSBatchException(ex.getMessage(), ex);
+            }
+            try {
+                batFile.setTIERSBatchControllerHandle(this);
+                batFile.setRunNum(irunNum);
+                batFile.setJobId(jobId);
+                batFile.setAsOfDt(sAsOfDate);
+                batFile.setPhysicalFileName(soutputFileName);
+                batFile.setLogicalFileName(aOutLogicalFileName);
+                batFile.setBufferedWriter(bw);
+            } catch (Exception ex) {
+                throw new TIERSBatchException(
+                        "Not able to return Batch File Adapter: "+ex.getMessage(), ex);
+            }
+            batchOutputFileCollection
+                    .put(batFile.getLogicalFileName(), batFile);
+            return batFile;
+        }
+    }
+
+    /**
+     * @deprecated since <unknown>
+     * @return BufferedWriter
+     * @throws TIERSBatchException
+     */
+    public BufferedWriter getSummaryReportFileHandle()
+            throws TIERSBatchException {
+        int irunNum = 0;
+        String sAsOfDate = null;
+        String soutputFileName = null;
+        String sOutLogicalFileName = BatchConstants.SUMMARY_REPORT;
+
+        try {
+            irunNum = getAdjustedMaximumRunNo();
+            sAsOfDate = getAsOfDate();
+            soutputFileName = fa.getOutputFileNames(jobId, sOutLogicalFileName,
+                    overWriteFlag, irunNum, sAsOfDate, env);
+        } catch (Exception ex) {
+            throw new TIERSBatchException(
+                    "Error in getting the File Name or File Run Num: "+ex.getMessage(), ex);
+        }
+
+        if (soutputFileName == null) {
+            throw new TIERSBatchException(
+                    "Summary Report cannot be constructed");
+        } else {
+            try {
+                return exp.openOutputFile(soutputFileName, true); //open in the
+                                                                  // append mode
+            } catch (Exception ex) {
+                throw new TIERSBatchException(ex.getMessage(), ex);
+            }
         }
 
     }
-    
-    
-    
+
     /**
-     * This method returns InputFileName for sorting
+     * Gets Input File for a file name and AsOfDate
      * @param aInpLogicalFileName
-     * @return BatchFile returns input Batch File Name
-     * @throws TIERSBatchException
+     * @param aAsOfDt Has the as of date of the job
+     * @return BatchFile returns batchfile Name
+     *  @throws TIERSBatchException
      */
-    public BatchFile getInputFileNameForSorting(String aInpLogicalFileName) throws TIERSBatchException{
-
+    public BatchFile getInputFileName(String aInpLogicalFileName, String aAsOfDt)
+            throws TIERSBatchException {
         long irunNum = 0;
         String sJobId = null;
-        String sAsOfDate = null;
         long lrecordCount = 0;
         FwBatchFileControlCargo fwbatFileCargo = null;
         BufferedReader br = null;
         BatchFile batFile = new BatchFile();
-        String sinputFileName = null;
-        String sFileName = null;
+
         try {
-            fwbatFileCargo = bfcDAO.getLeastRunNumOfLeastAsOfDate(
+            fwbatFileCargo = bfcDAO.getMaxRunNumOfAsOfDate(
                     getTIERSBatchControllerConnection(), jobId,
-                    aInpLogicalFileName);
+                    aInpLogicalFileName, aAsOfDt, true);
             if (fwbatFileCargo != null) {
                 irunNum =  fwbatFileCargo.getRunNum();
                 sJobId = fwbatFileCargo.getJobId();
-                sAsOfDate = fwbatFileCargo.getAsOfDt().toString();
-                sAsOfDate = formatDate(sAsOfDate.substring(0, 10),
-                        "yyyy-mm-dd", "mm-dd-yyyy");
                 lrecordCount = fwbatFileCargo.getRecordCount();
-                sFileName = fwbatFileCargo.getFileName();
-                if (BatchConstants.FILE_BEING_PROCESSED_STATUS_CD == fwbatFileCargo
-                        .getStatusCd()) {
-                    System.err.println("WARNING: File " + aInpLogicalFileName
-                            + " for asOfDate " + sAsOfDate
-                            + " is still being written to.");
-                }
             } else {
                 throw new FileNotFoundException(
                         "No entry found in FW_BATCH_FILE_CONTROL for file: "
-                                + aInpLogicalFileName);
+                                + aInpLogicalFileName + " for date: " + aAsOfDt);
             }
         } catch (FileNotFoundException fnfEx) {
             throw fnfEx;
         } catch (Exception ex) {
             throw new TIERSBatchException(
-                    "Error in executing getMaxRunNumOfMaxAsOfDate while getting the Input File Name:  "
+                    "Error in executing getMaxRunNumOfAsOfDate while getting the Input File Name : "
                             + ex.getMessage(), ex);
         }
 
-        try {
-            if (sFileName == null) {
-                sinputFileName = fa.getInputFileName(sJobId,
-                        aInpLogicalFileName, sAsOfDate, env, irunNum);
-            } else {
-                sinputFileName = fa.getInputFileName(sJobId, sFileName,
-                        sAsOfDate, env, irunNum);
-            }
-        } catch (Exception ex) {
-            throw new FileNotFoundException(
-                    "Error in getting Input File name while getting the Input File Name: "+ex.getMessage(), ex);
-        }
+        String sinputFileName = fa.getInputFileName(sJobId,
+                aInpLogicalFileName, aAsOfDt, env, irunNum);
 
         if (sinputFileName == null) {
             throw new FileNotFoundException(
@@ -2032,92 +523,78 @@ public class TIERSBatchController implements ITIERSBatchController {
             } catch (Exception ex) {
                 throw new FileNotFoundException(ex.getMessage(), ex);
             }
-			try {
-				batFile.setTIERSBatchControllerHandle(this);
-				batFile.setRunNum(Integer.parseInt(String.valueOf(irunNum)));
-				batFile.setJobId(sJobId);
-				batFile.setAsOfDt(sAsOfDate);
-				batFile.setRecordCount(lrecordCount);
-				batFile.setPhysicalFileName(sinputFileName);
-				batFile.setLogicalFileName(aInpLogicalFileName);
-				batFile.setBufferedReader(br);
-			} catch (Exception ex) {
+            try {
+                batFile.setTIERSBatchControllerHandle(this);
+                batFile.setRunNum(Integer.parseInt(String.valueOf(irunNum)));
+                batFile.setJobId(sJobId);
+                batFile.setAsOfDt(aAsOfDt);
+                batFile.setRecordCount(lrecordCount);
+                batFile.setPhysicalFileName(sinputFileName);
+                batFile.setLogicalFileName(aInpLogicalFileName);
+                batFile.setBufferedReader(br);
+                if (BatchConstants.FILE_BEING_PROCESSED_STATUS_CD == fwbatFileCargo
+                        .getStatusCd()) {
+                    System.err.println("WARNING: File " + aInpLogicalFileName
+                            + " for asOfDate " + aAsOfDt
+                            + " is still being written to.");
+                }
+            } catch (Exception ex) {
                 throw new TIERSBatchException(
                         "Not able to return Batch File Adapter: "+ex.getMessage(), ex);
             }
             batchInputFileCollection.put(batFile.getLogicalFileName(), batFile);
             return batFile;
         }
-
-    
-         
     }
 
     /**
-     * Gets Input File adapter given a logical file name 
-     * @param aInpLogicalFileName
-     * @return BatchFile
-     * @throws TIERSBatchException
+     * Gets max Input File given the file name and a range of dates
+     * @param aInpLogicalFileName inputlogical file name 
+     * @param abeginAsOfDt Has the begin asOfDate
+     * @param aendAsOfDt Has the end asOfDate
+     * @return BatchFile returns batch fileName
+     * @throws TIERSBatchException  
      */
-    public BatchFile getInputFileName(String aInpLogicalFileName)
-            throws TIERSBatchException {
+    public BatchFile getInputFileName(String aInpLogicalFileName,
+            String abeginAsOfDt, String aendAsOfDt) throws TIERSBatchException {
         int irunNum = 0;
         String sJobId = null;
-        String sAsOfDate = null;
+        String asOfDateLocal = null;
         long lrecordCount = 0;
         FwBatchFileControlCargo fwbatFileCargo = null;
         BufferedReader br = null;
         BatchFile batFile = new BatchFile();
-        String sinputFileName = null;
-        String sFileName = null;
+
         try {
-            fwbatFileCargo = bfcDAO.getMaxRunNumOfMaxAsOfDate(
+            fwbatFileCargo = bfcDAO.getMaxRunNumOfAsOfDateRange(
                     getTIERSBatchControllerConnection(), jobId,
-                    aInpLogicalFileName);
+                    aInpLogicalFileName, abeginAsOfDt, aendAsOfDt);
             if (fwbatFileCargo != null) {
-            	// PMD_Override - R10 - The casting of this numeric/byte type
+				// PMD_Override - R10 - The casting of this numeric/byte type
 				// does not need to be addressed because - max daily runs for a
 				// batch will not surpass the int limits.
             	PMDRules.markApprovedStatement("R10");
                 irunNum = (int) fwbatFileCargo.getRunNum();
                 sJobId = fwbatFileCargo.getJobId();
-                sAsOfDate = fwbatFileCargo.getAsOfDt().toString();
-                sAsOfDate = formatDate(sAsOfDate.substring(0, 10),
-                        "yyyy-mm-dd", "mm-dd-yyyy");
                 lrecordCount = fwbatFileCargo.getRecordCount();
-                sFileName = fwbatFileCargo.getFileName();
-                if (BatchConstants.FILE_BEING_PROCESSED_STATUS_CD == fwbatFileCargo
-                        .getStatusCd()) {
-                    System.err.println("WARNING: File " + aInpLogicalFileName
-                            + " for asOfDate " + sAsOfDate
-                            + " is still being written to.");
-                }
+                asOfDateLocal = fwbatFileCargo.getAsOfDt().toString();
+                asOfDateLocal = formatDate(asOfDateLocal.substring(0, 10),
+                        "yyyy-mm-dd", "mm-dd-yyyy");
             } else {
                 throw new FileNotFoundException(
                         "No entry found in FW_BATCH_FILE_CONTROL for file: "
-                                + aInpLogicalFileName);
+                                + aInpLogicalFileName + " for date between: "
+                                + aendAsOfDt + "---" + abeginAsOfDt);
             }
         } catch (FileNotFoundException fnfEx) {
             throw fnfEx;
         } catch (Exception ex) {
             throw new TIERSBatchException(
-                    "Error in executing getMaxRunNumOfMaxAsOfDate while getting the Input File Name:  "
+                    "Error in executing getMaxRunNumOfAsOfDate while getting the Input File Name : "
                             + ex.getMessage(), ex);
         }
-
-        try {
-            if (sFileName == null) {
-                sinputFileName = fa.getInputFileName(sJobId,
-                        aInpLogicalFileName, sAsOfDate, env, irunNum);
-            } else {
-                sinputFileName = fa.getInputFileName(sJobId, sFileName,
-                        sAsOfDate, env, irunNum);
-            }
-        } catch (Exception ex) {
-            throw new FileNotFoundException(
-                    "Error in getting Input File name while getting the Input File Name: "+ex.getMessage(), ex);
-        }
-
+        String sinputFileName = fa.getInputFileName(sJobId,
+                aInpLogicalFileName, asOfDateLocal, env, irunNum);
         if (sinputFileName == null) {
             throw new FileNotFoundException(
                     "Input File Name cannot be constructed");
@@ -2131,11 +608,17 @@ public class TIERSBatchController implements ITIERSBatchController {
                 batFile.setTIERSBatchControllerHandle(this);
                 batFile.setRunNum(irunNum);
                 batFile.setJobId(sJobId);
-                batFile.setAsOfDt(sAsOfDate);
+                batFile.setAsOfDt(asOfDateLocal);
                 batFile.setRecordCount(lrecordCount);
                 batFile.setPhysicalFileName(sinputFileName);
                 batFile.setLogicalFileName(aInpLogicalFileName);
                 batFile.setBufferedReader(br);
+                if (BatchConstants.FILE_BEING_PROCESSED_STATUS_CD == fwbatFileCargo
+                        .getStatusCd()) {
+                    System.err.println("WARNING: File " + aInpLogicalFileName
+                            + " for asOfDate " + asOfDateLocal
+                            + " is still being written to.");
+                }
             } catch (Exception ex) {
                 throw new TIERSBatchException(
                         "Not able to return Batch File Adapter: "+ex.getMessage(), ex);
@@ -2143,5 +626,180 @@ public class TIERSBatchController implements ITIERSBatchController {
             batchInputFileCollection.put(batFile.getLogicalFileName(), batFile);
             return batFile;
         }
+    }
 
+    /**
+     * This method returns an array of output file names. 
+     * @deprecated
+     * @param aOutLogicalFileNames 
+     * @return String[]
+     * @throws TIERSBatchException
+     */
+    public String[] getOutputFileNames(String[] aOutLogicalFileNames)
+            throws TIERSBatchException {
+        StringBuffer[] outFileNamesBuffer = null;
+        try {
+            outFileNamesBuffer = fa.getOutputFileNames(jobId,
+                    aOutLogicalFileNames, overWriteFlag, env, this);
+        } catch (Exception ex) {
+            throw new TIERSBatchException(
+                    "Error in getting the Output file name from File Assembler: "+ex.getMessage(), ex);
+        }
+        if (outFileNamesBuffer == null) {
+            throw new TIERSBatchException("Output File Names Araay is NULL");
+        } else {
+            String[] outFileNames = new String[outFileNamesBuffer.length];
+            int length = outFileNamesBuffer.length;
+            for (int i = 0; i < length; i++) {
+                outFileNames[i] = outFileNamesBuffer[i].toString();
+            }
+            return outFileNames;
+        }
+    }
+
+    /**
+     * This method sets the jobId
+     * @param aJobId The identifier for the job
+     */
+    public void setJobId(String aJobId) {
+        this.jobId = aJobId;
+        StringTokenizer stk = new StringTokenizer(jobId, "-");
+        StringBuffer sbf = new StringBuffer();
+        while (stk.hasMoreTokens()) {
+            sbf.append(stk.nextToken());
+        }
+        createUpdateUserId = sbf.toString();
+        batchConnManager.setJobID(jobId);
+        createContext(createUpdateUserId);
+        thresholdValue = getThresholdValue(jobId);
+        System.setProperty(FwConstants.BATCH_JOB_ID, jobId);
+    }
+
+    /**
+     * Sets Parallel Run Id 
+     * @param aparallelRunId Has the run Id of the parallel run
+     */
+    public void setParallelRunId(String aparallelRunId) {
+        this.parallelRunId = aparallelRunId;
+        parallelRunProgram = BatchConstants.YES;
+    }
+
+    /**
+     * Gets Parallel Run Id
+     * @return String returns parallel runId
+     */
+    public String getParallelRunId() {
+        if (this.parallelRunId == null) {
+            return this.jobId;
+        } else {
+            return this.parallelRunId;
+        }
+    }
+
+    /**
+     * Gets Parallel Run Num 
+     * @return int returns parallel runNum
+     * @throws TIERSBatchException 
+     */
+    public int getParallelRunNum() throws TIERSBatchException {
+        return brcDAO.getParallelRunNo(getTIERSBatchControllerConnection(),
+                jobId, getParallelRunId(), getAsOfDate());
+    }
+
+    /**
+     * Gets Curent Run Num 
+     * @return int
+     * @throws TIERSBatchException
+     */
+    public int getCurrentRunNum() throws TIERSBatchException {
+        if (!currentRunNoSet) {
+            currentRunNo = brcDAO.getMaximumRunNoInt(getTIERSBatchControllerConnection(), jobId, getAsOfDate());
+            currentRunNo++;
+            currentRunNoSet = true;
+        }
+        return currentRunNo;
+    }
+
+    /**
+     * Gets Jobid 
+     * @return String returns jobId
+     */
+    public String getJobId() {
+        return this.jobId;
+    }
+
+    /**
+     * Sets Program Name 
+     * @param aProgramName 
+     */
+    public void setProgramName(String aProgramName) {
+        this.programName = aProgramName;
+    }
+
+    /**
+     * Sets overwrite flag 
+     * @param aOverWriteFlag 
+     */
+    public void setOverWriteFlag(boolean aOverWriteFlag) {
+        this.overWriteFlag = aOverWriteFlag;
+    }
+
+    /**
+     * Gets Parameters 
+     * @return BatchParameter
+     * @throws TIERSBatchException
+     */
+    public BatchParameter getParameters() throws TIERSBatchException {
+        BatchParameter bParms = null;
+        try {
+            bParms = bpcDAO.findParameters(getTIERSBatchControllerConnection(),
+                    jobId, "OverLoadedDummyOperation");
+            if (bParms != null) {
+                asOfDate = bParms.getAsOfDate();
+            }
+        } catch (Exception ex) {
+            throw new TIERSBatchException("Error in finding the parameter: "+ex.getMessage(), ex);
+        }
+
+        if (bParms == null) {
+            throw new TIERSBatchException("Parameter vector is NULL");
+        } else {
+            return bParms;
+        }
+    }
+
+    /**  
+     * @param aJobId The identifier for the job
+     * @param aProgramName
+     * @param aoverWriteFlag 
+     * @return Vector
+     * @throws TIERSBatchException
+     */
+    public Vector getParameters(String aJobId, String aProgramName,
+            boolean aoverWriteFlag) throws TIERSBatchException {
+
+        overWriteFlag = aoverWriteFlag;
+        jobId = aJobId;
+        StringTokenizer stk = new StringTokenizer(jobId, "-");
+        StringBuffer sbf = new StringBuffer();
+        while (stk.hasMoreTokens()) {
+            sbf.append(stk.nextToken());
+        }
+        createUpdateUserId = sbf.toString();
+        programName = aProgramName;
+
+        //Get the Job Name from FW_BATCH_PARAMETER Table using job id
+
+        try {
+            parms = bpcDAO.findParameters(getTIERSBatchControllerConnection(),
+                    jobId);
+        } catch (Exception ex) {
+            throw new TIERSBatchException("Error in finding the parameter: "+ex.getMessage(), ex);
+        }
+
+        if (parms == null) {
+            throw new TIERSBatchException("Parameter vector is NULL");
+        } else {
+            return parms;
+        }
     }
