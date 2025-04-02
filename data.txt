@@ -1,1919 +1,6 @@
-package IVD_Batch;
-
-import egl.core.deleteafteruse;
-import CommonMigratedParts.*;
-import DataItems.*;
-import DataTables.*;
-
-//*** PROGRAM=DOR39A ****
-// Application Name : DOR39A   Called Batch Application for
-//                    wage withholding form generation
-// ==================
-// New statement (2009):
-// This process (application) computes the wage withholding
-// for NCP and updates twnjob_history table. Creates
-// twnemplr_wwh_dtls table. This will generate an NV0014 or
-// one of its variations (NV014O or NV014A) if an ASF process
-// is requested from the batch or online environment (the "M"
-// or mainframe process) or will create a Flexiform download
-// (the "S" or server process).  Note that the PDPs for this
-// form are DLB33A for online and DFB33A (COBOL) for batch.
-// ---------------
-// Old (out of date) statement:
-// This process (application) computes the wage withholding
-// for Ncp and updates twnjob_history table. Creates
-// twnemplr_wwh_dtls table. Sends gn0083 and gn0088 depending
-// on first time or modification of wage withholding.
-// This is a common application which can be called from
-// diffeerent applications. e.g. dor21a, dcp06a, dclxxa dor26a
-// 
-// ---------------------------------------------------------
-// Change log
-// Date        Work Item  Description
-// ----------  ---------  ----------------------------------
-// 08/12/2009  WI835      D.Bugli- NV0014 is being modified to
-//                        comply with federal requirements.
-//                        Spousal support is being divided into
-//                        current and arrears.  So, WNOPRAMT2
-//                        will be used for current SS and a
-//                        new WNOPRAMT4 token will be used for
-//                        arrears SS in the "M" logic.  Note
-//                        that the "S" logic (Flexiforms) will
-//                        not be changed, even though this may
-//                        result in different calculations of
-//                        total arrears, etc.
-// 03/07/2014  WI 1932    WNMBC - REMOVE OFC 02 EDIT FOR EWS
-// 08/18/2014  WI 1753    WNMBC - E-IWO
-// ***********************
-
-program DOR39A type basicProgram //VAGen Info - called batch program
-(VDBCONTROL VDBCONTROL, // record
-        VMESSAGE VMESSAGE, // record
-        FDOR-IWIT-DTLS FDOR-IWIT-DTLS, // record
-        GNOMADS GNOMADS, // record
-        G-IV-D G-IV-D // record
-){includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes}
-
-    // Data Declarations
-    CEP01W CEP01W; // record
-    DFC03W1 DFC03W1; // record
-    DFC34W DFC34W; // record
-    DFMBTCH-XFER DFMBTCH-XFER; // record
-    DFMPOP-TRANSFER DFMPOP-TRANSFER; // record
-    DOR39W DOR39W{initialized = yes}; // record
-    DOR39W1 DOR39W1; // record
-    DOR39W2 DOR39W2; // record
-    DOR39W3 DOR39W3; // record 
-    GDW GDW; // record
-    H-TOSSS3 H-TOSSS3; // record
-    H2-2-COR-DOC H2-2-COR-DOC; // record
-    H2-2-DCN-PER H2-2-DCN-PER; // record
-    H2-2-DCV-PER H2-2-DCV-PER; // record
-    H2-2-DOC-EWD H2-2-DOC-EWD; // record
-    H2-3-COR-DOC-IDC H2-3-COR-DOC-IDC; // record
-    H2-4-DCCNMU-SPTURE H2-4-DCCNMU-SPTURE; // record
-    H2-CODE-TBL H2-CODE-TBL; // record
-    H2-DOCKET H2-DOCKET; // record
-    H2-EIWO H2-EIWO; // record
-    H2-EMPLOYER H2-EMPLOYER; // record
-    H2-EMPLR-WWH-DTLS H2-EMPLR-WWH-DTLS; // record
-    H2-FINAN-OBLGN H2-FINAN-OBLGN; // record
-    H2-FRM-CASE-TRKNG H2-FRM-CASE-TRKNG; // record
-    H2-INTERST-RFGUIDE H2-INTERST-RFGUIDE; // record
-    H2-IVD-CASE H2-IVD-CASE; // record
-    H2-IVD-CASELD-CASE H2-IVD-CASELD-CASE; // record
-    H2-JOB-HISTORY H2-JOB-HISTORY; // record
-    H2-NCP-ACCT-RCBL H2-NCP-ACCT-RCBL; // record
-    H2-NON-CUST-PARENT H2-NON-CUST-PARENT; // record
-    H2-OCSE-EMPLYR H2-OCSE-EMPLYR; // record
-    H2-OFFICE H2-OFFICE; // record
-    H2-PARA-VER H2-PARA-VER; // record
-    H2-PERSON H2-PERSON; // record
-    H2-PRVSN H2-PRVSN; // record
-    H3-IVD-CASE H3-IVD-CASE; // record
-    H3-JOB-HISTORY H3-JOB-HISTORY; // record
-    P-DATE-REC3 P-DATE-REC3; // record
-    PCALINP PCALINP; // record
-    PDFM-FLEXI-FORM PDFM-FLEXI-FORM; // record
-    SR-DOR39-RECOUT SR-DOR39-RECOUT; // record
-    SR-QPRN-REC SR-QPRN-REC; // record
-    VCONTROL VCONTROL; // record
-    VDBCOMMON VDBCOMMON; // record
-    VFRMREC VFRMREC; // record
-    VSTRREC3 VSTRREC3; // record
-    VSTRREC4 VSTRREC4; // record
-    VSTRREC7 VSTRREC7; // record
-    
-    // VAGen Info - items needed for migration
-    VAGen_EZESYS char(8);
-    VAGen_EZEREPLY num(1);
-    VAGen_EZE_WAIT_TIME bin(9, 2);
-    VAGen_EZE_ITEMLEN int;
-
-    // Use Declarations
-    use VDB00T1{deleteAfterUse = yes}; // table
-    
-    function main()
-    // VAGen Info - initialization needed for migration
-        VAGen_EZESYS = VGLib.getVAGSysType();
-    DOR39P9-AMAIN-PROC:
-        DOR39P9-AMAIN-PROC();
-    end // end main
-end // end DOR39A
-
-// Get all active dockets for NCP
-
-function DOR39P9-ALL-DOCKTS()
-/* ************************************************************************/
-/* Change Log                               **/
-/* ************************************************************************/
-/* WNMLF  06/25/2002  WI 22594*/
-/* WNMDB  08/13/2009  WI835 - Fix Description of process.*/
+function DOR39P9-M-PROVISN()
 /*  */
-/* ************************************************************************/
-
-    DOR39W.WS-SEND-LETTER = "N";
-    DOR39W.WS-INCLD-DOCKET = "N";
-    DOR39W.WS-SQL-CODE = 0;
-    DOR39W.WS-NCP-WWH-STS = "CO";
-
-    set H2-3-COR-DOC-IDC empty;
-    H2-3-COR-DOC-IDC.NCP-UPI = DOR39W.WS-NCP-UPI;
-    DOR39P9-CDI-S01Q1();
-    DOR39P9-CDI-S01QS();
-    while(DOR39W.WS-SQL-CODE == 0)
-        DOR39W.WS-DCKT-NMB = H2-3-COR-DOC-IDC.DCKT-NMB;
-        DOR39W.WS-SQNC-NMB = H2-3-COR-DOC-IDC.SQNC-NMB;
-        DOR39W.WS-CASE-SUFX = H2-3-COR-DOC-IDC.CASE-SUFX;
-        DOR39W.WS-CST-UPI = H2-3-COR-DOC-IDC.CST-UPI;
-        DOR39W.WS-ORDER-TYPE = H2-3-COR-DOC-IDC.ORDER-TYPE;
-        DOR39W.WS-PYMNT-DATE = H2-3-COR-DOC-IDC.CS-PYMNT-CMNCT-DT;
-        DOR39W.WS-IW-NOTICE-SENT = H2-3-COR-DOC-IDC.IW-NOTICE-SENT;
-        DOR39W.WS-DELIN-STS-EFF-DT = H2-3-COR-DOC-IDC.DELIN-STS-EFF-DT;
-        DOR39W.WS-DELIN-STS = H2-3-COR-DOC-IDC.NCP-DELIN-STS;
-        DOR39W.WS-INTID-INCWH-EST-DT = H2-3-COR-DOC-IDC.INTID-INCWH-EST-DT;
-        DOR39W.WS-JRSDT-TYPE = H2-3-COR-DOC-IDC.JRSDT-TYPE;
-        DOR39P9-PROC-DOCKT();
-        DOR39P9-CDI-S01QS();
-    end
-    /*  */
-    VDBCOMMON.UNRF = "1";
-    VDBCOMMON.UDUP = "N";
-    /*  */
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DOR39P9-ALL-DOCKTS
-
-function DOR39P9-AMAIN-PROC()
-/*  */
-/* This process (application):*/
-/*  */
-/* - Computes the wage withholding for Ncp*/
-/*  */
-/* - Update WI info on the docket.*/
-/*  */
-/* - Updates twnjob_history table.*/
-/*  */
-/* - Update / creates twnemplr_wwh_dtls table.*/
-/*  */
-/* - Generates the NV0014 (Order / Notice to withhold Child Support*/
-/*  */
-/* This is a common application which should be called from all*/
-/* applications that need to generate a Order / Notice to Withhold Child*/
-/* Support (Original or Amended). The calling application can be online*/
-/* or batch. The calling applications includes:*/
-/*  */
-/* - Online  DCL02A (EMAD)*/
-/* DCP06A (NEMP)*/
-/* DOR25A (Called from DOR01A (ORDE/ORDM/ORDR/ORDT)*/
-/* DOR26A (ORDA)*/
-/*  */
-/* - Batch   T13C02A (Called from DEF25A)*/
-/* DEF27A*/
-/* TIWTC1A (Called from the various interfaces eg SDNH*/
-/* FCR etc)*/
-/*  */
-/* Depending on the application, the docket number an employer id may or*/
-/* may not be passed. If no docket, processing will be done for all*/
-/* dockets for the NCP (can be more than one case). Else processing will*/
-/* be done for the specified docket. If no Employer, processing will be*/
-/* done for all employers. Else processing will be done for the*/
-/* specified employer.*/
-/*  */
-/* The calling application may pass one of the following form ID's:*/
-/*  */
-/* - NV0014 This application will determine whether to generate an*/
-/* original or amended notice based on existing IW data for the*/
-/* employer / docket.*/
-/*  */
-/* - NV014O An original notice will be generated. With this ID both*/
-/* docket number and employer id must be passed.*/
-/*  */
-/* - NV014A A amended notice will be generated. With this ID both*/
-/* docket number and employer id must be passed.*/
-/*  */
-/* Note. This application does not handle termination of wage*/
-/* withholding (NV014T).*/
-/*  */
-/* wi 22648 - on autogen forms (calling aplication other than dfm04a)*/
-/* than check the NCP's AUTO_GEN_IW_IND.If 'y' procede otherwise do*/
-/* not process the income with holding.*/
-/*  */
-    set DOR39W empty;
-    /*  */
-    /* ************************************************************************/
-    /* VALIDATE PASSED PARAMETERS                             **/
-    /* ************************************************************************/
-    /*  */
-    DOR39W.WS-FORM-DEST = "N";
-    H2-PARA-VER.FRM-ID = FDOR-IWIT-DTLS.F-FORM-ID;
-    DOR39P9-CK-FDEST();
-    DOR39W.WS-FORM-DEST = H2-PARA-VER.FORM-DEST;
-
-    FDOR-IWIT-DTLS.F-NV0014-GENERATED-IND = "N"; /* default*/
-    if(FDOR-IWIT-DTLS.F-FORM-ID != "NV0014" && FDOR-IWIT-DTLS.F-FORM-ID !=
-                    "NV014O" && FDOR-IWIT-DTLS.F-FORM-ID != "NV014A")
-        VMESSAGE.UMSGCODE = "GEN0605E";
-        VMESSAGE.UMSGTYPE = "E";
-        exit program;
-    end
-    /*  */
-    if(FDOR-IWIT-DTLS.F-DCKT-NMB == 0 && FDOR-IWIT-DTLS.F-EMPLR-ID == " ")
-        VMESSAGE.UMSGCODE = "GEN0606E";
-        VMESSAGE.UMSGTYPE = "E";
-        exit program;
-    end
-    /*  */
-    if(FDOR-IWIT-DTLS.F-FORM-ID == "NV014O" || FDOR-IWIT-DTLS.F-FORM-ID ==
-                    "NV014A")
-        if(FDOR-IWIT-DTLS.F-DCKT-NMB == 0 || FDOR-IWIT-DTLS.F-EMPLR-ID == " ")
-            VMESSAGE.UMSGCODE = "GEN0606E";
-            VMESSAGE.UMSGTYPE = "E";
-            exit program;
-        end
-    end
-    /*  */
-    /* ************************************************************************/
-    /* PROCESS                                                **/
-    /* ************************************************************************/
-    /*  */
-    if(FDOR-IWIT-DTLS.F-APPL-NAME != "DFM04A")
-        /* form is being auto generated*/
-        H2-NON-CUST-PARENT.UPI = FDOR-IWIT-DTLS.F-NCP-UPI;
-        DOR39P9-NCP-S01Q1();
-        if(H2-NON-CUST-PARENT.AUTO-GEN-IW-IND == " ")
-            if(H2-NON-CUST-PARENT.NCP-SPOUS-BNKR-IND == "Y")
-                H2-NON-CUST-PARENT.AUTO-GEN-IW-IND = "N";
-            end
-        end
-        if(H2-NON-CUST-PARENT.AUTO-GEN-IW-IND == "N")
-            FDOR-IWIT-DTLS.F-NV0014-GENERATED-IND = "N";
-            VMESSAGE.UMSGCODE = "GEN0635I";
-            VMESSAGE.UMSGTYPE = "I";
-            exit program;
-        end
-    end
-
-    DOR39W.WS-NCP-UPI = FDOR-IWIT-DTLS.F-NCP-UPI;
-    DOR39W.WS-CASE-SUFX = FDOR-IWIT-DTLS.F-CASE-SUFX;
-    // DO NOT PROCESS CLOSED OR NON-IV-D CASE    
-    set H2-IVD-CASE empty;
-    H2-IVD-CASE.NCP-UPI = DOR39W.WS-NCP-UPI;
-    H2-IVD-CASE.CASE-SUFX = DOR39W.WS-CASE-SUFX;
-    DOR39P9-S04();
-    if(sysVar.sqlData.sqlcode == 0)
-        DOR39W.WS-APPL-NAME = FDOR-IWIT-DTLS.F-APPL-NAME;
-        DOR39W1.WS-CRNT-DATE = FDOR-IWIT-DTLS.F-CRNT-DATE;
-        DOR39W.WS-APPL-TYPE = FDOR-IWIT-DTLS.F-APPL-TYPE;
-        DOR39W.WS-EMPLR-ID = FDOR-IWIT-DTLS.F-EMPLR-ID; /* WI 14513*/
-        DOR39W.WS-DCKT-NMB = FDOR-IWIT-DTLS.F-DCKT-NMB;
-        /*  */
-        DOR39W1.WS-FOR-DATE = DOR39W1.WS-CRNT-DATE;
-        DOR39W1.WS-SYS-YEAR = DOR39W1.WS-FOR-YEAR;
-        DOR39W1.WS-SYS-MNTH = DOR39W1.WS-FOR-MNTH;
-        DOR39W1.WS-SYS-DAY = DOR39W1.WS-FOR-DAY;
-        /*  */
-        if(FDOR-IWIT-DTLS.F-WS-DEF27-IND == "B")
-            DOR39W1.WS-FOR-MNTH = DOR39W1.WS-FOR-MNTH + 2;
-        end
-        if(FDOR-IWIT-DTLS.F-WS-DEF27-IND == "E")
-            DOR39W1.WS-FOR-MNTH = DOR39W1.WS-FOR-MNTH + 3;
-        end
-        if(DOR39W1.WS-FOR-MNTH > 12)
-            DOR39W1.WS-FOR-YEAR = DOR39W1.WS-FOR-YEAR + 1;
-            DOR39W1.WS-FOR-MNTH = DOR39W1.WS-FOR-MNTH - 12;
-        end
-
-        DOR39W1.TOSSS3-CCYY = DOR39W1.WS-FOR-YEAR;
-        DOR39W1.TOSSS3-MM = DOR39W1.WS-FOR-MNTH;
-
-        if(FDOR-IWIT-DTLS.F-DCKT-NMB == 0)
-            DOR39P9-ALL-DOCKTS();
-        else
-            DOR39P9-ONE-DOCKET();
-        end
-        /*  */
-        FDOR-IWIT-DTLS.F-NCP-AMOUNT = DOR39W.WS-NCP-AMOUNT;
-        FDOR-IWIT-DTLS.F-DCKT-AMOUNT = DOR39W.WS-DCKT-AMOUNT;
-        /*  */
-        /* Some applications checks the employer returned by DOR39A to verify if*/
-        /* a valid employer was in fact found and then return a corresponding*/
-        /* error message.*/
-
-        if(FDOR-IWIT-DTLS.F-EMPLR-ID != " ")
-            FDOR-IWIT-DTLS.F-EMPLR-ID = DOR39W.HOLD-EMPL;
-        end
-    end
-end // end DOR39P9-AMAIN-PROC
-
-// Read court order, docket, case
-
-function DOR39P9-CDI-S01Q1()
-/* ************************************************************************/
-/* Change Log                               **/
-/* ************************************************************************/
-/* WNMLF  06/25/2002  WI 22594                                          **/
-/* **/
-/* **/
-/* **/
-/* **/
-/* ************************************************************************/
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-3-COR-DOC-IDC ";
-    VDBCONTROL.UPROC-OBJ = "H2-3-COR-DOC-IDC";
-    VDBCONTROL.UPROC-NM = "DOR39P9-CDI-S01Q1";
-    VDBCONTROL.UPROC-OPT = "SETINQ";
-    try
-        open DOR39P9-CDI-S01Q1_RSI01
-                with #sql{
-        select T1.DCKT_NMB, T1.SQNC_NMB, T1.ORDER_STS, T1.ORDER_EFF_DT,
-          T1.CS_PYMNT_CMNCT_DT, T1.ORDER_TYPE, T2.CASE_SUFX,
-          T2.IW_NOTICE_SENT,T2.DELIN_STS_EFF_DT, T2.INTID_INCWH_EST_DT,
-          T3.CST_UPI, T2.NCP_DELIN_STS, T2.JRSDT_TYPE
-        from TWNCOURT_ORDR T1,
-             TWNDOCKET T2,
-             TWNIVD_CASE T3
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T3.NCP_UPI = :NCP-UPI
-          AND T3.NCP_UPI = T2.UPI
-          AND T3.CASE_SUFX = T2.CASE_SUFX
-          AND T2.DCKT_NMB = T1.DCKT_NMB
-          AND T2.LST_SQNC_NMB = T1.SQNC_NMB
-          AND T1.ORDER_STS = 'A'
-          AND T3.CASE_STS = 'A'
-          FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into DCKT-NMB, SQNC-NMB, ORDER-STS, ORDER-EFF-DT, CS-PYMNT-CMNCT-DT, ORDER-TYPE, CASE-SUFX, IW-NOTICE-SENT, DELIN-STS-EFF-DT, INTID-INCWH-EST-DT, CST-UPI, NCP-DELIN-STS, JRSDT-TYPE
-                for H2-3-COR-DOC-IDC;
-    end
-    DOR39W.WS-SQL-CODE = sysVar.sqlData.sqlcode;
-    /*  */
-end // end DOR39P9-CDI-S01Q1
-
-// Read one court order & docket
-
-function DOR39P9-CDI-S01Q2()
-/* ************************************************************************/
-/* Change Log                               **/
-/* ************************************************************************/
-/* WNMLF  06/25/2002  WI 22594                                          **/
-/* **/
-/* **/
-/* **/
-/* **/
-/* ************************************************************************/
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-2-COR-DOC ";
-    VDBCONTROL.UPROC-OBJ = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-NM = "DOR39P9-CDI-S01Q2";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    try
-        get H2-2-COR-DOC singleRow
-                with #sql{
-        select T1.DCKT_NMB, T1.SQNC_NMB, T1.ORDER_STS, T1.ORDER_EFF_DT,
-          T1.CS_PYMNT_CMNCT_DT, T1.ORDER_TYPE, T2.CASE_SUFX,
-          T2.IW_NOTICE_SENT,T2.DELIN_STS_EFF_DT, T2.INTID_INCWH_EST_DT,
-          T2.NCP_DELIN_STS, T2.JRSDT_TYPE
-        from TWNCOURT_ORDR T1,
-             TWNDOCKET T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T2.DCKT_NMB      = :DCKT-NMB
-          AND T1.DCKT_NMB      =  T2.DCKT_NMB
-          AND T1.SQNC_NMB      =  T2.LST_SQNC_NMB
-          AND T1.ORDER_STS     = 'A'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into DCKT-NMB, SQNC-NMB, ORDER-STS, ORDER-EFF-DT, CS-PYMNT-CMNCT-DT, ORDER-TYPE, CASE-SUFX, IW-NOTICE-SENT, DELIN-STS-EFF-DT, INTID-INCWH-EST-DT, NCP-DELIN-STS, JRSDT-TYPE;
-    end
-    DOR39W.WS-SQL-CODE = sysVar.sqlData.sqlcode;
-    /*  */
-    if(sysVar.sqlData.sqlcode != 0)
-        VDBCOMMON.UNRF = "Y";
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-        if(sysVar.sqlData.sqlcode == 100)
-            VMESSAGE.UMSGCODE = "GEN0608E";
-            VMESSAGE.UMSGTYPE = "E";
-            exit program;
-        end
-    end
-end // end DOR39P9-CDI-S01Q2
-
-// Scan court order, docket, case
-
-function DOR39P9-CDI-S01QS()
-/*  */
-    VDBCOMMON.USQLREC = "H2-3-COR-DOC-IDC ";
-    VDBCONTROL.UPROC-OBJ = "H2-3-COR-DOC-IDC";
-    VDBCONTROL.UPROC-NM = "DOR39P9-CDI-S01QS";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    try
-        get next H2-3-COR-DOC-IDC;
-    end
-    DOR39W.WS-SQL-CODE = sysVar.sqlData.sqlcode;
-    /*  */
-    if(sysVar.sqlData.sqlcode == 0)
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-    end
-    /*  */
-end // end DOR39P9-CDI-S01QS
-
-// INQUIRY TWNPARA_VER
-
-function DOR39P9-CK-FDEST()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCONTROL.UPROC-OBJ = "H2-PARA-VER";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    VDBCONTROL.UPROC-NM = "DOR39P9-CK-FDEST";
-    VDBCOMMON.USQLREC = "H2-PARA-VER";
-    try
-        get H2-PARA-VER
-                with #sql{
-        select FORM_DEST
-        from TWNPARA_VER T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE FRM_ID = :FRM-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into FORM-DEST;
-    end
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        /*  */
-        VDBCOMMON.UNRF = "Y";
-        VDBCOMMON.UDUP = "N";
-        /*  */
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-end // end DOR39P9-CK-FDEST
-
-// Get total IWIT for employer
-
-function DOR39P9-DOC-EWD-S()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-2-DOC-EWD";
-    VDBCONTROL.UPROC-OBJ = "H2-2-DOC-EWD";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    VDBCONTROL.UPROC-NM = "DOR39P9-DOC-EWD-S";
-    try
-        get H2-2-DOC-EWD singleRow
-                with #sql{
-        select SUM(T1.EMPLR_WWH_ESTD_AMT)
-        from TWNEMPLR_WWH_DTLS T1,
-             TWNDOCKET T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          T2.UPI      = :UPI         AND
-          T1.DCKT_NMB = T2.DCKT_NMB  AND
-          T1.EMPLR_ID = :EMPLR-ID    AND
-          T1.INC_WH_TRMND_DT = '9999-12-31'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into EMPLR-WWH-ESTD-AMT;
-    end
-    VDBCOMMON.UNRF = "Y";
-    VDBCOMMON.UDUP = "Y";
-    WDB00PE-SQLERR();
-    if(sysVar.sqlData.sqlcode == 100)
-        VDBCONTROL.URC = 112;
-    end
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DOR39P9-DOC-EWD-S
-
-// UPDATE ON TWNDOCKET
-
-function DOR39P9-DOC-U01Q1()
-/*  */
-    WDB00PI();
-    /*  */
-    VDBCONTROL.UACCTYP = "W";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-DOCKET";
-    VDBCONTROL.UPROC-OBJ = "H2-DOCKET";
-    VDBCONTROL.UPROC-OPT = "UPDATE";
-    VDBCONTROL.UPROC-NM = "DOR39P9-DOC-U01Q1";
-    try
-        execute update 
-                #sql{
-        UPDATE
-          TWNDOCKET T1
-        SET
-          WWH_ESTD_AMT = :WWH-ESTD-AMT,
-          IW_STS = :IW-STS,
-          IW_NOTICE_SENT = :IW-NOTICE-SENT,
-          WWH_RQSTD_DT = :WWH-RQSTD-DT
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE DCKT_NMB = :DCKT-NMB
-      }
-                for H2-DOCKET; // model = update
-    end
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        VDBCOMMON.UNRF = "Y";
-        VDBCOMMON.UDUP = "Y";
-        /*  */
-        WDB00PE-SQLERR();
-        /*  */
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-end // end DOR39P9-DOC-U01Q1
-
-// WI 1753 - INSERT EIWO RECORD
-
-function DOR39P9-EIWO-ADD()
-    WDB00PI();
-
-    VDBCONTROL.UACCTYP = "W";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-
-    VDBCOMMON.USQLREC = "H2-EIWO";
-    VDBCONTROL.UPROC-OBJ = "H2-EIWO";
-    VDBCONTROL.UPROC-NM = "DOR39P9-EIWO-ADD";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    try
-        add H2-EIWO;
-    end
-
-    WDB00PE-SQLERR();
-    /*  */
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-
-end // end DOR39W-EIWO-ADD
-
-// CHECK FOR E-IWO PARTICIPATING EMPLOYER
-
-function DOR39P9-EIWO-EMPLYR()
-    WDB00PI();
-    VDBCONTROL.UACCTYP = "R";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-
-    VDBCOMMON.USQLREC = "H2-OCSE-EMPLYR";
-    VDBCONTROL.UPROC-OBJ = "H2-OCSE-EMPLYR";
-    VDBCONTROL.UPROC-NM = "DOR39P9-EIWO-EMPLYR";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    try
-        get H2-OCSE-EMPLYR singleRow
-                with #sql{
-      select EMPLYR_FEIN, EMPLYR_ACTIVE_IND, EMPLYR_ORG_NAME, EMPLYR_ADR_LN1, 
-             EMPLYR_ADR_LN2, EMPLYR_CTY, EMPLYR_ST, EMPLYR_ZIP_CD
-      from twnocse_emplyr T1
-       --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-      WHERE EMPLYR_FEIN = :EMPLYR-FEIN
-       --** INSERT ORDER BY CLAUSE HERE **
-    }
-                into EMPLYR-FEIN, EMPLYR-ACTIVE-IND, EMPLYR-ORG-NAME, EMPLYR-ADR-LN1, EMPLYR-ADR-LN2, EMPLYR-CTY, EMPLYR-ST, EMPLYR-ZIP-CD;
-    end
-    VDBCOMMON.UNRF = "1";
-    VDBCOMMON.UDUP = "N";
-
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DOR39P9-EIWO-EMPLYR
-
-// WI 1753 - E-IWO PROCESS 
-
-function DOR39P9-EIWO-PROC()
-/* SEND IWO THROUGH DFM10A SO FIELD HAS A COPY ON TR10,
-     BUT FORM DOES NOT PRINT */
-    set DFMBTCH-XFER empty;
-    DFMBTCH-XFER.PIO-FORM-ID = FDOR-IWIT-DTLS.F-FORM-ID;
-    DFMBTCH-XFER.PIO-DCKT-NMB = DOR39W.WS-DCKT-NMB;
-    DFMBTCH-XFER.PIO-DCKT-SQ-NMB = DOR39W.WS-SQNC-NMB;
-    DFMBTCH-XFER.PIO-UPI = DOR39W.WS-NCP-UPI;
-    DFMBTCH-XFER.PIO-CASE-SUFX = DOR39W.WS-CASE-SUFX;
-    DFMBTCH-XFER.PIO-NMB-OF-COPIES = 1;
-    /*  */
-    DFMBTCH-XFER.PIO-PARM-NMB = 90;
-    /*  */
-    DFMBTCH-XFER.PIO-POP-PARM[1] = H2-JOB-HISTORY.EMPLR-ID;
-    if(DOR39W.WS-OA-IND == "O")
-        DFMBTCH-XFER.PIO-POP-PARM[2] = "X";
-    else
-        DFMBTCH-XFER.PIO-POP-PARM[2] = " ";
-    end
-    DFMBTCH-XFER.PIO-POP-PARM[3] = FDOR-IWIT-DTLS.F-WS-DEF27-IND;
-    if(DOR39W.WS-OA-IND == "A")
-        DFMBTCH-XFER.PIO-POP-PARM[7] = "X";
-    else
-        DFMBTCH-XFER.PIO-POP-PARM[7] = " ";
-    end
-    DFMBTCH-XFER.PIO-POP-PARM[9] = "NEVADA";
-    set H2-4-DCCNMU-SPTURE empty;
-    H2-4-DCCNMU-SPTURE.UPI = DOR39W.WS-NCP-UPI;
-    H2-4-DCCNMU-SPTURE.CASE-SUFX = DOR39W.WS-CASE-SUFX;
-    call "DATEAPP"(GDW, VDBCONTROL, VMESSAGE){isNoRefresh = yes};
-    DOR39P9-S05();
-    set H2-CODE-TBL empty;
-    H2-CODE-TBL.CODE-TBL-CD = H2-4-DCCNMU-SPTURE.RSP-CNTY;
-    DOR39P9-S07();
-    DFMBTCH-XFER.PIO-POP-PARM[10] = H2-CODE-TBL.CODE-DESC;
-    DFMBTCH-XFER.PIO-POP-PARM[11] = GDW.DTLC;
-    /* GET EXTERNAL DOCKET NUMBER */
-    set H2-DOCKET empty;
-    H2-DOCKET.DCKT-NMB = DOR39W.WS-DCKT-NMB;
-    DOR39P9-S06();
-    DFMBTCH-XFER.PIO-POP-PARM[12] = DOR39W2.WS-INIDKT;
-    DFMBTCH-XFER.PIO-POP-PARM[13] = H2-OCSE-EMPLYR.EMPLYR-ORG-NAME;
-    DFMBTCH-XFER.PIO-POP-PARM[14] = H2-OCSE-EMPLYR.EMPLYR-ADR-LN1;
-    DFMBTCH-XFER.PIO-POP-PARM[15] = H2-OCSE-EMPLYR.EMPLYR-ADR-LN2;
-    DFMBTCH-XFER.PIO-POP-PARM[16] = H2-OCSE-EMPLYR.EMPLYR-CTY;
-    DFMBTCH-XFER.PIO-POP-PARM[17] = H2-OCSE-EMPLYR.EMPLYR-ST;
-    DFMBTCH-XFER.PIO-POP-PARM[18] = H2-OCSE-EMPLYR.EMPLYR-ZIP-CD;
-    /* concatenate NCP's name*/
-    VSTRREC4.USTRING = GNOMADS.G-LST-NAME;
-    VSTRREC4.UCONCAT = ",";
-    VSTRREC4.UCONCAT2 = GNOMADS.G-FRST-NAME;
-    VSTRREC4.UCONCAT3 = GNOMADS.G-MID-NAME;
-    VSTRREC4.USTRLEN = 56;
-    VSTRREC4.UCONLEN = 1;
-    VSTRREC4.UCONLEN2 = 21;
-    VSTRREC4.UCONLEN3 = 1;
-    call "WST50A"(VSTRREC4){isNoRefresh = yes};
-    DFMBTCH-XFER.PIO-POP-PARM[19] = VSTRREC4.USTRING;
-    /* concatenate CST's name*/
-    VSTRREC4.USTRING = G-IV-D.G-CST-LST-NAME;
-    VSTRREC4.UCONCAT = ",";
-    VSTRREC4.UCONCAT2 = G-IV-D.G-CST-FRST-NAME;
-    VSTRREC4.UCONCAT3 = G-IV-D.G-CST-MID-NAME;
-    VSTRREC4.USTRLEN = 56;
-    VSTRREC4.UCONLEN = 1;
-    VSTRREC4.UCONLEN2 = 21;
-    VSTRREC4.UCONLEN3 = 1;
-    call "WST50A"(VSTRREC4){isNoRefresh = yes};
-    DFMBTCH-XFER.PIO-POP-PARM[20] = VSTRREC4.USTRING;
-    DFMBTCH-XFER.PIO-POP-PARM[21] = "NEVADA";
-    /* ADD CHILD DATA */
-    set H2-2-DCN-PER empty;
-    H2-2-DCN-PER.DCKT-NMB = DOR39W.WS-DCKT-NMB;
-    H2-2-DCN-PER.NCP-UPI = DOR39W.WS-NCP-UPI;
-    H2-2-DCN-PER.CASE-SUFX = DOR39W.WS-CASE-SUFX;
-    DOR39P9-S08();
-    if(sysVar.sqlData.sqlcode == 0)
-        DOR39W.WS-CHD-INDEX = 23;
-        DOR39W.WS-CHD-INDEX2 = 1;
-        DOR39P9-S08-SCAN();
-        while(sysVar.sqlData.sqlcode == 0 && DOR39W.WS-CHD-INDEX2 <= 10)
-            DFMBTCH-XFER.PIO-POP-PARM[WS-CHD-INDEX] = DOR39W2.WS-NM;
-            DOR39W.WS-CHD-INDEX = DOR39W.WS-CHD-INDEX + 1;
-            DFMBTCH-XFER.PIO-POP-PARM[WS-CHD-INDEX] = DOR39W2.WS-SQL-DT;
-            DOR39W.WS-CHD-INDEX = DOR39W.WS-CHD-INDEX + 1;
-            DOR39W.WS-CHD-INDEX2 = DOR39W.WS-CHD-INDEX2 + 1;
-            DOR39P9-S08-SCAN();
-        end
-    end
-    /* CURRENT CS - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-CSPRAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-CSPRAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[45] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[46] = "MONTH";
-    end
-    /* PAST DUE CS - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-ZAPRAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-ZAPRAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[47] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[48] = "MONTH";
-    end
-    /* CURRENT MC - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-MCPRAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-MCPRAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[49] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[50] = "MONTH";
-    end
-    /* PAST DUE MEDICAL - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-OPRAMT1 == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-OPRAMT1;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[51] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[52] = "MONTH";
-    end
-    /* CURRENT SS - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-OPRAMT2 == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-OPRAMT2;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[53] = "SPOUSAL SUPPORT";
-        DFMBTCH-XFER.PIO-POP-PARM[54] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[55] = "MONTH";
-    end
-    /* TOTAL AMT - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-TOTAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-TOTAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[57] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[58] = "MONTH";
-    end
-    /* Check if 12 weeks' worth of child support are due:*/
-    if(DOR39W.WS-ARREARS > DOR39W.WS-CS-T-3)
-        DFMBTCH-XFER.PIO-POP-PARM[59] = "X"; /* "yes" box*/
-        DFMBTCH-XFER.PIO-POP-PARM[60] = " "; /* "no" box*/
-    else
-        DFMBTCH-XFER.PIO-POP-PARM[59] = " ";
-        DFMBTCH-XFER.PIO-POP-PARM[60] = "X";
-    end
-    /* WEEKLY AMT - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-WAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-WAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[61] = VSTRREC3.UOUT-STRING;
-    end
-    /* BI-WEEKLY AMT - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-BAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-BAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[62] = VSTRREC3.UOUT-STRING;
-    end
-    /* SEMI-MONTHLY AMT - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-SAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-SAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[63] = VSTRREC3.UOUT-STRING;
-    end
-    /* MONTHLY AMT - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-MAMT == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-MAMT;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[64] = VSTRREC3.UOUT-STRING;
-    end
-    DFMBTCH-XFER.PIO-POP-PARM[65] = "14";
-    DFMBTCH-XFER.PIO-POP-PARM[68] = "3200000";
-    DFMBTCH-XFER.PIO-POP-PARM[77] = "X";
-    /* GET OFFICE AND CASEWORKER INFORMATION */
-    set H2-OFFICE empty;
-    H2-OFFICE.OFC-CD = H2-4-DCCNMU-SPTURE.OFC-CD;
-    DOR39P9-S09(); /* OFFICE*/
-    /* --- Correspondence address from IRG:*/
-    set H2-INTERST-RFGUIDE empty;
-    H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-    H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-    H2-INTERST-RFGUIDE.ADR-TYPE2 = "SDU";
-    DOR39P9-S10();
-        if(sysVar.sqlData.sqlcode == 100)
-        set H2-INTERST-RFGUIDE empty;
-        H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-        H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-        H2-INTERST-RFGUIDE.ADR-TYPE2 = "COL";
-        DOR39P9-S10();
-    end
-    /* Second attempt:*/
-    if(sysVar.sqlData.sqlcode == 100)
-        set H2-INTERST-RFGUIDE empty;
-        H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-        H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-        DOR39P9-S11();
-    end
-    /* Third attempt:*/
-    if(sysVar.sqlData.sqlcode == 100)
-        set H2-INTERST-RFGUIDE empty;
-        H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-        H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-        DOR39P9-S12();
-    end
-    DFMBTCH-XFER.PIO-POP-PARM[78] = H2-INTERST-RFGUIDE.AGENCY-NM;
-    DFMBTCH-XFER.PIO-POP-PARM[79] = H2-INTERST-RFGUIDE.ADLN1;
-    DFMBTCH-XFER.PIO-POP-PARM[80] = H2-INTERST-RFGUIDE.ADLN2;
-    DFMBTCH-XFER.PIO-POP-PARM[81] = H2-INTERST-RFGUIDE.CITY;
-    DFMBTCH-XFER.PIO-POP-PARM[82] = H2-INTERST-RFGUIDE.ST-CD-CNTRY-NM;
-    DFMBTCH-XFER.PIO-POP-PARM[83] = H2-INTERST-RFGUIDE.ZIP-CD;
-    if(H2-INTERST-RFGUIDE.PHN-EXT > " ")
-        VSTRREC4.USTRING = H2-INTERST-RFGUIDE.PHN-NMB;
-        VSTRREC4.UCONCAT = "X";
-        VSTRREC4.UCONCAT2 = H2-INTERST-RFGUIDE.PHN-EXT;
-        VSTRREC4.USTRLEN = 10;
-        VSTRREC4.UCONLEN = 1;
-        VSTRREC4.UCONLEN2 = 5;
-        VSTRREC4.UCONLEN3 = 0;
-        call "WST50A"(VSTRREC4){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[84] = VSTRREC4.USTRING;
-    else
-        DFMBTCH-XFER.PIO-POP-PARM[84] = H2-INTERST-RFGUIDE.PHN-NMB;
-    end
-    DFMBTCH-XFER.PIO-POP-PARM[85] = H2-INTERST-RFGUIDE.FAX-NMB;
-    /* FEES - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-OPRAMT3 == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-OPRAMT3;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[56] = "FEES";
-        DFMBTCH-XFER.PIO-POP-PARM[86] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[88] = "MONTH";
-    end
-    /* PAST DUE SS - reformat number to decimal with no leading zeros*/
-    if(DOR39W.WS-OPRAMT4 == 0)
-    /* DON'T POPULATE PARAMATERS */
-    else
-        set VSTRREC3 empty;
-        VFRMREC.WS-AMT-FMT = " ";
-        VSTRREC3.ULENGTH = 10;
-        VSTRREC3.UDECS = 2;
-        VSTRREC3.UFILL-CHR = " ";
-        VSTRREC3.UCUR-SIGN = "N";
-        VSTRREC3.UCUR-COMMAS = "Y";
-        VSTRREC3.UNEG-POS = "T";
-        VSTRREC3.UINNUM-D02 = DOR39W.WS-OPRAMT4;
-        call "WST45A"(VCONTROL, VMESSAGE, VSTRREC3){isNoRefresh = yes};
-        DFMBTCH-XFER.PIO-POP-PARM[89] = VSTRREC3.UOUT-STRING;
-        DFMBTCH-XFER.PIO-POP-PARM[90] = "MONTH";
-    end
-    DFMBTCH-XFER.WS-APPL-ID = FDOR-IWIT-DTLS.F-APPL-NAME;
-    call "DFM10A"(VDBCONTROL, VMESSAGE, DFMBTCH-XFER){isNoRefresh = yes};
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-
-    FDOR-IWIT-DTLS.F-NV0014-GENERATED-IND = "Y";
-
-    /* CREATE EIWO RECORD */
-    set H2-EIWO empty;
-    H2-EIWO.DCKT-NMB = DOR39W.WS-DCKT-NMB;
-    H2-EIWO.EMPLYR-FEIN = H2-OCSE-EMPLYR.EMPLYR-FEIN;
-    H2-EIWO.EIWO-TS = GDW.TS;
-    H2-EIWO.SENT-CD = "N";
-    if(DOR39W.WS-OA-IND == "O")
-        H2-EIWO.DOC-ACT-CD = "ORG";
-    else
-        H2-EIWO.DOC-ACT-CD = "AMD";
-    end
-    H2-EIWO.CURR-CHD-AMT = DOR39W.WS-CSPRAMT;
-    H2-EIWO.CURR-CHD-FRQ-CD = "M";
-    H2-EIWO.PAST-CHD-AMT = DOR39W.WS-ZAPRAMT;
-    H2-EIWO.PAST-CHD-FRQ-CD = "M";
-    H2-EIWO.CURR-MED-AMT = DOR39W.WS-MCPRAMT;
-    H2-EIWO.CURR-MED-FRQ-CD = "M";
-    H2-EIWO.PAST-MED-AMT = DOR39W.WS-OPRAMT1;
-    H2-EIWO.PAST-MED-FRQ-CD = "M";
-    H2-EIWO.CURR-SPS-AMT = DOR39W.WS-OPRAMT2;
-    H2-EIWO.CURR-SPS-FRQ-CD = "M";
-    H2-EIWO.PAST-SPS-AMT = DOR39W.WS-OPRAMT4;
-    H2-EIWO.PAST-SPS-FRQ-CD = "M";
-    H2-EIWO.OTH-AMT = DOR39W.WS-OPRAMT3;
-    H2-EIWO.OTH-FRQ-CD = "M";
-    H2-EIWO.OTH-DESC-TXT = "FEES";
-    H2-EIWO.TOT-AMNT = DOR39W.WS-TOTAMT;
-    H2-EIWO.TOT-FRQ-CD = "M";
-    if(DFMPOP-TRANSFER.PIO-POP-PARM[59] == "X")
-        H2-EIWO.ARRS-12WK-CD = "Y";
-    else
-        H2-EIWO.ARRS-12WK-CD = "N";
-    end
-    H2-EIWO.INC-WTHD-WK-AMT = DOR39W.WS-WAMT;
-    H2-EIWO.INC-WTHD-BIWK-AMT = DOR39W.WS-BAMT;
-    H2-EIWO.INC-WTHD-SEMI-AMT = DOR39W.WS-SAMT;
-    H2-EIWO.INC-WTHD-MTH-AMT = DOR39W.WS-MAMT;
-    /* ADD RECORD */
-    DOR39P9-EIWO-ADD();
-
-    /* CREATE FORM EIWO TRACKING RECORD */
-    set H2-FRM-CASE-TRKNG empty;
-    H2-FRM-CASE-TRKNG.NCP-UPI = DOR39W.WS-NCP-UPI;
-    H2-FRM-CASE-TRKNG.CASE-SUFX = DOR39W.WS-CASE-SUFX;
-    call "DATEAPP"(GDW, VDBCONTROL, VMESSAGE){isNoRefresh = yes};
-    H2-FRM-CASE-TRKNG.AUDIT-TS = GDW.TS;
-    if(DOR39W.WS-OA-IND == "O")
-        H2-FRM-CASE-TRKNG.FORM-ID = "NVEIWO";
-    else
-        H2-FRM-CASE-TRKNG.FORM-ID = "NVEIWA";
-    end
-    H2-FRM-CASE-TRKNG.CATEGORY = "N";
-    H2-FRM-CASE-TRKNG.FUNCTIONAL-AREA = H2-IVD-CASE.FUNC-AREA-CD;
-    if(DOR39W.WS-APPL-TYPE == "O")
-        H2-FRM-CASE-TRKNG.AUDIT-USRID = sysVar.userID;
-    else
-        H2-FRM-CASE-TRKNG.AUDIT-USRID = "BATCH";
-    end
-    /* ADD RECORD */
-    DOR39P9-FORM-ADD();
-
-    /* SET EIWO STS TO 'P' */
-    set H3-JOB-HISTORY empty;
-    H3-JOB-HISTORY.EIWO-STS = "P";
-    H3-JOB-HISTORY.EIWO-RSN = " ";
-    H3-JOB-HISTORY.UPI = DOR39W.WS-NCP-UPI;
-    H3-JOB-HISTORY.EMPLR-ID = DOR39W.WS-EMPLR-ID;
-    H3-JOB-HISTORY.CRTN-DT = H2-JOB-HISTORY.CRTN-DT;
-    DOR39P9-JHS-U03Q1();
-
-end // end DOR39P9-EIWO-PROC
-
-// UPDATE-emplr wage withholding
-
-function DOR39P9-EWD-I04Q1()
-/*  */
-    WDB00PI();
-    /*  */
-    VDBCONTROL.UACCTYP = "W";
-    VDBCOMMON.UAPPLNAM = "DOR26A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OBJ = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    VDBCONTROL.UPROC-NM = "DOR39P9-EWD-I04Q1";
-    try
-        add H2-EMPLR-WWH-DTLS
-                with #sql{
-        insert into twnemplr_wwh_dtls
-        (EMPLR_ID, DCKT_NMB, EMPLR_WWH_ESTD_AMT,
-          INC_WH_TRMND_DT, INC_WH_STRT_DT,
-          EMPLR_DELIN_DT)
-        values (:EMPLR-ID, :DCKT-NMB, :EMPLR-WWH-ESTD-AMT,
-          :INC-WH-TRMND-DT, :INC-WH-STRT-DT,
-          :EMPLR-DELIN-DT)
-      };
-    end
-    if(sysVar.sqlData.sqlcode != 0)
-        VDBCOMMON.UNRF = "Y";
-        VDBCOMMON.UDUP = "Y";
-        /*  */
-        /* Perform DBM error processing*/
-        WDB00PE-SQLERR();
-        /*  */
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-end // end DOR39P9-EWD-I04Q1
-
-// Get Employer Wage Withholding
-
-function DOR39P9-EWD-S09Q1()
-/*  */
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OBJ = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    VDBCONTROL.UPROC-NM = "DOR39P9-EWD-S09Q1";
-    try
-        get H2-EMPLR-WWH-DTLS singleRow
-                with #sql{
-        select EMPLR_ID, DCKT_NMB, EMPLR_WWH_ESTD_AMT,
-          INC_WH_TRMND_DT, INC_WH_STRT_DT,
-          EMPLR_DELIN_DT
-        from twnemplr_wwh_dtls T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          EMPLR_ID = :EMPLR-ID AND
-          DCKT_NMB = :DCKT-NMB
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into EMPLR-ID, DCKT-NMB, EMPLR-WWH-ESTD-AMT, INC-WH-TRMND-DT, INC-WH-STRT-DT, EMPLR-DELIN-DT;
-    end
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        VDBCOMMON.UNRF = "1";
-        VDBCOMMON.UDUP = "N";
-        /*  */
-        /* Perform DBM error processing*/
-        WDB00PE-SQLERR();
-        /*  */
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-end // end DOR39P9-EWD-S09Q1
-
-// Update Emplr Wage Withholding
-
-function DOR39P9-EWD-U03Q1()
-/*  */
-    WDB00PI();
-    /*  */
-    VDBCONTROL.UACCTYP = "W";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OBJ = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OPT = "UPDATE";
-    VDBCONTROL.UPROC-NM = "DOR39P9-EWD-U03Q1";
-    try
-        execute update 
-                #sql{
-        UPDATE
-          twnemplr_wwh_dtls T1
-        SET
-          EMPLR_WWH_ESTD_AMT = :EMPLR-WWH-ESTD-AMT,
-          INC_WH_TRMND_DT    = :INC-WH-TRMND-DT,
-          INC_WH_STRT_DT     = :INC-WH-STRT-DT,
-          EMPLR_DELIN_DT     = :EMPLR-DELIN-DT
-        WHERE DCKT_NMB = :DCKT-NMB
-          AND EMPLR_ID = :EMPLR-ID
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-      }
-                for H2-EMPLR-WWH-DTLS; // model = update
-    end
-    if(sysVar.sqlData.sqlcode != 0)
-        VDBCOMMON.UNRF = "Y";
-        VDBCOMMON.UDUP = "Y";
-        /*  */
-        /* Perform DBM error processing*/
-        WDB00PE-SQLERR();
-        /*  */
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-end // end DOR39P9-EWD-U03Q1
-
-function DOR39P9-EWS-IWO()
-    set DOR39W2 empty;
-    /* Get Case Data*/
-    set H2-IVD-CASE empty;
-    H2-IVD-CASE.NCP-UPI = DOR39W.WS-NCP-UPI;
-    H2-IVD-CASE.CASE-SUFX = DOR39W.WS-CASE-SUFX;
-    DOR39P9-S04();
-    // WI 1788 begin
-    if(H2-IVD-CASE.CASE-TYPE != "D")
-        /* Get Employer Data*/
-        set H2-EMPLOYER empty;
-        H2-EMPLOYER.EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
-        DOR39P9-S01();
-        /* Get NCP Data*/
-        set H2-PERSON empty;
-        H2-PERSON.UPI = DOR39W.WS-NCP-UPI;
-        DOR39P9-S02();
-
-        /* Get Caseworker Data*/
-        set H2-4-DCCNMU-SPTURE empty;
-        H2-4-DCCNMU-SPTURE.UPI = DOR39W.WS-NCP-UPI;
-        H2-4-DCCNMU-SPTURE.CASE-SUFX = DOR39W.WS-CASE-SUFX;
-        call "DATEAPP"(GDW, VDBCONTROL, VMESSAGE){isNoRefresh = yes};
-        DOR39P9-S05();
-        set H2-OFFICE empty;
-        H2-OFFICE.OFC-CD = H2-4-DCCNMU-SPTURE.OFC-CD;
-        DOR39P9-S09(); /* OFFICE*/
-        /*  */
-        /* --- Correspondence address from IRG:*/
-        /*  */
-        set H2-INTERST-RFGUIDE empty;
-        /*  */
-        H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-        H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-        H2-INTERST-RFGUIDE.ADR-TYPE2 = "SDU";
-        DOR39P9-S10();
-        if(sysVar.sqlData.sqlcode == 100)
-            set H2-INTERST-RFGUIDE empty;
-            H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-            H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-            H2-INTERST-RFGUIDE.ADR-TYPE2 = "COL";
-            DOR39P9-S10();
-        end
-        /*  */
-        /* Second attempt:*/
-        if(sysVar.sqlData.sqlcode == 100)
-            set H2-INTERST-RFGUIDE empty;
-            H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-            H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-            DOR39P9-S11();
-        end
-        /*  */
-        /* Third attempt:*/
-        if(sysVar.sqlData.sqlcode == 100)
-            set H2-INTERST-RFGUIDE empty;
-            H2-INTERST-RFGUIDE.FIPS-CD = H2-OFFICE.FIPS-CD;
-            H2-INTERST-RFGUIDE.FIPS-CD-SUFX = H2-OFFICE.FIPS-CD-SUFX;
-            DOR39P9-S12();
-        end
-        /*  */
-        DOR39W2.WS-WRKR-FAX = H2-INTERST-RFGUIDE.FAX-NMB;
-        /*  */
-        if(H2-INTERST-RFGUIDE.PHN-EXT > " ")
-            VSTRREC4.USTRING = H2-INTERST-RFGUIDE.PHN-NMB;
-            VSTRREC4.UCONCAT = "X";
-            VSTRREC4.UCONCAT2 = H2-INTERST-RFGUIDE.PHN-EXT;
-            VSTRREC4.USTRLEN = 10;
-            VSTRREC4.UCONLEN = 1;
-            VSTRREC4.UCONLEN2 = 5;
-            VSTRREC4.UCONLEN3 = 0;
-            call "WST50A"(VSTRREC4){isNoRefresh = yes};
-            DOR39W2.WS-WRKR-PHONE = VSTRREC4.USTRING;
-        else
-            DOR39W2.WS-WRKR-PHONE = H2-INTERST-RFGUIDE.PHN-NMB;
-        end
-        /*  */
-        /* Get Docket Data*/
-        set H2-DOCKET empty;
-        H2-DOCKET.DCKT-NMB = DOR39W.WS-DCKT-NMB;
-        DOR39P9-S06();
-        /* Get County Name*/
-        set H2-CODE-TBL empty;
-        H2-CODE-TBL.CODE-TBL-CD = H2-4-DCCNMU-SPTURE.RSP-CNTY;
-        DOR39P9-S07();
-        /* Load Data in Working Storage*/
-        DOR39W2.WS-REC-TYPE = "IWO ";
-        DOR39W2.WS-EMPLR-ID = H2-EMPLOYER.EMPLR-ID;
-        DOR39W2.WS-FORMATTED-FEIN = H2-EMPLOYER.EMPLR-ID;
-        if(DOR39W2.WS-FORMATTED-FEIN-FILL1 == "-")
-            DOR39W2.WS-FEIN = DOR39W2.WS-EMPLR-ID;
-        else
-            DOR39W2.WS-FEIN = H2-EMPLOYER.FEIN;
-        end
-        DOR39W2.WS-EMPLR-NM = H2-EMPLOYER.EMPLR-NM;
-        DOR39W2.WS-EMPLR-ADR-LN1 = H2-EMPLOYER.ADR-LN1;
-        DOR39W2.WS-EMPLR-ADR-LN2 = H2-EMPLOYER.ADR-LN2;
-        DOR39W2.WS-EMPLR-CITY = H2-EMPLOYER.CITY;
-        DOR39W2.WS-EMPLR-ST = H2-EMPLOYER.ST-CD;
-        DOR39W2.WS-EMPLR-ZIP = H2-EMPLOYER.ZIP-CD;
-        DOR39W2.WS-EMPLR-CNTRY = H2-EMPLOYER.CNTRY;
-        DOR39W2.WS-NCP-FRST-NM = H2-PERSON.FRST-NM;
-        DOR39W2.WS-NCP-MID-NM = H2-PERSON.MID-NM;
-        DOR39W2.WS-NCP-LST-NM = H2-PERSON.LST-NM;
-        DOR39W2.WS-NCP-SSN = H2-PERSON.SSN;
-        DOR39W2.WS-NCP-UPI = DOR39W.WS-NCP-UPI;
-        DOR39W2.WS-CASE-ID = DOR39W2.WS-TEMP-CASE-ID;
-        /* MOVE H2-IVD-CASELD-CASE.OFC-CD TO DOR39W2.WS-CNTY-CD;*/
-        DOR39W2.WS-CNTY-CD = H2-OFFICE.OFC-CD;
-        DOR39W2.WS-FUNC-AREA-CD = H2-IVD-CASE.FUNC-AREA-CD;
-        /*  */
-        DFC03W1.PIO-STR-1 = H2-4-DCCNMU-SPTURE.FRST-NM;
-        DFC03W1.PIO-STR-2 = H2-4-DCCNMU-SPTURE.MID-NM;
-        DFC03W1.PIO-STR-3 = H2-4-DCCNMU-SPTURE.LST-NM;
-        DFC03W1.PIO-STR-4 = H2-4-DCCNMU-SPTURE.MODFR;
-        DFC03W1.PIO-STR-5 = " ";
-        call "DFC03A"(DFC03W1){isNoRefresh = yes};
-        DOR39W2.WS-WRKR-NM = DFC03W1.PIO-STR-CHAR;
-        /*  */
-        DOR39W2.WS-NOMADS-USRID = H2-4-DCCNMU-SPTURE.NOMADS-USRID;
-        /*  */
-        DOR39W2.WS-WRKR-TITLE = "CASE MANAGER";
-        DOR39W2.WS-WRKR-EMAIL = "https://dwss.nv.gov/?ChildSupportEmployer.html";
-        if(DOR39W.WS-OA-IND == "O")
-            DOR39W2.WS-IWO-TYPE = "ORG";
-        else
-            DOR39W2.WS-IWO-TYPE = "AMD";
-        end
-        DOR39W2.WS-DCKT-NMB = DOR39W2.WS-INIDKT;
-        DOR39W2.WS-ST-TRIBE-TERR = "NEVADA";
-        DOR39W2.WS-CNTY = H2-CODE-TBL.CODE-DESC;
-        /* Get CST Data*/
-        set H2-PERSON empty;
-        H2-PERSON.UPI = H2-IVD-CASE.CST-UPI;
-        DOR39P9-S02();
-        /*  */
-        DOR39W2.WS-CST-FRST-NM = H2-PERSON.FRST-NM;
-        DOR39W2.WS-CST-MID-NM = H2-PERSON.MID-NM;
-        DOR39W2.WS-CST-LST-NM = H2-PERSON.LST-NM;
-        /*  */
-        DOR39W2.WS-CS-MTLY-AMT = DOR39W.WS-CSPRAMT;
-        DOR39W2.WS-CS-ARRS-MTLY-AMT = DOR39W.WS-ZAPRAMT;
-        if(DOR39W.WS-ARREARS > DOR39W.WS-CS-T-3)
-            DOR39W2.WS-12-WKS-DELN-FG = "Y";
-        else
-            DOR39W2.WS-12-WKS-DELN-FG = "N";
-        end
-        DOR39W2.WS-MED-MTLY-AMT = DOR39W.WS-MCPRAMT;
-        DOR39W2.WS-MED-ARRS-MTLY-AMT = DOR39W.WS-OPRAMT1;
-        DOR39W2.WS-SS-MTLY-AMT = DOR39W.WS-OPRAMT2;
-        DOR39W2.WS-SS-ARRS-MTLY-AMT = DOR39W.WS-OPRAMT4;
-        DOR39W2.WS-OTH-MTLY-AMT = DOR39W.WS-OPRAMT3;
-        if(WS-OPRAMT3 > 0.00)
-            DOR39W2.WS-OTH-LABEL = "FEES";
-        end
-        DOR39W2.WS-MTLY-TOT = DOR39W.WS-MAMT;
-        DOR39W2.WS-WKLY-TOT = DOR39W.WS-WAMT;
-        DOR39W2.WS-BIWKLY-TOT = DOR39W.WS-BAMT;
-        DOR39W2.WS-SEMI-MTLY-TOT = DOR39W.WS-SAMT;
-        DOR39W2.WS-AUTH-REP-NM = "Nevada Child Support Enforcement Program";
-        /* Per Teri Harasha, Copy to Obligor will always be 'Y'*/
-        DOR39W2.WS-COPY-TO-NCP-FG = "Y";
-        /* Get Children Data*/
-        set H2-2-DCN-PER empty;
-        H2-2-DCN-PER.DCKT-NMB = DOR39W.WS-DCKT-NMB;
-        H2-2-DCN-PER.NCP-UPI = DOR39W.WS-NCP-UPI;
-        H2-2-DCN-PER.CASE-SUFX = DOR39W.WS-CASE-SUFX;
-        /*  */
-        DOR39P9-S08();
-        /*  */
-        DOR39P9-S08-SCAN(); /* Read the row*/
-        /*  */
-        DOR39W2.WS-NDX = 1;
-        while(H2-2-DCN-PER not noRecordFound /* While not NRF*/ &&
-                DOR39W2.WS-NDX < 16)
-            /* Remove extra spaces if name has no middle name*/
-            set VSTRREC7 empty;
-            VSTRREC7.UINSTRG = DOR39W2.WS-NM;
-            VSTRREC7.USTRLENGTH = 60;
-            call "WST60A"(VSTRREC7);
-            DOR39W2.WS-CHD-NM[WS-NDX] = VSTRREC7.UOUTSTRG;
-            /*  */
-            DOR39W2.WS-CHD-SSN[WS-NDX] = H2-2-DCN-PER.SSN;
-            DOR39W2.WS-DT8-CCYY = DOR39W2.WS-SQL-CCYY;
-            DOR39W2.WS-DT8-MM = DOR39W2.WS-SQL-MM;
-            DOR39W2.WS-DT8-DD = DOR39W2.WS-SQL-DD;
-            DOR39W2.WS-CHD-DOB[WS-NDX] = DOR39W2.WS-DT8;
-            DOR39W2.WS-NDX = DOR39W2.WS-NDX + 1;
-            DOR39P9-S08-SCAN(); /* Read the row*/
-        end
-        // WI 2699 begin
-        DOR39W2.WS-OFC-NM = H2-INTERST-RFGUIDE.AGENCY-NM;
-        DOR39W2.WS-OFC-ADR-LN1 = H2-INTERST-RFGUIDE.ADLN1;
-        DOR39W2.WS-OFC-ADR-LN2 = H2-INTERST-RFGUIDE.ADLN2;
-        DOR39W2.WS-OFC-CITY = H2-INTERST-RFGUIDE.CITY;
-        DOR39W2.WS-OFC-ST = H2-INTERST-RFGUIDE.ST-CD-CNTRY-NM;
-        DOR39W2.WS-OFC-ZIP-CD = H2-INTERST-RFGUIDE.ZIP-CD;
-        // WI 2699 end
-        
-        /*  */
-        DOR39P9-WRITE();
-    end
-end // end DOR39P9-EWS-IWO
-
-// Scan for Inactive Fin Oblign
-
-function DOR39P9-FIO-S03Q1()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-OBJ = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-NM = "DOR39P9-FIO-S03Q1";
-    VDBCONTROL.UPROC-OPT = "SETINQ";
-    set H2-FINAN-OBLGN empty;
-    H2-FINAN-OBLGN.DCKT-NMB = DOR39W.WS-DCKT-NMB;
-    H2-FINAN-OBLGN.SQNC-NMB = DOR39W.WS-SQNC-NMB;
-    /*  */
-    try
-        open DOR39P9-FIO-S03Q1_RSI01
-                with #sql{
-        select PRVSN_TYPE,
-          CRNT_OBLGN_STS,
-          ARR_OBLGN_STS
-        from TWNFINAN_OBLGN T1
-        WHERE
-          DCKT_NMB   = :DCKT-NMB AND
-          SQNC_NMB   = :SQNC-NMB  AND
-         (CRNT_OBLGN_STS = 'I' OR
-          ARR_OBLGN_STS  = 'I')
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into PRVSN-TYPE, CRNT-OBLGN-STS, ARR-OBLGN-STS
-                for H2-FINAN-OBLGN;
-    end
-    /*  */
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        VDBCOMMON.UNRF = "1";
-        VDBCOMMON.UNRF = "N";
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-    while(sysVar.sqlData.sqlcode == 0)
-        DOR39P9-FIO-S03QS();
-    end
-end // end DOR39P9-FIO-S03Q1
-
-// Scan Finantial Obligation Curs
-
-function DOR39P9-FIO-S03QS()
-    VDBCOMMON.USQLREC = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-OBJ = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    VDBCONTROL.UPROC-NM = "DOR39P9-FIO-S03QS";
-    /*  */
-    try
-        get next H2-FINAN-OBLGN;
-    end
-    /*  */
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        VDBCOMMON.UNRF = "1";
-        VDBCOMMON.UNRF = "N";
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-    if(sysVar.sqlData.sqlcode == 0)
-        if(H2-FINAN-OBLGN.PRVSN-TYPE == "CS")
-            if(H2-FINAN-OBLGN.CRNT-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[1] = "Y";
-            end
-            if(H2-FINAN-OBLGN.ARR-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[2] = "Y";
-            end
-        end
-        if(H2-FINAN-OBLGN.PRVSN-TYPE == "SS")
-            if(H2-FINAN-OBLGN.CRNT-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[3] = "Y";
-            end
-            if(H2-FINAN-OBLGN.ARR-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[4] = "Y";
-            end
-        end
-        if(H2-FINAN-OBLGN.PRVSN-TYPE == "MC")
-            if(H2-FINAN-OBLGN.CRNT-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[5] = "Y";
-            end
-            if(H2-FINAN-OBLGN.ARR-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[6] = "Y";
-            end
-        end
-        if(H2-FINAN-OBLGN.PRVSN-TYPE == "MX")
-            if(H2-FINAN-OBLGN.ARR-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[7] = "Y";
-            end
-        end
-        if(H2-FINAN-OBLGN.PRVSN-TYPE == "FE")
-            if(H2-FINAN-OBLGN.ARR-OBLGN-STS == "I")
-                DOR39W.WS-INACT-IND[8] = "Y";
-            end
-        end
-    end
-end // end DOR39P9-FIO-S03QS
-
-// Get Finantial Obligation
-
-function DOR39P9-FIO-S06Q1()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-OBJ = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-NM = "DOR39P9-FIO-S06Q1";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    VDBCOMMON.UNRF = "1";
-    VDBCOMMON.UDUP = "N";
-    VDBCOMMON.UDUP = "N";
-    set H2-FINAN-OBLGN empty;
-    H2-FINAN-OBLGN.DCKT-NMB = DOR39W.WS-DCKT-NMB;
-    H2-FINAN-OBLGN.SQNC-NMB = DOR39W.WS-SQNC-NMB;
-    /*  */
-    try
-        get H2-FINAN-OBLGN singleRow
-                with #sql{
-        select ADMIN_CMOA
-        from TWNFINAN_OBLGN T1
-        WHERE
-          DCKT_NMB   = :DCKT-NMB AND
-          SQNC_NMB   =:SQNC-NMB  AND
-          PRVSN_TYPE = 'CS'
-         --**
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into ADMIN-CMOA;
-    end
-    /*  */
-    if(H2-FINAN-OBLGN is noRecordFound) /* If record not found => return*/
-        return;
-    end
-    /*  */
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        VDBCOMMON.UNRF = "1";
-        VDBCOMMON.UNRF = "N";
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-    if(H2-FINAN-OBLGN.ADMIN-CMOA > 0)
-        DOR39W.WS-ZAPRAMT = H2-FINAN-OBLGN.ADMIN-CMOA;
-    end
-end // end DOR39P9-FIO-S06Q1
-
-// WI 1753 - INSERT FORM TRACKING
-
-function DOR39P9-FORM-ADD()
-    WDB00PI();
-
-    VDBCONTROL.UACCTYP = "W";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-
-    VDBCOMMON.USQLREC = "H2-FRM-CASE-TRKNG";
-    VDBCONTROL.UPROC-OBJ = "H2-FRM-CASE-TRKNG";
-    VDBCONTROL.UPROC-NM = "DOR39P9-FORM-ADD";
-    VDBCONTROL.UPROC-OPT = "ADD";
-    try
-        add H2-FRM-CASE-TRKNG;
-    end
-
-    WDB00PE-SQLERR();
-    /*  */
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-
-end // end DOR39W-FORM-ADD
-
-// Select Person
-
-function DOR39P9-GET-CST()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-PERSON";
-    VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-    VDBCONTROL.UPROC-NM = "DOR39P9-GET-CST";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    set H2-PERSON empty;
-    H2-PERSON.UPI = DOR39W.WS-CST-UPI;
-    try
-        get H2-PERSON
-                with #sql{
-        select MODFR,
-          MID_NM,
-          FRST_NM,
-          LST_NM,
-          SSN
-        from TWNPERSON T1
-        WHERE
-          UPI = :UPI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into MODFR, MID-NM, FRST-NM, LST-NM, SSN;
-    end
-    DOR39W.WS-SQL-CODE = sysVar.sqlData.sqlcode;
-    /*  */
-    if(sysVar.sqlData.sqlcode != 0)
-        VDBCOMMON.UNRF = "Y";
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-
-    VSTRREC4.USTRING = H2-PERSON.FRST-NM;
-    VSTRREC4.UCONCAT = H2-PERSON.MID-NM;
-    VSTRREC4.UCONCAT2 = H2-PERSON.LST-NM;
-    VSTRREC4.UCONCAT3 = H2-PERSON.MODFR;
-    VSTRREC4.USTRLEN = 56;
-    VSTRREC4.UCONLEN = 16;
-    VSTRREC4.UCONLEN2 = 21;
-    VSTRREC4.UCONLEN3 = 3;
-    call "WST50A"(VSTRREC4){isNoRefresh = yes};
-    DFMPOP-TRANSFER.PIO-CST-NAME = VSTRREC4.USTRING;
-    DFMPOP-TRANSFER.PIO-CST-SSN = H2-PERSON.SSN;
-end // end DOR39P9-GET-CST
-
-// WI 1753 - INQUIRY TWNIVD_CASE FOR CST UPI
-
-function DOR39P9-GET-CST-UPI()
-    WDB00PI();
-    VDBCONTROL.UACCTYP = "R";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    VDBCOMMON.USQLREC = "H3-IVD-CASE";
-    VDBCONTROL.UPROC-OBJ = "H3-IVD-CASE";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    VDBCONTROL.UPROC-NM = "DOR39P9-GET-CST-UPI";
-    /*  */
-    try
-        get H3-IVD-CASE singleRow
-                with #sql{
-        select CST_UPI
-        from TWNIVD_CASE
-        WHERE NCP_UPI = :NCP-UPI
-        AND CASE_SUFX = :CASE-SUFX
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into CST-UPI;
-    end
-    /*  */
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DOR39P9-GET-CST-UPI()
-
-// WI 1753 - GET NCP NAME
-
-function DOR39P9-GET-NAME()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-PERSON";
-    VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-    VDBCONTROL.UPROC-NM = "DOR39P9-GET-NAME";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    /*  */
-    try
-        get H2-PERSON
-                with #sql{
-        select MODFR,
-          MID_NM,
-          FRST_NM,
-          LST_NM,
-          SSN
-        from TWNPERSON T1
-        WHERE
-          UPI = :UPI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into MODFR, MID-NM, FRST-NM, LST-NM, SSN;
-    end
-    /*  */
-    if(sysVar.sqlData.sqlcode != 0)
-        VDBCOMMON.UNRF = "Y";
-        WDB00PE-SQLERR();
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-end // end DOR39P9-GET-NAME
-
-// READ FROM job history
-
-function DOR39P9-JHS-S08Q1()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY ";
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-NM = "DOR39P9-JHS-S08Q1";
-    VDBCONTROL.UPROC-OPT = "SETINQ";
-    try
-        open DOR39P9-JHS-S08Q1_RSI01
-                with #sql{
-        select UPI, EMPLR_ID, CRTN_DT, JOB_BEG_DT, JOB_TITLE,
-          JOB_END_DT, UNION_NM, ZIP_CD, ST_CD, CITY,
-          HLTH_INS_IND, OCPTN_CD, EMPLT_STS_EFF_DT,
-          EMPLT_STS, VRFD_DT, VRFD_BY, EMPLT_INFO_SRC,
-          PHN_EXT, PHN_NMB, JH_NOTE, ADR_LN1, ADR_LN2,
-          VRFN_STS, NCP_WWH_EFF_DT, NCP_WWH_ESTD_AMT,
-          UNION_CD, NCP_WWH_STS
-        from TWNJOB_HISTORY T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE UPI = :UPI
-        AND JOB_END_DT = '9999-12-31'
-        AND VRFN_STS IN ('C', 'V')
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into UPI, EMPLR-ID, CRTN-DT, JOB-BEG-DT, JOB-TITLE, JOB-END-DT, UNION-NM, ZIP-CD, ST-CD, CITY, HLTH-INS-IND, OCPTN-CD, EMPLT-STS-EFF-DT, EMPLT-STS, VRFD-DT, VRFD-BY, EMPLT-INFO-SRC, PHN-EXT, PHN-NMB, JH-NOTE, ADR-LN1, ADR-LN2, VRFN-STS, NCP-WWH-EFF-DT, NCP-WWH-ESTD-AMT, UNION-CD, NCP-WWH-STS
-                for H2-JOB-HISTORY;
-    end
-    DOR39W.WS-SQL-CODE = sysVar.sqlData.sqlcode;
-    /*  */
-end // end DOR39P9-JHS-S08Q1
-
-// READ FROM job history
-
-function DOR39P9-JHS-S08Q2()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY ";
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-NM = "DOR39P9-JHS-S08Q2";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    try
-        get H2-JOB-HISTORY singleRow
-                with #sql{
-        select UPI, EMPLR_ID, CRTN_DT, JOB_BEG_DT, JOB_TITLE,
-          JOB_END_DT, UNION_NM, ZIP_CD, ST_CD, CITY,
-          HLTH_INS_IND, OCPTN_CD, EMPLT_STS_EFF_DT,
-          EMPLT_STS, VRFD_DT, VRFD_BY, EMPLT_INFO_SRC,
-          PHN_EXT, PHN_NMB, JH_NOTE, ADR_LN1, ADR_LN2,
-          VRFN_STS, NCP_WWH_EFF_DT, NCP_WWH_ESTD_AMT,
-          UNION_CD, NCP_WWH_STS
-        from TWNJOB_HISTORY T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.UPI      = :UPI
-          AND T1.EMPLR_ID = :EMPLR-ID
-          AND T1.CRTN_DT  = (SELECT MAX(T2.CRTN_DT)
-                               FROM TWNJOB_HISTORY T2
-                              WHERE T2.UPI      = T1.UPI
-                                AND T2.EMPLR_ID = T1.EMPLR_ID)
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into UPI, EMPLR-ID, CRTN-DT, JOB-BEG-DT, JOB-TITLE, JOB-END-DT, UNION-NM, ZIP-CD, ST-CD, CITY, HLTH-INS-IND, OCPTN-CD, EMPLT-STS-EFF-DT, EMPLT-STS, VRFD-DT, VRFD-BY, EMPLT-INFO-SRC, PHN-EXT, PHN-NMB, JH-NOTE, ADR-LN1, ADR-LN2, VRFN-STS, NCP-WWH-EFF-DT, NCP-WWH-ESTD-AMT, UNION-CD, NCP-WWH-STS;
-    end
-    DOR39W.WS-SQL-CODE = sysVar.sqlData.sqlcode;
-    /*  */
-    VDBCOMMON.UNRF = "Y";
-    VDBCOMMON.UDUP = "N";
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DOR39P9-JHS-S08Q2
-
-// READ FROM job history
-
-function DOR39P9-JHS-S08QS()
-/*  */
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY ";
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-NM = "DOR39P9-JHS-S01QS";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    try
-        get next H2-JOB-HISTORY;
-    end
-    DOR39W.WS-SQL-CODE = sysVar.sqlData.sqlcode;
-    /*  */
-    if(sysVar.sqlData.sqlcode == 0)
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-        FDOR-IWIT-DTLS.F-EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
-        DOR39W.HOLD-EMPL = H2-JOB-HISTORY.EMPLR-ID;
-    end
-end // end DOR39P9-JHS-S08QS
-
-// UPDATE ON job history
-
-function DOR39P9-JHS-U02Q1()
-/*  */
-    WDB00PI();
-    /*  */
-    VDBCONTROL.UACCTYP = "W";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    /*  */
-    VDBCOMMON.USQLREC = "H3-JOB-HISTORY";
-    VDBCONTROL.UPROC-OBJ = "H3-JOB-HISTORY";
-    VDBCONTROL.UPROC-OPT = "UPDATE";
-    VDBCONTROL.UPROC-NM = "DOR39P9-JHS-U02Q1";
-    /* **----------------------------------------------- temp ----*/
-    if(H3-JOB-HISTORY.NCP-WWH-ESTD-AMT == null)
-        H3-JOB-HISTORY.NCP-WWH-ESTD-AMT = 999.99;
-    end
-    if(H3-JOB-HISTORY.NCP-WWH-STS == null)
-        H3-JOB-HISTORY.NCP-WWH-STS = "Z";
-    end
-    /* **----------------------------------------------- temp ----*/
-    try
-        execute update 
-                #sql{
-        UPDATE
-          TWNJOB_HISTORY T1
-        SET
-          NCP_WWH_ESTD_AMT = :NCP-WWH-ESTD-AMT,
-          NCP_WWH_STS = :NCP-WWH-STS
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE EMPLR_ID = :EMPLR-ID
-        AND UPI = :UPI
-      }
-                for H3-JOB-HISTORY; // model = update
-    end
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        VDBCOMMON.UNRF = "Y";
-        VDBCOMMON.UDUP = "Y";
-        /*  */
-        /* Perform DBM error processing*/
-        WDB00PE-SQLERR();
-        /*  */
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-end // end DOR39P9-JHS-U02Q1
-
-// UPDATE EIWO STS
-
-function DOR39P9-JHS-U03Q1()
-/*  */
-    WDB00PI();
-    /*  */
-    VDBCONTROL.UACCTYP = "W";
-    VDBCOMMON.UAPPLNAM = "DOR39A";
-    VDBCOMMON.USQLREC = "H3-JOB-HISTORY";
-    VDBCONTROL.UPROC-OBJ = "H3-JOB-HISTORY";
-    VDBCONTROL.UPROC-OPT = "UPDATE";
-    VDBCONTROL.UPROC-NM = "DOR39P9-JHS-U03Q1";
-    /*  */
-    try
-        execute update 
-                #sql{
-        UPDATE
-          TWNJOB_HISTORY T1
-        SET
-          EIWO_STS = :EIWO-STS,
-          EIWO_RSN = :EIWO-RSN
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE EMPLR_ID = :EMPLR-ID
-        AND CRTN_DT = :CRTN-DT
-        AND UPI = :UPI
-      }
-                for H3-JOB-HISTORY; // model = update
-    end
-    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
-        VDBCOMMON.UNRF = "Y";
-        VDBCOMMON.UDUP = "Y";
-        /*  */
-        /* Perform DBM error processing*/
-        WDB00PE-SQLERR();
-        /*  */
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-    end
-    /*  */
-end // end DOR39P9-JHS-U03Q1
-
-// Calc IWIT for NV0014
-
-function DOR39P9-M-CALC-IWT()
-/*  */
-/* Scan for Inactivated Support Amounts*/
-/*  */
-    DOR39W.WS-INACT-IND[1] = "N"; /* Child support current (CS/C)*/
-    DOR39W.WS-INACT-IND[2] = "N"; /* Child support arrears (CS/A)*/
-    DOR39W.WS-INACT-IND[3] = "N"; /* Spousal support current (SS/C)*/
-    DOR39W.WS-INACT-IND[4] = "N"; /* Spousal support arrears (SS/A)*/
-    DOR39W.WS-INACT-IND[5] = "N"; /* Medical cash current (MC/C)*/
-    DOR39W.WS-INACT-IND[6] = "N"; /* Medical cash arrears (MC/A)*/
-    DOR39W.WS-INACT-IND[7] = "N"; /* Medical expense arrears (MX/A)*/
-    DOR39W.WS-INACT-IND[8] = "N"; /* Fees (FE)*/
-    /*  */
-    /* Check for inactive financial obligations:*/
-    DOR39P9-FIO-S03Q1();
-    /*  */
-    /* --- Monthly Support Amounts*/
-    /*  */
-    if(DOR39W.WS-PYMNT-DATE > DOR39W1.WS-FOR-DATE ||
-            FDOR-IWIT-DTLS.F-WS-DEF27-IND == "E")
-        DOR39P9-M-PROVISN();
-    else
-        DOR39P9-M-NCP-RCBL();
-    end
-    /*  */
-    /* ** WI835 - Mainframe calc now includes spousal sup. arrears * start **/
-    /* DOR39W.WS-TOTAMT = DOR39W.WS-CSPRAMT + DOR39W.WS-ZAPRAMT +*/
-    /* DOR39W.WS-MCPRAMT + DOR39W.WS-OPRAMT1 + DOR39W.WS-OPRAMT2 +*/
-    /* DOR39W.WS-OPRAMT3;*/
-
-    DOR39W.WS-TOTAMT = DOR39W.WS-CSPRAMT + DOR39W.WS-ZAPRAMT +
-            DOR39W.WS-MCPRAMT + DOR39W.WS-OPRAMT1 + DOR39W.WS-OPRAMT2 +
-            DOR39W.WS-OPRAMT3 + DOR39W.WS-OPRAMT4;
-    /* ** WI835 - Mainframe calc now includes spousal sup. arrears * end **/
-    /*  */
-    DOR39W.WS-WAMT = mathLib.round(DOR39W.WS-TOTAMT * 12 / 52,
-            -mathLib.decimals(DOR39W.WS-WAMT));
-    DOR39W.WS-BAMT = mathLib.round(DOR39W.WS-TOTAMT * 12 / 26,
-            -mathLib.decimals(DOR39W.WS-BAMT));
-    DOR39W.WS-SAMT = mathLib.round(DOR39W.WS-TOTAMT * 12 / 24,
-            -mathLib.decimals(DOR39W.WS-SAMT));
-    DOR39W.WS-MAMT = DOR39W.WS-TOTAMT;
-    DOR39W.WS-DCKT-AMOUNT = DOR39W.WS-TOTAMT;
-    DOR39W.WS-NCP-AMOUNT = DOR39W.WS-NCP-AMOUNT + DOR39W.WS-TOTAMT;
-    /*  */
-end // end DOR39P9-M-CALC-IWT
-
-// Calc obligations & variations
-
-function DOR39P9-M-NCP-RCBL()
-/*  */
-/* Check for variation in child support current*/
+/* Check for variation in child support CURRENT*/
 /*  */
     DOR39W.WS-CUR-VAR-IND = "N";
     if(DOR39W.WS-INACT-IND[1] != "Y")
@@ -1924,7 +11,6 @@ function DOR39P9-M-NCP-RCBL()
         H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
         H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
         H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
-        /* PERFORM DOR39P9-VARIATION;*/
         DOR39P9-M-VARIATN();
     end
     /*  */
@@ -1939,8 +25,1095 @@ function DOR39P9-M-NCP-RCBL()
         H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
         H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
         H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
-        /* PERFORM DOR39P9-VARIATION;*/
         DOR39P9-M-VARIATN();
+    end
+    /*  */
+    if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N"))
+        DOR39P9-PRV-S05Q1();
+        if(H2-PRVSN not noRecordFound)
+            if(DOR39W.WS-CUR-VAR-IND == "N" && DOR39W.WS-INACT-IND[1] == "N")
+                if(H2-PRVSN.CHD-SUPRT-FREQ == "M")
+                    DOR39W.WS-CSPRAMT = H2-PRVSN.CHD-SUPRT-AMT;
+                else
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.CHD-SUPRT-AMT;
+                    DFC34W.PI2-FREQ = H2-PRVSN.CHD-SUPRT-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-CSPRAMT = DFC34W.PO1-CURR-SUPP-CMOA;
+                end
+            end
+            if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[2] == "N")
+                if(H2-PRVSN.AREGE-FREQ == "M")
+                    DOR39W.WS-ZAPRAMT = H2-PRVSN.AREGE-COA;
+                else
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.AREGE-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.AREGE-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-ZAPRAMT = DFC34W.PO1-CURR-SUPP-CMOA;
+                end
+            end
+            DOR39P9-FIO-S06Q1(); /* If Finantial Obligation present (>0)*/
+        /* overlay this amount from there*/
+        end
+    end
+    /*  */
+    /* Check for variation in medical cash current*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[5] != "Y")
+        DOR39W.WS-CUR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "MC";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-M-VARIATN();
+    end
+    /*  */
+    /* Check for variation in medical cash arrears*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[6] != "Y")
+        DOR39W.WS-ARR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "MC";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-M-VARIATN();
+    end
+    /*  */
+    if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N") &&(
+            DOR39W.WS-INACT-IND[5] == "N" || DOR39W.WS-INACT-IND[6] == "N"))
+        DOR39P9-PRV-S05Q2();
+        if(DOR39W.WS-CUR-VAR-IND == "N" && DOR39W.WS-INACT-IND[5] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.MDCSH-CRSUP-COA-FQ !=
+                            " ")
+                if(H2-PRVSN.MDCSH-CRSUP-COA-FQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.MED-CSH-CRSUP-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.MDCSH-CRSUP-COA-FQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-MCPRAMT = DOR39W.WS-MCPRAMT +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                else
+                    DOR39W.WS-MCPRAMT = DOR39W.WS-MCPRAMT +
+                            H2-PRVSN.MED-CSH-CRSUP-COA;
+                end
+            end
+        end
+        if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[6] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.MDCSH-AREGE-COA-FQ !=
+                            " ")
+                if(H2-PRVSN.MDCSH-AREGE-COA-FQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.MED-CSH-AREGE-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.MDCSH-AREGE-COA-FQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                else
+                    DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                            H2-PRVSN.MED-CSH-AREGE-COA;
+                end
+            end
+        end
+    end
+    /*  */
+    /* Check for variation in medical outstanding arrears*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[7] != "Y")
+        DOR39W.WS-ARR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "MX";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-M-VARIATN();
+    end
+    /*  */
+    if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[7] == "N")
+        DOR39P9-PRV-S05Q3();
+        if(H2-PRVSN not noRecordFound && H2-PRVSN.MEDOS-AREGE-COA-FQ != " ")
+            if(H2-PRVSN.MEDOS-AREGE-COA-FQ != "M")
+                DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.MEDOS-AREGE-COA;
+                DFC34W.PI2-FREQ = H2-PRVSN.MEDOS-AREGE-COA-FQ;
+                call "DFC34A"(VDBCONTROL, VMESSAGE, DFC34W){isNoRefresh = yes};
+                if(VDBCONTROL.URC > 104)
+                    exit program;
+                end
+                DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                        DFC34W.PO1-CURR-SUPP-CMOA;
+            else
+                DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                        H2-PRVSN.MEDOS-AREGE-COA;
+            end
+        end
+    end
+    /*  */
+    /* Check for variation in spousal support current*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[3] != "Y")
+        DOR39W.WS-CUR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "SS";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-M-VARIATN();
+    end
+    /*  */
+    /* Check for variation in spousal support arrears*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[4] != "Y")
+        DOR39W.WS-ARR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "SS";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        /*  */
+        /* WI835 - Add in perform that was probably deleted earlier * start **/
+        DOR39P9-M-VARIATN();
+    /* WI835 - Add in perform that was probably deleted earlier * end **/
+    /*  */
+    end
+    /*  */
+    if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N") &&(
+            DOR39W.WS-INACT-IND[3] == "N" || DOR39W.WS-INACT-IND[4] == "N"))
+        DOR39P9-PRV-S05Q4();
+        if(DOR39W.WS-CUR-VAR-IND == "N" && DOR39W.WS-INACT-IND[3] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.SPSL-SUPRT-FREQ != " ")
+                if(H2-PRVSN.SPSL-SUPRT-FREQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.SPSL-SUPRT-AMT;
+                    DFC34W.PI2-FREQ = H2-PRVSN.SPSL-SUPRT-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-OPRAMT2 = DOR39W.WS-OPRAMT2 +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                else
+                    /*  */
+                    /* WI835 - Split SS arrears from SS current * start **/
+                    /* DOR39W.WS-OPRAMT2 =*/
+                    /* DOR39W.WS-OPRAMT2 + H2-PRVSN.SPSL-SUPRT-AMT;*/
+                    DOR39W.WS-OPRAMT4 = DOR39W.WS-OPRAMT4 +
+                            H2-PRVSN.SPSL-SUPRT-AMT;
+                /* WI835 - Split SS arrears from SS current * end **/
+                /*  */
+                end
+            end
+        end
+        if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[4] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.AREGE-FREQ != " ")
+                if(H2-PRVSN.AREGE-FREQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.AREGE-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.AREGE-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    /*  */
+                    /* WI835 - Note spousal support arrears separately * start **/
+                    /* DOR39W.WS-OPRAMT2 = DOR39W.WS-OPRAMT2 +*/
+                    /* DFC34W.PO1-CURR-SUPP-CMOA;*/
+                    DOR39W.WS-OPRAMT4 = DOR39W.WS-OPRAMT4 +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                /* WI835 - Note spousal support arrears separately * end **/
+                /*  */
+                else
+                    /*  */
+                    /* WI835 - Track spousal support arrears separately * start **/
+                    /* DOR39W.WS-OPRAMT2 = DOR39W.WS-OPRAMT2 + H2-PRVSN.AREGE-COA;*/
+                    DOR39W.WS-OPRAMT4 = DOR39W.WS-OPRAMT4 + H2-PRVSN.AREGE-COA;
+                /* WI835 - Track spousal support arrears separately * end **/
+                /*  */
+                end
+            end
+        end
+    end
+    /*  */
+    if(DOR39W.WS-INACT-IND[8] != "Y")
+        DOR39P9-PRV-S05Q5();
+        if(H2-PRVSN not noRecordFound && H2-PRVSN.FEE-COA-FREQ != " ")
+            if(H2-PRVSN.FEE-COA-FREQ != "M")
+                DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.FEE-COA;
+                DFC34W.PI2-FREQ = H2-PRVSN.FEE-COA-FREQ;
+                call "DFC34A"(VDBCONTROL, VMESSAGE, DFC34W){isNoRefresh = yes};
+                if(VDBCONTROL.URC > 104)
+                    exit program;
+                end
+                DOR39W.WS-OPRAMT3 = DFC34W.PO1-CURR-SUPP-CMOA;
+            else
+                DOR39W.WS-OPRAMT3 = H2-PRVSN.FEE-COA;
+            end
+        end
+    end
+    /*  */
+end // end DOR39P9-M-PROVISN
+
+// Upd job hist & gen forms
+
+function DOR39P9-M-UPDT-EMP()
+/*  */
+    set H2-EMPLR-WWH-DTLS empty;
+    H2-EMPLR-WWH-DTLS.EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
+    H2-EMPLR-WWH-DTLS.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    DOR39P9-EWD-S09Q1();
+    /*  */
+    /* SET Original or Amended Indicator*/
+    /*  */
+    if(sysVar.sqlData.sqlcode == 0)
+        if(H2-EMPLR-WWH-DTLS.EMPLR-WWH-ESTD-AMT == DOR39W.WS-TOTAMT &&
+                H2-EMPLR-WWH-DTLS.INC-WH-TRMND-DT == "9999-12-31" &&
+                FDOR-IWIT-DTLS.F-APPL-NAME != "DFM04A")
+            return; /* IWIT did not change and not from*/
+        end /* forms menu. Do not generate form.*/
+        if(H2-EMPLR-WWH-DTLS.INC-WH-TRMND-DT == "9999-12-31" &&
+                H2-EMPLR-WWH-DTLS.INC-WH-STRT-DT != "9999-12-31")
+            DOR39W.WS-OA-IND = "A";
+        else
+            DOR39W.WS-OA-IND = "O";
+        end
+    else
+        DOR39W.WS-OA-IND = "O";
+    end
+    if(FDOR-IWIT-DTLS.F-FORM-ID == "NV014O")
+        DOR39W.WS-OA-IND = "O";
+    end
+    if(FDOR-IWIT-DTLS.F-FORM-ID == "NV014A")
+        DOR39W.WS-OA-IND = "A";
+    end
+    /*  */
+    H2-EMPLR-WWH-DTLS.EMPLR-WWH-ESTD-AMT = DOR39W.WS-TOTAMT;
+    if(sysVar.sqlData.sqlcode != 0 || H2-EMPLR-WWH-DTLS.INC-WH-TRMND-DT !=
+                    "9999-12-31")
+        H2-EMPLR-WWH-DTLS.EMPLR-DELIN-DT = "9999-12-31";
+    end
+    H2-EMPLR-WWH-DTLS.INC-WH-TRMND-DT = "9999-12-31";
+    H2-EMPLR-WWH-DTLS.INC-WH-STRT-DT = DOR39W1.WS-CRNT-DATE;
+    /*  */
+    if(sysVar.sqlData.sqlcode == 0)
+        DOR39P9-EWD-U03Q1();
+    else
+        DOR39P9-EWD-I04Q1();
+    end
+    /*  */
+    /* GET TOTAL IWIT FOR NCP/EMPLOYER COMBO*/
+    /*  */
+    set H2-2-DOC-EWD empty;
+    H2-2-DOC-EWD.UPI = DOR39W.WS-NCP-UPI;
+    H2-2-DOC-EWD.EMPLR-ID = DOR39W.WS-EMPLR-ID;
+    DOR39P9-DOC-EWD-S();
+    /*  */
+    set H3-JOB-HISTORY empty;
+    move H2-JOB-HISTORY to H3-JOB-HISTORY withV60Compat;
+    H3-JOB-HISTORY.NCP-WWH-ESTD-AMT = H2-2-DOC-EWD.EMPLR-WWH-ESTD-AMT;
+    if(DOR39W.WS-NCP-WWH-STS == "  ")
+        H3-JOB-HISTORY.NCP-WWH-STS = "CO";
+    else
+        H3-JOB-HISTORY.NCP-WWH-STS = DOR39W.WS-NCP-WWH-STS;
+    end
+    if(H3-JOB-HISTORY.NCP-WWH-EFF-DT == "9999-12-31")
+        H3-JOB-HISTORY.NCP-WWH-EFF-DT = DOR39W.WS-INCWH-DATE;
+    end
+
+    DOR39P9-JHS-U02Q1();
+    /*  */
+    /* ************************************************************************/
+    /* Generate Form NV0014                                                 **/
+    /* ************************************************************************/
+    if(FDOR-IWIT-DTLS.F-FORM-ID == "NV0014")
+        if(DOR39W.WS-OA-IND == "O")
+            FDOR-IWIT-DTLS.F-FORM-ID = "NV014O";
+        else
+            FDOR-IWIT-DTLS.F-FORM-ID = "NV014A";
+        end
+    end
+
+    if(FDOR-IWIT-DTLS.F-FORM-ID == "NV014O")
+        DOR39U6-DOC();
+    end
+
+    /* Find Total Arrears*/
+    set H2-NCP-ACCT-RCBL empty;
+    H2-NCP-ACCT-RCBL.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-NCP-ACCT-RCBL.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    DOR39P9-NAC-S07Q2();
+    DOR39W.WS-ARREARS = H2-NCP-ACCT-RCBL.ADJ-ARERS-BAL-AMT +
+            H2-NCP-ACCT-RCBL.UNADJ-ARS-BAL-AMT;
+    DOR39W.WS-CS-T-3 = mathLib.round(DOR39W.WS-CSPRAMT * 3,
+            -mathLib.decimals(DOR39W.WS-CS-T-3));
+    /*  */
+    /* WI 1753 BEG - CHECK IF EMPLOYER PARTICPATES IN E-IWO */
+    set DOR39W3 empty;
+    DOR39W3.WS-BUILD1-FEIN = H2-JOB-HISTORY.EMPLR-ID;
+    if(DOR39W3.WS-BUILD1-FEIN-FILL1 == "-")
+        DOR39W3.WS-FORMATTED1-FEIN-1 = DOR39W3.WS-BUILD1-FEIN-1;
+        DOR39W3.WS-FORMATTED1-FEIN-2 = DOR39W3.WS-BUILD1-FEIN-2;
+        DOR39W3.WS-EIN-TXT = DOR39W3.WS-FORMATTED1-FEIN;
+    else
+        DOR39W3.WS-BUILD2-FEIN = H2-JOB-HISTORY.EMPLR-ID;
+        DOR39W3.WS-FORMATTED2-FEIN-1 = DOR39W3.WS-BUILD2-FEIN-1;
+        DOR39W3.WS-FORMATTED2-FEIN-2 = DOR39W3.WS-BUILD2-FEIN-2;
+        DOR39W3.WS-EIN-TXT = DOR39W3.WS-FORMATTED2-FEIN;
+    end
+    set H2-OCSE-EMPLYR empty;
+    H2-OCSE-EMPLYR.EMPLYR-ACTIVE-IND = "I";
+    H2-OCSE-EMPLYR.EMPLYR-FEIN = DOR39W3.WS-EIN-TXT;
+    DOR39P9-EIWO-EMPLYR();
+    if(H2-OCSE-EMPLYR.EMPLYR-ACTIVE-IND == "A")
+        DOR39P9-EIWO-PROC();
+    else
+        /* WI 1753 END */
+        /* If DOR39A was called from an online application...*/
+        if(DOR39W.WS-APPL-TYPE == "O")
+            set DFMPOP-TRANSFER empty;
+            DFMPOP-TRANSFER.PO1-LENGTH = 9801;
+            DFMPOP-TRANSFER.PO1-TRANID = "WM01";
+            DFMPOP-TRANSFER.PO1-TRID-FILLER = "    ";
+            DFMPOP-TRANSFER.PIO-FORM-ID = FDOR-IWIT-DTLS.F-FORM-ID;
+            DFMPOP-TRANSFER.PIO-CASE-SUFX = DOR39W.WS-CASE-SUFX;
+            DFMPOP-TRANSFER.PIO-UPI = DOR39W.WS-NCP-UPI;
+            DFMPOP-TRANSFER.PIO-DCKT-NMB = DOR39W.WS-DCKT-NMB;
+            DFMPOP-TRANSFER.PIO-LST-SQ-NMB = DOR39W.WS-SQNC-NMB;
+            DFMPOP-TRANSFER.PIO-OFC-CNTY-CD = G-IV-D.G-OFC-CNTY-CD;
+            DFMPOP-TRANSFER.PIO-NMB-OF-COPIES = 1;
+            if(DOR39W.WS-APPL-NAME == "DFM04A") /* FORMS MENU*/
+                DFMPOP-TRANSFER.PIO-MODE-IND = "F";
+            else
+                DFMPOP-TRANSFER.PIO-MODE-IND = "D";
+            end
+            DFMPOP-TRANSFER.PIO-USRID = GNOMADS.G-USER-ID;
+            DFMPOP-TRANSFER.PIO-TERMID = GNOMADS.G-TERM-ID;
+            VSTRREC4.USTRING = GNOMADS.G-FRST-NAME;
+            VSTRREC4.UCONCAT = GNOMADS.G-MID-NAME;
+            VSTRREC4.UCONCAT2 = GNOMADS.G-LST-NAME;
+            VSTRREC4.UCONCAT3 = GNOMADS.G-MODIFIER;
+            VSTRREC4.USTRLEN = 56;
+            VSTRREC4.UCONLEN = 16;
+            VSTRREC4.UCONLEN2 = 21;
+            VSTRREC4.UCONLEN3 = 3;
+            call "WST50A"(VSTRREC4){isNoRefresh = yes};
+            DFMPOP-TRANSFER.PIO-NCP-NAME = VSTRREC4.USTRING;
+            DFMPOP-TRANSFER.PIO-FIRST-THREE-SSN = GNOMADS.G-CASE-SSN-FIRST-THREE;
+            DFMPOP-TRANSFER.PIO-NEXT-TWO-SSN = GNOMADS.G-CASE-SSN-NEXT-TWO;
+            DFMPOP-TRANSFER.PIO-LAST-FOUR-SSN = GNOMADS.G-CASE-SSN-LAST-FOUR;
+            if(FDOR-IWIT-DTLS.F-CASE-SUFX == DOR39W.WS-CASE-SUFX)
+                VSTRREC4.USTRING = G-IV-D.G-CST-FRST-NAME;
+                VSTRREC4.UCONCAT = G-IV-D.G-CST-MID-NAME;
+                VSTRREC4.UCONCAT2 = G-IV-D.G-CST-LST-NAME;
+                VSTRREC4.UCONCAT3 = G-IV-D.G-CST-MODIFIER;
+                VSTRREC4.USTRLEN = 56;
+                VSTRREC4.UCONLEN = 16;
+                VSTRREC4.UCONLEN2 = 21;
+                VSTRREC4.UCONLEN3 = 3;
+                call "WST50A"(VSTRREC4){isNoRefresh = yes};
+                DFMPOP-TRANSFER.PIO-CST-NAME = VSTRREC4.USTRING;
+                DFMPOP-TRANSFER.PIO-CST-SSN = G-IV-D.G-CST-SSN;
+            else
+                DOR39P9-GET-CST();
+            end
+            /*  */
+            DFMPOP-TRANSFER.PIO-PARM-NMB = 90;
+            /*  */
+            DFMPOP-TRANSFER.PIO-POP-PARM[1] = H2-JOB-HISTORY.EMPLR-ID;
+            DFMPOP-TRANSFER.PIO-POP-PARM[2] = DOR39W.WS-OA-IND;
+            DFMPOP-TRANSFER.PIO-POP-PARM[3] = FDOR-IWIT-DTLS.F-WS-DEF27-IND;
+            DFMPOP-TRANSFER.PIO-POP-PARM[45] = DOR39W.WS-CSPRAMT-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[47] = DOR39W.WS-ZAPRAMT-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[49] = DOR39W.WS-MCPRAMT-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[51] = DOR39W.WS-OPRAMT1-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[54] = DOR39W.WS-OPRAMT2-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[57] = DOR39W.WS-TOTAMT-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[86] = DOR39W.WS-OPRAMT3-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[89] = DOR39W.WS-OPRAMT4-A;
+            /*  */
+            /* Check if 12 weeks' worth of child support are due:*/
+            if(DOR39W.WS-ARREARS > DOR39W.WS-CS-T-3)
+                DFMPOP-TRANSFER.PIO-POP-PARM[59] = "X"; /* "yes" box*/
+                DFMPOP-TRANSFER.PIO-POP-PARM[60] = " "; /* "no" box*/
+            else
+                DFMPOP-TRANSFER.PIO-POP-PARM[59] = " ";
+                DFMPOP-TRANSFER.PIO-POP-PARM[60] = "X";
+            end
+            DFMPOP-TRANSFER.PIO-POP-PARM[61] = DOR39W.WS-WAMT-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[62] = DOR39W.WS-BAMT-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[63] = DOR39W.WS-SAMT-A;
+            DFMPOP-TRANSFER.PIO-POP-PARM[64] = DOR39W.WS-MAMT-A;
+            DFMPOP-TRANSFER.WS-APPL-ID = FDOR-IWIT-DTLS.F-APPL-NAME;
+            DFMPOP-TRANSFER.FILLER = "M";
+            call "DFM07A"(VDBCONTROL, VMESSAGE,
+                    DFMPOP-TRANSFER){isNoRefresh = yes};
+            if(VDBCONTROL.URC > 104)
+                exit program;
+            end
+            FDOR-IWIT-DTLS.F-NV0014-GENERATED-IND = "Y";
+
+        end
+        /*  */
+        /* If DOR39A was called from a batch application...*/
+        if(DOR39W.WS-APPL-TYPE == "B")
+            set DFMBTCH-XFER empty;
+            DFMBTCH-XFER.PIO-FORM-ID = FDOR-IWIT-DTLS.F-FORM-ID;
+            DFMBTCH-XFER.PIO-DCKT-NMB = DOR39W.WS-DCKT-NMB;
+            DFMBTCH-XFER.PIO-DCKT-SQ-NMB = DOR39W.WS-SQNC-NMB;
+            DFMBTCH-XFER.PIO-UPI = DOR39W.WS-NCP-UPI;
+            DFMBTCH-XFER.PIO-CASE-SUFX = DOR39W.WS-CASE-SUFX;
+            DFMBTCH-XFER.PIO-NMB-OF-COPIES = 1;
+            /*  */
+            DFMBTCH-XFER.PIO-PARM-NMB = 90;
+            /*  */
+            DFMBTCH-XFER.PIO-POP-PARM[1] = H2-JOB-HISTORY.EMPLR-ID;
+            DFMBTCH-XFER.PIO-POP-PARM[2] = DOR39W.WS-OA-IND;
+            DFMBTCH-XFER.PIO-POP-PARM[3] = FDOR-IWIT-DTLS.F-WS-DEF27-IND;
+            DFMBTCH-XFER.PIO-POP-PARM[45] = DOR39W.WS-CSPRAMT-A;
+            DFMBTCH-XFER.PIO-POP-PARM[47] = DOR39W.WS-ZAPRAMT-A;
+            DFMBTCH-XFER.PIO-POP-PARM[49] = DOR39W.WS-MCPRAMT-A;
+            DFMBTCH-XFER.PIO-POP-PARM[51] = DOR39W.WS-OPRAMT1-A;
+            DFMBTCH-XFER.PIO-POP-PARM[54] = DOR39W.WS-OPRAMT2-A;
+            DFMBTCH-XFER.PIO-POP-PARM[57] = DOR39W.WS-TOTAMT-A;
+            DFMBTCH-XFER.PIO-POP-PARM[86] = DOR39W.WS-OPRAMT3-A;
+            DFMBTCH-XFER.PIO-POP-PARM[89] = DOR39W.WS-OPRAMT4-A;
+            /*  */
+            /* Check if 12 weeks' worth of child support are due:*/
+            if(DOR39W.WS-ARREARS > DOR39W.WS-CS-T-3)
+                DFMBTCH-XFER.PIO-POP-PARM[59] = "X"; /* "yes" box*/
+                DFMBTCH-XFER.PIO-POP-PARM[60] = " "; /* "no" box*/
+            else
+                DFMBTCH-XFER.PIO-POP-PARM[59] = " ";
+                DFMBTCH-XFER.PIO-POP-PARM[60] = "X";
+            end
+            DFMBTCH-XFER.PIO-POP-PARM[61] = DOR39W.WS-WAMT-A;
+            DFMBTCH-XFER.PIO-POP-PARM[62] = DOR39W.WS-BAMT-A;
+            DFMBTCH-XFER.PIO-POP-PARM[63] = DOR39W.WS-SAMT-A;
+            DFMBTCH-XFER.PIO-POP-PARM[64] = DOR39W.WS-MAMT-A;
+            DFMBTCH-XFER.WS-APPL-ID = FDOR-IWIT-DTLS.F-APPL-NAME;
+            call "DFM08A"(VDBCONTROL, VMESSAGE,
+                    DFMBTCH-XFER){isNoRefresh = yes};
+            if(VDBCONTROL.URC > 104)
+                exit program;
+            end
+            FDOR-IWIT-DTLS.F-NV0014-GENERATED-IND = "Y";
+            /* WI 1932 begin*/
+            /* WI 1180 begin*/
+            set H2-IVD-CASELD-CASE empty;
+            H2-IVD-CASELD-CASE.UPI = DOR39W.WS-NCP-UPI;
+            H2-IVD-CASELD-CASE.CASE-SUFX = DOR39W.WS-CASE-SUFX;
+            DOR39P9-S03();
+            // if(H2-IVD-CASELD-CASE.OFC-CD == "02")
+            DOR39P9-EWS-IWO();
+        // end 
+        /* WI 1180 end*/
+        /* WI 1932 end */
+        end
+    end
+
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+
+    WDB00PE-SQLERR();
+    if(VDBCONTROL.URC > 104)
+        exit program;
+    end
+    /*  */
+end // end DOR39P9-M-UPDT-EMP
+
+// Check for Variations
+
+function DOR39P9-M-VARIATN()
+/* ---------------------------------------------------------------*/
+/* Change log*/
+/* Date        Work Item  Description*/
+/* ----------  ---------  ----------------------------------------*/
+/* 08/12/2009  WI835      D.Bugli- Split out the variation of*/
+/* spousal support into current and arrears*/
+/* so new SS/A field on NV0014 can have its*/
+/* value.*/
+/* ---------------------------------------------------------------*/
+/*  */
+/* Check TWNOBLGN_SUSPN for obligation suspension for all provision*/
+/* types:*/
+    call "TOSSS3A"(VDBCONTROL, VMESSAGE, H-TOSSS3){isNoRefresh = yes};
+    if(VDBCONTROL.URC > 104)
+        exit program;
+    end
+
+    /* If no record not found => return*/
+    if(VDBCONTROL.URC != 0)
+        return;
+    end
+
+    if(H-TOSSS3.OBLGN-SUSPN-TYPE == "C")
+        DOR39W.WS-CUR-VAR-IND = "Y";
+    else
+        DOR39W.WS-ARR-VAR-IND = "Y";
+    end
+
+    if(H-TOSSS3.PRVSN-TYPE == "CS")
+        if(H-TOSSS3.OBLGN-SUSPN-TYPE == "C")
+            DOR39W.WS-CSPRAMT = DOR39W.WS-CSPRAMT + H-TOSSS3.VARTN-AMT;
+        else
+            DOR39W.WS-ZAPRAMT = DOR39W.WS-ZAPRAMT + H-TOSSS3.VARTN-AMT;
+        end
+    end
+
+    if(H-TOSSS3.PRVSN-TYPE == "MC" || H-TOSSS3.PRVSN-TYPE == "MX")
+        DOR39W.WS-MCPRAMT = DOR39W.WS-MCPRAMT + H-TOSSS3.VARTN-AMT;
+    end
+    /*  */
+    /* WI835 - Treat spousal support 2 ways * start **/
+    /* IF H-TOSSS3.PRVSN-TYPE = 'SS';*/
+    /* DOR39W.WS-OPRAMT2 = DOR39W.WS-OPRAMT2 + H-TOSSS3.VARTN-AMT;*/
+    /* END;*/
+    if(H-TOSSS3.PRVSN-TYPE == "SS")
+        if(H-TOSSS3.OBLGN-SUSPN-TYPE == "C")
+            DOR39W.WS-OPRAMT2 = DOR39W.WS-OPRAMT2 + H-TOSSS3.VARTN-AMT;
+        else
+            DOR39W.WS-OPRAMT4 = DOR39W.WS-OPRAMT4 + H-TOSSS3.VARTN-AMT;
+        end
+    end
+    /* WI835 - Treat spousal support 2 ways * end **/
+    /*  */
+
+    if(H-TOSSS3.PRVSN-TYPE == "FE")
+        DOR39W.WS-OPRAMT3 = DOR39W.WS-OPRAMT3 + H-TOSSS3.VARTN-AMT;
+    end
+    /*  */
+end // end DOR39P9-M-VARIATN
+
+// NCP Accounts Receivable
+
+function DOR39P9-NAC-S07Q1()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    VDBCOMMON.USQLREC = "H2-NCP-ACCT-RCBL";
+    VDBCONTROL.UPROC-OBJ = "H2-NCP-ACCT-RCBL";
+    VDBCONTROL.UPROC-NM = "DOR39P9-NAC-S07Q1";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    H2-NCP-ACCT-RCBL.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-NCP-ACCT-RCBL.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    /*  */
+    try
+        get H2-NCP-ACCT-RCBL singleRow
+                with #sql{
+        select CRSUP_CMOA, ARERS_CMOA, ADJ_ARERS_BAL_AMT, UNADJ_ARS_BAL_AMT
+        from TWNNCP_ACCT_RCBL T1
+        WHERE  T1.DCKT_NMB = :DCKT-NMB AND
+               T1.SQNC_NMB = :SQNC-NMB AND
+               T1.PRVSN_TYPE = :PRVSN-TYPE AND
+               T1.NCP_ACCT_RCBL_YR =
+                 (SELECT MAX(T2.NCP_ACCT_RCBL_YR) FROM TWNNCP_ACCT_RCBL T2
+                  WHERE T2.DCKT_NMB = T1.DCKT_NMB AND
+                        T2.SQNC_NMB = T1.SQNC_NMB AND
+                        T2.PRVSN_TYPE = T1.PRVSN_TYPE) AND
+               T1.NCP_ACCT_RCBL_MTH =
+                 (SELECT MAX(T3.NCP_ACCT_RCBL_MTH) FROM TWNNCP_ACCT_RCBL T3
+                  WHERE T3.DCKT_NMB = T1.DCKT_NMB AND
+                        T3.SQNC_NMB = T1.SQNC_NMB AND
+                        T3.PRVSN_TYPE = T1.PRVSN_TYPE AND
+                        T3.NCP_ACCT_RCBL_YR = T1.NCP_ACCT_RCBL_YR)
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into CRSUP-CMOA, ARERS-CMOA, ADJ-ARERS-BAL-AMT, UNADJ-ARS-BAL-AMT;
+    end
+    /*  */
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        VDBCOMMON.UNRF = "1";
+        VDBCOMMON.UNRF = "N";
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+    /*  */
+end // end DOR39P9-NAC-S07Q1
+
+// NCP Accounts Receivable
+
+function DOR39P9-NAC-S07Q2()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    VDBCOMMON.USQLREC = "H2-NCP-ACCT-RCBL";
+    VDBCONTROL.UPROC-OBJ = "H2-NCP-ACCT-RCBL";
+    VDBCONTROL.UPROC-NM = "DOR39P9-NAC-S07Q2";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    H2-NCP-ACCT-RCBL.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-NCP-ACCT-RCBL.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    /*  */
+    try
+        get H2-NCP-ACCT-RCBL singleRow
+                with #sql{
+        select SUM(ADJ_ARERS_BAL_AMT), SUM(UNADJ_ARS_BAL_AMT)
+        from TWNNCP_ACCT_RCBL T1
+        WHERE  T1.DCKT_NMB = :DCKT-NMB AND
+               T1.SQNC_NMB = :SQNC-NMB AND
+               T1.NCP_ACCT_RCBL_YR =
+                 (SELECT MAX(T2.NCP_ACCT_RCBL_YR) FROM TWNNCP_ACCT_RCBL T2
+                  WHERE T2.DCKT_NMB = T1.DCKT_NMB AND
+                        T2.SQNC_NMB = T1.SQNC_NMB)       AND
+               T1.NCP_ACCT_RCBL_MTH =
+                 (SELECT MAX(T3.NCP_ACCT_RCBL_MTH) FROM TWNNCP_ACCT_RCBL T3
+                  WHERE T3.DCKT_NMB = T1.DCKT_NMB AND
+                        T3.SQNC_NMB = T1.SQNC_NMB AND
+                        T3.NCP_ACCT_RCBL_YR = T1.NCP_ACCT_RCBL_YR)
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into ADJ-ARERS-BAL-AMT, UNADJ-ARS-BAL-AMT;
+    end
+    /*  */
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        VDBCOMMON.UNRF = "N";
+        VDBCOMMON.UNRF = "N";
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+    /*  */
+end // end DOR39P9-NAC-S07Q2
+
+// get ncp3 auto gen iw indicator
+
+function DOR39P9-NCP-S01Q1()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    VDBCOMMON.USQLREC = "H2-NON-CUST-PARENT";
+    VDBCONTROL.UPROC-OBJ = "H2-NON-CUST-PARENT";
+    VDBCONTROL.UPROC-NM = "DOR39P9-NCP-S01Q1";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    try
+        get H2-NON-CUST-PARENT singleRow
+                with #sql{
+        select NCP_SPOUS_BNKR_IND,
+          bankruptcy_chapter,
+          AUTO_GEN_IW_IND
+        from twnnon_cust_parent T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        where upi = :UPI
+         --** INSERT ORDER BY CLAUSE HERE **
+        with ur
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into NCP-SPOUS-BNKR-IND, BANKRUPTCY-CHAPTER, AUTO-GEN-IW-IND;
+    end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+    if(VDBCONTROL.URC > 104)
+        exit program;
+    end
+end // end DOR39P9-NCP-S01Q1
+
+function DOR39P9-ONE-DOCKET()
+/* ************************************************************************/
+/* Change Log                               **/
+/* ************************************************************************/
+/* WNMLF  06/25/2002  WI 22594                                          **/
+/* **/
+/* **/
+/* **/
+/* **/
+/* ************************************************************************/
+
+    DOR39W.WS-SEND-LETTER = "N";
+    DOR39W.WS-INCLD-DOCKET = "N";
+    DOR39W.WS-SQL-CODE = 0;
+    DOR39W.WS-NCP-WWH-STS = "CO";
+
+    set H2-2-COR-DOC empty;
+    H2-2-COR-DOC.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    DOR39P9-CDI-S01Q2();
+    DOR39W.WS-SQNC-NMB = H2-2-COR-DOC.SQNC-NMB;
+    DOR39W.WS-ORDER-TYPE = H2-2-COR-DOC.ORDER-TYPE;
+    DOR39W.WS-PYMNT-DATE = H2-2-COR-DOC.CS-PYMNT-CMNCT-DT;
+    DOR39W.WS-IW-NOTICE-SENT = H2-2-COR-DOC.IW-NOTICE-SENT;
+    DOR39W.WS-DELIN-STS-EFF-DT = H2-2-COR-DOC.DELIN-STS-EFF-DT;
+    DOR39W.WS-DELIN-STS = H2-2-COR-DOC.NCP-DELIN-STS;
+    DOR39W.WS-INTID-INCWH-EST-DT = H2-2-COR-DOC.INTID-INCWH-EST-DT;
+    DOR39W.WS-JRSDT-TYPE = H2-2-COR-DOC.JRSDT-TYPE;
+    DOR39P9-PROC-DOCKT();
+    /*  */
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    /*  */
+    WDB00PE-SQLERR();
+    if(VDBCONTROL.URC > 104)
+        exit program;
+    end
+    /*  */
+end // end DOR39P9-ONE-DOCKET
+
+// Do NV0014, Flexiform or both
+
+function DOR39P9-PROC-DOCKT()
+/* M = do NV0014 on the mainframe, S = do Flexiform on the server:*/
+/*  */
+    if(DOR39W.WS-FORM-DEST == "M")
+        DFMPOP-TRANSFER.FILLER = "M";
+        DOR39P9-M-PROC-DKT();
+    end
+
+    if(DOR39W.WS-FORM-DEST == "S")
+        DFMPOP-TRANSFER.FILLER = "S";
+        DOR39P9-S-PROC-DKT();
+    end
+
+    /* Do both Flexiform and NV0014:*/
+    if(DOR39W.WS-FORM-DEST == "B")
+        DFMPOP-TRANSFER.FILLER = "S";
+        DOR39P9-S-PROC-DKT();
+
+        DFMPOP-TRANSFER.FILLER = "M";
+        DOR39P9-M-PROC-DKT();
+    end
+    /*  */
+end // end DOR39P9-PROC-DOCKT
+
+// INQUIRY TWNPRVSN
+
+function DOR39P9-PRV-S02Q1()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    VDBCONTROL.UPROC-OBJ = "H2-PRVSN";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCONTROL.UPROC-NM = "DOR39P9-PRV-S02Q1";
+    VDBCOMMON.USQLREC = "H2-PRVSN";
+    try
+        get H2-PRVSN singleRow
+                with #sql{
+        select IMD_INCWH_ORDR_IND
+        from TWNPRVSN T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+         --** INSERT ORDER BY CLAUSE HERE **
+        WHERE DCKT_NMB   = :DCKT-NMB
+          AND SQNC_NMB   = :SQNC-NMB
+          AND PRVSN_TYPE = :PRVSN-TYPE
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into IMD-INCWH-ORDR-IND;
+    end
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        /*  */
+        VDBCOMMON.UNRF = "Y";
+        VDBCOMMON.UDUP = "N";
+        /*  */
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+    /*  */
+end // end DOR39P9-PRV-S02Q1
+
+// Inquire Provision
+
+function DOR39P9-PRV-S05Q1()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    set H2-PRVSN empty;
+    VDBCOMMON.USQLREC = "H2-PRVSN";
+    VDBCONTROL.UPROC-OBJ = "H2-PRVSN";
+    VDBCONTROL.UPROC-NM = "DOR39P9-PRV-S05Q1";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    H2-PRVSN.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-PRVSN.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    /*  */
+    try
+        get H2-PRVSN singleRow
+                with #sql{
+        select CHD_SUPRT_AMT , CHD_SUPRT_FREQ,
+               AREGE_COA , AREGE_FREQ
+        from TWNPRVSN T1
+        WHERE  DCKT_NMB = :DCKT-NMB AND
+                SQNC_NMB = :SQNC-NMB AND
+                PRVSN_TYPE = 'CS'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into CHD-SUPRT-AMT, CHD-SUPRT-FREQ, AREGE-COA, AREGE-FREQ;
+    end
+    /*  */
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        VDBCOMMON.UNRF = "1";
+        VDBCOMMON.UNRF = "N";
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+end // end DOR39P9-PRV-S05Q1
+
+// H2-PRVSN
+
+function DOR39P9-PRV-S05Q2()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    set H2-PRVSN empty;
+    VDBCOMMON.USQLREC = "H2-PRVSN";
+    VDBCONTROL.UPROC-OBJ = "H2-PRVSN";
+    VDBCONTROL.UPROC-NM = "DOR39P9-PRV-S05Q2";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    H2-PRVSN.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-PRVSN.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    /*  */
+    try
+        get H2-PRVSN singleRow
+                with #sql{
+        select MDCSH_AREGE_COA_FQ, MED_CSH_AREGE_COA, MDCSH_CRSUP_COA_FQ,
+          MED_CSH_CRSUP_COA
+        from TWNPRVSN T1
+        WHERE
+          DCKT_NMB = :DCKT-NMB AND
+          SQNC_NMB = :SQNC-NMB AND
+          PRVSN_TYPE = 'MC'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into MDCSH-AREGE-COA-FQ, MED-CSH-AREGE-COA, MDCSH-CRSUP-COA-FQ, MED-CSH-CRSUP-COA;
+    end
+    /*  */
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        VDBCOMMON.UNRF = "1";
+        VDBCOMMON.UNRF = "N";
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+end // end DOR39P9-PRV-S05Q2
+
+// H2-PRVSN
+
+function DOR39P9-PRV-S05Q3()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    set H2-PRVSN empty;
+    VDBCOMMON.USQLREC = "H2-PRVSN";
+    VDBCONTROL.UPROC-OBJ = "H2-PRVSN";
+    VDBCONTROL.UPROC-NM = "DOR39P9-PRV-S05Q3";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    H2-PRVSN.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-PRVSN.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    /*  */
+    try
+        get H2-PRVSN singleRow
+                with #sql{
+        select MEDOS_AREGE_COA_FQ, MEDOS_AREGE_COA
+        from TWNPRVSN T1
+        WHERE
+          DCKT_NMB = :DCKT-NMB AND
+          SQNC_NMB = :SQNC-NMB AND
+          PRVSN_TYPE = 'MX'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into MEDOS-AREGE-COA-FQ, MEDOS-AREGE-COA;
+    end
+    /*  */
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        VDBCOMMON.UNRF = "1";
+        VDBCOMMON.UNRF = "N";
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+end // end DOR39P9-PRV-S05Q3
+
+// H2-PRVSN
+
+function DOR39P9-PRV-S05Q4()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    set H2-PRVSN empty;
+    VDBCOMMON.USQLREC = "H2-PRVSN";
+    VDBCONTROL.UPROC-OBJ = "H2-PRVSN";
+    VDBCONTROL.UPROC-NM = "DOR39P9-PRV-S05Q4";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    H2-PRVSN.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-PRVSN.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    /*  */
+    try
+        get H2-PRVSN singleRow
+                with #sql{
+        select SPSL_SUPRT_AMT, SPSL_SUPRT_FREQ,
+          AREGE_COA, AREGE_FREQ
+        from TWNPRVSN T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE
+          DCKT_NMB = :DCKT-NMB AND
+          SQNC_NMB = :SQNC-NMB AND
+          PRVSN_TYPE = 'SS'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into SPSL-SUPRT-AMT, SPSL-SUPRT-FREQ, AREGE-COA, AREGE-FREQ;
+    end
+    /*  */
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        VDBCOMMON.UNRF = "1";
+        VDBCOMMON.UNRF = "N";
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+end // end DOR39P9-PRV-S05Q4
+
+// H2-PRVSN
+
+function DOR39P9-PRV-S05Q5()
+    WDB00PI();
+    VDBCOMMON.UAPPLNAM = "DOR39A";
+    /*  */
+    set H2-PRVSN empty;
+    VDBCOMMON.USQLREC = "H2-PRVSN";
+    VDBCONTROL.UPROC-OBJ = "H2-PRVSN";
+    VDBCONTROL.UPROC-NM = "DLB33P9-S07D";
+    VDBCONTROL.UPROC-OPT = "INQUIRY";
+    VDBCOMMON.UNRF = "1";
+    VDBCOMMON.UDUP = "N";
+    H2-PRVSN.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+    H2-PRVSN.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+    /*  */
+    try
+        get H2-PRVSN singleRow
+                with #sql{
+        select FEE_COA,
+          FEE_COA_FREQ
+        from TWNPRVSN T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE
+          DCKT_NMB = :DCKT-NMB AND
+          SQNC_NMB = :SQNC-NMB AND
+          PRVSN_TYPE = 'FE'
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+                into FEE-COA, FEE-COA-FREQ;
+    end
+    /*  */
+    if(sysVar.sqlData.sqlcode != 0 && sysVar.sqlData.sqlcode != 100)
+        VDBCOMMON.UNRF = "1";
+        VDBCOMMON.UNRF = "N";
+        WDB00PE-SQLERR();
+        if(VDBCONTROL.URC > 104)
+            exit program;
+        end
+    end
+end // end DOR39P9-PRV-S05Q5
+
+// Calc IWIT for Flexiforms
+
+function DOR39P9-S-CALC-IWT()
+/*  */
+/* Scan for Inactivated Support Amounts*/
+/*  */
+    DOR39W.WS-INACT-IND[1] = "N"; /* Child support current (CS/C)*/
+    DOR39W.WS-INACT-IND[2] = "N"; /* Child support arrears (CS/A)*/
+    DOR39W.WS-INACT-IND[3] = "N"; /* Spousal support current (SS/C)*/
+    DOR39W.WS-INACT-IND[4] = "N"; /* Spousal support arrears (SS/A)*/
+    DOR39W.WS-INACT-IND[5] = "N"; /* Medical cash current (MC/C)*/
+    DOR39W.WS-INACT-IND[6] = "N"; /* Medical cash arrears (MC/A)*/
+    DOR39W.WS-INACT-IND[7] = "N"; /* Medical expense arrears (MX/A)*/
+    DOR39W.WS-INACT-IND[8] = "N"; /* Fees (FE)*/
+    /*  */
+    DOR39P9-FIO-S03Q1();
+    /*  */
+    /* --- Monthly Support Amounts*/
+    /*  */
+    if(DOR39W.WS-PYMNT-DATE > DOR39W1.WS-FOR-DATE ||
+            FDOR-IWIT-DTLS.F-WS-DEF27-IND == "E")
+        DOR39P9-S-PROVISN();
+    else
+        DOR39P9-S-NCP-RCBL();
+    end
+
+    DOR39W.WS-TOTAMT = DOR39W.WS-CSPRAMT + DOR39W.WS-ZAPRAMT +
+            DOR39W.WS-MCPRAMT + DOR39W.WS-OPRAMT1 + DOR39W.WS-OPRAMT2 +
+            DOR39W.WS-OPRAMT3 + DOR39W.WS-OPRAMT4;
+    DOR39W.WS-WAMT = mathLib.round(DOR39W.WS-TOTAMT * 12 / 52,
+            -mathLib.decimals(DOR39W.WS-WAMT));
+    DOR39W.WS-BAMT = mathLib.round(DOR39W.WS-TOTAMT * 12 / 26,
+            -mathLib.decimals(DOR39W.WS-BAMT));
+    DOR39W.WS-SAMT = mathLib.round(DOR39W.WS-TOTAMT * 12 / 24,
+            -mathLib.decimals(DOR39W.WS-SAMT));
+    DOR39W.WS-MAMT = DOR39W.WS-TOTAMT;
+    DOR39W.WS-DCKT-AMOUNT = DOR39W.WS-TOTAMT;
+    DOR39W.WS-NCP-AMOUNT = DOR39W.WS-NCP-AMOUNT + DOR39W.WS-TOTAMT;
+end // end DOR39P9-S-CALC-IWT
+
+// Calc amounts for Flexiforms
+
+function DOR39P9-S-NCP-RCBL()
+/*  */
+/* Check for variation in child support current*/
+/*  */
+    DOR39W.WS-CUR-VAR-IND = "N";
+    if(DOR39W.WS-INACT-IND[1] != "Y")
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "CS";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        /* PERFORM DOR39P9-VARIATION;*/
+        DOR39P9-S-VARIATN();
+    end
+    /*  */
+    /* Check for variation in child support arrears*/
+    /*  */
+    DOR39W.WS-ARR-VAR-IND = "N";
+    if(DOR39W.WS-INACT-IND[2] != "Y")
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "CS";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        /* PERFORM DOR39P9-VARIATION;*/
+        DOR39P9-S-VARIATN();
     end
     /*  */
     if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N"))
@@ -1976,7 +1149,7 @@ function DOR39P9-M-NCP-RCBL()
         H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
         H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
         /* PERFORM DOR39P9-VARIATION;*/
-        DOR39P9-M-VARIATN();
+        DOR39P9-S-VARIATN();
     end
     /*  */
     /* Check for variation in medical cash arrears*/
@@ -1991,7 +1164,7 @@ function DOR39P9-M-NCP-RCBL()
         H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
         H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
         /* PERFORM DOR39P9-VARIATION;*/
-        DOR39P9-M-VARIATN();
+        DOR39P9-S-VARIATN();
     end
     /*  */
     if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N") &&(
@@ -2025,7 +1198,7 @@ function DOR39P9-M-NCP-RCBL()
         H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
         H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
         /* PERFORM DOR39P9-VARIATION;*/
-        DOR39P9-M-VARIATN();
+        DOR39P9-S-VARIATN();
         /*  */
         if(DOR39W.WS-ARR-VAR-IND == "N")
             set H2-NCP-ACCT-RCBL empty;
@@ -2052,7 +1225,7 @@ function DOR39P9-M-NCP-RCBL()
         H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
         H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
         /* PERFORM DOR39P9-VARIATION;*/
-        DOR39P9-M-VARIATN();
+        DOR39P9-S-VARIATN();
     end
     /*  */
     /* Check for variation in spousal support arrears*/
@@ -2067,7 +1240,7 @@ function DOR39P9-M-NCP-RCBL()
         H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
         H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
         /* PERFORM DOR39P9-VARIATION;*/
-        DOR39P9-M-VARIATN();
+        DOR39P9-S-VARIATN();
     end
     /*  */
     if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N") &&(
@@ -2083,14 +1256,8 @@ function DOR39P9-M-NCP-RCBL()
                         H2-NCP-ACCT-RCBL.CRSUP-CMOA;
             end
             if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[4] == "N")
-                /*  */
-                /* WI835 - Put spousal support arrears in its own slot * start **/
-                /* DOR39W.WS-OPRAMT2 =*/
-                /* DOR39W.WS-OPRAMT2 + H2-NCP-ACCT-RCBL.ARERS-CMOA;*/
                 DOR39W.WS-OPRAMT4 = DOR39W.WS-OPRAMT4 +
                         H2-NCP-ACCT-RCBL.ARERS-CMOA;
-            /* WI835 - Put spousal support arrears in its own slot * end **/
-            /*  */
             end
         end
     end
@@ -2113,9 +1280,9 @@ function DOR39P9-M-NCP-RCBL()
         end
     end
     /*  */
-end // end DOR39P9-M-NCP-RCBL
+end // end DOR39P9-S-NCP-RCBL
 
-function DOR39P9-M-PROC-DKT()
+function DOR39P9-S-PROC-DKT()
 
 /* Income Withholding Ordered?*/
 
@@ -2146,12 +1313,12 @@ function DOR39P9-M-PROC-DKT()
     /* IF DOR39W.WS-FORM-DEST = 'M' OR DOR39W.WS-FORM-DEST = 'B';*/
     /* MOVE 'M' TO DOR39W.WS-FORM-DEST;*/
     /* PERFORM DOR39P9-CALC-IWIT;     /*WI21347*/
-    DOR39P9-M-CALC-IWT();
+    /* PERFORM DOR39P9-M-CALC-IWT;*/
     /* MOVE 'M' TO DOR39W.WS-FORM-PRNTD;*/
     /* END;*/
     /* IF DOR39W.WS-FORM-DEST = 'S' OR DOR39W.WS-FORM-DEST = 'B';*/
     /* MOVE 'S' TO DOR39W.WS-FORM-DEST;*/
-    /* PERFORM DOR39P9-S-CALC-IWT;*/
+    DOR39P9-S-CALC-IWT();
     /* END;*/
     /*  */
     VDBCOMMON.UNRF = "1";
@@ -2182,7 +1349,7 @@ function DOR39P9-M-PROC-DKT()
         else
             /*  */
             /* PERFORM DOR39P9-PROC-EMPL;*/
-            DOR39P9-M-PROC-EMP();
+            DOR39P9-S-PROC-EMP();
             if(DOR39W.WS-TOTAMT > 0)
                 if(FDOR-IWIT-DTLS.F-NV0014-GENERATED-IND == "Y")
                     /* ************************************************************************/
@@ -2241,9 +1408,9 @@ function DOR39P9-M-PROC-DKT()
     DOR39W.WS-APPL-TYPE = FDOR-IWIT-DTLS.F-APPL-TYPE;
     DOR39W.WS-EMPLR-ID = FDOR-IWIT-DTLS.F-EMPLR-ID; /* WI 14513*/
     DOR39W.WS-DCKT-NMB = FDOR-IWIT-DTLS.F-DCKT-NMB;
-end // end DOR39P9-M-PROC-DKT
+end // end DOR39P9-S-PROC-DKT
 
-function DOR39P9-M-PROC-EMP()
+function DOR39P9-S-PROC-EMP()
 /*  */
     set H2-JOB-HISTORY empty;
     H2-JOB-HISTORY.UPI = DOR39W.WS-NCP-UPI;
@@ -2253,23 +1420,23 @@ function DOR39P9-M-PROC-EMP()
             DOR39P9-JHS-S08QS();
             while(DOR39W.WS-SQL-CODE == 0)
                 /* PERFORM DOR39P9-UPDT-EMPL;*/
-                DOR39P9-M-UPDT-EMP();
+                DOR39P9-S-UPDT-EMP();
                 DOR39P9-JHS-S08QS();
             end
         end
     else
         H2-JOB-HISTORY.EMPLR-ID = FDOR-IWIT-DTLS.F-EMPLR-ID;
         DOR39P9-JHS-S08Q2();
-        /* IF DOR39W.WS-FORM-DEST = 'M' OR DOR39W.WS-FORM-DEST = 'B';*/
         /* PERFORM DOR39P9-UPDT-EMPL;*/
+        /* IF DOR39W.WS-FORM-DEST = 'M' OR DOR39W.WS-FORM-DEST = 'B';*/
         /* MOVE 'M' TO DOR39W.WS-FORM-DEST;*/
-        DOR39P9-M-UPDT-EMP();
-    /* if DOR39W.WS-FORM-DEST = 'b';*/
+        /* PERFORM DOR39P9-M-UPDT-EMP;*/
+        /* if DOR39W.WS-FORM-DEST = 'b';*/
 
-    /* END;*/
-    /* IF DOR39W.WS-FORM-DEST = 'S' OR DOR39W.WS-FORM-DEST = 'B';*/
-    /* MOVE 'S' TO DOR39W.WS-FORM-DEST;*/
-    /* PERFORM DOR39P9-S-UPDT-EMP;*/
+        /* END;*/
+        /* IF DOR39W.WS-FORM-DEST = 'S' OR DOR39W.WS-FORM-DEST = 'B';*/
+        /* MOVE 'S' TO DOR39W.WS-FORM-DEST;*/
+        DOR39P9-S-UPDT-EMP();
     /* END;*/
     end
     /*  */
@@ -2281,6 +1448,262 @@ function DOR39P9-M-PROC-EMP()
         exit program;
     end
     /*  */
-end // end DOR39P9-M-PROC-EMP
+end // end DOR39P9-S-PROC-EMP
 
-// Get Support Amounts for NV0014
+// Get Support Amounts
+
+function DOR39P9-S-PROVISN()
+/*  */
+/* Check for variation in child support CURRENT*/
+/*  */
+    DOR39W.WS-CUR-VAR-IND = "N";
+    if(DOR39W.WS-INACT-IND[1] != "Y")
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "CS";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-S-VARIATN();
+    end
+    /*  */
+    /* Check for variation in child support arrears*/
+    /*  */
+    DOR39W.WS-ARR-VAR-IND = "N";
+    if(DOR39W.WS-INACT-IND[2] != "Y")
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "CS";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-S-VARIATN();
+    end
+    /*  */
+    if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N"))
+        DOR39P9-PRV-S05Q1();
+        if(H2-PRVSN not noRecordFound)
+            if(DOR39W.WS-CUR-VAR-IND == "N" && DOR39W.WS-INACT-IND[1] == "N")
+                if(H2-PRVSN.CHD-SUPRT-FREQ == "M")
+                    DOR39W.WS-CSPRAMT = H2-PRVSN.CHD-SUPRT-AMT;
+                else
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.CHD-SUPRT-AMT;
+                    DFC34W.PI2-FREQ = H2-PRVSN.CHD-SUPRT-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-CSPRAMT = DFC34W.PO1-CURR-SUPP-CMOA;
+                end
+            end
+            if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[2] == "N")
+                if(H2-PRVSN.AREGE-FREQ == "M")
+                    DOR39W.WS-ZAPRAMT = H2-PRVSN.AREGE-COA;
+                else
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.AREGE-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.AREGE-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-ZAPRAMT = DFC34W.PO1-CURR-SUPP-CMOA;
+                end
+            end
+            DOR39P9-FIO-S06Q1(); /* If Finantial Obligation present (>0)*/
+        /* overlay this amount from there*/
+        end
+    end
+    /*  */
+    /* Check for variation in medical cash current*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[5] != "Y")
+        DOR39W.WS-CUR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "MC";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-S-VARIATN();
+    end
+    /*  */
+    /* Check for variation in medical cash arrears*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[6] != "Y")
+        DOR39W.WS-ARR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "MC";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-S-VARIATN();
+    end
+    /*  */
+    if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N") &&(
+            DOR39W.WS-INACT-IND[5] == "N" || DOR39W.WS-INACT-IND[6] == "N"))
+        DOR39P9-PRV-S05Q2();
+        if(DOR39W.WS-CUR-VAR-IND == "N" && DOR39W.WS-INACT-IND[5] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.MDCSH-CRSUP-COA-FQ !=
+                            " ")
+                if(H2-PRVSN.MDCSH-CRSUP-COA-FQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.MED-CSH-CRSUP-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.MDCSH-CRSUP-COA-FQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-MCPRAMT = DOR39W.WS-MCPRAMT +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                else
+                    DOR39W.WS-MCPRAMT = DOR39W.WS-MCPRAMT +
+                            H2-PRVSN.MED-CSH-CRSUP-COA;
+                end
+            end
+        end
+        if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[6] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.MDCSH-AREGE-COA-FQ !=
+                            " ")
+                if(H2-PRVSN.MDCSH-AREGE-COA-FQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.MED-CSH-AREGE-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.MDCSH-AREGE-COA-FQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                else
+                    DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                            H2-PRVSN.MED-CSH-AREGE-COA;
+                end
+            end
+        end
+    end
+    /*  */
+    /* Check for variation in medical outstanding arrears*/
+    /*  */
+    if(DOR39W.WS-INACT-IND[7] != "Y")
+        DOR39W.WS-ARR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "MX";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-S-VARIATN();
+    end
+    /*  */
+    if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[7] == "N")
+        DOR39P9-PRV-S05Q3();
+        if(H2-PRVSN not noRecordFound && H2-PRVSN.MEDOS-AREGE-COA-FQ != " ")
+            if(H2-PRVSN.MEDOS-AREGE-COA-FQ != "M")
+                DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.MEDOS-AREGE-COA;
+                DFC34W.PI2-FREQ = H2-PRVSN.MEDOS-AREGE-COA-FQ;
+                call "DFC34A"(VDBCONTROL, VMESSAGE, DFC34W){isNoRefresh = yes};
+                if(VDBCONTROL.URC > 104)
+                    exit program;
+                end
+                DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                        DFC34W.PO1-CURR-SUPP-CMOA;
+            else
+                DOR39W.WS-OPRAMT1 = DOR39W.WS-OPRAMT1 +
+                        H2-PRVSN.MEDOS-AREGE-COA;
+            end
+        end
+    end
+    /*  */
+    /* Check for variation in spousal support current*/
+
+    if(DOR39W.WS-INACT-IND[3] != "Y")
+        DOR39W.WS-CUR-VAR-IND = "N";
+        set H-TOSSS3 empty;
+        H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+        H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+        H-TOSSS3.PRVSN-TYPE = "SS";
+        H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
+        H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+        H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+        DOR39P9-S-VARIATN();
+    end
+    if((DOR39W.WS-CUR-VAR-IND == "N" || DOR39W.WS-ARR-VAR-IND == "N") &&(
+            DOR39W.WS-INACT-IND[3] == "N" || DOR39W.WS-INACT-IND[4] == "N"))
+        DOR39P9-PRV-S05Q4();
+        if(DOR39W.WS-CUR-VAR-IND == "N" && DOR39W.WS-INACT-IND[3] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.SPSL-SUPRT-FREQ != " ")
+                if(H2-PRVSN.SPSL-SUPRT-FREQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.SPSL-SUPRT-AMT;
+                    DFC34W.PI2-FREQ = H2-PRVSN.SPSL-SUPRT-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-OPRAMT2 = DOR39W.WS-OPRAMT2 +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                else
+                    DOR39W.WS-OPRAMT2 = DOR39W.WS-OPRAMT2 +
+                            H2-PRVSN.SPSL-SUPRT-AMT;
+                end
+            end
+        end
+        /* /**/
+        /* /* Check for variation in spousal support arrears*/
+        /* /**/
+        if(DOR39W.WS-INACT-IND[4] != "Y")
+            DOR39W.WS-ARR-VAR-IND = "N";
+            set H-TOSSS3 empty;
+            H-TOSSS3.DCKT-NMB = DOR39W.WS-DCKT-NMB;
+            H-TOSSS3.SQNC-NMB = DOR39W.WS-SQNC-NMB;
+            H-TOSSS3.PRVSN-TYPE = "SS";
+            H-TOSSS3.OBLGN-SUSPN-TYPE = "A";
+            H-TOSSS3.HW-YRMTH = DOR39W1.TOSSS3-YM;
+            H-TOSSS3.HW-MONTH = DOR39W1.TOSSS3-MM;
+            DOR39P9-S-VARIATN();
+        end
+        /*  */
+        if(DOR39W.WS-ARR-VAR-IND == "N" && DOR39W.WS-INACT-IND[4] == "N")
+            if(H2-PRVSN not noRecordFound && H2-PRVSN.AREGE-FREQ != " ")
+                if(H2-PRVSN.AREGE-FREQ != "M")
+                    DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.AREGE-COA;
+                    DFC34W.PI2-FREQ = H2-PRVSN.AREGE-FREQ;
+                    call "DFC34A"(VDBCONTROL, VMESSAGE,
+                            DFC34W){isNoRefresh = yes};
+                    if(VDBCONTROL.URC > 104)
+                        exit program;
+                    end
+                    DOR39W.WS-OPRAMT4 = DOR39W.WS-OPRAMT4 +
+                            DFC34W.PO1-CURR-SUPP-CMOA;
+                else
+                    DOR39W.WS-OPRAMT4 = DOR39W.WS-OPRAMT4 + H2-PRVSN.AREGE-COA;
+                end
+            end
+        end
+    end
+
+    if(DOR39W.WS-INACT-IND[8] != "Y")
+        DOR39P9-PRV-S05Q5();
+        if(H2-PRVSN not noRecordFound && H2-PRVSN.FEE-COA-FREQ != " ")
+            if(H2-PRVSN.FEE-COA-FREQ != "M")
+                DFC34W.PI1-CURR-SUPP-COA = H2-PRVSN.FEE-COA;
+                DFC34W.PI2-FREQ = H2-PRVSN.FEE-COA-FREQ;
+                call "DFC34A"(VDBCONTROL, VMESSAGE, DFC34W){isNoRefresh = yes};
+                if(VDBCONTROL.URC > 104)
+                    exit program;
+                end
+                DOR39W.WS-OPRAMT3 = DFC34W.PO1-CURR-SUPP-CMOA;
+            else
+                DOR39W.WS-OPRAMT3 = H2-PRVSN.FEE-COA;
+            end
+        end
+    end
+end // end DOR39P9-S-PROVISN
