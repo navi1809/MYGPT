@@ -2,32 +2,23 @@ package PGM_T_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=TEMPV1A ****
-// COMPONENT NAME: TEMPV1A             - CALLED BATCH
+//*** PROGRAM=TPAHP5A ****
+// COMPONENT NAME: TPAHP5A - THIS IS A DB LAYER APPLICATION
 // ===============
 // 
 // DESCRIPTION:
 // ============
-// This application handles the processing when an Employer
-// is received from an outside institution in batch mode. The
-// processing includes:
-//         1) Create the Employer if it does not already exist
-//            in NOMADS.
-//         2) Update the Job History for the NCP
-//         3) Update Functinal Area / Office / Caseload if
-//            applicable via DCP27A (for every case the NCP
-//            is associated with)
-//         4) Generate NV0014 (Income Withholding) and GN0092
-//            (Employment Verification) forms for every active
-//            Order against the NCP.
-//         5) Generate alert 370043 - Employer Verification
-//            form is due to be returned.
+// This application is called from various applications and
+// calls a non-CSP program (CAD01A) to format the Person
+// Address History record.  This application then calls
+// TPAHI1A to insert a row into TWNPERSON_ADRS_HST.
+// WI #1002 - Add LAST-UPD-DT to insert of TWNPERSON_ADRS_HST.
 // ************************
-Program TEMPV1A type basicProgram //VAGen Info - called batch program
+Program TPAHP5A type basicProgram //VAGen Info - called batch program
   (
    VDBCONTROL VDBCONTROL, // record
    VMESSAGE VMESSAGE, // record
-   TEMPV1W TEMPV1W // record
+   H-TPAHP5 H-TPAHP5 // record
   )
   {
   includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
@@ -36,11 +27,13 @@ Program TEMPV1A type basicProgram //VAGen Info - called batch program
   }
 
   // Data Declarations
-  CEP01W CEP01W; // record
+  DFC03W1 DFC03W1; // record
+  G-IV-D G-IV-D; // record
   GDW GDW; // record
-  H2-EMPLOYER H2-EMPLOYER; // record
-  H2-JOB-HISTORY H2-JOB-HISTORY; // record
-  TIWTC1W TIWTC1W; // record
+  GNOMADS GNOMADS; // record
+  H-TPAHI1 H-TPAHI1; // record
+  TPAHP5W TPAHP5W; // record
+  TPAHP5W1 TPAHP5W1; // record
   VDBCOMMON VDBCOMMON; // record
 
   // VAGen Info - items needed for migration
@@ -55,301 +48,116 @@ Program TEMPV1A type basicProgram //VAGen Info - called batch program
   function main()
     // VAGen Info - initialization needed for migration
     VAGen_EZESYS = VGLib.getVAGSysType();
-    TEMPV1P1-MAIN: TEMPV1P1-MAIN();
+    TPAHP5P9-L1: TPAHP5P9-L1();
   end // end main
-end // end TEMPV1A
+end // end TPAHP5A
 
 
-// Update JOB & create IW letter
-Function TEMPV1P1-MAIN()
-  VDBCOMMON.UAPPLNAM = "TEMPV1A";
-
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-
-  set H2-JOB-HISTORY empty;
-  H2-JOB-HISTORY.EMPLR-ID = TEMPV1W.EMPLR-FID;
-  H2-JOB-HISTORY.UPI = TEMPV1W.UPI;
-  TEMPV1P9-S01(); /* Get existing Job History for NCP /*/
-                                   /* Employer*/
-
-  if (H2-JOB-HISTORY.VRFN-STS == "P" || H2-JOB-HISTORY.VRFN-STS == "B"
-   || H2-JOB-HISTORY.VRFN-STS == " ")
-    TEMPV1P2-JOB-HIST(); /* Update Employer and Job History*/
-  /* WI 23315 begin*/
-    if (TEMPV1W.ALT-SSN-FG == "N")
-  /* WI 23315 end*/
-      TIWTC1W.UPI = TEMPV1W.UPI;
-      TIWTC1W.EMPLR-FID = TEMPV1W.EMPLR-FID; /* Generate Forms*/
-      call "TIWTC1A" (VDBCONTROL, VMESSAGE, TIWTC1W) {isNoRefresh = yes}; /* and Alert*/
-    end
-  end
+// LUW for DB Access
+Function TPAHP5P9-L1()
+  /* Perform standard database application initialization*/
+  WDB00PI();
   /*  */
-end // end TEMPV1P1-MAIN
+  VDBCOMMON.UAPPLNAM = "TPAHP5A";
+  /*  */
+  TPAHP5P9-P1();
+  /*  */
+end // end TPAHP5P9-L1
 
 
-// INSERTS IN JOB TABLES
-Function TEMPV1P2-JOB-HIST()
-  /* Create Employer*/
+// Control Retrieve of Data
+Function TPAHP5P9-P1()
+  /*  */
+  H-TPAHI1.UPI = H-TPAHP5.UPI;
+  H-TPAHI1.ADR-TYPE = H-TPAHP5.ADR-TYPE;
+  H-TPAHI1.ADR-STS = H-TPAHP5.ADR-STS;
+  H-TPAHI1.ADR-SRC = H-TPAHP5.ADR-SRC;
+  H-TPAHI1.INTRFC-SSN = H-TPAHP5.INTRFC-SSN;
+  H-TPAHI1.LAST-UPD-DT = H-TPAHP5.LAST-UPD-DT;
 
-  set H2-EMPLOYER empty;
-  H2-EMPLOYER.EMPLR-ID = TEMPV1W.EMPLR-FID;
-  TEMPV1P9-S02();
-  if (H2-EMPLOYER is noRecordFound)
-    set H2-EMPLOYER empty;
-    H2-EMPLOYER.LST-UPD-USRID = TEMPV1W.APPL;
-    H2-EMPLOYER.LST-CHNGD-DT = GDW.DTCD;
-    H2-EMPLOYER.PHN-NMB = " ";
-    H2-EMPLOYER.PHN-EXT = " ";
-    H2-EMPLOYER.EMPLR-NM = TEMPV1W.EMPLR-NM;
-    H2-EMPLOYER.ZIP-CD = TEMPV1W.EMPLR-ZIP;
-    H2-EMPLOYER.ST-CD = TEMPV1W.EMPLR-ST-CD;
-    H2-EMPLOYER.CITY = TEMPV1W.EMPLR-CITY;
-    H2-EMPLOYER.AGNT-NM = " ";
-    H2-EMPLOYER.CNTCT-PRSN = " ";
-    H2-EMPLOYER.AGNT-ADR1 = " ";
-    H2-EMPLOYER.AGNT-ADR2 = " ";
-    H2-EMPLOYER.AGNT-CITY = " ";
-    H2-EMPLOYER.AGNT-ST = " ";
-    H2-EMPLOYER.AGNT-ZIP-CD = " ";
-  /* WI 26398 begin*/
-  /* MOVE TEMPV1W.EMPLR-ADR1 TO H2-EMPLOYER.ADR-LN1;*/
-  /* MOVE TEMPV1W.EMPLR-ADR2 TO H2-EMPLOYER.ADR-LN2;*/
-    if (TEMPV1W.EMPLR-ADR1 != ".")
-      H2-EMPLOYER.ADR-LN1 = TEMPV1W.EMPLR-ADR1;
-    end
-    if (TEMPV1W.EMPLR-ADR2 != ".")
-      H2-EMPLOYER.ADR-LN2 = TEMPV1W.EMPLR-ADR2;
-    end
-  /* WI 26398 end*/
-    H2-EMPLOYER.DOING-BUS-AS-NM = TEMPV1W.EMPLR-NM;
-    H2-EMPLOYER.CNTRY = TEMPV1W.EMPLR-CNTRY-CD;
-    H2-EMPLOYER.AGNT-CNTRY = " ";
-    H2-EMPLOYER.OFC-CD = " ";
-    H2-EMPLOYER.PRGM-OFC-TYPE = " ";
-    H2-EMPLOYER.BTCH-ENTRY-DT = "0001-01-01";
-    H2-EMPLOYER.BTCH-NMB = 0;
-    H2-EMPLOYER.EMPLR-ID = TEMPV1W.EMPLR-FID;
-    H2-EMPLOYER.CHKS-RMT-IND = " ";
-    TEMPV1P9-I01();
-  end
+  if (H-TPAHP5.ADR-FORMAT == "Y")
+    TPAHP5W.PIO1-ADDR1 = H-TPAHP5.ADR1;
+    TPAHP5W.PIO1-ADDR2 = H-TPAHP5.ADR2;
 
-  /* Update Job History*/
+    call "CAD01A" (TPAHP5W) {isNoRefresh = yes, isExternal = yes};
 
-  if (H2-JOB-HISTORY is noRecordFound)
-    set H2-JOB-HISTORY empty;
-    H2-JOB-HISTORY.UPI = TEMPV1W.UPI;
-    H2-JOB-HISTORY.EMPLR-ID = TEMPV1W.EMPLR-FID;
-    H2-JOB-HISTORY.CRTN-DT = GDW.DTCD;
-    H2-JOB-HISTORY.JOB-BEG-DT = TEMPV1W.EMP-DOH;
-    H2-JOB-HISTORY.JOB-TITLE = " ";
-    H2-JOB-HISTORY.JOB-END-DT = "9999-12-31";
-    H2-JOB-HISTORY.UNION-NM = " ";
-    H2-JOB-HISTORY.ZIP-CD = TEMPV1W.EMPLR-ZIP;
-    H2-JOB-HISTORY.ST-CD = TEMPV1W.EMPLR-ST-CD;
-    H2-JOB-HISTORY.CITY = TEMPV1W.EMPLR-CITY;
-    H2-JOB-HISTORY.HLTH-INS-IND = " ";
-    H2-JOB-HISTORY.OCPTN-CD = " ";
-    H2-JOB-HISTORY.EMPLT-STS-EFF-DT = TEMPV1W.EMP-DOH;
-    H2-JOB-HISTORY.EMPLT-STS = " ";
-    H2-JOB-HISTORY.VRFD-DT = GDW.DTCD;
-    H2-JOB-HISTORY.VRFD-BY = TEMPV1W.APPL;
-    H2-JOB-HISTORY.EMPLT-INFO-SRC = TEMPV1W.INFO-SRC;
-    H2-JOB-HISTORY.PHN-EXT = " ";
-    H2-JOB-HISTORY.PHN-NMB = " ";
-    H2-JOB-HISTORY.JH-NOTE = " ";
-  /* WI 26398 begin*/
-  /* MOVE TEMPV1W.EMPLR-ADR1 TO H2-JOB-HISTORY.ADR-LN1;*/
-  /* MOVE TEMPV1W.EMPLR-ADR2 TO H2-JOB-HISTORY.ADR-LN2;*/
-    if (TEMPV1W.EMPLR-ADR1 != ".")
-      H2-JOB-HISTORY.ADR-LN1 = TEMPV1W.EMPLR-ADR1;
-    end
-    if (TEMPV1W.EMPLR-ADR2 != ".")
-      H2-JOB-HISTORY.ADR-LN2 = TEMPV1W.EMPLR-ADR2;
-    end
-  /* WI 26398 end*/
-    if (TEMPV1W.ALT-SSN-FG == "N")
-      H2-JOB-HISTORY.VRFN-STS = "C";
+    if (TPAHP5W.PIO1-CODE == 0)
+      H-TPAHI1.HOUSE-NMB = TPAHP5W.PIO1-HOUSE-NUM;
+      H-TPAHI1.STR-DIR = TPAHP5W.PIO1-STR-DIR;
+      H-TPAHI1.STR-NM = TPAHP5W.PIO1-STR-NAME;
+      H-TPAHI1.STR-TYPE = TPAHP5W.PIO1-STR-TYPE;
+      H-TPAHI1.APT-NMB = TPAHP5W.PIO1-APT-NUM;
+      H-TPAHI1.OTH-ADDR = TPAHP5W.PIO1-OTHER-ADDR;
     else
-      H2-JOB-HISTORY.VRFN-STS = "B";
+  /* WI 22949 begin*/
+  /* MOVE TPAHP5W.PIO1-STR-NAME TO H2-PERSON-ADRS-HST.STR-NM;*/
+      if (H-TPAHP5.ADR1 != " ")
+        H-TPAHI1.OTH-ADDR = H-TPAHP5.ADR1;
+      else
+        H-TPAHI1.OTH-ADDR = H-TPAHP5.ADR2;
+      end
+  /* WI 22949 end*/
     end
-    H2-JOB-HISTORY.INTRFC-SSN = TEMPV1W.INTRFC-SSN;
-    H2-JOB-HISTORY.NCP-WWH-EFF-DT = "0001-01-01";
-    H2-JOB-HISTORY.NCP-WWH-ESTD-AMT = 0.00;
-    H2-JOB-HISTORY.UNION-CD = 0;
-    H2-JOB-HISTORY.NCP-WWH-STS = " ";
-    TEMPV1P9-I02();
   else
-    if (TEMPV1W.ALT-SSN-FG == "N")
-      H2-JOB-HISTORY.VRFN-STS = "C";
-      H2-JOB-HISTORY.JOB-END-DT = "9999-12-31";
-    else
-      H2-JOB-HISTORY.VRFN-STS = "B";
-      H2-JOB-HISTORY.JOB-END-DT = GDW.DTCD;
-    end
-    H2-JOB-HISTORY.INTRFC-SSN = TEMPV1W.INTRFC-SSN;
-    TEMPV1P9-U01();
-  end
-end // end TEMPV1P2-JOB-HIST
-
-
-// Insert EMPLOYER
-Function TEMPV1P9-I01()
-  /* *********************************************************************/
-  /* This process replaces the record in the TWNSDNH table because the  */
-  /* match indicator needs to be set on.                                */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.UAPPLNAM = "TEMPV1A";
-  VDBCOMMON.USQLREC = "H2-EMPLOYER";
-  VDBCONTROL.UPROC-NM = "TEMPV1P9-I01";
-  VDBCONTROL.UPROC-OPT = "ADD";
-  VDBCONTROL.UPROC-OBJ = "H2-EMPLOYER";
-  VDBCONTROL.UACCTYP = "W";
-  try
-    add H2-EMPLOYER ;
+    H-TPAHI1.HOUSE-NMB = H-TPAHP5.HOUSE-NUM;
+    H-TPAHI1.STR-DIR = H-TPAHP5.STR-DIR;
+    H-TPAHI1.STR-NM = H-TPAHP5.STR-NAME;
+    H-TPAHI1.STR-TYPE = H-TPAHP5.STR-TYPE;
+    H-TPAHI1.APT-NMB = H-TPAHP5.APT-NUM;
+    H-TPAHI1.OTH-ADDR = H-TPAHP5.OTHER-ADDR;
   end
 
-  WDB00PE-SQLERR();
+  if (H-TPAHI1.OTH-ADDR == " ")
+    H-TPAHI1.OTH-ADDR = H-TPAHP5.ADR3;
+  end
+  H-TPAHI1.CITY = H-TPAHP5.CITY;
+  if (H-TPAHP5.ST-CD == " ")
+    H-TPAHI1.CNTRY-CD = H-TPAHP5.CNTRY-CD;
+  else
+    H-TPAHI1.ST-CD = H-TPAHP5.ST-CD;
+  end
+  if (H-TPAHP5.ZIP-CD == " ")
+    H-TPAHI1.ZIP-CD = H-TPAHP5.CNTRY-ZIP;
+  else
+    H-TPAHI1.ZIP-CD = H-TPAHP5.ZIP-CD;
+  end
+
+  H-TPAHI1.ADR-VRFD-BY = " ";
+  H-TPAHI1.ADR-VRFD-DT = "9999-12-31";
+  H-TPAHI1.AS-OF-DT = H-TPAHP5.CRTN-DT;
+  H-TPAHI1.PRD-END-DT = "9999-12-31";
+  H-TPAHI1.ADR-VRFD-CD = "N";
+  H-TPAHI1.ADR-STS-EFF-DT = H-TPAHP5.CRTN-DT;
+
+  call "TPAHI1A" (VDBCONTROL, VMESSAGE, H-TPAHI1, GNOMADS, G-IV-D) {isNoRefresh = yes};
+
   if (VDBCONTROL.URC > 104)
     exit program;
   end
-end // end TEMPV1P9-I01
+end // end TPAHP5P9-P1
 
 
-// Insert job history
-Function TEMPV1P9-I02()
-  WDB00PI();
-  VDBCOMMON.UAPPLNAM = "TEMPV1A";
-  VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-  VDBCONTROL.UPROC-NM = "TEMPV1P9-I02";
-  VDBCONTROL.UPROC-OPT = "ADD";
-  VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-  VDBCONTROL.UACCTYP = "W";
-  try
-    add H2-JOB-HISTORY
-      with #sql{
-        insert into TWNJOB_HISTORY
-        (UPI, EMPLR_ID, CRTN_DT, JOB_BEG_DT, JOB_TITLE,
-          JOB_END_DT, UNION_NM, ZIP_CD, ST_CD, CITY,
-          HLTH_INS_IND, OCPTN_CD, EMPLT_STS_EFF_DT,
-          EMPLT_STS, VRFD_DT, VRFD_BY, EMPLT_INFO_SRC,
-          PHN_EXT, PHN_NMB, JH_NOTE, ADR_LN1, ADR_LN2,
-          VRFN_STS, NCP_WWH_EFF_DT, NCP_WWH_ESTD_AMT,
-          UNION_CD, NCP_WWH_STS, INTRFC_SSN)
-        values (:UPI, :EMPLR-ID, :CRTN-DT, :JOB-BEG-DT, :JOB-TITLE,
-          :JOB-END-DT, :UNION-NM, :ZIP-CD, :ST-CD, :CITY,
-          :HLTH-INS-IND, :OCPTN-CD, :EMPLT-STS-EFF-DT,
-          :EMPLT-STS, :VRFD-DT, :VRFD-BY, :EMPLT-INFO-SRC,
-          :PHN-EXT, :PHN-NMB, :JH-NOTE, :ADR-LN1, :ADR-LN2,
-          :VRFN-STS, :NCP-WWH-EFF-DT, :NCP-WWH-ESTD-AMT,
-          :UNION-CD, :NCP-WWH-STS, :INTRFC-SSN)
-      } ;
-  end
-
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    exit program;
-  end
-end // end TEMPV1P9-I02
+Record TPAHP5W type basicRecord
+  10 PIO1-PARSE-OUT char(142) ; 
+    15 PIO1-ADDR1 char(35) ; 
+    15 PIO1-ADDR2 char(35) ; 
+    15 PIO1-HOUSE-NUM char(8) ; 
+    15 PIO1-STR-DIR char(2) ; 
+    15 PIO1-STR-NAME char(25) ; 
+    15 PIO1-STR-TYPE char(4) ; 
+    15 PIO1-APT-NUM char(5) ; 
+    15 PIO1-OTHER-ADDR char(25) ; 
+    15 PIO1-CODE num(1) ; 
+    15 PIO1-ERR-MSG-NR num(2) ; 
+end // end TPAHP5W
 
 
-// VERIFY EMPLOYER
-Function TEMPV1P9-S01()
-  WDB00PI();
-  VDBCOMMON.UAPPLNAM = "TEMPV1A";
-  VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-  VDBCONTROL.UPROC-NM = "TEMPV1P9-S01";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    get H2-JOB-HISTORY
-      with #sql{
-        select VRFN_STS, CRTN_DT
-        from TWNJOB_HISTORY T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-               UPI          = :UPI
-           AND EMPLR_ID     = :EMPLR-ID
-           AND (JOB_END_DT  >= :GDW.DTCD
-	           or CRTN_DT = :GDW.DTCD)
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into VRFN-STS, CRTN-DT ;
-  end
-
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    exit program;
-  end
-end // end TEMPV1P9-S01
-
-
-// Get employer id
-Function TEMPV1P9-S02()
-  /* *********************************************************************/
-  /* This process declares cursor for fetching data from the following  */
-  /* table                                                              */
-  /* 1. TWNEMPLOYER                                                     */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.UAPPLNAM = "TEMPV1A";
-  VDBCOMMON.USQLREC = "H2-EMPLOYER";
-  VDBCONTROL.UPROC-NM = "TEMPV1P9-S02";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-EMPLOYER";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    get H2-EMPLOYER
-      with #sql{
-        select EMPLR_ID
-        from TWNEMPLOYER T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE EMPLR_ID = :EMPLR-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into EMPLR-ID ;
-  end
-
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    exit program;
-  end
-end // end TEMPV1P9-S02
-
-
-// Update Job History
-Function TEMPV1P9-U01()
-  WDB00PI();
-  VDBCOMMON.UAPPLNAM = "TEMPV1A";
-  VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-  VDBCONTROL.UPROC-NM = "TEMPV1P9-U01";
-  VDBCONTROL.UPROC-OPT = "SQLEXEC";
-  VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-  VDBCONTROL.UACCTYP = "W";
-  try
-    execute 
-      #sql{
-         --** INSERT SQL STATEMENT HERE **
-        UPDATE TWNJOB_HISTORY
-        SET EMPLT_INFO_SRC = :TEMPV1W.INFO-SRC,
-            VRFN_STS       = :VRFN-STS,
-            VRFD_BY        = :TEMPV1W.APPL,
-            VRFD_DT        = :GDW.DTCD,
-            INTRFC_SSN     = :INTRFC-SSN,
-            JOB_END_DT     = :JOB-END-DT
-        WHERE
-            UPI      = :UPI       AND
-            EMPLR_ID = :EMPLR-ID  AND
-            CRTN_DT  = :CRTN-DT
-      }
-      for H2-JOB-HISTORY ; // model = none
-  end
-
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    exit program;
-  end
-end // end TEMPV1P9-U01
+Record TPAHP5W1 type basicRecord
+  10 WS-COUNT int ; 
+  10 WS-OTH-COUNT int ; 
+  10 WS-ADDR char(80) ; 
+    15 WS-ADDR1 char(40) ; 
+    15 WS-ADDR2 char(40) ; 
+end // end TPAHP5W1
 
 
