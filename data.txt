@@ -1,1820 +1,2137 @@
 package IVD_Batch;
-
 import egl.core.deleteafteruse;
 import CommonMigratedParts.*;
 import DataItems.*;
 import DataTables.*;
 
-//*** PROGRAM=DFM34A ****
-// Application Name : DFM34A   Generate NMSN form.
-// ==================
+//*** PROGRAM=DFM08A ****
+// COMPONENT NAME: DFM08A
+// ===============
 // 
-// This application generates the National Medical Support
-// Notice (NMSN) form (GN0155). All applications generating the
-// NMSN form including the forms menu (DFM04A) should call this
-// application to do so.
+// DESCRIPTION:
+// ============
+// This application is the main application in forms
+// generation.
+// All the requests will bw routed thru this application. It
+// builds
+// the standard parameters and additional parameters. Also it
+// constructs SIB (STANDARD INTERFACE BLOCK) type 1 and starts
+// the
+// ASF(APPLICATION SUPPORT FACILITY) to generate the
+// documents. When
+// control comes back, this application checks the return
+// code. If
+// the code is zero, the process is successful transaction.
+// Otherwise
+// it handles the error using the WCM00P2-TO-CEP02A
+// 06/2005 - WHEN FORM IS GENERATED TO THE SERVER
+// THIS APPLICATION WILL NOW CALL DFM35A
 // ***********************
+Program DFM08A type basicProgram //VAGen Info - called batch program
+  (
+   VDBCONTROL VDBCONTROL, // record
+   VMESSAGE VMESSAGE, // record
+   DFMBTCH-XFER DFMBTCH-XFER // record
+  )
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
 
-program DFM34A type basicProgram //VAGen Info - called batch program
-(VDBCONTROL VDBCONTROL, // record
-        VMESSAGE VMESSAGE, // record
-        DFM34W DFM34W, // record
-        GNOMADS GNOMADS // record
-){includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes}
+  // Data Declarations
+  CEP01W CEP01W; // record
+  DFC03W1 DFC03W1; // record
+  DFC49W1 DFC49W1; // record
+  DFE01W DFE01W; // record
+  DFM08W DFM08W; // record
+  DFM08W-FLESIB0 DFM08W-FLESIB0; // record
+  DFM08W-PO1-SIB0 DFM08W-PO1-SIB0; // record
+  DFM08W1 DFM08W1; // record
+  DFM08W2 DFM08W2; // record
+  DFM08W3 DFM08W3; // record
+  DFM08W4 DFM08W4; // record
+  DFMPOP-TRANSFER DFMPOP-TRANSFER; // record
+  GDW GDW; // record
+  H2-2-IDC-PER H2-2-IDC-PER; // record
+  H2-4-DCCNMU-SPTURE H2-4-DCCNMU-SPTURE; // record
+  H2-BTCH-FRM-KDTA H2-BTCH-FRM-KDTA; // record
+  H2-CNTY-FRM H2-CNTY-FRM; // record
+  H2-FORM-POPUP H2-FORM-POPUP; // record
+  H2-IVD-CASE H2-IVD-CASE; // record
+  H2-IVD-CASELD-CASE H2-IVD-CASELD-CASE; // record
+  H2-OFFICE H2-OFFICE; // record
+  H2-PARA-VER H2-PARA-VER; // record
+  H2-PCKT H2-PCKT; // record
+  H2-PERSON H2-PERSON; // record
+  PCAL16A-INP PCAL16A-INP; // record
+  VDBCOMMON VDBCOMMON; // record
+  VSTRREC VSTRREC; // record
+  VSTRREC4 VSTRREC4; // record
 
-    // Data Declarations
-    DFE01W DFE01W; // record
-    DFG00W1 DFG00W1; // record
-    DFM34W1 DFM34W1{initialized = yes}; // record
-    DFM34W2 DFM34W2; // record
-    DFM34W3 DFM34W3; // record
-    DFMBTCH-XFER DFMBTCH-XFER; // record
-    DFMPOP-TRANSFER DFMPOP-TRANSFER; // record
-    H-TOSSS3 H-TOSSS3; // record
-    H2-2-COR-DOC H2-2-COR-DOC; // record
-    H2-2-DCH-DCN H2-2-DCH-DCN; // record
-    H2-2-OFF-IRF H2-2-OFF-IRF; // record
-    H2-2-SPT-DCC H2-2-SPT-DCC; // record
-    H2-CODE-TBL H2-CODE-TBL; // record
-    H2-CUSTODIAN H2-CUSTODIAN; // record
-    H2-EMPLOYER H2-EMPLOYER; // record
-    H2-EMPLR-WWH-DTLS H2-EMPLR-WWH-DTLS; // record
-    H2-FINAN-OBLGN H2-FINAN-OBLGN; // record
-    H2-IVD-CASE H2-IVD-CASE; // record
-    H2-JOB-HISTORY H2-JOB-HISTORY; // record
-    H2-MED-INS-PLICY H2-MED-INS-PLICY; // record
-    H2-NCP-ACCT-RCBL H2-NCP-ACCT-RCBL; // record
-    H2-NOMADS-USER H2-NOMADS-USER; // record
-    H2-OJRD-DTL H2-OJRD-DTL; // record
-    H2-PERSON H2-PERSON; // record
-    H3-PRVSN H3-PRVSN; // record
-    VDBCOMMON VDBCOMMON; // record
-    VFRMREC VFRMREC; // record
-    VFRMREC3 VFRMREC3; // record
-    VSTRREC4 VSTRREC4; // record
-    
-    // VAGen Info - items needed for migration
-    VAGen_EZESYS char(8);
-    VAGen_EZEREPLY num(1);
-    VAGen_EZE_WAIT_TIME bin(9, 2);
-    VAGen_EZE_ITEMLEN int;
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
 
-    // Use Declarations
-    use VDB00T1{deleteAfterUse = yes}; // table
-    
-    function main()
+  // Use Declarations
+  use VDB00T1 {deleteAfterUse = yes}; // table
+
+  function main()
     // VAGen Info - initialization needed for migration
-        VAGen_EZESYS = VGLib.getVAGSysType();
-    DFM34P1-MAIN:
-        DFM34P1-MAIN();
-    end // end main
-end // end DFM34A
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    DFM08P9-MAIN: DFM08P9-MAIN();
+  end // end main
+end // end DFM08A
 
-// Update NMSN info
 
-function DFM34I01-EWD()
-    set H2-EMPLR-WWH-DTLS empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OBJ = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-NM = "DFM34I01-EWD";
-    VDBCONTROL.UPROC-OPT = "ADD";
-
-    H2-EMPLR-WWH-DTLS.EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
-    H2-EMPLR-WWH-DTLS.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    H2-EMPLR-WWH-DTLS.INC-WH-TRMND-DT = "9999-12-31";
-    H2-EMPLR-WWH-DTLS.INC-WH-STRT-DT = "9999-12-31";
-    H2-EMPLR-WWH-DTLS.EMPLR-DELIN-DT = "9999-12-31";
-    H2-EMPLR-WWH-DTLS.NMSN-GEN-DT = DFM34W1.WS-PROC-DATE;
-    H2-EMPLR-WWH-DTLS.NMSN-STATUS = "I";
-    try
-        add H2-EMPLR-WWH-DTLS
-                with #sql{
-        insert into twnemplr_wwh_dtls
-        (EMPLR_ID, DCKT_NMB, EMPLR_WWH_ESTD_AMT,
-          INC_WH_TRMND_DT, INC_WH_STRT_DT,
-          EMPLR_DELIN_DT, NMSN_GEN_DT, NMSN_STATUS)
-        values (:EMPLR-ID, :DCKT-NMB, :EMPLR-WWH-ESTD-AMT,
-          :INC-WH-TRMND-DT, :INC-WH-STRT-DT,
-          :EMPLR-DELIN-DT, :NMSN-GEN-DT, :NMSN-STATUS)
-      };
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34I01-EWD
-
-function DFM34P1-MAIN()
-    set DFM34W1 empty;
-    DFM34W.GN0155-GENERATED-IND = "N";
-    /*  */
-    /* ************************************************************************/
-    /* VALIDATE PASSED PARAMETERS                             **/
-    /* ************************************************************************/
-    /*  */
-    if(DFM34W.SUB-SYS-CODE != "A" && DFM34W.SUB-SYS-CODE != "D")
-        VMESSAGE.UMSGCODE = "GEN0665E"; /* INPUT PARAMETERS INVALID*/
-        VMESSAGE.UMSGINS[1] = "DFM34A";
-        VMESSAGE.UMSGINS[2] = "(SUB SYSTEM CODE)";
-        VMESSAGE.UMSGTYPE = "E";
-        VDBCONTROL.URC = 105;
-        exit program;
-    end
-
-    if(DFM34W.APPL-NAME == " ")
-        VMESSAGE.UMSGCODE = "GEN0665E"; /* INPUT PARAMETERS INVALID*/
-        VMESSAGE.UMSGINS[1] = "DFM34A";
-        VMESSAGE.UMSGINS[2] = "(APPLICATION NAME)";
-        VMESSAGE.UMSGTYPE = "E";
-        VDBCONTROL.URC = 105;
-        exit program;
-    end
-
-    if(DFM34W.APPL-TYPE != "B" && DFM34W.APPL-TYPE != "O")
-        VMESSAGE.UMSGCODE = "GEN0665E"; /* INPUT PARAMETERS INVALID*/
-        VMESSAGE.UMSGINS[1] = "DFM34A";
-        VMESSAGE.UMSGINS[2] = "(APPLICATION TYPE)";
-        VMESSAGE.UMSGTYPE = "E";
-        VDBCONTROL.URC = 105;
-        exit program;
-    end
-
-    if(DFM34W.CRNT-DATE-MM < "01" || DFM34W.CRNT-DATE-MM > "12")
-        VMESSAGE.UMSGCODE = "GEN0665E"; /* INPUT PARAMETERS INVALID*/
-        VMESSAGE.UMSGINS[1] = "DFM34A";
-        VMESSAGE.UMSGINS[2] = "(DATE)";
-        VMESSAGE.UMSGTYPE = "E";
-        VDBCONTROL.URC = 105;
-        exit program;
-    end
-
-    /* WI-4287 - JMorgan 02/02/18 */
-    DFM34Q23-CT();
-    if(DFM34W.EMPLR-ID == H2-CODE-TBL.CODE-DESC && DFM34W.APPL-NAME !=
-                    "DFM04A")
-        ;
-        exit program;
-    end
-
-    DFM34W1.WS-PROC-DATE = "    -  -  ";
-    DFM34W1.WS-PROC-DATE-CCYY = DFM34W.CRNT-DATE-CCYY;
-    DFM34W1.WS-PROC-DATE-MM = DFM34W.CRNT-DATE-MM;
-    DFM34W1.WS-PROC-DATE-DD = DFM34W.CRNT-DATE-DD;
-
-    DFM34W1.HW-YR = DFM34W.CRNT-DATE-CCYY;
-    DFM34W1.HW-MTH = DFM34W.CRNT-DATE-MM;
-
-    /* for fame*/
-    if(DFM34W.SUB-SYS-CODE == "A")
-        if(DFM34W.PLICY-SQ-NMB == 0)
-            VMESSAGE.UMSGCODE = "GEN0665E"; /* INPUT PARAMETERS INVALID*/
-            VMESSAGE.UMSGINS[1] = "DFM34A";
-            VMESSAGE.UMSGINS[2] = "(POLICY SQ NMB)";
-            VMESSAGE.UMSGTYPE = "E";
-            VDBCONTROL.URC = 105;
-            exit program;
-        end
-    end
-
-    /* for IV-D*/
-
-    if(DFM34W.SUB-SYS-CODE == "D")
-
-        if(DFM34W.NCP-UPI == 0)
-            VMESSAGE.UMSGCODE = "GEN0665E"; /* INPUT PARAMETERS INVALID*/
-            VMESSAGE.UMSGINS[1] = "DFM34A";
-            VMESSAGE.UMSGINS[2] = "(NCP UPI)";
-            VMESSAGE.UMSGTYPE = "E";
-            VDBCONTROL.URC = 105;
-            exit program;
-        end
-
-    end
-    /*  */
-    /* ************************************************************************/
-    /* PROCESS                                                **/
-    /* ************************************************************************/
-    /*  */
-    if(DFM34W.SUB-SYS-CODE == "A") /* FAME*/
-
-        DFM34Q16-MIP();
-        if(H2-MED-INS-PLICY.UPI > 0)
-            DFM34W.NCP-UPI = H2-MED-INS-PLICY.UPI;
-            DFM34Q01-IDC();
-            DFM34Q01-SCAN();
-            while(H2-IVD-CASE not noRecordFound)
-                DFM34P3-ALL-DOCKTS();
-                DFM34Q01-SCAN();
-            end
-        end
-
-    else /* IV-D*/
-
-        if(DFM34W.APPL-NAME == "DFM04A") /* Forms menu*/
-
-            set H2-IVD-CASE empty;
-            H2-IVD-CASE.NCP-UPI = DFM34W.NCP-UPI;
-            H2-IVD-CASE.CASE-SUFX = DFM34W.CASE-SUFX;
-            H2-IVD-CASE.CST-UPI = DFM34W.CST-UPI;
-
-            set DFMPOP-TRANSFER empty;
-
-            /* Get Docket*/
-            DFMPOP-TRANSFER.PIO-FORM-ID = "GN0155";
-            DFMPOP-TRANSFER.PIO-CASE-SUFX = DFM34W.CASE-SUFX;
-            DFMPOP-TRANSFER.PIO-UPI = DFM34W.NCP-UPI;
-            call "DFC61A"(VDBCONTROL, VMESSAGE,
-                    DFMPOP-TRANSFER){isNoRefresh = yes};
-            if(VDBCONTROL.URC > 104)
-                exit program;
-            end
-            DFM34W.DCKT-NMB = DFMPOP-TRANSFER.PIO-DCKT-NMB;
-
-            /* Get Employer*/
-
-            DFMPOP-TRANSFER.PIO-PARM-NMB = 13;
-            call "DFC06A"(VDBCONTROL, VMESSAGE,
-                    DFMPOP-TRANSFER){isNoRefresh = yes};
-            if(VDBCONTROL.URC > 104)
-                exit program;
-            end
-
-            DFM34W.EMPLR-ID = DFMPOP-TRANSFER.PIO-POP-PARM[13];
-            set H2-JOB-HISTORY empty;
-            H2-JOB-HISTORY.EMPLR-ID = DFMPOP-TRANSFER.PIO-POP-PARM[13];
-
-            DFM34Q15-COR-DOC();
-
-            /* WI-4287 - JMorgan 02/02/18 
-            DFM34Q23-CT();
-            if(DFM34W.EMPLR-ID == H2-CODE-TBL.CODE-DESC && DFM34W.APPL-NAME !="DFM04A");
-                exit program;
-            end
-            */
-
-            /* WI 28699 begin*/
-            DFM34Q22-PRV();
-            if(sysVar.sqlData.sqlcode != 0)
-                /* WI 28699 end*/
-
-                DFM34P4-PROC-DOCKT();
-            end
-
-        else /* Other IV-D applications*/
-            /* (auto generated)*/
-
-            if(DFM34W.CASE-SUFX == " ") /* Process all qualifing cases*/
-                DFM34Q01-IDC(); /* for the NCP*/
-                DFM34Q01-SCAN();
-                while(H2-IVD-CASE not noRecordFound)
-                    if(DFM34W.DCKT-NMB == 0)
-                        DFM34P3-ALL-DOCKTS();
-                    else
-                        DFM34P3-ONE-DOCKET();
-                    end
-                    DFM34Q01-SCAN();
-                end
-            else /* Process the specific case*/
-                /* for the NCP*/
-                DFM34Q02-IDC();
-                if(H2-IVD-CASE is noRecordFound)
-                    return;
-                end
-
-                if(DFM34W.DCKT-NMB == 0)
-                    DFM34P3-ALL-DOCKTS();
-                else
-                    DFM34P3-ONE-DOCKET();
-                end
-            end
-        end
-    end
-end // end DFM34P1-MAIN
-
-function DFM34P3-ALL-DOCKTS()
-/* ************************************************************************/
-/* Process all dockets for the case.                                   **/
-/* ************************************************************************/
-
-    set H2-2-COR-DOC empty;
-    DFM34Q03-COR-DOC();
-    DFM34Q03-SCAN();
-    while(H2-2-COR-DOC not noRecordFound)
-        /* WI 28699 begin*/
-        DFM34Q22-PRV();
-        if(sysVar.sqlData.sqlcode != 0)
-            /* WI 28699 end*/
-            DFM34P4-PROC-DOCKT();
-        end
-        DFM34Q03-SCAN();
-    end
-    /*  */
-end // end DFM34P3-ALL-DOCKTS
-
-function DFM34P3-ONE-DOCKET()
-/* ************************************************************************/
-/* Process specific docket.                                            **/
-/* ************************************************************************/
-
-    set H2-2-COR-DOC empty;
-    DFM34Q08-COR-DOC();
-    if(H2-2-COR-DOC not noRecordFound)
-        /* WI 28699 begin*/
-        DFM34Q22-PRV();
-        if(sysVar.sqlData.sqlcode != 0)
-            /* WI 28699 end*/
-            DFM34P4-PROC-DOCKT();
-        end
-    end
-    /*  */
-end // end DFM34P3-ONE-DOCKET
-
-function DFM34P4-PROC-DOCKT()
-/* ************************************************************************/
-/* Process docket                                                      **/
-/* ************************************************************************/
-
-    set DFM34W2 empty;
-
-    /* ONLY PROCESS DOCKETS WITH CUR CMOA UNLESS REQUESTED FROM FORMS MENU*/
-    if(DFM34W.APPL-NAME == "DFM04A")
-        DFM34W2.CMOA-IND = "Y";
+// PROCESS ADDITIONAL PARMS
+Function DFM08P9-ADLN-PRM()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date         Pgr      Description*/
+  /* ---          ---      -----------*/
+  /* 02 Feb 1995  TBST178  Creation*/
+  /* 10/10/96     WNMAR    CHANGES FOR PTR #7820*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the additional parameters     */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-INDEX-2 = 1;
+  DFM08W.WS-INDEX-SAVE = DFM08W.WS-INDEX;
+  while (DFM08W.WS-INDEX-2 <= DFMBTCH-XFER.PIO-PARM-NMB)
+    DFM08W.WS-ADD-PARM[WS-INDEX-2] = DFMBTCH-XFER.PIO-POP-PARM[WS-INDEX-2];
+    /* START CHANGES FOR PTR #7820*/
+    VSTRREC.USTRING = DFM08W.WS-ADD-PARM[WS-INDEX-2];
+    DFM08W.WS-ADDLPARM = DFM08W.WS-ADD-PARM[WS-INDEX-2];
+    if (DFM08W.WS-ADD-PARM[WS-INDEX-2] != " ") /* if not spaces*/
+      call "WST15A" (VSTRREC) {isNoRefresh = yes}; /* finds length of string*/
+      DFM08W.WS-INDEX-3 = VSTRREC.USTRLEN;
     else
-        DFM34W2.CMOA-IND = "N";
-        DFM34P5-CMOA();
+      DFM08W.WS-INDEX-3 = 1;
     end
-    if(DFM34W2.CMOA-IND == "N")
-        return;
+    if (DFM08W.WS-INDEX-2 != 1)
+      DFM08W.WS-STRING[WS-INDEX] = ";";
+      DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
     end
+    DFM08W.WS-INDEX-4 = 1;
+    while (DFM08W.WS-INDEX-4 <= DFM08W.WS-INDEX-3)
+      DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-ADD-PARM-X[WS-INDEX-4];
+      DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+      DFM08W.WS-INDEX-4 = DFM08W.WS-INDEX-4 + 1;
+    end /* end while*/
+    /* END;                           /* end if*/
+    /* END   CHANGES FOR PTR #7820*/
+    DFM08W.WS-INDEX-2 = DFM08W.WS-INDEX-2 + 1;
+  end /* end while*/
+end // end DFM08P9-ADLN-PRM
 
-    DFM34W2.FVI = "N";
-    DFM34W2.NON-DISCLSR-FND = "N";
-    DFM34W2.CHD-INDX = 0;
-    /* GET CHILDREN*/
-    DFM34Q05-DCH-DCN();
-    DFM34Q05-SCAN();
-    while(H2-2-DCH-DCN not noRecordFound && DFM34W2.CHD-INDX < 10)
-        /* WI 22974 begin*/
-        /* PERFORM DFM34Q06-MIP-PCO;      /* Check Insurance*/
-        /* IF DFM34W2.INS-PLCY-IND = 'N';*/
-        /* WI 22974 end*/
-        DFM34W2.CHD-INDX = DFM34W2.CHD-INDX + 1;
-        DFM34P9-MOVE-CHILD();
-        /* END;*/
-        DFM34Q05-SCAN();
+
+// Call Forms Pop-up Applications
+Function DFM08P9-CALL-POP()
+  /* -----------------------------------------------------------------------*/
+  /*  */
+  /* For the following calls remember, a record to record move results in:*/
+  /* The data items within the source record move to the corresponding*/
+  /* data items, with the same name, within the target record.*/
+  /*  */
+  /* -----------------------------------------------------------------------*/
+
+  move DFMBTCH-XFER to DFE01W withV60Compat;
+  DFE01W.PIO-LST-SQ-NMB = DFMBTCH-XFER.PIO-DCKT-SQ-NMB;
+  VMESSAGE.UMSGCODE = " ";
+
+  if (H2-FORM-POPUP.APPL-ID == "DFE01A")
+    call "DFE01A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-
-    if(DFM34W2.CHD-INDX > 0)
-        if(DFM34W.EMPLR-ID == " ")
-            DFM34P5-ALL-EMPLRS();
-        else
-            DFM34P5-ONE-EMPLR();
-        end
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
-    /*  */
-end // end DFM34P4-PROC-DOCKT
+    DFM08W.CST-NCP-IND = "C";
+    DFM08W.PARM-NUM = H2-FORM-POPUP.PARM-NMB;
+    return;
+  end
 
-// Process all Employers
-
-function DFM34P5-ALL-EMPLRS()
-    DFM34Q09-JHS();
-    DFM34Q09-SCAN();
-    while(H2-JOB-HISTORY not noRecordFound)
-        /* WI-4287 - JMorgan 02/02/18 */
-        if(H2-JOB-HISTORY.EMPLR-ID == H2-CODE-TBL.CODE-DESC &&
-                DFM34W.APPL-NAME != "DFM04A")
-        /* DO NOTHING */
-        else
-            DFM34P6-GEN-FORM();
-        end
-        DFM34Q09-SCAN();
-    /**** DELETE LAST TWO LINES WHEN MOVING TO PRODUCTION */
-    /* DFM34P6-GEN-FORM();
-        DFM34Q09-SCAN(); */
+  if (H2-FORM-POPUP.APPL-ID == "DFE02A")
+    call "DFE02A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-end // end DFM34P5-ALL-EMPLRS
-
-// Determine current CS CMOA
-
-function DFM34P5-CMOA()
-/* If Fin Obligation not active, do not generate*/
-    DFM34Q20-FIO();
-    if(H2-FINAN-OBLGN is noRecordFound || H2-FINAN-OBLGN.CRNT-OBLGN-STS != "A")
-        return;
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
+    DFM08W.CST-NCP-IND = "N";
+    DFM08W.PARM-NUM = H2-FORM-POPUP.PARM-NMB;
+    return;
+  end
 
-    /* IF CMOA on NCP Accounts Receivable > 0, do generate the form*/
-    DFM34Q04-NAC();
-    if(H2-NCP-ACCT-RCBL is noRecordFound)
-        return;
+  if (H2-FORM-POPUP.APPL-ID == "DFE03A")
+    call "DFE03A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-    if(H2-NCP-ACCT-RCBL.CRSUP-CMOA > 0)
-        DFM34W2.CMOA-IND = "Y";
-        return;
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
+    return;
+  end
 
-    /* If Variation, do generate the form*/
-    set H-TOSSS3 empty;
-    H-TOSSS3.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    H-TOSSS3.SQNC-NMB = H2-2-COR-DOC.LST-SQNC-NMB;
-    H-TOSSS3.PRVSN-TYPE = "CS";
-    H-TOSSS3.OBLGN-SUSPN-TYPE = "C";
-    H-TOSSS3.HW-YRMTH = DFM34W1.HW-YRMTH;
-    H-TOSSS3.HW-MONTH = DFM34W.CRNT-DATE-MM-NUM;
-    H-TOSSS3.HW-YEAR = DFM34W.CRNT-DATE-CCYY-NUM;
-    call "TOSSS3A"(VDBCONTROL, VMESSAGE, H-TOSSS3){isNoRefresh = yes};
-    if(VDBCONTROL.URC > 104)
-        exit program;
+  if (H2-FORM-POPUP.APPL-ID == "DFE04A")
+    call "DFE04A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-    if(VDBCONTROL.URC == 0)
-        DFM34W2.CMOA-IND = "Y";
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
-    /*  */
-end // end DFM34P5-CMOA
+    return;
+  end
 
-// Process Specific Employer
-
-function DFM34P5-ONE-EMPLR()
-    DFM34Q19-JHS();
-    if(DFM34W.APPL-NAME != "DFM04A" &&((H2-JOB-HISTORY.VRFN-STS != "C" &&
-                    H2-JOB-HISTORY.VRFN-STS != "V") ||(
-                    H2-JOB-HISTORY.HLTH-INS-IND != "Y" &&
-                            H2-JOB-HISTORY.HLTH-INS-IND != " " &&
-                            H2-JOB-HISTORY.HLTH-INS-IND != "U") ||
-                    H2-JOB-HISTORY.JOB-END-DT != "9999-12-31"))
-        return;
+  if (H2-FORM-POPUP.APPL-ID == "DFE05A")
+    DFM08W.WS-INDEX = DFMBTCH-XFER.PIO-PARM-NMB;
+    DFE01W.PIO-POP-PARM[WS-INDEX] = DFM08W.WS-OFC-CD;
+    call "DFE05A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-
-    DFM34P6-GEN-FORM();
-end // end DFM34P5-ONE-EMPLR
-
-function DFM34P6-GEN-FORM()
-/* Check Custodian for non-disclosure and family violence if needed.*/
-    if(DFM34W2.FVI == "N" && DFM34W2.NON-DISCLSR-FND == "N")
-        DFM34Q13-CTN();
-        if(H2-CUSTODIAN.FVI == "Y")
-            DFM34W2.FVI = "Y";
-        end
-        if(H2-CUSTODIAN.NON-DISCLSR-FND == "Y" ||
-                H2-CUSTODIAN.NON-DISCLSR-FND == "P")
-            DFM34W2.NON-DISCLSR-FND = "Y";
-        end
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
-    /*  */
-    DFM34Q10-EWD();
-    /*  */
-    if(H2-EMPLR-WWH-DTLS not noRecordFound && H2-EMPLR-WWH-DTLS.NMSN-GEN-DT !=
-                    "9999-12-31" && DFM34W.APPL-NAME !=
-                    "DFM04A") /* Do not generate form when previously*/
-        return; /* generated unless requested from forms*/
-    end /* menu*/
-    /*  */
-    /* ************************************************************************/
-    /* Build Sib Parameters in working storage                            **/
-    /* ************************************************************************/
+    return;
+  end
 
-    set DFM34W3 empty;
-
-    /* WNSYSDATE*/
-    VFRMREC.WS-SYSDATE = DFM34W1.WS-PROC-DATE;
-    DFG00P9-DATE-FMT(); /* Format Date*/
-    DFM34W3.SIB-PARM[1] = VFRMREC.WS-SYSDATE;
-
-    /* WNOFFICECD WNOFFNAME WNOFFADR1 WNOFFADDR2 WNOFFCTY*/
-    /* WNOFFST    WNOFFZIP  WNPHONE   WNOFFPHNO*/
-    DFM34Q17-SPT-DCC();
-    set DFE01W empty;
-    DFE01W.PIO-UPI = DFM34W.NCP-UPI;
-    DFE01W.PIO-CASE-SUFX = DFM34W.CASE-SUFX;
-    DFE01W.PIO-PARM-NMB = 1;
-    DFE01W.PIO-POP-PARM[1] = H2-2-SPT-DCC.OFC-CD;
-    call "DFE05A"(VDBCONTROL, VMESSAGE, DFE01W){isNoRefresh = yes};
-    if(VDBCONTROL.URC > 104)
-        exit program;
+  if (H2-FORM-POPUP.APPL-ID == "DFE06A")
+  	call "DFE06A" (VSTRREC4) {isNoRefresh = yes};
+//    call "DFE06A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};  //ClearBlade - replace with line above
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-    DFM34W3.SIB-PARM[2] = DFE01W.PIO-POP-PARM[1];
-    DFM34W3.SIB-PARM[3] = DFE01W.PIO-POP-PARM[2];
-    DFM34W3.SIB-PARM[4] = DFE01W.PIO-POP-PARM[3];
-    DFM34W3.SIB-PARM[5] = DFE01W.PIO-POP-PARM[4];
-    DFM34W3.SIB-PARM[6] = DFE01W.PIO-POP-PARM[5];
-    DFM34W3.SIB-PARM[7] = DFE01W.PIO-POP-PARM[6];
-    DFM34W3.SIB-PARM[8] = DFE01W.PIO-POP-PARM[7];
-    DFM34W3.SIB-PARM[9] = DFE01W.PIO-POP-PARM[8];
-    DFM34W3.SIB-PARM[10] = DFE01W.PIO-POP-PARM[9];
-
-    DFM34Q18-NMU();
-
-    DFM34Q21-IRF-OFF();
-    if(H2-2-OFF-IRF.PHN-NMB != " ")
-        VFRMREC3.WS-PHONE-FMT = " ";
-        VFRMREC3.WS-PHONE = H2-2-OFF-IRF.PHN-NMB;
-        DFG00P9-PHONE-FMT3();
-        DFM34W3.SIB-PARM[9] = VFRMREC3.WS-AREA;
-        DFM34W3.SIB-PARM[10] = VFRMREC3.WS-PHONE-FMT;
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
+    return;
+  end
 
-    /* WNFAXAREA WNFAXNO*/
-    VFRMREC3.WS-PHONE-FMT = " ";
-    VFRMREC3.WS-PHONE = H2-NOMADS-USER.FAX-NMB;
-    DFG00P9-PHONE-FMT3();
-    DFM34W3.SIB-PARM[11] = VFRMREC3.WS-AREA;
-    DFM34W3.SIB-PARM[12] = VFRMREC3.WS-PHONE-FMT;
-
-    /* WNEMPFEIN*/
-    DFM34W1.FEIN = H2-JOB-HISTORY.EMPLR-ID;
-    if(DFM34W1.FEIN-I == "-")
-        DFM34W3.SIB-PARM[13] = H2-JOB-HISTORY.EMPLR-ID;
-    else
-        DFM34W3.SIB-PARM[13] = " ";
+  if (H2-FORM-POPUP.APPL-ID == "DFE07A")
+    call "DFE07A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-
-    /* WNEMPNM*/
-    /* Employer Name Hierarchy: Agent Name / Employer Name*/
-    DFM34Q11-EMP();
-    if(H2-EMPLOYER.AGNT-NM != " ")
-        DFM34W3.SIB-PARM[14] = H2-EMPLOYER.AGNT-NM;
-    else
-        DFM34W3.SIB-PARM[14] = H2-EMPLOYER.EMPLR-NM;
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
+    return;
+  end
 
-    /* WNEMPADR1 / WNEMPADR2 / WNEMPCTY / WNEMPST / WNEMPZIP*/
-    /* Employer Address Hierarchy: Agent Address / Site Address*/
-    /* Employer Address.*/
-    if(H2-EMPLOYER.AGNT-CITY != " ") /* Agent Address*/
-        DFM34W3.SIB-PARM[15] = H2-EMPLOYER.AGNT-ADR1;
-        DFM34W3.SIB-PARM[16] = H2-EMPLOYER.AGNT-ADR2;
-        DFM34W3.SIB-PARM[17] = H2-EMPLOYER.AGNT-CITY;
-        DFM34W3.SIB-PARM[18] = H2-EMPLOYER.AGNT-ST;
-        VFRMREC.WS-ZIP = H2-EMPLOYER.AGNT-ZIP-CD;
-        DFG00P9-ZIP-FMT(); /* Format zip code*/
-        DFM34W3.SIB-PARM[19] = VFRMREC.WS-ZIP-FMT;
-    else
-        if(H2-JOB-HISTORY.CITY != " ") /* Site Address*/
-            DFM34W3.SIB-PARM[15] = H2-JOB-HISTORY.ADR-LN1;
-            DFM34W3.SIB-PARM[16] = H2-JOB-HISTORY.ADR-LN2;
-            DFM34W3.SIB-PARM[17] = H2-JOB-HISTORY.CITY;
-            DFM34W3.SIB-PARM[18] = H2-JOB-HISTORY.ST-CD;
-            VFRMREC.WS-ZIP = H2-JOB-HISTORY.ZIP-CD;
-            DFG00P9-ZIP-FMT(); /* Format zip code*/
-            DFM34W3.SIB-PARM[19] = VFRMREC.WS-ZIP-FMT;
-        else /* Employer Address*/
-            DFM34W3.SIB-PARM[15] = H2-EMPLOYER.ADR-LN1;
-            DFM34W3.SIB-PARM[16] = H2-EMPLOYER.ADR-LN2;
-            DFM34W3.SIB-PARM[17] = H2-EMPLOYER.CITY;
-            DFM34W3.SIB-PARM[18] = H2-EMPLOYER.ST-CD;
-            VFRMREC.WS-ZIP = H2-EMPLOYER.ZIP-CD;
-            DFG00P9-ZIP-FMT(); /* Format zip code*/
-            DFM34W3.SIB-PARM[19] = VFRMREC.WS-ZIP-FMT;
-        end
+  if (H2-FORM-POPUP.APPL-ID == "DFE08A")
+    call "DFE08A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-
-    /* WNCOURT*/
-    DFM34Q12-CDT();
-    if(H2-CODE-TBL.CODE-TBL-CD > "00   " && H2-CODE-TBL.CODE-TBL-CD < "19   ")
-        VSTRREC4.USTRING = H2-CODE-TBL.CODE-DESC;
-        VSTRREC4.UCONCAT = "COUNTY";
-        VSTRREC4.UCONCAT2 = " ";
-        VSTRREC4.UCONCAT3 = " ";
-        VSTRREC4.USTRLEN = 50;
-        VSTRREC4.UCONLEN = 6;
-        VSTRREC4.UCONLEN2 = 0;
-        VSTRREC4.UCONLEN3 = 0;
-        call "WST50A"(VSTRREC4){isNoRefresh = yes};
-        DFM34W1.WS-TEXT-37 = VSTRREC4.USTRING;
-        DFM34W3.SIB-PARM[20] = DFM34W1.WS-TEXT-37;
-    else
-        DFM34W1.WS-TEXT-37 = H2-CODE-TBL.CODE-DESC;
-        DFM34W3.SIB-PARM[20] = DFM34W1.WS-TEXT-37;
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
+    return;
+  end
 
-    /* WNEFFDT*/
-    VFRMREC.WS-SYSDATE = H2-2-COR-DOC.ORDER-EFF-DT;
-    DFG00P9-DATE-FMT(); /* Format Date*/
-    DFM34W3.SIB-PARM[21] = VFRMREC.WS-SYSDATE;
-
-    /* WNDCKTNMB*/
-
-    if(H2-2-COR-DOC.INIT-CNTRL-IND == "D" || H2-2-COR-DOC.INIT-CNTRL-IND ==
-                    "P")
-        DFM34W3.SIB-PARM[22] = H2-2-COR-DOC.INIT-DCKT-NMB;
-    else
-        if(H2-2-COR-DOC.RESP-CNTRL-IND == "D" || H2-2-COR-DOC.RESP-CNTRL-IND ==
-                        "P")
-            DFM34W3.SIB-PARM[22] = H2-2-COR-DOC.RSPDG-DCKT-NMB;
-        else
-            if(H2-2-COR-DOC.OTHER-CNTRL-IND == "D" ||
-                    H2-2-COR-DOC.OTHER-CNTRL-IND == "P")
-                DFM34W3.SIB-PARM[22] = H2-2-COR-DOC.OTHER-DCKT-NMB;
-            end
-        end
+  if (H2-FORM-POPUP.APPL-ID == "DFE09A")
+    call "DFE09A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-
-    /* WNNCPNM (FED Format)*/
-    set H2-PERSON empty;
-    H2-PERSON.UPI = DFM34W.NCP-UPI;
-    DFM34Q07-PERSON();
-
-    VSTRREC4.USTRING = H2-PERSON.LST-NM;
-    VSTRREC4.UCONCAT = H2-PERSON.FRST-NM;
-    VSTRREC4.UCONCAT2 = H2-PERSON.MID-NM;
-    VSTRREC4.UCONCAT3 = H2-PERSON.MODFR;
-    VSTRREC4.USTRLEN = 21;
-    VSTRREC4.UCONLEN = 56;
-    VSTRREC4.UCONLEN2 = 16;
-    VSTRREC4.UCONLEN3 = 3;
-    call "DFE06A"(VSTRREC4){isNoRefresh = yes};
-    DFM34W1.WS-TEXT-40 = VSTRREC4.USTRING;
-    DFM34W3.SIB-PARM[23] = DFM34W1.WS-TEXT-40;
-
-    /* WNNCPNAME (Normal Format)*/
-    VSTRREC4.USTRING = H2-PERSON.FRST-NM;
-    VSTRREC4.UCONCAT = H2-PERSON.MID-NM;
-    VSTRREC4.UCONCAT2 = H2-PERSON.LST-NM;
-    VSTRREC4.UCONCAT3 = H2-PERSON.MODFR;
-    VSTRREC4.USTRLEN = 56;
-    VSTRREC4.UCONLEN = 16;
-    VSTRREC4.UCONLEN2 = 21;
-    VSTRREC4.UCONLEN3 = 3;
-    call "WST50A"(VSTRREC4){isNoRefresh = yes};
-    DFM34W3.NCP-NAME = VSTRREC4.USTRING;
-
-    /* WNNCPSSN*/
-    DFM34W3.NCP-SSN = H2-PERSON.SSN;
-
-    /* WNCSTNM (FED Format)*/
-    set H2-PERSON empty;
-    H2-PERSON.UPI = H2-IVD-CASE.CST-UPI;
-    DFM34Q07-PERSON();
-
-    VSTRREC4.USTRING = H2-PERSON.LST-NM;
-    VSTRREC4.UCONCAT = H2-PERSON.FRST-NM;
-    VSTRREC4.UCONCAT2 = H2-PERSON.MID-NM;
-    VSTRREC4.UCONCAT3 = H2-PERSON.MODFR;
-    VSTRREC4.USTRLEN = 21;
-    VSTRREC4.UCONLEN = 56;
-    VSTRREC4.UCONLEN2 = 16;
-    VSTRREC4.UCONLEN3 = 3;
-    call "DFE06A"(VSTRREC4){isNoRefresh = yes};
-    DFM34W1.WS-TEXT-40 = VSTRREC4.USTRING;
-    DFM34W3.SIB-PARM[29] = DFM34W1.WS-TEXT-40;
-
-    /* WNCSTNAME (Normal Format)*/
-    VSTRREC4.USTRING = H2-PERSON.FRST-NM;
-    VSTRREC4.UCONCAT = H2-PERSON.MID-NM;
-    VSTRREC4.UCONCAT2 = H2-PERSON.LST-NM;
-    VSTRREC4.UCONCAT3 = H2-PERSON.MODFR;
-    VSTRREC4.USTRLEN = 56;
-    VSTRREC4.UCONLEN = 16;
-    VSTRREC4.UCONLEN2 = 21;
-    VSTRREC4.UCONLEN3 = 3;
-    call "WST50A"(VSTRREC4){isNoRefresh = yes};
-    DFM34W3.CST-NAME = VSTRREC4.USTRING;
-
-    /* WNCSTSSN*/
-    DFM34W3.CST-SSN = H2-PERSON.SSN;
-
-    /* WNCORRFIPS*/
-    if(DFM34W2.FVI == "N" && DFM34W2.NON-DISCLSR-FND == "N")
-        if(H2-2-COR-DOC.JRSDT-TYPE == "R")
-            DFM34Q14-OJR();
-            if(H2-OJRD-DTL not noRecordFound)
-                DFM34W3.FIPS-CD = H2-OJRD-DTL.CRSPG-FIPS-CD;
-                DFM34W3.FIPS-SUFX = H2-OJRD-DTL.CRSPG-FIPS-CD-SUFX;
-                DFM34W3.SIB-PARM[35] = DFM34W3.FIPS;
-                DFM34W3.SIB-PARM[36] = "X";
-            else
-                DFM34W3.SIB-PARM[30] = "X";
-            end
-        else
-            DFM34W3.SIB-PARM[30] = "X";
-        end
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (VMESSAGE.UMSGCODE != " ")
+      exit program;
     end
+    return;
+  end
+end // end DFM08P9-CALL-POP
 
-    /* Child Info*/
-    DFM34W2.CHD-INDX = 1;
-    DFM34W3.PARM-INDEX = 43;
-    while(DFM34W2.CHD-INDX < 11)
-        DFM34W3.SIB-PARM[PARM-INDEX] = DFM34W2.NAME[CHD-INDX];
-        DFM34W3.PARM-INDEX = DFM34W3.PARM-INDEX + 1;
-        DFM34W3.SIB-PARM[PARM-INDEX] = DFM34W2.DOB[CHD-INDX];
-        DFM34W3.PARM-INDEX = DFM34W3.PARM-INDEX + 1;
-        DFM34W3.SIB-PARM[PARM-INDEX] = DFM34W2.SSN[CHD-INDX];
-        DFM34W3.PARM-INDEX = DFM34W3.PARM-INDEX + 1;
-        DFM34W2.CHD-INDX = DFM34W2.CHD-INDX + 1;
-    end
 
-    /* WNWORKNM*/
-    VSTRREC4.USTRING = H2-NOMADS-USER.FRST-NM;
-    VSTRREC4.UCONCAT = H2-NOMADS-USER.MID-NM;
-    VSTRREC4.UCONCAT2 = H2-NOMADS-USER.LST-NM;
-    VSTRREC4.UCONCAT3 = H2-NOMADS-USER.MODFR;
-    VSTRREC4.USTRLEN = 16;
-    VSTRREC4.UCONLEN = 16;
-    VSTRREC4.UCONLEN2 = 21;
-    VSTRREC4.UCONLEN3 = 3;
-    call "WST50A"(VSTRREC4){isNoRefresh = yes};
-    DFM34W3.SIB-PARM[73] = VSTRREC4.USTRING;
+// MOVE CASE NUMBER
+Function DFM08P9-CASENMB()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the casenumber                */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-CASENUM = DFMBTCH-XFER.PIO-CASE-NUM;
+  DFM08W.WS-INDEX-2 = 10;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-CASE-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-CASENMB
 
-    // WI 1933 begin
-    /* Child Sex*/
-    DFM34W2.CHD-INDX = 1;
-    DFM34W3.PARM-INDEX = 74;
-    while(DFM34W2.CHD-INDX < 11)
-        DFM34W3.SIB-PARM[PARM-INDEX] = DFM34W2.SEX[CHD-INDX];
-        DFM34W3.PARM-INDEX = DFM34W3.PARM-INDEX + 1;
-        DFM34W2.CHD-INDX = DFM34W2.CHD-INDX + 1;
-    end
-    // WI 1933 end
-    
-    /* ************************************************************************/
-    /* Generate Form GN0155                                                 **/
-    /* ************************************************************************/
 
-    if(DFM34W.APPL-TYPE == "O")
-        set DFMPOP-TRANSFER empty;
-        DFMPOP-TRANSFER.PO1-LENGTH = 9801;
-        DFMPOP-TRANSFER.PO1-TRANID = "WM01";
-        DFMPOP-TRANSFER.PIO-FORM-ID = "GN0155";
-        DFMPOP-TRANSFER.PIO-CASE-SUFX = H2-IVD-CASE.CASE-SUFX;
-        DFMPOP-TRANSFER.PIO-UPI = H2-IVD-CASE.NCP-UPI;
-        DFMPOP-TRANSFER.PIO-DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-        DFMPOP-TRANSFER.PIO-LST-SQ-NMB = H2-2-COR-DOC.LST-SQNC-NMB;
-        DFMPOP-TRANSFER.PIO-NMB-OF-COPIES = 1;
-        if(DFM34W.APPL-NAME == "DFM04A") /* FORMS MENU*/
-            DFMPOP-TRANSFER.PIO-MODE-IND = "F";
-        else
-            DFMPOP-TRANSFER.PIO-MODE-IND = "D";
-        end
-        DFMPOP-TRANSFER.PIO-USRID = GNOMADS.G-USER-ID;
-        DFMPOP-TRANSFER.PIO-TERMID = GNOMADS.G-TERM-ID;
-        DFMPOP-TRANSFER.PIO-NCP-NAME = DFM34W3.NCP-NAME;
-        DFMPOP-TRANSFER.PIO-NCP-SSN = DFM34W3.NCP-SSN;
-        DFMPOP-TRANSFER.PIO-CST-NAME = DFM34W3.CST-NAME;
-        DFMPOP-TRANSFER.PIO-CST-SSN = DFM34W3.CST-SSN;
-        DFMPOP-TRANSFER.PIO-PARM-NMB = 83;
-        DFM34W3.PARM-INDEX = 1;
-        while(DFM34W3.PARM-INDEX < 84)
-            DFMPOP-TRANSFER.PIO-POP-PARM[PARM-INDEX] = DFM34W3.SIB-PARM[PARM-INDEX];
-            DFM34W3.PARM-INDEX = DFM34W3.PARM-INDEX + 1;
-        end
-        DFMPOP-TRANSFER.WS-APPL-ID = DFM34W.APPL-NAME;
-        call "DFM07A"(VDBCONTROL, VMESSAGE,
-                DFMPOP-TRANSFER){isNoRefresh = yes};
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-        DFM34W.GN0155-GENERATED-IND = "Y";
-    end
+// BUILD SIB RECORD
+Function DFM08P9-CNSTRT-SIB()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date         Pgr      Description*/
+  /* ---          ---      -----------*/
+  /* 02 Feb 1995  TBST178  Creation*/
+  /* 06/21/97     WNMAR    CHANGES FOR PTR #12002*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------------*/
+  /* This process constructs SIB type 0                         */
+  /* ------------------------------------------------------------*/
+  DFM08W.WS-STRING[WS-INDEX] = ")";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = " ";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = "%";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = "R";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = "1";
+  /* DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;*/
+  /* header part of sib0*/
+  DFM08W-PO1-SIB0.PO1-SIB-ASF-VER = 1;
+  DFM08W-PO1-SIB0.PO1-SIB-USER-NAME = "FORMDEV";
+  DFM08W-PO1-SIB0.PO1-SIB-USER-PSWD = " ";
+  DFM08W-PO1-SIB0.PO1-SIB-PGRM-NAME = " ";
+  DFM08W-PO1-SIB0.PO1-SIB-SEC-SUPPR = "1";
+  DFM08W-PO1-SIB0.PO1-SIB-LANG-IND = "ENU";
+  DFM08W-PO1-SIB0.PO1-SIB-REC-ID = DFM08W.WS-LTD-NAME;
+  DFM08W-PO1-SIB0.PO1-SIB-1ST-ASF-CALL = "0";
+  DFM08W-PO1-SIB0.PO1-SIB-MSG-REDEF = "0";
+  DFM08W-PO1-SIB0.PO1-SIB-DATA-XFER = 0;
+  DFM08W-PO1-SIB0.PO1-SIB-ASF-FNCT = "LCF";
+  /* START CHANGES FOR PTR #12002*/
+  /* MOVE ' ' TO DFM08W-PO1-SIB0.PO1-SIB-USER-COMA;*/
+  set DFM08W2 empty;
+  DFM08W.WS-PACKET = DFMBTCH-XFER.WS-PCKT;
+  DFM08W2.WS-PCKT-FLAG = DFMBTCH-XFER.WS-PCKT-FLAG;
+  DFM08W2.WS-PCKT = DFM08W.WS-PCKT;
+  DFM08W-PO1-SIB0.PO1-SIB-USER-COMA = DFM08W2.WS-SIB-USER-COMA;
+  /* END   CHANGES FOR PTR #12002*/
+  DFM08W-PO1-SIB0.PO1-SIB-TOTAL-LTH = DFM08W.WS-SIB-LTH;
+  DFM08W-PO1-SIB0.PO1-SIB-TYPE = "0";
+  DFM08W-PO1-SIB0.PO1-SIB-MSG-TEXT = " ";
+  DFM08W-PO1-SIB0.PO1-SIB-MSG-CODE = 0;
+  DFM08W-PO1-SIB0.PO1-SIB-ERR-FLD = " ";
+  DFM08W-PO1-SIB0.PO1-SIB-APPEND-TEXT = DFM08W.WS-APP-TXT;
+end // end DFM08P9-CNSTRT-SIB
 
-    if(DFM34W.APPL-TYPE == "B") /* BATCH*/
-        set DFMBTCH-XFER empty;
-        DFMBTCH-XFER.PIO-FORM-ID = "GN0155";
-        DFMBTCH-XFER.PIO-CASE-SUFX = H2-IVD-CASE.CASE-SUFX;
-        DFMBTCH-XFER.PIO-UPI = H2-IVD-CASE.NCP-UPI;
-        DFMBTCH-XFER.PIO-DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-        DFMBTCH-XFER.PIO-DCKT-SQ-NMB = H2-2-COR-DOC.LST-SQNC-NMB;
-        DFMBTCH-XFER.PIO-NMB-OF-COPIES = 1;
-        DFMBTCH-XFER.PIO-NCP-NAME = DFM34W3.NCP-NAME;
-        DFMBTCH-XFER.PIO-NCP-SSN = DFM34W3.NCP-SSN;
-        DFMBTCH-XFER.PIO-CST-NAME = DFM34W3.CST-NAME;
-        DFMBTCH-XFER.PIO-CST-SSN = DFM34W3.CST-SSN;
-        DFMBTCH-XFER.PIO-PARM-NMB = 83;
-        DFM34W3.PARM-INDEX = 1;
-        while(DFM34W3.PARM-INDEX < 84)
-            DFMBTCH-XFER.PIO-POP-PARM[PARM-INDEX] = DFM34W3.SIB-PARM[PARM-INDEX];
-            DFM34W3.PARM-INDEX = DFM34W3.PARM-INDEX + 1;
-        end
-        DFMBTCH-XFER.WS-APPL-ID = DFM34W.APPL-NAME;
-        call "DFM08A"(VDBCONTROL, VMESSAGE, DFMBTCH-XFER){isNoRefresh = yes};
-        if(VDBCONTROL.URC > 104)
-            exit program;
-        end
-        if(VMESSAGE.UMESSAGE == " ")
-            DFM34W.GN0155-GENERATED-IND = "Y";
-        end
-    end
 
-    if(DFM34W.GN0155-GENERATED-IND == "Y")
-        if(H2-EMPLR-WWH-DTLS not noRecordFound)
-            DFM34U01-EWD();
-        else
-            DFM34I01-EWD();
-        end
-    end
-    /*  */
-end // end DFM34P6-GEN-FORM
-
-// Move Child info
-
-function DFM34P9-MOVE-CHILD()
-    if(H2-2-DCH-DCN.FVI == "Y")
-        DFM34W2.FVI = "Y";
-    end
-
-    if(H2-2-DCH-DCN.NON-DISCLSR-FND == "Y" || H2-2-DCH-DCN.NON-DISCLSR-FND ==
-                    "P")
-        DFM34W2.NON-DISCLSR-FND = "Y";
-    end
-
-    set H2-PERSON empty;
-    H2-PERSON.UPI = H2-2-DCH-DCN.CHD-UPI;
-    DFM34Q07-PERSON();
-
-    VSTRREC4.USTRING = H2-PERSON.LST-NM;
-    VSTRREC4.UCONCAT = H2-PERSON.FRST-NM;
-    VSTRREC4.UCONCAT2 = H2-PERSON.MID-NM;
-    VSTRREC4.UCONCAT3 = H2-PERSON.MODFR;
-    VSTRREC4.USTRLEN = 21;
-    VSTRREC4.UCONLEN = 56;
-    VSTRREC4.UCONLEN2 = 16;
-    VSTRREC4.UCONLEN3 = 3;
-    call "DFE06A"(VSTRREC4){isNoRefresh = yes};
-    DFM34W2.NAME[CHD-INDX] = VSTRREC4.USTRING;
-
-    VFRMREC.WS-SSN = H2-PERSON.SSN;
-    DFG00P9-SSN-FMT(); /* Format SSN*/
-    DFM34W2.SSN[CHD-INDX] = VFRMREC.WS-SSN-FMT;
-
-    VFRMREC.WS-SYSDATE = H2-PERSON.DOB;
-    DFG00P9-DATE-FMT(); /* Format Date*/
-    DFM34W2.DOB[CHD-INDX] = VFRMREC.WS-SYSDATE;
-
-    // WI 1993 begin
-    DFM34W2.SEX[CHD-INDX] = H2-PERSON.SEX-CD;
-    // WI 1933 end
-    
-end // end DFM34P9-MOVE-CHILD
-
-// Get Qualifing Cases
-
-function DFM34Q01-IDC()
-    set H2-IVD-CASE empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-IVD-CASE";
-    VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-    VDBCONTROL.UPROC-NM = "DFM34Q01-IDC";
-    VDBCONTROL.UPROC-OPT = "SETINQ";
-
-    H2-IVD-CASE.NCP-UPI = DFM34W.NCP-UPI;
-    try
-        open DFM34Q01-IDC_RSI01
-                with #sql{
-        select CASE_SUFX, CST_UPI
-        from TWNIVD_CASE T1
+// Selects county form
+Function DFM08P9-CNTY-FRM()
+  WDB00PI();
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+  VDBCOMMON.USQLREC = "H2-CNTY-FRM";
+  VDBCONTROL.UPROC-OBJ = "H2-CNTY-FRM";
+  VDBCONTROL.UPROC-NM = "DFM08P9-CNTY-FRM";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-CNTY-FRM
+      with #sql{
+        select CNTY_CD, FRM_ID, SRVC_MTHD, AUDIT_TS,
+          AUDIT_USRID, END_DT, FRM_EFF_DT, SRVC_REQD_IND,
+          CNTMPT_IND, FORM_DESCRIPTION,
+          NOMADS_FORM_IND, PRNT_IND
+        from twncnty_frm T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          NCP_UPI        =   :NCP-UPI                         AND
-          CASE_STS       =   'A'                              AND
-          CASE_TYPE      IN ('A', 'C', 'E', 'M', 'N', 'P')    AND
-          FUNC_AREA_CD   =   'E'                              AND
-          SRVC_LVL       <>  'Y'
+        WHERE CNTY_CD = :CNTY-CD AND FRM_ID = :FRM-ID
+         --** INSERT ORDER BY CLAUSE HERE **
         FOR FETCH ONLY
          --** INSERT ORDER BY CLAUSE HERE **
       }
-                into CASE-SUFX, CST-UPI for H2-IVD-CASE;
-    end
+      into CNTY-CD, FRM-ID, SRVC-MTHD, AUDIT-TS,
+           AUDIT-USRID, END-DT, FRM-EFF-DT, SRVC-REQD-IND,
+           CNTMPT-IND, FORM-DESCRIPTION,
+           NOMADS-FORM-IND, PRNT-IND ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+    DFM08W3.WS-SQLCODE = sysVar.sqlData.sqlcode;
+  end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q01-IDC
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
 
-// Get Qualifing Cases
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+end // end DFM08P9-CNTY-FRM
 
-function DFM34Q01-SCAN()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-IVD-CASE";
-    VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-    VDBCONTROL.UPROC-NM = "DFM34Q01-SCAN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    try
-        get next H2-IVD-CASE;
-    end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q01-SCAN
+// PROCESS COMMON PARMS
+Function DFM08P9-COMM-PARM()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date         Pgr      Description*/
+  /* ---          ---      -----------*/
+  /* 02 Feb 1995  TBST178  Creation*/
+  /* 03/06/97     WNMAR    CHANGES FOR PTR #9139*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the common parameter portion */
+  /* of the SIB type 0                                    */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-INDEX = 1;
+  DFM08P9-PARAGRPH(); /* Paragraph Name*/
+  DFM08P9-CASENMB(); /* Case number*/
+  DFM08P9-FORMNMB(); /* Form id*/
+  DFM08P9-NCPNAME(); /* NCP name*/
+  DFM08P9-NCPSSN(); /* NCP ssn*/
+  DFM08P9-CSTNAME(); /* CST name*/
+  DFM08P9-CSTSSN(); /* CST ssn*/
+  DFM08P9-WKRNAME(); /* Worker name*/
+  DFM08P9-WRKTITLE(); /* Worker title*/
+  DFM08P9-COUNTYCD(); /* County code*/
+  DFM08P9-DCKT-NMB(); /* Docket number*/
+  DFM08P9-DCKT-SQN(); /* Docket sequence number*/
+  DFM08P9-OFFICECD(); /* Office code*/
+  DFM08P9-ADLN-PRM(); /* Additional parm*/
+  /* START CHANGES FOR PTR #9139*/
+  DFM08P9-SERV-PROC();
+  /* END   CHANGES FOR PTR #9139*/
+end // end DFM08P9-COMM-PARM
 
-// Check if Case Qualifies
 
-function DFM34Q02-IDC()
-    set H2-IVD-CASE empty;
+// MOVE COUNTY CODE
+Function DFM08P9-COUNTYCD()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date         Pgr     Description*/
+  /* ---          ---     -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* 01/20/97     WNMAR   CHANGES FOR PTR #9307*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the county code               */
+  /* ------------------------------------------------------*/
+  /* START CHANGES FOR PTR #9307*/
+  DFM08W.WS-CNTYCD = DFM08W.WS-CNTY-CD;
+  DFM08W.WS-INDEX-2 = 2;
+  /* END   CHANGES FOR PTR #9307*/
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-CNTY-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-COUNTYCD
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-IVD-CASE";
-    VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-    VDBCONTROL.UPROC-NM = "DFM34Q02-IDC";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
 
-    H2-IVD-CASE.NCP-UPI = DFM34W.NCP-UPI;
-    H2-IVD-CASE.CASE-SUFX = DFM34W.CASE-SUFX;
-    try
-        get H2-IVD-CASE singleRow
-                with #sql{
-        select CST_UPI
-        from TWNIVD_CASE T1
+// Gets NCP & CST names
+Function DFM08P9-CST-NM()
+  WDB00PI();
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+  VDBCOMMON.USQLREC = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-OBJ = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-NM = "DFM08P9-CST-NM";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-2-IDC-PER
+      with #sql{
+        select T2.LST_NM,
+          T2.FRST_NM, T2.MID_NM, T1.CST_UPI
+        from TWNIVD_CASE T1,
+             TWNPERSON T2
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          NCP_UPI        =   :NCP-UPI                         AND
-          CASE_SUFX      =   :CASE-SUFX                       AND
-          CASE_STS       =   'A'                              AND
-          CASE_TYPE      IN ('A', 'C', 'E', 'M', 'N', 'P')    AND
-          FUNC_AREA_CD   =   'E'                              AND
-          SRVC_LVL       <>  'Y'
+        WHERE T1.NCP_UPI = :NCP-UPI
+          AND T1.CASE_SUFX = :CASE-SUFX
+          AND T1.CST_UPI = T2.UPI
          --** INSERT ORDER BY CLAUSE HERE **
       }
-                into CST-UPI;
+      into LST-NM, FRST-NM, MID-NM, CST-UPI ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+    DFM08W3.WS-SQLCODE = sysVar.sqlData.sqlcode;
+  end
+
+  VDBCOMMON.UNRF = 1;
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
+
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+end // end DFM08P9-CST-NM
+
+
+// MOVE CST NAME
+Function DFM08P9-CSTNAME()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the cst name                  */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-CSTNAME = DFMBTCH-XFER.PIO-CST-NAME;
+  VSTRREC.USTRING = DFMBTCH-XFER.PIO-CST-NAME;
+  call "WST15A" (VSTRREC) {isNoRefresh = yes}; /* find length of string*/
+  DFM08W.WS-INDEX-2 = VSTRREC.USTRLEN;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-CSTN-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-CSTNAME
+
+
+// MOVE CST SSN
+Function DFM08P9-CSTSSN()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+
+  /* ------------------------------------------------------*/
+  /* This process constructs the cst ssn                   */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-CSTSSN = DFMBTCH-XFER.PIO-CST-SSN;
+  DFM08W.WS-INDEX-2 = 9;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-CSTS-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-CSTSSN
+
+
+// MOVE DOCKET NUMBER
+Function DFM08P9-DCKT-NMB()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the docket nmb                */
+  /* ------------------------------------------------------*/
+  if (DFMBTCH-XFER.PIO-DCKT-NMB == 0)
+    DFM08W.WS-DCKE-X[1] = 0;
+    DFM08W.WS-DCKE-X[2] = 0;
+    DFM08W.WS-DCKE-X[3] = 0;
+    DFM08W.WS-DCKE-X[4] = 0;
+    DFM08W.WS-DCKE-X[5] = 0;
+    DFM08W.WS-DCKE-X[6] = 0;
+    DFM08W.WS-DCKE-X[7] = 0;
+    DFM08W.WS-DCKE-X[8] = 0;
+    DFM08W.WS-DCKE-X[9] = 0;
+    DFM08W.WS-INDEX-2 = 9;
+  else
+
+    DFM08W.WS-DCKETNUM = DFMBTCH-XFER.PIO-DCKT-NMB;
+    VSTRREC.USTRING = DFM08W.WS-DCKETNUM;
+    call "WST15A" (VSTRREC) {isNoRefresh = yes};
+    DFM08W.WS-INDEX-2 = VSTRREC.USTRLEN;
+  end /* End if*/
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-DCKE-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-DCKT-NMB
+
+
+// MOVE DOCKER SEQUENCE NUMBER
+Function DFM08P9-DCKT-SQN()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the docket sequence nmb       */
+  /* ------------------------------------------------------*/
+  if (DFMBTCH-XFER.PIO-DCKT-SQ-NMB == 0) /* If blank*/
+    DFM08W.WS-DKTS-X[1] = 0;
+    DFM08W.WS-DKTS-X[2] = 0;
+    DFM08W.WS-DKTS-X[3] = 0;
+    DFM08W.WS-DKTS-X[4] = 0;
+    /* VE 0000 TO DFM08W.WS-DKTSQNUM;*/
+    DFM08W.WS-INDEX-2 = 4;
+  else
+
+    DFM08W.WS-DKTSQNUM = DFMBTCH-XFER.PIO-DCKT-SQ-NMB;
+    VSTRREC.USTRING = DFM08W.WS-DKTSQNUM;
+    call "WST15A" (VSTRREC) {isNoRefresh = yes};
+    DFM08W.WS-INDEX-2 = VSTRREC.USTRLEN;
+  end /* endif*/
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-DKTS-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = "N";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-DCKT-SQN
+
+
+// First-Pass process
+Function DFM08P9-FIRST-PASS()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date         Pgr     Description*/
+  /* ---          ---     -----------*/
+  /* 02 Feb 1995  TBST178 creation*/
+  /* 04 Aug 1995  CBS484  To get ncp and cst's ssn,name.County code also.*/
+  /* 01/20/97     WNMAR   CHANGES FOR PTR #9307*/
+  /* 03/28/97     WNMAR   CHANGES FOR PTR #10575*/
+  /* 12/01/98     WNMKK   Changes for WI15120.*/
+  /* ------------------------------------------------*/
+  /*  */
+
+  /* Changes start 08/04/95*/
+  DFM08W.WS-PIO-UPI = DFMBTCH-XFER.PIO-UPI;
+  DFM08W4.WS-NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+  /* To get ncp'ssn and his name*/
+  DFM08P9-GET-NCP();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* To get cst ssn and his name*/
+  /*  */
+  /* START CHANGES FOR PTR #10575*/
+  if (DFMBTCH-XFER.PIO-CST-NAME == " " || 
+  DFMBTCH-XFER.PIO-CST-SSN == " ")
+    DFM08P9-GET-CST();
+    if (VDBCONTROL.URC > 104)
+      exit program;
+    end
+  end
+  /* END   CHANGES FOR PTR #10575*/
+  /*  */
+  /* Chages end;*/
+  /* Change made on 11-11-95*/
+  /* To get the worker name and title*/
+  DFM08P9-GET-WRKR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /* Change end*/
+  /*  */
+  /* START CHANGES FOR PTR #9307*/
+  /* To get county code for the case and the county code for the worker.*/
+  /*  */
+  DFM08P9-GET-C-CNTY();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  DFM08P9-GET-W-CNTY();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+
+  DFM08P9-POP-TAB(); /* Execute popups according to table*/
+                                   /* TWN_FORM_POP.*/
+
+  DFM08P9-COMM-PARM(); /* perform common parmeter process*/
+
+  set H2-CNTY-FRM empty;
+  if (DFM08W.WS-C-CNTY != " ")
+    H2-CNTY-FRM.CNTY-CD = DFM08W.WS-C-CNTY;
+  else
+    H2-CNTY-FRM.CNTY-CD = DFM08W.WS-OFC-CD;
+  end
+
+  if (DFMBTCH-XFER.PIO-FORM-ID != " ")
+    H2-CNTY-FRM.FRM-ID = DFMBTCH-XFER.PIO-FORM-ID;
+    DFM08W.WS-FORMID = DFMBTCH-XFER.PIO-FORM-ID;
+  else
+    H2-CNTY-FRM.FRM-ID = DFMBTCH-XFER.WS-PCKT;
+    DFM08W.WS-FORMID = DFMBTCH-XFER.WS-PCKT;
+  end
+
+  DFM08P9-CNTY-FRM();
+  if (H2-CNTY-FRM is noRecordFound)
+    H2-CNTY-FRM.CNTY-CD = "XX";
+    DFM08P9-CNTY-FRM();
+  end
+
+  if (H2-CNTY-FRM is noRecordFound)
+    H2-CNTY-FRM.PRNT-IND = "N";
+  end
+
+  H2-BTCH-FRM-KDTA.NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+  H2-BTCH-FRM-KDTA.CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+  DFM08W.WS-DCKETNUM = DFMBTCH-XFER.PIO-DCKT-NMB;
+  DFM08W.WS-DKTSQNUM = DFMBTCH-XFER.PIO-DCKT-SQ-NMB;
+
+  /* Based on FORM-ID, get other parameters from DFMBTCH-XFER.PIO-POP-PARM*/
+  if (DFMBTCH-XFER.PIO-FORM-ID == "GN0092")
+    DFM08W4.WS-EMPLR-NMB = DFMBTCH-XFER.PIO-POP-PARM[8];
+  end
+  if (DFMBTCH-XFER.PIO-FORM-ID == "GN0050"
+   || DFMBTCH-XFER.PIO-FORM-ID == "GN0083"
+   || DFMBTCH-XFER.PIO-FORM-ID == "GN0088")
+    DFM08W4.WS-EMPLR-NMB = DFMBTCH-XFER.PIO-POP-PARM[1];
+  end
+  /* Formatting SSN of NCP and CST*/
+  DFM08W1.NCP-SSN = DFMBTCH-XFER.PIO-NCP-SSN;
+  DFM08W4.WS-NCP-SSN-THREE = DFM08W1.NCP-SSN-1;
+  DFM08W4.WS-NCP-SSN-FILL1 = "-";
+  DFM08W4.WS-NCP-SSN-TWO = DFM08W1.NCP-SSN-2;
+  DFM08W4.WS-NCP-SSN-FILL2 = "-";
+  DFM08W4.WS-NCP-SSN-FOUR = DFM08W1.NCP-SSN-3;
+
+  DFM08W1.CST-SSN = DFMBTCH-XFER.PIO-CST-SSN;
+  DFM08W4.WS-CST-SSN-THREE = DFM08W1.CST-SSN-1;
+  DFM08W4.WS-CST-SSN-FILL1 = "-";
+  DFM08W4.WS-CST-SSN-TWO = DFM08W1.CST-SSN-2;
+  DFM08W4.WS-CST-SSN-FILL2 = "-";
+  DFM08W4.WS-CST-SSN-FOUR = DFM08W1.CST-SSN-3;
+
+  /* Clearing data of H2-PERSON*/
+  set H2-PERSON empty;
+  H2-PERSON.UPI = DFMBTCH-XFER.PIO-UPI;
+  /* Getting NCP name*/
+  DFM08P9-NCP-NM();
+  /* Formatting NCP name*/
+  VSTRREC4.USTRING = H2-PERSON.LST-NM;
+  VSTRREC4.UCONCAT = H2-PERSON.FRST-NM;
+  VSTRREC4.UCONCAT2 = H2-PERSON.MID-NM;
+  VSTRREC4.USTRLEN = 21;
+  VSTRREC4.UCONLEN = 1;
+  VSTRREC4.UCONLEN2 = 1;
+  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
+  DFM08W4.WS-NCP-NAME = VSTRREC4.USTRING;
+
+  set H2-2-IDC-PER empty;
+  H2-2-IDC-PER.NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+  H2-2-IDC-PER.CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+  /* Getting CST name*/
+  DFM08P9-CST-NM();
+  DFM08W4.WS-CST-UPI = H2-2-IDC-PER.CST-UPI;
+  /* Formatting CST name*/
+  VSTRREC4.USTRING = H2-2-IDC-PER.LST-NM;
+  VSTRREC4.UCONCAT = H2-2-IDC-PER.FRST-NM;
+  VSTRREC4.UCONCAT2 = H2-2-IDC-PER.MID-NM;
+  VSTRREC4.USTRLEN = 21;
+  VSTRREC4.UCONLEN = 1;
+  VSTRREC4.UCONLEN2 = 1;
+  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
+  DFM08W4.WS-CST-NAME = VSTRREC4.USTRING;
+
+  DFM08W4.WS-USRID = "BATCH";
+  /* Gets NCP Jrsdt code*/
+  DFM08P9-NCP-JRSDT();
+  DFM08W4.WS-OFC-CNTY-CD = H2-IVD-CASE.NCP-JRSDT-CD;
+  H2-BTCH-FRM-KDTA.DOWNLD-IND = "N";
+  DFM08W4.WS-NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+  DFM08W4.WS-CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+  if (DFMBTCH-XFER.PIO-FORM-ID != " ")
+    DFM08W4.WS-FORM[1] = DFMBTCH-XFER.PIO-FORM-ID;
+  else
+    DFM08W4.WS-FORM[1] = DFMBTCH-XFER.WS-PCKT;
+  end
+  DFM08W4.WS-DCKT-NMB = DFMBTCH-XFER.PIO-DCKT-NMB;
+  DFM08W4.WS-LST-SQNC-NMB = DFMBTCH-XFER.PIO-DCKT-SQ-NMB;
+  DFM08W4.WS-CRNT-DATE = GDW.DTCD;
+
+  /* Inserts data to twnbtch_frm_kdta*/
+  H2-BTCH-FRM-KDTA.FORM-KEY-PARM = DFM08W4.WS-FORM-KEY-PARM;
+  DFM08P9-KDTA-TRKNG();
+
+  if (H2-CNTY-FRM.PRNT-IND == "Y")
+  /* Continue ...*/
+  else
+    if (H2-CNTY-FRM.PRNT-IND == "N")
+  /* Creating an alert*/
+      PCAL16A-INP.PCAL16A-ALERT-CD = 390086;
+      PCAL16A-INP.PCAL16A-ALERT-INS-PARM-1 = DFMBTCH-XFER.PIO-FORM-ID;
+      PCAL16A-INP.PCAL16A-UPI = DFMBTCH-XFER.PIO-UPI;
+      PCAL16A-INP.PCAL16A-CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+      PCAL16A-INP.PCAL16A-PROCESS-DT = GDW.DTCD;
+      PCAL16A-INP.PCAL16A-ALERT-ACTION = "C";
+      call "CAL16A" (VDBCONTROL, VMESSAGE, PCAL16A-INP) {isNoRefresh = yes};
+  /* **********************************************************************/
+  /* Removed 08/12/2002 - Louis F : DFM24A will pic up the KDATA entry.*/
+  /* It will then generate it as flexi form. This process does create*/
+  /* tracking.*/
+  /* PERFORM DFM08P9-DTA-TRKNG;*/
+  /* IF VDBCONTROL.URC >= 104;*/
+  /* EZECLOS;                   /* Exit DFM08A appl.*/
+  /* END;*/
+  /* **********************************************************************/
+      exit program; /* Exit DFM08A appl.*/
+    end
+  end
+
+  /* WI 15120 END ...*/
+  DFM08P9-CNSTRT-SIB(); /* constructs sib type 0*/
+
+  /* ---------------------------------------------------------*/
+  /* Form Destination from TWNPARA_VER                      */
+  /* M = Mainframe                                 */
+  /* S = Server                                    */
+  /* B = Both                                      */
+  /* ---------------------------------------------------------*/
+  if (H2-PARA-VER.FORM-DEST == "S" || 
+  H2-PARA-VER.FORM-DEST == "B")
+  /* PERFORM DFM08P9-SERVR-FORM;*/
+  /* CALL DFM35A-this program will build the trigger records for the notice*/
+  /* wi27446,26702,CMcK,06/2005*/
+    call "DFM35A" (VDBCONTROL, VMESSAGE, DFMPOP-TRANSFER, DFMBTCH-XFER) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
+  end
+  if (H2-PARA-VER.FORM-DEST == "M" || 
+  H2-PARA-VER.FORM-DEST == "B")
+    DFM08P9-WRITESIB();
+  end
+
+  /* -- If form were addressed to the NCP or CST and the NCP or CST*/
+  /* -- has an attorney, copy the attorney. See WI 25000*/
+  if (DFM08W.CST-NCP-IND == "C" || DFM08W.CST-NCP-IND == "N")
+    DFM08W.WS-PARM-NMB = DFMBTCH-XFER.PIO-PARM-NMB;
+    DFMBTCH-XFER.PIO-PARM-NMB = DFM08W.PARM-NUM;
+    DFMBTCH-XFER.PIO-POP-PARM[PARM-NUM] = DFM08W.CST-NCP-IND;
+    move DFMBTCH-XFER to DFE01W withV60Compat;
+    call "DFE07A" (VDBCONTROL, VMESSAGE, DFE01W) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-end // end DFM34Q02-IDC
+    move DFE01W to DFMBTCH-XFER withV60Compat;
+    if (DFMBTCH-XFER.PIO-PARM-NMB < DFM08W.WS-PARM-NMB)
+      DFMBTCH-XFER.PIO-PARM-NMB = DFM08W.WS-PARM-NMB;
+    end
+    if (DFMBTCH-XFER.PIO-POP-PARM[PARM-NUM] != " ")
+      DFM08W.WS-INDEX = DFM08W.WS-INDEX-SAVE;
+      DFM08P9-ADLN-PRM();
+      DFM08P9-CNSTRT-SIB(); /* constructs sib type 0*/
 
-// Get Qualifing Dockets
+  /* ---------------------------------------------------------*/
+  /* Form Destination from TWNPARA_VER                      */
+  /* M = Mainframe                                 */
+  /* S = Server                                    */
+  /* B = Both                                      */
+  /* ---------------------------------------------------------*/
+      if (H2-PARA-VER.FORM-DEST == "S" || 
+      H2-PARA-VER.FORM-DEST == "B")
+  /* PERFORM DFM08P9-SERVR-FORM;*/
+  /* wi27446,26702,CMcK,06/2005*/
+        call "DFM35A" (VDBCONTROL, VMESSAGE, DFMPOP-TRANSFER, DFMBTCH-XFER) {isNoRefresh = yes};
+        if (VDBCONTROL.URC > 104)
+          exit program;
+        end
+      end
+      if (H2-PARA-VER.FORM-DEST == "M" || 
+      H2-PARA-VER.FORM-DEST == "B")
+        DFM08P9-WRITESIB();
+      end
 
-function DFM34Q03-COR-DOC()
-    set H2-2-COR-DOC empty;
+    end
+  end
+  /*  */
+end // end DFM08P9-FIRST-PASS
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-OBJ = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-NM = "DFM34Q03-COR-DOC";
-    VDBCONTROL.UPROC-OPT = "SETINQ";
 
-    H2-2-COR-DOC.UPI = H2-IVD-CASE.NCP-UPI;
-    H2-2-COR-DOC.CASE-SUFX = H2-IVD-CASE.CASE-SUFX;
-    try
-        open DFM34Q03-COR-DOC_RSI01
-                with #sql{
-        select T2.DCKT_NMB, T2.RESP_LCTN_CD, T2.RSPDG_DCKT_NMB,
-          T2.OTHER_LCTN_CD, T2.OTHER_DCKT_NMB, T2.INIT_DCKT_NMB,
-          T2.INIT_LCTN_CD, T1.ORDER_EFF_DT,
-          T2.INIT_CNTRL_IND, T2.RESP_CNTRL_IND, T2.OTHER_CNTRL_IND,
-          T2.JRSDT_TYPE, T2.LST_SQNC_NMB
-        from TWNCOURT_ORDR T1,
-             TWNDOCKET T2
+// MOVE FORM NUMBER
+Function DFM08P9-FORMNMB()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the form nmb                  */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-FORMID = DFMBTCH-XFER.PIO-FORM-ID;
+  DFM08W.WS-INDEX-2 = 6;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-FORM-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-FORMNMB
+
+
+// PROCESS FIRST PASS FOR FAME
+Function DFM08P9-FRST-PS-A()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date      Pgr    Description*/
+  /* ---       ---    -----------*/
+  /* 10/10/96  WNMAR  CHANGES FOR PTR #7820*/
+  /* ------------------------------------------------*/
+  /*  */
+  /* PROCESSING FOR IVA BATCH FORMS*/
+  /*  */
+  DFM08W.WS-INDEX = 1;
+  DFM08P9-PARAGRPH();
+  DFM08P9-FORMNMB();
+  /*  */
+  /* ADD IVA CASE TRACKING INDICATOR*/
+  DFM08W.WS-STRING[WS-INDEX] = "N";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  /*  */
+  DFM08P9-ADLN-PRM();
+  DFM08P9-CNSTRT-SIB();
+
+  /* ---------------------------------------------------------*/
+  /* Form Destination from TWNPARA_VER                      */
+  /* M = Mainframe                                 */
+  /* S = Server                                    */
+  /* B = Both                                      */
+  /* ---------------------------------------------------------*/
+  if (H2-PARA-VER.FORM-DEST == "S" || 
+  H2-PARA-VER.FORM-DEST == "B")
+  /* PERFORM DFM08P9-SERVR-FORM;*/
+  /* CALL DFM35A-this program will build the trigger records for the notice*/
+  /* wi27446,26702,CMcK,06/2005*/
+    call "DFM35A" (VDBCONTROL, VMESSAGE, DFMPOP-TRANSFER, DFMBTCH-XFER) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
+    end
+
+  end
+  if (H2-PARA-VER.FORM-DEST == "M" || 
+  H2-PARA-VER.FORM-DEST == "B")
+    DFM08P9-WRITESIB();
+  end
+  /* -----------------------------------------------------------*/
+end // end DFM08P9-FRST-PS-A
+
+
+// Selection process
+Function DFM08P9-GET-C-CNTY()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date     Pgr     Description*/
+  /* ---      ---     -----------*/
+  /* 01/16/97 WNMAR   CREATED FOR PTR #9307*/
+  /* ---------------------------*/
+  /* -------------------------------------------------------------*/
+  /* This process inquires IVD_CASELD_CASE table and gets case county   */
+  /* -------------------------------------------------------------*/
+
+  VDBCOMMON.USQLREC = "H2-IVD-CASELD-CASE";
+  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASELD-CASE";
+  VDBCONTROL.UPROC-NM = "DFM08P9-GET-C-CNTY";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  set H2-IVD-CASELD-CASE empty;
+  H2-IVD-CASELD-CASE.CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+  H2-IVD-CASELD-CASE.UPI = DFMBTCH-XFER.PIO-UPI;
+  try
+    get H2-IVD-CASELD-CASE
+      with #sql{
+        select RSP_CNTY, OFC_CD
+        from twnivd_caseld_case T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          UPI            =   :UPI                             AND
-          CASE_SUFX      =   :CASE-SUFX                       AND
-          JRSDT_TYPE     IN ('L', 'T', 'R')                   AND
-          T1.DCKT_NMB    =    T2.DCKT_NMB                     AND
-          SQNC_NMB       =    LST_SQNC_NMB                    AND
-          HLTH_INS_IND   =   'Y'                              AND
-          ORDER_STS      =   'A'
-        FOR FETCH ONLY
+        WHERE UPI = :UPI AND CASE_SUFX = :CASE-SUFX
+              AND CASELD_IND = 'N'
          --** INSERT ORDER BY CLAUSE HERE **
       }
-                into DCKT-NMB, RESP-LCTN-CD, RSPDG-DCKT-NMB, OTHER-LCTN-CD, OTHER-DCKT-NMB, INIT-DCKT-NMB, INIT-LCTN-CD, ORDER-EFF-DT, INIT-CNTRL-IND, RESP-CNTRL-IND, OTHER-CNTRL-IND, JRSDT-TYPE, LST-SQNC-NMB
-                for H2-2-COR-DOC;
-    end
+      into RSP-CNTY, OFC-CD ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    DFMBTCH-XFER.PIO-COUNTY-CD = H2-IVD-CASELD-CASE.RSP-CNTY;
+    DFM08W.WS-C-CNTY = H2-IVD-CASELD-CASE.RSP-CNTY;
+  /* WI 15120...*/
+    DFMBTCH-XFER.PIO-OFC-CNTY-CD = H2-IVD-CASELD-CASE.OFC-CD;
+    DFM08W.WS-OFC-CD = H2-IVD-CASELD-CASE.OFC-CD;
+  else
+    DFMBTCH-XFER.PIO-COUNTY-CD = " ";
+    DFM08W.WS-C-CNTY = " ";
+    DFMBTCH-XFER.PIO-OFC-CNTY-CD = " ";
+    DFM08W.WS-OFC-CD = " ";
+  end
+  WDB00PE-SQLERR();
+end // end DFM08P9-GET-C-CNTY
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q03-COR-DOC
 
-// Get Qualifing Dockets
+// GET CST DATA
+Function DFM08P9-GET-CST()
 
-function DFM34Q03-SCAN()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-OBJ = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-NM = "DFM34Q03-SCAN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    try
-        get next H2-2-COR-DOC;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q03-SCAN
-
-// NCP Accounts Receivable
-
-function DFM34Q04-NAC()
-    set H2-NCP-ACCT-RCBL empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-NCP-ACCT-RCBL";
-    VDBCONTROL.UPROC-OBJ = "H2-NCP-ACCT-RCBL";
-    VDBCONTROL.UPROC-NM = "DFM34Q04-NAC";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-NCP-ACCT-RCBL.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    H2-NCP-ACCT-RCBL.SQNC-NMB = H2-2-COR-DOC.LST-SQNC-NMB;
-    H2-NCP-ACCT-RCBL.NCP-ACCT-RCBL-YR = DFM34W.CRNT-DATE-CCYY-NUM;
-    H2-NCP-ACCT-RCBL.NCP-ACCT-RCBL-MTH = DFM34W.CRNT-DATE-MM-NUM;
-    try
-        get H2-NCP-ACCT-RCBL singleRow
-                with #sql{
-        select CRSUP_CMOA
-        from TWNNCP_ACCT_RCBL T1
-        WHERE  T1.DCKT_NMB = :DCKT-NMB
-          AND  T1.SQNC_NMB = :SQNC-NMB
-          AND  T1.PRVSN_TYPE = 'CS'
-          AND  T1.NCP_ACCT_RCBL_YR = :NCP-ACCT-RCBL-YR
-          AND  T1.NCP_ACCT_RCBL_MTH = :NCP-ACCT-RCBL-MTH
+  VDBCOMMON.USQLREC = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-OBJ = "H2-2-IDC-PER";
+  VDBCONTROL.UPROC-NM = "DFM08P9-GET-CST";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-2-IDC-PER
+      with #sql{
+        select T2.SSN,T2.FRST_NM,T2.MID_NM,T2.LST_NM,T2.MODFR
+        from TWNIVD_CASE T1,
+             TWNPERSON T2
+        WHERE T2.UPI = T1.CST_UPI AND
+         T1.NCP_UPI = :DFM08W.WS-PIO-UPI
+        AND CASE_SUFX = :DFMBTCH-XFER.PIO-CASE-SUFX
          --** INSERT ORDER BY CLAUSE HERE **
       }
-                into CRSUP-CMOA;
-    end
+      into SSN,FRST-NM,MID-NM,LST-NM,MODFR ;
+  end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q04-NAC
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
 
-// Get Children
+  if (sysVar.sqlData.sqlcode == 0)
+    DFC03W1.PIO-STR-1 = H2-2-IDC-PER.FRST-NM;
+    DFC03W1.PIO-STR-2 = H2-2-IDC-PER.MID-NM;
+    DFC03W1.PIO-STR-3 = H2-2-IDC-PER.LST-NM;
+    DFC03W1.PIO-STR-4 = H2-2-IDC-PER.MODFR;
+    DFC03W1.PIO-STR-5 = " ";
+       /*  */
+    call "DFC03A" (DFC03W1) {isNoRefresh = yes};
+       /*  */
+    DFMBTCH-XFER.PIO-CST-NAME = DFC03W1.PIO-STR-CHAR;
+    DFMBTCH-XFER.PIO-CST-SSN = H2-2-IDC-PER.SSN;
+       /*  */
+  end
+end // end DFM08P9-GET-CST
 
-function DFM34Q05-DCH-DCN()
-    set H2-2-DCH-DCN empty;
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-DCH-DCN";
-    VDBCONTROL.UPROC-OBJ = "H2-2-DCH-DCN";
-    VDBCONTROL.UPROC-NM = "DFM34Q05-DCH-DCN";
-    VDBCONTROL.UPROC-OPT = "SETINQ";
+// To get ncp ssn,name
+Function DFM08P9-GET-NCP()
 
-    H2-2-DCH-DCN.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    H2-2-DCH-DCN.NCP-UPI = H2-IVD-CASE.NCP-UPI;
-    H2-2-DCH-DCN.CASE-SUFX = H2-IVD-CASE.CASE-SUFX;
-    try
-        open DFM34Q05-DCH-DCN_RSI01
-                with #sql{
-        select T1.CHD_UPI, T1.FVI, T1.NON_DISCLSR_FND
-        from TWNIVD_CASE_CHILD T1,
-             TWNIVD_CHILD_FIN T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE     T2.DCKT_NMB = :DCKT-NMB
-          AND     T2.NCP_UPI  = :NCP-UPI
-          AND     T2.CASE_SUFX = :CASE-SUFX
-          AND     T2.CHD_ACTIVE_IND = 'Y'
-          AND     T1.NCP_UPI = T2.NCP_UPI
-          AND     T1.CASE_SUFX = T2.CASE_SUFX
-          AND     T1.CHD_UPI = T2.CHD_UPI
-          AND     T1.CHILD_RMVD_RSN = ' '
-          AND     T1.CHILD_RMVD_DT IN ('0001-01-01', '9999-12-31')
-          AND     T1.PATRN_STS_CD <> 'EX'
-          AND     T1.PATRN_STS_CD <> 'BN'
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into CHD-UPI, FVI, NON-DISCLSR-FND for H2-2-DCH-DCN;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q05-DCH-DCN
-
-// Get Children
-
-function DFM34Q05-SCAN()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-DCH-DCN";
-    VDBCONTROL.UPROC-OBJ = "H2-2-DCH-DCN";
-    VDBCONTROL.UPROC-NM = "DFM34Q05-SCAN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    try
-        get next H2-2-DCH-DCN;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q05-SCAN
-
-// Get Person Info
-
-function DFM34Q07-PERSON()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-PERSON";
-    VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-    VDBCONTROL.UPROC-NM = "DFM34Q07-PERSON";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    try
-        get H2-PERSON singleRow
-                with #sql{
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  VDBCONTROL.UPROC-NM = "DFM08P9-GET-NCP";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-PERSON
+      with #sql{
         select MODFR, MID_NM, FRST_NM,
-          LST_NM, SSN, DOB, SEX_CD
+          LST_NM,SSN
+        from TWNPERSON T1
+        WHERE UPI = :DFM08W.WS-PIO-UPI
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into MODFR, MID-NM,FRST-NM,LST-NM,SSN ;
+  end
+
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+
+  if (sysVar.sqlData.sqlcode == 0)
+    DFC03W1.PIO-STR-1 = H2-PERSON.FRST-NM;
+    DFC03W1.PIO-STR-2 = H2-PERSON.MID-NM;
+    DFC03W1.PIO-STR-3 = H2-PERSON.LST-NM;
+    DFC03W1.PIO-STR-4 = H2-PERSON.MODFR;
+    DFC03W1.PIO-STR-5 = " ";
+      /*  */
+    call "DFC03A" (DFC03W1) {isNoRefresh = yes};
+      /*  */
+    DFMBTCH-XFER.PIO-NCP-NAME = DFC03W1.PIO-STR-CHAR;
+    DFMBTCH-XFER.PIO-NCP-SSN = H2-PERSON.SSN;
+      /*  */
+  end
+end // end DFM08P9-GET-NCP
+
+
+// Selction process
+Function DFM08P9-GET-W-CNTY()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date     Pgr     Description*/
+  /* ---      ---     -----------*/
+  /* 01/16/97 WNMAR   CREATED FOR PTR #9307*/
+  /* ---------------------------*/
+  /* -------------------------------------------------------------*/
+  /* This process inquires TWNOFFICE table and gets worker county   */
+  /* -------------------------------------------------------------*/
+
+  VDBCOMMON.USQLREC = "H2-OFFICE";
+  VDBCONTROL.UPROC-OBJ = "H2-OFFICE";
+  VDBCONTROL.UPROC-NM = "DFM08P9-GET-W-CNTY";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  set H2-OFFICE empty;
+  H2-OFFICE.OFC-CD = H2-4-DCCNMU-SPTURE.OFC-CD;
+  try
+    get H2-OFFICE
+      with #sql{
+        select CNTY_CD
+        from TWNOFFICE T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE OFC_CD = :OFC-CD
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into CNTY-CD ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    DFM08W.WS-W-CNTY = H2-OFFICE.CNTY-CD;
+  else
+    DFM08W.WS-W-CNTY = " ";
+  end
+  WDB00PE-SQLERR();
+end // end DFM08P9-GET-W-CNTY
+
+
+// get wrkr name,title
+Function DFM08P9-GET-WRKR()
+  /* Get the worker name and title*/
+  VDBCOMMON.USQLREC = "H2-4-DCCNMU-SPTURE";
+  VDBCONTROL.UPROC-OBJ = "H2-4-DCCNMU-SPTURE";
+  VDBCONTROL.UPROC-NM = "DFM08P9-GET-WRKR";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  try
+    get H2-4-DCCNMU-SPTURE
+      with #sql{
+        select T2.FRST_NM,T2.LST_NM,T2.MID_NM,T2.MODFR,T4.ROLE_DESC,T2.OFC_CD,
+          T2.NOMADS_USRID
+        from TWNIVD_CASELD_CASE T1,
+             TWNNOmADS_USER T2,
+             TWNSUP_UNT_POS_HST T3,
+             TWNUSR_ROLE T4
+        WHERE
+                     T1.UPI=:DFM08W.WS-PIO-UPI AND
+                     T1.CASE_SUFX=:DFMBTCH-XFER.PIO-CASE-SUFX AND
+                     T1.CASELD_IND = 'N' AND
+                     T1.OFC_CD = T3.OFC_CD AND
+                     T1.PRGM_OFC_TYPE = T3.PRGM_OFC_TYPE AND
+                     T1.SPRVS_UNIT = T3.SPRVS_UNIT AND
+                     T1.PSN_NMB = T3.PSN_NMB AND
+                     T3.ASMNT_BEG_DT <= :GDW.DTCD AND
+                     T3.ASMNT_END_DT >= :GDW.DTCD AND
+         --  (:GDW.DTCD BETWEEN T3.ASMNT_BEG_DT AND        T3.ASMNT_END_DT) AND
+                      T3.NOMADS_USRID = T2.NOMADS_USRID AND
+                      T2.ROLE_ID = T4.ROLE_ID
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into FRST-NM,LST-NM,MID-NM,MODFR,ROLE-DESC,OFC-CD,
+           NOMADS-USRID ;
+  end
+
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+
+  if (sysVar.sqlData.sqlcode == 0)
+    DFC03W1.PIO-STR-1 = H2-4-DCCNMU-SPTURE.FRST-NM;
+    DFC03W1.PIO-STR-2 = H2-4-DCCNMU-SPTURE.MID-NM;
+    DFC03W1.PIO-STR-3 = H2-4-DCCNMU-SPTURE.LST-NM;
+    DFC03W1.PIO-STR-4 = H2-4-DCCNMU-SPTURE.MODFR;
+    DFC03W1.PIO-STR-5 = " ";
+       /*  */
+    call "DFC03A" (DFC03W1) {isNoRefresh = yes};
+       /*  */
+    DFM08W.WS-WKRNM = DFC03W1.PIO-STR-CHAR;
+    DFM08W.WS-WKRTTL = H2-4-DCCNMU-SPTURE.ROLE-DESC;
+  end
+end // end DFM08P9-GET-WRKR
+
+
+// Initialization Routine
+Function DFM08P9-INIT-PROC()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ----------------------------------------*/
+  /* Initialize process                      */
+  /* ----------------------------------------*/
+  set DFM08W empty; /* Init record*/
+  DFM08W.WS-STR-OFF-FLAG = "N";
+end // end DFM08P9-INIT-PROC
+
+
+// For form to call dfc49
+Function DFM08P9-INQ-FORM()
+  /* ----------------------------------------------------*/
+  /* This process checks the county form table whether the service require*/
+  /* indicator is set to 'y'. If so, it calls dfc49 to insert infor.*/
+  /* ----------------------------------------------------*/
+  /* Change History*/
+  /* ==============*/
+  /* Date          Pgr    Description*/
+  /* ---           ---    -----------*/
+  /* 14 Feb 1996  cbs484  Creation*/
+  /* 03/03/97     WNMAR   CREATED FOR PTR #9139*/
+  /* -------------------------------------------------------*/
+  DFM08P9-S06();
+  if (H2-CNTY-FRM is ioError && H2-CNTY-FRM not noRecordFound) /* if hard error*/
+    exit program; /* error handling*/
+  end /* end if*/
+   /*  */
+  if (H2-CNTY-FRM.SRVC-REQD-IND == "Y" && DFMBTCH-XFER.PIO-DCKT-NMB > 0)
+    DFC49W1.PI1-FRM-PCKT-ID = DFMBTCH-XFER.PIO-FORM-ID;
+    DFC49W1.PI1-DCKT-NMB = DFMBTCH-XFER.PIO-DCKT-NMB;
+    DFC49W1.PI1-SQNC-NMB = DFMBTCH-XFER.PIO-DCKT-SQ-NMB;
+    DFC49W1.PI1-CNTY-CD = DFMBTCH-XFER.PIO-COUNTY-CD;
+    DFC49W1.PI1-NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+    DFC49W1.PI1-CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+    DFC49W1.PI1-SRVC-MTHD = H2-CNTY-FRM.SRVC-MTHD;
+    call "DFC49A" (VDBCONTROL, VMESSAGE, DFC49W1) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
+    end
+  end
+  /* ptr 2837 change end*/
+end // end DFM08P9-INQ-FORM
+
+
+// For packet to call dfc49
+Function DFM08P9-INQ-PCKT()
+  /* ----------------------------------------------------*/
+  /* This process checks the packet table whether the service require*/
+  /* indicator is set to 'y'. If so, it calls dfc49 to insert infor.*/
+  /* ----------------------------------------------------*/
+  /* Change History*/
+  /* ==============*/
+  /* Date          Pgr    Description*/
+  /* ---           ---    -----------*/
+  /* 03/06/96     WNMAR   CREATED FOR PTR #9139*/
+  /* -------------------------------------------------------*/
+  /* MOVE 'PCK' TO DFM01W.WS-PCKT-HDR;*/
+  /* MOVE DFM01W-SIB0.WS-PCKT TO DFM01W.WS-PCKT-TRL;*/
+  /* MOVE DFMBTCH-XFER.WS-PCKT TO H2-PCKT.PCKT-ID;*/
+    /*  */
+  DFM08P9-S05();
+  if (H2-PCKT is ioError && H2-PCKT not noRecordFound) /* if hard error*/
+    exit program; /* error handling*/
+  end /* end if*/
+   /*  */
+  if (H2-PCKT.SRVC-REQD-IND == "Y" && DFMBTCH-XFER.PIO-DCKT-NMB > 0)
+    DFC49W1.PI1-FRM-PCKT-ID = DFMBTCH-XFER.WS-PCKT;
+    DFC49W1.PI1-DCKT-NMB = DFMBTCH-XFER.PIO-DCKT-NMB;
+    DFC49W1.PI1-SQNC-NMB = DFMBTCH-XFER.PIO-DCKT-SQ-NMB;
+    DFC49W1.PI1-CNTY-CD = DFMBTCH-XFER.PIO-COUNTY-CD;
+    DFC49W1.PI1-NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+    DFC49W1.PI1-CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+    /* START CHANGES FOR PTR #6567*/
+    DFC49W1.PI1-LEGAL-MTHD = H2-PCKT.SOP-LEGAL-MTHD;
+    DFC49W1.PI1-SRVC-MTHD = H2-PCKT.SRVC-MTHD;
+    /* END   CHANGES FOR PTR #6567*/
+    call "DFC49A" (VDBCONTROL, VMESSAGE, DFC49W1) {isNoRefresh = yes};
+    if (VDBCONTROL.URC > 104)
+      exit program;
+    end
+  end
+  /* ptr 2837 change end*/
+end // end DFM08P9-INQ-PCKT
+
+
+// Inserts values
+Function DFM08P9-KDTA-TRKNG()
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  H2-BTCH-FRM-KDTA.CRTN-TS = GDW.TS;
+
+  WDB00PI();
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+  VDBCOMMON.USQLREC = "H2-BTCH-FRM-KDTA";
+  VDBCONTROL.UPROC-OBJ = "H2-BTCH-FRM-KDTA";
+  VDBCONTROL.UPROC-NM = "DFM08P9-KDTA-TRKNG";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  try
+    add H2-BTCH-FRM-KDTA ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+    DFM08W3.WS-SQLCODE = sysVar.sqlData.sqlcode;
+  end
+
+  VDBCOMMON.UNRF = 1;
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
+
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+end // end DFM08P9-KDTA-TRKNG
+
+
+// Applications main process
+Function DFM08P9-MAIN()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date           Pgr     Description*/
+  /* ---            ---     -----------*/
+  /* 23 APRIL 1995  TBST312 Creation*/
+  /* 10/10/96       WNMAR   CHANGES FOR PTR #7820*/
+  /* ---------------------------*/
+  /* -----------------------------------------------*/
+  /* Initializes the records and performs first or  */
+  /* second pass process depending on the sib type  */
+  /* -----------------------------------------------*/
+
+  /* This process intializes the records*/
+  DFM08P9-INIT-PROC();
+
+  /* determine if processing batch form for IVA or IVD*/
+  if (DFMBTCH-XFER.PIO-MODE-IND == "A")
+    DFM08P9-FRST-PS-A();
+  else
+    H2-IVD-CASE.NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+    H2-IVD-CASE.CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+    DFM08P9-S08(); /* Bypass for Case Type 'D'*/
+    if (sysVar.sqlData.sqlcode == 0)
+      if (DFMBTCH-XFER.PIO-FORM-ID != "GN0154")
+        ;
+      else
+        DFM08P9-FIRST-PASS(); /* first pass process*/
+      end
+    else
+      DFM08P9-FIRST-PASS(); /* first pass process*/
+    end
+  end
+end // end DFM08P9-MAIN
+
+
+// Gets NCP JRSDT Code
+Function DFM08P9-NCP-JRSDT()
+  WDB00PI();
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+  VDBCOMMON.USQLREC = "H2-IVD-CASE";
+  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
+  VDBCONTROL.UPROC-NM = "DFM08P9-NCP-JRSDT";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-IVD-CASE
+      with #sql{
+        select NCP_JRSDT_CD, FUNC_AREA_CD
+        from TWNIVD_CASE T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE NCP_UPI = :NCP-UPI AND CASE_SUFX = :CASE-SUFX
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into NCP-JRSDT-CD, FUNC-AREA-CD ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+    DFM08W3.WS-SQLCODE = sysVar.sqlData.sqlcode;
+  end
+
+  VDBCOMMON.UNRF = 1;
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
+
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+end // end DFM08P9-NCP-JRSDT
+
+
+// Gets NCP name
+Function DFM08P9-NCP-NM()
+  WDB00PI();
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  VDBCONTROL.UPROC-NM = "DFM08P9-NCP-NM";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-PERSON
+      with #sql{
+        select LST_NM, FRST_NM, MID_NM
         from TWNPERSON T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
         WHERE UPI = :UPI
          --** INSERT ORDER BY CLAUSE HERE **
       }
-                into MODFR, MID-NM, FRST-NM, LST-NM, SSN, DOB, SEX-CD;
-    end
+      into LST-NM, FRST-NM, MID-NM ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+    DFM08W3.WS-SQLCODE = sysVar.sqlData.sqlcode;
+  end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q07-PERSON
+  VDBCOMMON.UNRF = 1;
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
 
-// Check Docket
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+end // end DFM08P9-NCP-NM
 
-function DFM34Q08-COR-DOC()
-    set H2-2-COR-DOC empty;
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-OBJ = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-NM = "DFM34Q08-COR-DOC";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
+// MOVE NCP NAME
+Function DFM08P9-NCPNAME()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the ncp name                  */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-NCPNAME = DFMBTCH-XFER.PIO-NCP-NAME;
+  VSTRREC.USTRING = DFMBTCH-XFER.PIO-NCP-NAME;
+  call "WST15A" (VSTRREC) {isNoRefresh = yes}; /* find length of string*/
+  DFM08W.WS-INDEX-2 = VSTRREC.USTRLEN;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-NCPN-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-NCPNAME
 
-    H2-2-COR-DOC.DCKT-NMB = DFM34W.DCKT-NMB;
-    try
-        get H2-2-COR-DOC singleRow
-                with #sql{
-        select T2.RESP_LCTN_CD, T2.RSPDG_DCKT_NMB,
-          T2.OTHER_LCTN_CD, T2.OTHER_DCKT_NMB, T2.INIT_DCKT_NMB,
-          T2.INIT_LCTN_CD, T1.ORDER_EFF_DT,
-          T2.INIT_CNTRL_IND, T2.RESP_CNTRL_IND, T2.OTHER_CNTRL_IND,
-          T2.JRSDT_TYPE, T2.LST_SQNC_NMB
-        from TWNCOURT_ORDR T1,
-             TWNDOCKET T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          T2.DCKT_NMB    =   :DCKT-NMB                        AND
-          JRSDT_TYPE     IN ('L', 'T', 'R')                   AND
-          T1.DCKT_NMB    =    T2.DCKT_NMB                     AND
-          SQNC_NMB       =    LST_SQNC_NMB                    AND
-          HLTH_INS_IND   =   'Y'                              AND
-          ORDER_STS      =   'A'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into RESP-LCTN-CD, RSPDG-DCKT-NMB, OTHER-LCTN-CD, OTHER-DCKT-NMB, INIT-DCKT-NMB, INIT-LCTN-CD, ORDER-EFF-DT, INIT-CNTRL-IND, RESP-CNTRL-IND, OTHER-CNTRL-IND, JRSDT-TYPE, LST-SQNC-NMB;
-    end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q08-COR-DOC
+// MOVE NCP SSN
+Function DFM08P9-NCPSSN()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the ncp ssn                   */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-NCPSSN = DFMBTCH-XFER.PIO-NCP-SSN;
+  DFM08W.WS-INDEX-2 = 9;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-NCPS-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-NCPSSN
 
-// Get Employers
 
-function DFM34Q09-JHS()
-    set H2-JOB-HISTORY empty;
+// Construct County Code
+Function DFM08P9-OFFICECD()
+  /* -------------------------------------------*/
+  /* */
+  /* This process constructs the office code    */
+  /* */
+  /* -------------------------------------------*/
+  /*  */
+  DFM08P9-S01(); /* get office code*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  DFM08W.WS-OFC-CD = H2-IVD-CASE.NCP-JRSDT-CD;
+  /*  */
+  DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-OFC-CD-X[1];
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-OFC-CD-X[2];
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-OFFICECD
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-NM = "DFM34Q09-JHS";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
 
-    H2-JOB-HISTORY.UPI = H2-IVD-CASE.NCP-UPI;
-    try
-        open DFM34Q09-JHS_RSI01
-                with #sql{
-        select EMPLR_ID, ADR_LN1, ADR_LN2, CITY, ST_CD, ZIP_CD
-        from TWNJOB_HISTORY T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-              UPI = :UPI
-          AND VRFN_STS IN ('C', 'V')
-          AND HLTH_INS_IND IN ('Y', 'U', ' ')
-          AND JOB_END_DT = '9999-12-31'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into EMPLR-ID, ADR-LN1, ADR-LN2, CITY, ST-CD, ZIP-CD
-                for H2-JOB-HISTORY;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q09-JHS
-
-// Get Employers
-
-function DFM34Q09-SCAN()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-NM = "DFM34Q09-SCAN";
-    VDBCONTROL.UPROC-OPT = "SCAN";
-    try
-        get next H2-JOB-HISTORY;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q09-SCAN
-
-// Check NMSN info
-
-function DFM34Q10-EWD()
-    set H2-EMPLR-WWH-DTLS empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OBJ = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-NM = "DFM34Q10-EWD";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-EMPLR-WWH-DTLS.EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
-    H2-EMPLR-WWH-DTLS.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    try
-        get H2-EMPLR-WWH-DTLS singleRow
-                with #sql{
-        select NMSN_GEN_DT, NMSN_STATUS
-        from twnemplr_wwh_dtls T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-              EMPLR_ID = :EMPLR-ID
-          AND DCKT_NMB = :DCKT-NMB
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into NMSN-GEN-DT, NMSN-STATUS;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q10-EWD
-
-// Get Employer Info
-
-function DFM34Q11-EMP()
-    set H2-EMPLOYER empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-EMPLOYER";
-    VDBCONTROL.UPROC-OBJ = "H2-EMPLOYER";
-    VDBCONTROL.UPROC-NM = "DFM34Q11-EMP";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-EMPLOYER.EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
-    try
-        get H2-EMPLOYER singleRow
-                with #sql{
-        select EMPLR_NM, AGNT_NM,
-          ADR_LN1, ADR_LN2, CITY, ST_CD, ZIP_CD,
-          AGNT_ADR1, AGNT_ADR2, AGNT_CITY, AGNT_ST, AGNT_ZIP_CD
-        from TWNEMPLOYER T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-              EMPLR_ID = :EMPLR-ID
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into EMPLR-NM, AGNT-NM, ADR-LN1, ADR-LN2, CITY, ST-CD, ZIP-CD, AGNT-ADR1, AGNT-ADR2, AGNT-CITY, AGNT-ST, AGNT-ZIP-CD;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q11-EMP
-
-// Get County/State/Country Descr
-
-function DFM34Q12-CDT()
-    set H2-CODE-TBL empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-CODE-TBL";
-    VDBCONTROL.UPROC-OBJ = "H2-CODE-TBL";
-    VDBCONTROL.UPROC-NM = "DFM34Q12-CDT";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    if(H2-2-COR-DOC.INIT-CNTRL-IND == "D" || H2-2-COR-DOC.INIT-CNTRL-IND ==
-                    "P")
-        H2-CODE-TBL.CODE-TBL-CD = H2-2-COR-DOC.INIT-LCTN-CD;
+// MOVE PARAGRAPH NAME AND LTD
+Function DFM08P9-PARAGRPH()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the paragraph                 */
+  /* */
+  /* ------------------------------------------------------*/
+  DFM08W.WS-INDEX-2 = 1;
+  set H2-PARA-VER empty;
+  H2-PARA-VER.FRM-ID = DFMBTCH-XFER.PIO-FORM-ID;
+  DFM08P9-S07();
+  if (VDBCONTROL.URC > 104)
+    exit program; /* Terminate the application*/
+  end /* end If*/
+  DFM08W.WS-LTD-NAME = H2-PARA-VER.LTD-NAME;
+  DFM08W.WS-PARA-NAME = H2-PARA-VER.PARA-NAME;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= 16 && DFM08W.WS-STR-OFF-FLAG == "N")
+    if (DFM08W.WS-PARA-NAME-X[WS-INDEX-3] == " ")
+      DFM08W.WS-STR-OFF-FLAG = "Y";
     else
-        if(H2-2-COR-DOC.RESP-CNTRL-IND == "D" || H2-2-COR-DOC.RESP-CNTRL-IND ==
-                        "P")
-            H2-CODE-TBL.CODE-TBL-CD = H2-2-COR-DOC.RESP-LCTN-CD;
-        else
-            if(H2-2-COR-DOC.OTHER-CNTRL-IND == "D" ||
-                    H2-2-COR-DOC.OTHER-CNTRL-IND == "P")
-                H2-CODE-TBL.CODE-TBL-CD = H2-2-COR-DOC.OTHER-LCTN-CD;
-            else
-                return;
-            end
-        end
+      DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-PARA-NAME-X[WS-INDEX-3];
+      DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+      DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    end /* endif*/
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = "(";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-PARAGRPH
+
+
+// Execute Pop-Ups defined by Tab
+Function DFM08P9-POP-TAB()
+  DFM08P9-S09();
+  DFM08P9-SCAN();
+  while (sysVar.sqlData.sqlcode == 0)
+    DFM08W.WS-PARM-NMB = DFMBTCH-XFER.PIO-PARM-NMB;
+    DFMBTCH-XFER.PIO-PARM-NMB = H2-FORM-POPUP.PARM-NMB;
+    if (H2-FORM-POPUP.CONDITION-PARM == 0 || 
+    DFMBTCH-XFER.PIO-POP-PARM[CONDITION-PARM] == 
+    H2-FORM-POPUP.CONDITION-VALUE)
+      DFM08P9-CALL-POP();
     end
-    try
-        get H2-CODE-TBL singleRow
-                with #sql{
-        select CODE_DESC
-        from twncode_tbl T1
+    if (DFMBTCH-XFER.PIO-PARM-NMB < DFM08W.WS-PARM-NMB)
+      DFMBTCH-XFER.PIO-PARM-NMB = DFM08W.WS-PARM-NMB;
+    end
+    DFM08P9-SCAN();
+  end
+end // end DFM08P9-POP-TAB
+
+
+// Selction process
+Function DFM08P9-S01()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date     Pgr     Description*/
+  /* ---      ---     -----------*/
+  /* ---------------------------*/
+  /* -------------------------------------------------------------*/
+  /* This process inquires TWNIVD_CASE table and gets case county   */
+  /* -------------------------------------------------------------*/
+
+  VDBCOMMON.USQLREC = "H2-IVD-CASE";
+  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
+  VDBCONTROL.UPROC-NM = "DFM08P9-S01";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  set H2-IVD-CASE empty;
+  H2-IVD-CASE.CASE-SUFX = DFMBTCH-XFER.PIO-CASE-SUFX;
+  H2-IVD-CASE.NCP-UPI = DFMBTCH-XFER.PIO-UPI;
+  try
+    get H2-IVD-CASE singleRow
+      with #sql{
+        select NCP_JRSDT_CD
+        from TWNIVD_CASE T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE CODE_TBL_CD = :CODE-TBL-CD
-          AND CODE_TBL_TYP = 'CNTSTCTY'
+        WHERE NCP_UPI = :NCP-UPI AND CASE_SUFX = :CASE-SUFX
          --** INSERT ORDER BY CLAUSE HERE **
       }
-                into CODE-DESC;
-    end
+      into NCP-JRSDT-CD ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  WDB00PE-SQLERR();
+end // end DFM08P9-S01
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q12-CDT
 
-// Get Custodian Info
-
-function DFM34Q13-CTN()
-    set H2-CUSTODIAN empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-CUSTODIAN";
-    VDBCONTROL.UPROC-OBJ = "H2-CUSTODIAN";
-    VDBCONTROL.UPROC-NM = "DFM34Q13-CTN";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-CUSTODIAN.UPI = H2-IVD-CASE.CST-UPI;
-    try
-        get H2-CUSTODIAN singleRow
-                with #sql{
-        select FVI, NON_DISCLSR_FND
-        from TWNCUSTODIAN T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE UPI = :UPI
+// Selection process
+Function DFM08P9-S05()
+  ;
+  /* ------------------------------------------------------*/
+  /* This process gets the service required indicator     */
+  /* for given packet-id from TWNPCKT table               */
+  /* ------------------------------------------------------*/
+  ;
+  set H2-PCKT empty; /* Initialize the record*/
+  H2-PCKT.PCKT-ID = DFMBTCH-XFER.WS-PCKT; /* Move the key*/
+  ;
+  VDBCOMMON.USQLREC = "H2-PCKT";
+  VDBCONTROL.UPROC-OBJ = "H2-PCKT";
+  VDBCONTROL.UPROC-NM = "DFM08P9-S05";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  ;
+  try
+    get H2-PCKT
+      with #sql{
+        select SRVC_REQD_IND, SOP_LEGAL_MTHD, SRVC_MTHD
+        from TWNPCKT T1
+        where pckt_id = :PCKT-ID
          --** INSERT ORDER BY CLAUSE HERE **
       }
-                into FVI, NON-DISCLSR-FND;
-    end
+      into SRVC-REQD-IND, SOP-LEGAL-MTHD, SRVC-MTHD ;
+  end
+  ;
+  if (sysVar.sqlData.sqlcode == 0) /* If SQL code is zero*/
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1; /* Increment the row*/
+  end /* End if*/
+end // end DFM08P9-S05
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q13-CTN
 
-// Get Other Jurisdiction
-
-function DFM34Q14-OJR()
-    set H2-OJRD-DTL empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-OJRD-DTL";
-    VDBCONTROL.UPROC-OBJ = "H2-OJRD-DTL";
-    VDBCONTROL.UPROC-NM = "DFM34Q14-OJR";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-OJRD-DTL.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    try
-        get H2-OJRD-DTL
-                with #sql{
-        select CRSPG_FIPS_CD, CRSPG_FIPS_CD_SUFX
-        from TWNOJRD_DTL T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE DCKT_NMB = :DCKT-NMB
+// Selction process
+Function DFM08P9-S06()
+  ;
+  /* --------------------------------------------------*/
+  /* This process fetches the service required indica */
+  /* from TWNCNTY_FRM table.                          */
+  /* -------------------------------------------------*/
+  ;
+  VDBCOMMON.USQLREC = "H2-CNTY-FRM";
+  VDBCONTROL.UPROC-OBJ = "H2-CNTY-FRM";
+  VDBCONTROL.UPROC-NM = "DFM08P9-S06";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  ;
+  set H2-CNTY-FRM empty;
+  H2-CNTY-FRM.FRM-ID = DFMBTCH-XFER.PIO-FORM-ID;
+  H2-CNTY-FRM.CNTY-CD = DFMBTCH-XFER.PIO-COUNTY-CD;
+  try
+    get H2-CNTY-FRM singleRow
+      with #sql{
+        select SRVC_REQD_IND,  SRVC_MTHD
+        from twncnty_frm T1
+        WHERE CNTY_CD=:CNTY-CD
+        AND   FRM_ID =:FRM-ID
          --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into SRVC-REQD-IND,  SRVC-MTHD ;
+  end
+
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+
+  if (sysVar.sqlData.sqlcode == 0) /* If sql code = 0*/
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1; /* Increment the recrd count*/
+  end /* End if sql code =0*/
+end // end DFM08P9-S06
+
+
+// INQUIRY FOR S07
+Function DFM08P9-S07()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ---------------------------*/
+  /* -------------------------------------------------------------*/
+  /* This process inquires PARA_VER table and gets ltd name      */
+  /* where effective date < current date and end-date > curr date*/
+  /* -------------------------------------------------------------*/
+
+  VDBCOMMON.USQLREC = "H2-PARA-VER";
+  VDBCONTROL.UPROC-OBJ = "H2-PARA-VER";
+  VDBCONTROL.UPROC-NM = "DFM08P9-S07";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  try
+    get H2-PARA-VER
+      with #sql{
+        select LTD_NAME, PARA_NAME, FORM_DEST
+        from TWNPARA_VER T1
+        WHERE FRM_ID = :FRM-ID
+         AND EFF_DT <= :GDW.DTCD
+         AND END_DT >= :GDW.DTCD
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into LTD-NAME, PARA-NAME, FORM-DEST ;
+  end
+  if (sysVar.sqlData.sqlcode == 0) /* If return code is zer*/
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end /* End if*/
+  WDB00PE-SQLERR(); /* Determine URC*/
+end // end DFM08P9-S07
+
+
+// READ
+Function DFM08P9-S08()
+  /* _______________________________________________________________________*/
+  /* Description :*/
+  /* This process gets record form twnofc_server.*/
+  /*  */
+  /* Change History :*/
+  /* Date       Usrid  WI     Description*/
+  /* ---------  -----  -----  -----------*/
+  /* 20Nov1998  WNMAA  15120  CREATION*/
+  /*  */
+  /* _______________________________________________________________________*/
+  /*  */
+  /*  */
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+
+  VDBCOMMON.USQLREC = "H2-IVD-CASE";
+  VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCONTROL.UPROC-NM = "DFM08P9-S08";
+  try
+    get H2-IVD-CASE
+      with #sql{
+        select CASE_TYPE
+        from TWNIVD_CASE T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE T1.NCP_UPI   = :NCP-UPI
+          AND T1.CASE_SUFX = :CASE-SUFX
+          AND T1.CASE_TYPE = 'D'
         FOR FETCH ONLY
+         --** INSERT ORDER BY CLAUSE HERE **
       }
-                into CRSPG-FIPS-CD, CRSPG-FIPS-CD-SUFX;
-    end
+      into CASE-TYPE ;
+  end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q14-OJR
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "Y";
+  /*  */
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
 
-// Check Docket
+  /*  */
+  /* Nomads End*/
+  /*  */
+end // end DFM08P9-S08
 
-function DFM34Q15-COR-DOC()
-    set H2-2-COR-DOC empty;
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-OBJ = "H2-2-COR-DOC";
-    VDBCONTROL.UPROC-NM = "DFM34Q15-COR-DOC";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
+// Get pop-up list
+Function DFM08P9-S09()
+  WDB00PI();
 
-    H2-2-COR-DOC.DCKT-NMB = DFM34W.DCKT-NMB;
-    try
-        get H2-2-COR-DOC singleRow
-                with #sql{
-        select T2.RESP_LCTN_CD, T2.RSPDG_DCKT_NMB,
-          T2.OTHER_LCTN_CD, T2.OTHER_DCKT_NMB, T2.INIT_DCKT_NMB,
-          T2.INIT_LCTN_CD, T1.ORDER_EFF_DT,
-          T2.INIT_CNTRL_IND, T2.RESP_CNTRL_IND, T2.OTHER_CNTRL_IND,
-          T2.JRSDT_TYPE, T2.LST_SQNC_NMB
-        from TWNCOURT_ORDR T1,
-             TWNDOCKET T2
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+
+  VDBCOMMON.USQLREC = "H2-FORM-POPUP";
+  VDBCONTROL.UPROC-OBJ = "H2-FORM-POPUP";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCONTROL.UPROC-NM = "DFM08P9-S09";
+  H2-FORM-POPUP.FRM-ID = DFMBTCH-XFER.PIO-FORM-ID;
+  H2-FORM-POPUP.PIO-MODE = "B";
+  try
+    open DFM08P9-S09_RSI01
+      with #sql{
+        select APPL_ID,
+          PARM_NMB, CONDITION_PARM, CONDITION_VALUE
+        from TWNFORM_POPUP T1
          --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
         WHERE
-          T2.DCKT_NMB    =   :DCKT-NMB                        AND
-          T1.DCKT_NMB    =    T2.DCKT_NMB                     AND
-          SQNC_NMB       =    LST_SQNC_NMB
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into RESP-LCTN-CD, RSPDG-DCKT-NMB, OTHER-LCTN-CD, OTHER-DCKT-NMB, INIT-DCKT-NMB, INIT-LCTN-CD, ORDER-EFF-DT, INIT-CNTRL-IND, RESP-CNTRL-IND, OTHER-CNTRL-IND, JRSDT-TYPE, LST-SQNC-NMB;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q15-COR-DOC
-
-// Get policy holder UPI
-
-function DFM34Q16-MIP()
-    set H2-MED-INS-PLICY empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-MED-INS-PLICY";
-    VDBCONTROL.UPROC-OBJ = "H2-MED-INS-PLICY";
-    VDBCONTROL.UPROC-NM = "DFM34Q16-MIP";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-MED-INS-PLICY.PLICY-SQ-NMB = DFM34W.PLICY-SQ-NMB;
-    try
-        get H2-MED-INS-PLICY singleRow
-                with #sql{
-        select UPI
-        from TWNMED_INS_PLICY T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE PLICY_SQ_NMB = :PLICY-SQ-NMB
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into UPI;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q16-MIP
-
-// Get Worker ID
-
-function DFM34Q17-SPT-DCC()
-    set H2-2-SPT-DCC empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-SPT-DCC";
-    VDBCONTROL.UPROC-OBJ = "H2-2-SPT-DCC";
-    VDBCONTROL.UPROC-NM = "DFM34Q17-SPT-DCC";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-2-SPT-DCC.UPI = H2-IVD-CASE.NCP-UPI;
-    H2-2-SPT-DCC.CASE-SUFX = H2-IVD-CASE.CASE-SUFX;
-    try
-        get H2-2-SPT-DCC
-                with #sql{
-        select NOMADS_USRID, T2.OFC_CD
-        from TWNSUP_UNT_POS_HST T1,
-             TWNIVD_CASELD_CASE T2
-        WHERE T1.OFC_CD = T2.OFC_CD
-        AND   T1.PRGM_OFC_TYPE = T2.PRGM_OFC_TYPE
-        AND   T1.SPRVS_UNIT = T2.SPRVS_UNIT
-        AND   T1.PSN_NMB = T2.PSN_NMB
-        AND   (:DFM34W1.WS-PROC-DATE  BETWEEN T1.ASMNT_BEG_DT AND
-                                               T1.ASMNT_END_DT)
-        AND   T2.CASELD_IND = 'N'
-        AND   T2.UPI = :UPI
-        AND   T2.CASE_SUFX = :CASE-SUFX
-        AND   T1.OFC_CD >= ' '
-        AND   T1.PRGM_OFC_TYPE >= ' '
-        AND   T1.SPRVS_UNIT >= ' '
-        AND   T1.PSN_NMB >= 0
-         --** INSERT ORDER BY CLAUSE HERE **
-        FOR FETCH ONLY
-        OPTIMIZE FOR 1 ROW
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into NOMADS-USRID, OFC-CD;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q17-SPT-DCC
-
-// Get Worker info
-
-function DFM34Q18-NMU()
-    set H2-NOMADS-USER empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-NOMADS-USER";
-    VDBCONTROL.UPROC-OBJ = "H2-NOMADS-USER";
-    VDBCONTROL.UPROC-NM = "DFM34Q18-NMU";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-NOMADS-USER.NOMADS-USRID = H2-2-SPT-DCC.NOMADS-USRID;
-    try
-        get H2-NOMADS-USER singleRow
-                with #sql{
-        select MODFR, MID_NM, LST_NM, FRST_NM, FAX_NMB, OFC_CD
-        from TWNNOMADS_USER T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE NOMADS_USRID = :NOMADS-USRID
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into MODFR, MID-NM, LST-NM, FRST-NM, FAX-NMB, OFC-CD;
-    end
-
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q18-NMU
-
-// Get Employer
-
-function DFM34Q19-JHS()
-    set H2-JOB-HISTORY empty;
-
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-    VDBCONTROL.UPROC-NM = "DFM34Q19-JHS";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    H2-JOB-HISTORY.UPI = H2-IVD-CASE.NCP-UPI;
-    H2-JOB-HISTORY.EMPLR-ID = DFM34W.EMPLR-ID;
-    try
-        get H2-JOB-HISTORY
-                with #sql{
-        select ADR_LN1, ADR_LN2, CITY, ST_CD, ZIP_CD,
-          VRFN_STS, HLTH_INS_IND, JOB_END_DT
-        from TWNJOB_HISTORY T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-              UPI = :UPI
-          AND EMPLR_ID = :EMPLR-ID
-         --** INSERT ORDER BY CLAUSE HERE **
+          FRM_ID = :FRM-ID           AND
+          PIO_MODE = :PIO-MODE
         ORDER BY
-              JOB_END_DT DESC
+          POP_SQ_NMB
         FOR FETCH ONLY
-      }
-                into ADR-LN1, ADR-LN2, CITY, ST-CD, ZIP-CD, VRFN-STS, HLTH-INS-IND, JOB-END-DT;
+      }      
+      into APPL-ID,
+           PARM-NMB, CONDITION-PARM, CONDITION-VALUE
+      for H2-FORM-POPUP ;
+  end
+
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "Y";
+
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+end // end DFM08P9-S09
+
+
+// Scan pop-up list
+Function DFM08P9-SCAN()
+  WDB00PI();
+
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "DFM08A";
+
+  VDBCOMMON.USQLREC = "H2-FORM-POPUP";
+  VDBCONTROL.UPROC-OBJ = "H2-FORM-POPUP";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-NM = "DFM08P9-SCAN";
+  try
+    get next H2-FORM-POPUP ;
+  end
+
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "Y";
+
+  /* Perform DBM error processing*/
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+end // end DFM08P9-SCAN
+
+
+// To insert a record(serv-proc)
+Function DFM08P9-SERV-PROC()
+  /* ----------------------------------------------------*/
+  /* This process checks if it a packet/form. If packet it calls dfc49*/
+  /* to insert the packet info. and if it a form it inserts form info.*/
+  /* in service of process activity table.*/
+  /* ----------------------------------------------------*/
+  /* Change History*/
+  /* ==============*/
+  /* Date         Pgr      Description*/
+  /* ---          ---      -----------*/
+  /* 03/06/97     WNMAR    CREATED FOR PTR #9139*/
+  /* -------------------------------------------------------*/
+  /* ptr 2837 change start*/
+  if (DFMBTCH-XFER.WS-PCKT-FLAG == "C")
+    DFM08P9-INQ-PCKT();
+  else
+    if (DFMBTCH-XFER.WS-PCKT-FLAG != "Y")
+      DFM08P9-INQ-FORM();
     end
+  end
+  /* ptr 2837 change end*/
+end // end DFM08P9-SERV-PROC
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q19-JHS
 
-// Fin Obligation
+// MOVE WORKER NAME
+Function DFM08P9-WKRNAME()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the worker name               */
+  /* ------------------------------------------------------*/
+  VSTRREC.USTRING = DFM08W.WS-WKRNM;
+  call "WST15A" (VSTRREC) {isNoRefresh = yes}; /* find length of string*/
+  DFM08W.WS-INDEX-2 = VSTRREC.USTRLEN;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-WKRN-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-WKRNAME
 
-function DFM34Q20-FIO()
-    set H2-FINAN-OBLGN empty;
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-OBJ = "H2-FINAN-OBLGN";
-    VDBCONTROL.UPROC-NM = "DFM34Q20-FIO";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
+// Write into serial file
+Function DFM08P9-WRITESIB()
+  DFM08W.WS-REC-LTH = DFM08W.WS-INDEX + 182;
+  DFM08W-FLESIB0.WS-LGL-LTH = DFM08W.WS-REC-LTH;
+  DFM08W-PO1-SIB0.PO1-SIB-TOTAL-LTH = DFM08W.WS-REC-LTH - 2;
+  DFM08W-FLESIB0.WS-HEADER = DFM08W-PO1-SIB0.PO1-HEADER;
+  VDBCONTROL.UPROC-NM = "DFM08P9-WRITESIB";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  VDBCOMMON.USQLREC = "DFM08W-FLESIB0";
+  VDBCONTROL.UPROC-OBJ = "DFM08W-FLESIB0";
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  try
+    add DFM08W-FLESIB0 ;
+  end
 
-    H2-FINAN-OBLGN.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    H2-FINAN-OBLGN.SQNC-NMB = H2-2-COR-DOC.LST-SQNC-NMB;
-    try
-        get H2-FINAN-OBLGN singleRow
-                with #sql{
-        select CRNT_OBLGN_STS
-        from TWNFINAN_OBLGN T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE  T1.DCKT_NMB = :DCKT-NMB
-          AND  T1.SQNC_NMB = :SQNC-NMB
-          AND  T1.PRVSN_TYPE = 'CS'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into CRNT-OBLGN-STS;
-    end
+  if (DFM08W-FLESIB0 is ioError)
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q20-FIO
+    VDBCONTROL.UPROC-NM = "DFM08P9-WRITESIB";
+    VDBCONTROL.UPROC-OBJ = "DFM08W-FLESIB0";
+    VDBCONTROL.UPROC-OPT = "ADD";
 
-// Office Phone Number
+    WEZERT8-TO-URC();
 
-function DFM34Q21-IRF-OFF()
-    set H2-2-OFF-IRF empty;
+    VMESSAGE.UMSGCODE = VDBCONTROL.URC;
+    exit program;
+  end /* End if*/
+end // end DFM08P9-WRITESIB
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-2-OFF-IRF";
-    VDBCONTROL.UPROC-OBJ = "H2-2-OFF-IRF";
-    VDBCONTROL.UPROC-NM = "DFM34Q21-IRF-OFF";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
 
-    H2-2-OFF-IRF.OFC-CD = H2-NOMADS-USER.OFC-CD;
-    try
-        get H2-2-OFF-IRF singleRow
-                with #sql{
-        select T2.PHN_NMB
-        from twnoffice T1,
-             twninterst_rfguide T2
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE T1.OFC_CD = :OFC-CD
-          AND T2.FIPS_CD = T1.FIPS_CD
-          AND T2.FIPS_CD_SUFX = T1.FIPS_CD_SUFX
-          AND T2.ADR_TYPE1 = 'LOC'
-          AND T2.ADR_TYPE2 = 'RES'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into PHN-NMB;
-    end
+// MOVE WORKER TITLE
+Function DFM08P9-WRKTITLE()
+  /*  */
+  /* Change History*/
+  /* ==============*/
+  /* Date    Pgr    Description*/
+  /* ---     ---    -----------*/
+  /* 02 Feb 1995  TBST178 Creation*/
+  /* ------------------------------------------------------*/
+  /* This process constructs the worker title              */
+  /* ------------------------------------------------------*/
+  VSTRREC.USTRING = DFM08W.WS-WKRTTL;
+  call "WST15A" (VSTRREC) {isNoRefresh = yes}; /* find length of string*/
+  DFM08W.WS-INDEX-2 = VSTRREC.USTRLEN;
+  DFM08W.WS-INDEX-3 = 1;
+  while (DFM08W.WS-INDEX-3 <= DFM08W.WS-INDEX-2)
+    DFM08W.WS-STRING[WS-INDEX] = DFM08W.WS-WKRT-X[WS-INDEX-3];
+    DFM08W.WS-INDEX-3 = DFM08W.WS-INDEX-3 + 1;
+    DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+  end /* end while*/
+  DFM08W.WS-STRING[WS-INDEX] = ";";
+  DFM08W.WS-INDEX = DFM08W.WS-INDEX + 1;
+end // end DFM08P9-WRKTITLE
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-    /*  */
-end // end DFM34Q21-IRF-OFF
 
-// Check if CST ordered
+Record DFM08W type basicRecord
+  10 WS-TERM-ID char(7) ; 
+  10 WS-PRINT-ID char(4) ; 
+    15 WS-PRINT-X char(1) [4] ; 
+  10 WS-APPENDAGE char(2000) ; 
+    15 WS-APPEND-PAGE char(2000) ; 
+  10 WS-APP-TXT char(2000) ; 
+    15 WS-STRING char(1) [2000] ; 
+  10 WS-COMMON-PARMS char(569) ; 
+    15 WS-PARA-NAME char(16) ; 
+      20 WS-PARA-NAME-X char(1) [16] ; 
+    15 WS-CASENUM char(60) ; 
+      20 WS-CASE-X char(1) [60] ; 
+    15 WS-FORMID char(60) ; 
+      20 WS-FORM-X char(1) [60] ; 
+    15 WS-NCPNAME char(60) ; 
+      20 WS-NCPN-X char(1) [60] ; 
+    15 WS-NCPSSN char(60) ; 
+      20 WS-NCPS-X char(1) [60] ; 
+    15 WS-CSTNAME char(60) ; 
+      20 WS-CSTN-X char(1) [60] ; 
+    15 WS-CSTSSN char(60) ; 
+      20 WS-CSTS-X char(1) [60] ; 
+    15 WS-WKRNM char(60) ; 
+      20 WS-WKRN-X char(1) [60] ; 
+    15 WS-WKRTTL char(60) ; 
+      20 WS-WKRT-X char(1) [60] ; 
+    15 WS-CNTYCD char(60) ; 
+      20 WS-CNTY-X char(1) [60] ; 
+    15 WS-DCKETNUM num(9) ; 
+      20 WS-DCKE-X char(1) [9] ; 
+    15 WS-DKTSQNUM num(4) ; 
+      20 WS-DKTS-X char(1) [4] ; 
+  10 WS-ADDL-PARMS char(12000) ; 
+    15 WS-ADD-PARM char(60) [200] ; 
+  10 WS-ADDLPARM char(60) ; 
+    15 WS-ADD-PARM-X char(1) [60] ; 
+  10 WS-INP-FORM-PKT char(6) ; 
+  10 WS-PKT-FRM-ID char(1) ; 
+  10 WS-CASE-NUM char(10) ; 
+    15 WS-UPI num(9) ; 
+    15 WS-CASE-SUFX char(1) ; 
+  10 WS-NMB-COPIES num(2) ; 
+    15 WS-COPIES-X num(1) [2] ; 
+  10 WS-SIB-LTH num(4) ; 
+  10 WS-RECRD-CNT num(2) ; 
+  10 WS-LTD-NAME char(16) ; 
+  10 WS-INDEX num(4) ; 
+  10 WS-INDEX-2 num(3) ; 
+  10 WS-INDEX-3 num(3) ; 
+  10 WS-INDEX-4 num(3) ; 
+  10 WS-STR-OFF-FLAG char(1) ; 
+  10 WS-USER char(5) ; 
+    15 WS-USER-01 char(1) ; 
+    15 WS-USER-02 char(2) ; 
+    15 WS-USER-03 char(2) ; 
+  10 WS-TS-ID char(7) ; 
+    15 WS-TS-ID-01 char(1) ; 
+    15 WS-TS-ID-02 char(2) ; 
+    15 WS-TS-TERM-ID char(4) ; 
+  10 WS-REC-LTH smallint ; 
+  10 WS-PIO-UPI int ; 
+  10 WS-CNTY-CD char(4) ; 
+    15 WS-C-CNTY char(2) ; 
+    15 WS-W-CNTY char(2) ; 
+  10 WS-OFC-CD char(2) ; 
+    15 WS-OFC-CD-X char(1) [2] ; 
+  10 WS-PACKET char(6) ; 
+    15 WS-PCKT-FILLER char(3) ; 
+    15 WS-PCKT char(3) ; 
+  10 WS-PARM-NMB num(3) ; 
+  10 CST-NCP-IND char(1) ; 
+  10 PARM-NUM smallint ; 
+  10 WS-INDEX-SAVE num(4) ; 
+end // end DFM08W
 
-function DFM34Q22-PRV()
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H3-PRVSN";
-    VDBCONTROL.UPROC-OBJ = "H3-PRVSN";
-    VDBCONTROL.UPROC-NM = "DFM34Q22-PRV";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-    try
-        get H3-PRVSN singleRow
-                with #sql{
-        select HI_ORDRD_TO_PROVD
-        from TWNPRVSN T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE DCKT_NMB = :H2-2-COR-DOC.DCKT-NMB
-        AND   SQNC_NMB = :H2-2-COR-DOC.LST-SQNC-NMB
-        AND   PRVSN_TYPE = 'HI'
-        AND   HI_ORDRD_TO_PROVD = 'CST'
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-                into HI-ORDRD-TO-PROVD;
-    end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q22-PRV
+Record DFM08W-FLESIB0 type serialRecord  {
+  fileName = "SIBZERO", lengthItem = WS-REC-LTH
+  }
+  5 WS-LGL-LTH smallint ; 
+  5 WS-HEADER char(7178) ; 
+    10 WS-FILLER char(7178) ; 
+end // end DFM08W-FLESIB0
 
-// Selecting SSA Employer ID Code Description
 
-function DFM34Q23-CT()
-    set H2-CODE-TBL empty;
+Record DFM08W-PO1-SIB0 type basicRecord
+  5 PO1-HEADER char(7180) ; 
+    10 PO1-SIB-HEADER char(180) ; // SIB Header information
+      20 PO1-SIB-ASF-VER smallint ; // ASF Version
+      20 PO1-SIB-USER-NAME char(8) ; // User Name
+      20 PO1-SIB-USER-PSWD char(8) ; // User Password
+      20 PO1-SIB-PGRM-NAME char(8) ; // Return Program
+      20 PO1-SIB-SEC-SUPPR char(1) ; // Suppression Password
+      20 PO1-SIB-LANG-IND char(3) ; // Selected Language indicator
+      20 PO1-SIB-REC-ID char(16) ; // Record Idendifier
+      20 PO1-SIB-1ST-ASF-CALL char(1) ; // ASF call on 1st Level
+      20 PO1-SIB-MSG-REDEF char(1) ; // Message Text Redefined
+      20 PO1-SIB-DATA-XFER smallint ; // Data Xfer thrh. Appln.connecti
+      20 PO1-SIB-ASF-FNCT char(4) ; // Requested  Function
+      20 PO1-SIB-USER-COMA char(32) ; // User Communication Area
+      20 PO1-SIB-TOTAL-LTH smallint ; // Total Length of SIB
+      20 PO1-SIB-TYPE char(1) ; // SIB Type indicator
+      20 PO1-SIB-MSG-TEXT char(79) ; // Returned Message Text
+      20 PO1-SIB-MSG-CODE smallint ; // Return Code
+      20 PO1-SIB-ERR-FLD char(10) ; // Parameter in Error
+    10 PO1-SIB-APPENDAGE char(7000) ; // SIB appendage
+      15 PO1-SIB-APPEND-TEXT char(7000) ; // Appendage string
+end // end DFM08W-PO1-SIB0
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-CODE-TBL";
-    VDBCONTROL.UPROC-OBJ = "H2-CODE-TBL";
-    VDBCONTROL.UPROC-NM = "DFM34Q23-CT";
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
 
-    try
-        get H2-CODE-TBL
-                with #sql{
-        select CODE_DESC
-        from TWNCODE_TBL T1
-        WHERE
-        	CODE_TBL_CD = 'SSAID' AND
-        	CODE_TBL_TYP = 'SSAEMPID'
-        FOR FETCH ONLY
-      }
-                into CODE-DESC;
-    end
+Record DFM08W1 type basicRecord
+  5 NCP-SSN char(9) ; 
+    10 NCP-SSN-1 char(3) ; 
+    10 NCP-SSN-2 char(2) ; 
+    10 NCP-SSN-3 char(4) ; 
+  5 CST-SSN char(9) ; 
+    10 CST-SSN-1 char(3) ; 
+    10 CST-SSN-2 char(2) ; 
+    10 CST-SSN-3 char(4) ; 
+end // end DFM08W1
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34Q23-CT
 
-// Update NMSN info
+Record DFM08W2 type basicRecord
+  5 WS-SIB-USER-COMA char(32) ; 
+    10 WS-SSN char(10) ; 
+      15 WS-NCPSSN char(9) ; 
+        20 WS-NCPSSN-N num(9) ; 
+      15 WS-CASESUFX char(1) ; 
+    10 WS-MODE char(1) ; 
+    10 WS-PRNTR-ID char(17) ; 
+      15 WS-TERM-ID char(4) ; 
+      15 WS-FORM-ID char(6) ; 
+      15 WS-CNTY-CD char(2) ; 
+      15 WS-JRSDT-DTL num(1) ; 
+      15 WS-DCKT-NMB int ; 
+    10 WS-PCKT char(3) ; 
+    10 WS-PCKT-FLAG char(1) ; 
+end // end DFM08W2
 
-function DFM34U01-EWD()
-    set H2-EMPLR-WWH-DTLS empty;
 
-    WDB00PI();
-    VDBCOMMON.UAPPLNAM = "DFM34A";
-    VDBCOMMON.USQLREC = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-OBJ = "H2-EMPLR-WWH-DTLS";
-    VDBCONTROL.UPROC-NM = "DFM34U01-EWD";
-    VDBCONTROL.UPROC-OPT = "UPDATE";
+Record DFM08W3 type basicRecord
+  10 WS-IN-DATA char(80) ; 
+    15 WS-DOWNLD-IND char(1) ; 
+    15 WS-FILLER char(79) ; 
+  10 WS-CRTD-TS char(26) ; 
+    15 WS-CRTD-DT char(10) ; 
+      20 WS-CRTD-DT-CCYY char(4) ; 
+        25 WS-CRTD-DT-CC char(2) ; 
+        25 WS-CRTD-DT-YY char(2) ; 
+      20 WS-CRTD-DT-SEP-1 char(1) ; 
+      20 WS-CRTD-DT-MM char(2) ; 
+      20 WS-CRTD-DT-SEP-2 char(1) ; 
+      20 WS-CRTD-DT-DD char(2) ; 
+    15 WS-TIME-STAMP char(16) ; 
+  10 WS-PROCESS-DT char(10) ; 
+    15 WS-PROC-DT-CCYY char(4) ; 
+      20 WS-PROC-DT-CC char(2) ; 
+      20 WS-PROC-DT-YY char(2) ; 
+    15 WS-PROC-DT-SEP-1 char(1) ; 
+    15 WS-PROC-DT-MM char(2) ; 
+    15 WS-PROC-DT-SEP-2 char(1) ; 
+    15 WS-PROC-DT-DD char(2) ; 
+  10 WS-ERR-CD char(8) ; 
+    15 WS-ERR-FIRST-FOUR char(4) ; 
+    15 WS-ERR-LAST-FOUR char(4) ; 
+  10 WS-NCP-UPI int ; // NCP_UPI
+  10 WS-CASE-SUFX char(1) ; // CASE_SUFX
+  10 WS-CRTN-TS char(26) ; // CRTN-TS
+  10 WS-SQLCODE int ; 
+end // end DFM08W3
 
-    H2-EMPLR-WWH-DTLS.EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
-    H2-EMPLR-WWH-DTLS.DCKT-NMB = H2-2-COR-DOC.DCKT-NMB;
-    H2-EMPLR-WWH-DTLS.NMSN-GEN-DT = DFM34W1.WS-PROC-DATE;
-    try
-        execute 
-                #sql{
-         --** INSERT SQL STATEMENT HERE **
-        UPDATE TWNEMPLR_WWH_DTLS
-        SET   NMSN_GEN_DT = :NMSN-GEN-DT,
-              NMSN_STATUS = 'I'
-        WHERE EMPLR_ID = :EMPLR-ID
-          AND DCKT_NMB = :DCKT-NMB
-      }
-                for H2-EMPLR-WWH-DTLS; // model = none
-    end
 
-    WDB00PE-SQLERR();
-    if(VDBCONTROL.URC > 104)
-        exit program;
-    end
-end // end DFM34U01-EWD
+Record DFM08W4 type basicRecord
+  3 WS-FORM-KEY-PARM char(320) ; 
+    5 WS-RECORD-1 char(80) ; 
+      10 WS-NCP-UPI num(9) ; 
+      10 WS-CASE-SUFX char(1) ; 
+      10 WS-NCP-NAME char(25) ; // lstnm blnk fstint blnk midint
+      10 WS-NCP-SSN char(11) ; 
+        15 WS-NCP-SSN-THREE char(3) ; 
+        15 WS-NCP-SSN-FILL1 char(1) ; 
+        15 WS-NCP-SSN-TWO char(2) ; 
+        15 WS-NCP-SSN-FILL2 char(1) ; 
+        15 WS-NCP-SSN-FOUR char(4) ; 
+      10 WS-FILLER1 char(34) ; 
+    5 WS-RECORD-2 char(80) ; 
+      10 WS-CST-UPI num(9) ; 
+      10 WS-CST-NAME char(25) ; // lstnm blnk fstint blnk midint
+      10 WS-CST-SSN char(11) ; 
+        15 WS-CST-SSN-THREE char(3) ; 
+        15 WS-CST-SSN-FILL1 char(1) ; 
+        15 WS-CST-SSN-TWO char(2) ; 
+        15 WS-CST-SSN-FILL2 char(1) ; 
+        15 WS-CST-SSN-FOUR char(4) ; 
+      10 WS-FILLER2 char(35) ; 
+    5 WS-RECORD-3 char(80) ; 
+      10 WS-DCKT-NMB num(9) ; 
+      10 WS-LST-SQNC-NMB num(4) ; 
+      10 WS-EMPLR-NMB char(10) ; 
+      10 WS-EMPLR-CRTN-DT char(10) ; 
+      10 WS-SOPR-PCKT-ID char(6) ; 
+      10 WS-SOPR-RFRL-DT char(10) ; 
+      10 WS-CRNT-DATE char(10) ; 
+      10 WS-FILLER3 char(21) ; // filler for - sign
+    5 WS-RECORD-4 char(80) ; 
+      10 WS-USRID char(8) ; 
+      10 WS-TERMID char(4) ; 
+      10 WS-OFC-CNTY-CD char(2) ; 
+      10 WS-FORM char(6) [10] ; 
+      10 WS-FILLER4 char(6) ; 
+end // end DFM08W4
 
-record DFM34W1 type basicRecord
-    10 WS-PROC-DATE char(10);
-        15 WS-PROC-DATE-CCYY char(4);
-        15 * char(1);
-        15 WS-PROC-DATE-MM char(2);
-        15 * char(1);
-        15 WS-PROC-DATE-DD char(2);
-    10 FEIN char(10);
-        15 * char(2);
-        15 FEIN-I char(1);
-        15 * char(7);
-    10 WS-TEXT-37 char(37);
-    10 WS-TEXT-40 char(40);
-    10 HW-YRMTH char(6);
-        15 HW-YR char(4);
-        15 HW-MTH char(2);
-end // end DFM34W1
-
-record DFM34W2 type basicRecord
-    10 INS-PLCY-IND char(1);
-    10 CHD-INDX smallInt;
-    10 CHILD-INFO char(53)[10];
-        15 NAME char(31);
-        15 SSN char(11);
-        15 DOB char(10);
-        15 SEX char(1);
-    10 FVI char(1);
-    10 NON-DISCLSR-FND char(1);
-    10 CMOA-IND char(1);
-end // end DFM34W2
-
-record DFM34W3 type basicRecord
-    10 PARM-INDEX smallInt;
-    10 SIB-PARM char(60)[83];
-    10 NCP-NAME char(60);
-    10 NCP-SSN char(9); // NCP-SSN
-    10 CST-NAME char(60);
-    10 CST-SSN char(9);
-    10 FIPS char(7);
-        15 FIPS-CD char(5); // FIPS_CD
-        15 FIPS-SUFX char(2);
-end // end DFM34W3
 
