@@ -1,1143 +1,536 @@
-function DCP27P9-GET-CSLD()
+package IVD_Batch;
+import CommonMigratedParts.*;
+import DataItems.*;
+import DataTables.*;
 
-/* Move name of SQL row record used to common record*/
+//*** PROGRAM=DLI27A ****
+// COMPONENT NAME: DLI27A Called Batch Application
+// ===============
+// 
+// DESCRIPTION:
+// ============
+// This module is called when the ID which was used for an
+// employer must be changed to another.  There are two
+// circumstances in which this module is called.  The first is
+// when the ESD Tape interface is received and an employer in
+// the system is currently being identified by the Tax
+// Identification Number (TIN).  The ID will be updated to the
+// ESD ID number.  The second is when a worker learns the TIN
+// or ESD ID of an employer originally entered into the system
+// with a pseduo ID number (via EMID screen).
+// 
+// 08/21/2001  WI22050  D.Bugli - Fix -530 SQL error problems,
+//                      improve documentation, and increase
+//                      efficient access of TWNFIN_AUDIT_TRAIL.
+// 9/1/2019    WI 1808  Dan J.  FAT expanded.  Re-compiled.
+// ***********************
+Program DLI27A type basicProgram //VAGen Info - called batch program
+  (
+   VDBCONTROL VDBCONTROL, // record
+   VMESSAGE VMESSAGE, // record
+   DLI27W1 DLI27W1 // record
+  )
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
 
-    VDBCOMMON.USQLREC = "H2-IVD-CASELD-CASE";
+  // Data Declarations
+  CEP01W CEP01W; // record
+  H-TBIDCA H-TBIDCA; // record
+  H-TBTHC9 H-TBTHC9; // record
+  H-TBWDC2 H-TBWDC2; // record
+  H-TBWDD1 H-TBWDD1; // record
+  H-TCCPC2 H-TCCPC2; // record
+  H-TCTDC1 H-TCTDC1; // record
+  H-TEFGC1 H-TEFGC1; // record
+  H-TEFGD1 H-TEFGD1; // record
+  H-TEMPD1 H-TEMPD1; // record
+  H-TEMPI4 H-TEMPI4; // record
+  H-TEMPSL H-TEMPSL; // record
+  H-TEQDC1 H-TEQDC1; // record
+  H-TEQDD1 H-TEQDD1; // record
+  H-TETAC2 H-TETAC2; // record
+  H-TETPD1 H-TETPD1; // record
+  H-TETPI1 H-TETPI1; // record
+  H-TETPS1 H-TETPS1; // record
+  H-TEWDC2 H-TEWDC2; // record
+  H-TEWDD1 H-TEWDD1; // record
+  H-TEWFC1 H-TEWFC1; // record
+  H-TEWFD1 H-TEWFD1; // record
+  H-TFATC5 H-TFATC5; // record
+  H-TIVTC9 H-TIVTC9; // record
+  H-TJHSC9 H-TJHSC9; // record
+  H-TJHSD1 H-TJHSD1; // record
+  H-TJIDCA H-TJIDCA; // record
+  H-TPRVC1 H-TPRVC1; // record
+  H-TQDTC6 H-TQDTC6; // record
+  H-TRCPCP H-TRCPCP; // record
+  H-TSDSC1 H-TSDSC1; // record
+  H-TSWEC1 H-TSWEC1; // record
+  H-TSWED1 H-TSWED1; // record
+  H-TSWWC2 H-TSWWC2; // record
+  H-TSWWD1 H-TSWWD1; // record
+  H-TWADC2 H-TWADC2; // record
+  H-TWADD1 H-TWADD1; // record
+  VDBCOMMON VDBCOMMON; // record
 
-    /*  */
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
 
-    VDBCONTROL.UPROC-OBJ = "H2-IVD-CASELD-CASE";
+  function main()
+    // VAGen Info - initialization needed for migration
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    DLI27P9-MAIN-PROC: DLI27P9-MAIN-PROC();
+  end // end main
+end // end DLI27A
 
-    VDBCONTROL.UPROC-OPT = "SETINQ";
 
-    VDBCONTROL.UPROC-NM = "DCP27P9-GET-CSLD";
-
-    VDBCOMMON.USQLREC = "H2-IVD-CASELD-CASE";
-
-    /*  */
-
-    try
-
-        open DCP27P9-GET-CSLD_RSI01
-
-                with #sql{
-
-        select CASELD_IND, RSP_CNTY
-
-        from twnivd_caseld_case T1
-
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-
-        WHERE UPI = :UPI
-
-          AND CASE_SUFX = :CASE-SUFX
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-      }
-
-                into CASELD-IND, RSP-CNTY for H2-IVD-CASELD-CASE;
-
+// MAIN PROCESS
+Function DLI27P9-MAIN-PROC()
+  /* *********************************************************************/
+  /* THIS MODULE READS ALL OCCURRENCES OF THE OLD EMPLOYER ID. IF THE ID IS*/
+  /* PART OF A PRIMARY KEY, A RECORD IS INSERTED WITH THE NEW EMPLOYER ID*/
+  /* AND ALL OTHER DATA OF THE OLD RECORD; THE OLD RECORD IS THEN DELETED.*/
+  /* IF THE EMPLOYER ID IS NOT PART OF THE PRIMARY KEY, THE EXISTING RECORD*/
+  /* IS SIMPLY UPDATED WITH THE NEW ID.*/
+  /* *********************************************************************/
+  /* DATE       Work Item Description*/
+  /* ---------- --------- -----------------------------------------------*/
+  /* 03/07/1995  ---      CREATION by author TBS518*/
+  /* ---         ptr5708  Remove TWNET_ACTIVITY process.*/
+  /* 09/07/2001  WI22050  D.Bugli- Add documentation.  Fix -530 abends on*/
+  /* TWNWAGE_DTLS & TWN_SWICA_WAGE_DTLS processing.*/
+  /* Reduce search of TWNFIN_AUDIT_TRAIL to only*/
+  /* certain rows on which emplr_id could possibly*/
+  /* appear to reduce number of rows scanned by*/
+  /* 70 percent (see application TFATC5A).  If*/
+  /* calling program (CCT12A, DLI05A, DLI07A) pass*/
+  /* identical old & new employer IDs, return "X"*/
+  /* in PDLI-ID-INFO.*/
+  /* *********************************************************************/
+  /*  */
+  set H-TBTHC9 empty;
+  set H-TBWDC2 empty;
+  set H-TBWDD1 empty;
+  set H-TCCPC2 empty;
+  set H-TCTDC1 empty;
+  set H-TEFGC1 empty;
+  set H-TEFGD1 empty;
+  set H-TEMPD1 empty;
+  set H-TEMPI4 empty;
+  set H-TEMPSL empty;
+  set H-TEQDC1 empty;
+  set H-TEQDD1 empty;
+  set H-TETAC2 empty;
+  set H-TBIDCA empty;
+  set H-TETPD1 empty;
+  set H-TETPI1 empty;
+  set H-TETPS1 empty;
+  set H-TEWDC2 empty;
+  set H-TEWDD1 empty;
+  set H-TEWFC1 empty;
+  set H-TEWFD1 empty;
+  set H-TFATC5 empty;
+  set H-TIVTC9 empty;
+  set H-TJHSC9 empty;
+  set H-TJHSD1 empty;
+  set H-TJIDCA empty;
+  set H-TPRVC1 empty;
+  set H-TQDTC6 empty;
+  set H-TRCPCP empty;
+  set H-TSDSC1 empty;
+  set H-TSWEC1 empty;
+  set H-TSWED1 empty;
+  set H-TSWWC2 empty;
+  set H-TSWWD1 empty;
+  set H-TWADC2 empty;
+  set H-TWADD1 empty;
+  /*  */
+  /* WI22050 - Prevent old and new employer ID from being the same,*/
+  /* because this could delete rows that have just been updated.*/
+  if (DLI27W1.PI1-OLD-ID == DLI27W1.PI1-NEW-ID)
+    DLI27W1.PDLI-ID-INFO = "X";
+    /* Msg: "OLD AND NEW EMPLOYER IDS MUST BE DIFFERENT"*/
+    VMESSAGE.UMSGCODE = "DLI0004W";
+    VMESSAGE.UMSGINS[1] = " ";
+    VMESSAGE.UMSGINS[2] = " ";
+    exit program;
+  end
+  /*  */
+  /* Step 1*/
+  /* TWNEMPLOYER - Select only*/
+  H-TEMPSL.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TEMPSLA" (VDBCONTROL, VMESSAGE, H-TEMPSL) {isNoRefresh = yes}; /* DLI27A_S01*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  move H-TEMPSL to H-TEMPI4 withV60Compat;
+  H-TEMPI4.LST-CHNGD-DT = DLI27W1.PI1-CURRENT-DT;
+  H-TEMPI4.EMPLR-ID = DLI27W1.PI1-NEW-ID;
+  if (VDBCONTROL.URC == 0)
+    /* Step 2*/
+    /* TWNEMPLOYER - Select, update & insert (Delete in step 35)*/
+    call "TEMPI4A" (VDBCONTROL, VMESSAGE, H-TEMPI4) {isNoRefresh = yes}; /* DLI27A_I01*/
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
-
-    /*  */
-
-    /* Increment count of rows retrieved*/
-
-    if(sysVar.sqlData.sqlcode == 0)
-
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-
+  else
+    exit program;
+  end
+  /*  */
+  /* Step 3*/
+  /* TWNBTCH_HDR - select & update*/
+  /*  */
+  H-TBTHC9.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TBTHC9.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TBTHC9A" (VDBCONTROL, VMESSAGE, H-TBTHC9) {isNoRefresh = yes}; /* DLI27A_S02,U01*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 4*/
+  /* TWNPRVSN - select & update*/
+  /*  */
+  H-TPRVC1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TPRVC1.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TPRVC1A" (VDBCONTROL, VMESSAGE, H-TPRVC1) {isNoRefresh = yes}; /* DLI27A_S09,U03*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 5*/
+  /* TWNEMPLR_WWH_FINE - select & insert (Delete in step 34)*/
+  /*  */
+  H-TEWFC1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TEWFC1.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TEWFC1A" (VDBCONTROL, VMESSAGE, H-TEWFC1) {isNoRefresh = yes}; /* DLI27A_S06,I05*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 6*/
+  /* TWNEMPL_FINE_GLAC - select & insert (Delete in step 7)*/
+  /*  */
+  //H-TEFGC1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  //H-TEFGC1.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  //call "TEFGC1A" (VDBCONTROL, VMESSAGE, H-TEFGC1) {isNoRefresh = yes}; /* DLI27A_S03,I02*/
+  //if (VDBCONTROL.URC > 104)
+  //  exit program;
+  //end
+  /*  */
+  /* Step 7*/
+  /* TWNEMPL_FINE_GLAC - delete*/
+  //H-TEFGD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  //call "TEFGD1A" (VDBCONTROL, VMESSAGE, H-TEFGD1) {isNoRefresh = yes}; /* DLI27A_D01*/
+  //if (VDBCONTROL.URC > 104)
+  //  exit program;
+  //end
+  /*  */
+  /* Step 8*/
+  /* TWNEMPL_TMPLT - select*/
+  /* Table is empty as of July 2001. -D. Bugli*/
+  H-TETPS1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TETPS1A" (VDBCONTROL, VMESSAGE, H-TETPS1) {isNoRefresh = yes}; /* DLI27A_S04*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  move H-TETPS1 to H-TETPI1 withV60Compat;
+  H-TETPI1.EMPLR-ID = DLI27W1.PI1-NEW-ID;
+  if (VDBCONTROL.URC == 0)
+    /* Step 9*/
+    /* TWNEMPL_TMPLT - insert*/
+    call "TETPI1A" (VDBCONTROL, VMESSAGE, H-TETPI1) {isNoRefresh = yes}; /* DLI27A_I03*/
+    if (VDBCONTROL.URC > 104)
+      exit program;
     end
+  end
+  /*  */
+  /* Step 10*/
+  /* TWNEMPL_TMPLT - delete*/
+  H-TETPD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TETPD1A" (VDBCONTROL, VMESSAGE, H-TETPD1) {isNoRefresh = yes}; /* DLI27A_D02*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 11*/
+  /* TWNEMPLR_WWH_DTLS - select & insert (Delete in step 12)*/
+  /*  */
+  H-TEWDC2.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TEWDC2.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TEWDC2A" (VDBCONTROL, VMESSAGE, H-TEWDC2) {isNoRefresh = yes}; /* DLI27A_S05,I04*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 12*/
+  /* TWNEMPLR_WWH_DTLS - delete*/
+  H-TEWDD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TEWDD1A" (VDBCONTROL, VMESSAGE, H-TEWDD1) {isNoRefresh = yes}; /* DLI27A_D03*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 13*/
+  /* TWNJOB_INCM_DTLS - select & update*/
+  /*  */
+  H-TJIDCA.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TJIDCA.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TJIDCAA" (VDBCONTROL, VMESSAGE, H-TJIDCA) {isNoRefresh = yes}; /* DLI27A_S07,U02*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 14*/
+  /* TWNJOB_HISTORY - select & insert (Delete in step 33)*/
+  /*  */
+  H-TJHSC9.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TJHSC9.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TJHSC9A" (VDBCONTROL, VMESSAGE, H-TJHSC9) {isNoRefresh = yes}; /* DLI27A_S08,I06*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 15*/
+  /* TWNWAGE_DTLS - select & insert (Delete in step 16)*/
+  /*  */
+  H-TWADC2.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TWADC2.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TWADC2A" (VDBCONTROL, VMESSAGE, H-TWADC2) {isNoRefresh = yes}; /* DLI27A_S10,I07*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 16*/
+  /* TWNWAGE_DTLS - delete*/
+  H-TWADD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TWADD1A" (VDBCONTROL, VMESSAGE, H-TWADD1) {isNoRefresh = yes}; /* DLI27A_D06*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 17*/
+  /* TWNCNET_TRN_DTL - select & update*/
+  /*  */
+  H-TCTDC1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TCTDC1.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TCTDC1A" (VDBCONTROL, VMESSAGE, H-TCTDC1) {isNoRefresh = yes}; /* DLI27A_S11,U04*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 18*/
+  /* TWNBEER_WAGE_DTL - select & insert (Delete in step 19)*/
+  /*  */
+  H-TBWDC2.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TBWDC2.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TBWDC2A" (VDBCONTROL, VMESSAGE, H-TBWDC2) {isNoRefresh = yes}; /* DLI27A_S12,I08*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 19*/
+  /* TWNBEER_WAGE_DTL - delete*/
+  H-TBWDD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TBWDD1A" (VDBCONTROL, VMESSAGE, H-TBWDD1) {isNoRefresh = yes}; /* DLI27A_D07*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 20*/
+  /* TWNBUS_INCM_DTLS - select & update*/
+  /*  */
+  H-TBIDCA.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TBIDCA.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TBIDCAA" (VDBCONTROL, VMESSAGE, H-TBIDCA) {isNoRefresh = yes}; /* DLI27A_S13,U05*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 21*/
+  /* TWNCHD_CARE_PRVDR - select & update*/
+  /* Table is empty as of July 2001. -D. Bugli*/
+  H-TCCPC2.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TCCPC2.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TCCPC2A" (VDBCONTROL, VMESSAGE, H-TCCPC2) {isNoRefresh = yes}; /* DLI27A_S14,U06*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 22*/
+  /* TWNESD_QTRERNG_DTL - select & insert (Delete in step 23)*/
+  /*  */
+  H-TEQDC1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TEQDC1.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TEQDC1A" (VDBCONTROL, VMESSAGE, H-TEQDC1) {isNoRefresh = yes}; /* DLI27A_S16,I09*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 23*/
+  /* TWNESD_QTRERNG_DTL - delete*/
+  H-TEQDD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TEQDD1A" (VDBCONTROL, VMESSAGE, H-TEQDD1) {isNoRefresh = yes}; /* DLI27A_D08*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /* ------------------------ptr5708 begin--------------------------------*/
+  /* Due to rel 2 integration, database table twnet_activity's attributes*/
+  /* were changed.  Emplr-id is no longer in twnet_activity.*/
+  /*  */
+  /* TWNET_ACTIVITY TABLE*/
+  /*  */
+  /* MOVE DLI27W1.PI1-OLD-ID TO H-TETAC2.EMPLR-ID;*/
+  /* MOVE DLI27W1.PI1-NEW-ID TO H-TETAC2.HW-NEW-ID;*/
+  /* CALL TETAC2A VDBCONTROL,VMESSAGE,H-TETAC2 (NOMAPS; /* DLI27A_S17,U08*/
+  /* IF VDBCONTROL.URC > 104;*/
+  /* EZECLOS;*/
+  /* END;*/
+  /* ------------------------ptr5708 begin--------------------------------*/
+  /*  */
+  /* Step 24*/
+  /* TWNFIN_AUDIT_TRAIL TABLE - select & update*/
+  /*  */
+  H-TFATC5.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TFATC5.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  /* Only rows with distribution types 02, 04, 07, 09, 10, 12, 16,*/
+  /* and 30 will be selected.  These are the only types that can*/
+  /* have EMPLR_ID and they represent 30 percent of a very large table*/
+  /* that must be scanned.  The vast majority of EMPLR_ID columns on*/
+  /* the table are blank.  -D. Bugli, July 2001*/
+  call "TFATC5A" (VDBCONTROL, VMESSAGE, H-TFATC5) {isNoRefresh = yes}; /* DLI27A_S19,U10*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 25*/
+  /* TWNQUIT_DTLS - select & update*/
+  /*  */
+  H-TQDTC6.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TQDTC6.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TQDTC6A" (VDBCONTROL, VMESSAGE, H-TQDTC6) {isNoRefresh = yes}; /* DLI27A_S20,U11*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 26*/
+  /* TWNSTRIKE_DTLS - select & update*/
+  /*  */
+  H-TSDSC1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TSDSC1.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TSDSC1A" (VDBCONTROL, VMESSAGE, H-TSDSC1) {isNoRefresh = yes}; /* DLI27A_S21,U12*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 27*/
+  /* TWNSWICA_EMPLR_DTL - select & insert*/
+  /*  */
+  H-TSWEC1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TSWEC1.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TSWEC1A" (VDBCONTROL, VMESSAGE, H-TSWEC1) {isNoRefresh = yes}; /* DLI27A_S22,I10*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 28*/
+  /* TWNSWICA_WAGE_DTL - select & insert (Delete in step 29)*/
+  /*  */
+  H-TSWWC2.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TSWWC2.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TSWWC2A" (VDBCONTROL, VMESSAGE, H-TSWWC2) {isNoRefresh = yes}; /* DLI27A_S23,I11*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 29*/
+  /* TWNSWICA_WAGE_DTL - delete*/
+  H-TSWWD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TSWWD1A" (VDBCONTROL, VMESSAGE, H-TSWWD1) {isNoRefresh = yes}; /* DLI27A_D10*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 30*/
+  /* TWNRCPT - select & update*/
+  /*  */
+  H-TRCPCP.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TRCPCP.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TRCPCPA" (VDBCONTROL, VMESSAGE, H-TRCPCP) {isNoRefresh = yes}; /* DLI27A_S24,U13*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 31*/
+  /* TWNIVD_WRNT - select & update*/
+  /*  */
+  H-TIVTC9.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  H-TIVTC9.HW-NEW-ID = DLI27W1.PI1-NEW-ID;
+  call "TIVTC9A" (VDBCONTROL, VMESSAGE, H-TIVTC9) {isNoRefresh = yes}; /* DLI27A_S25,U14*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 32*/
+  /* TWNSWICA_EMPLR_DTL - delete process. This is parent of*/
+  /* twnswica_wage_dtl and record can't be deleted unless child record*/
+  /* is deleted first.*/
+  /*  */
+  H-TSWED1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TSWED1A" (VDBCONTROL, VMESSAGE, H-TSWED1) {isNoRefresh = yes}; /* DLI27A_D09*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 33*/
+  /* TWNJOB_HISTORY - Delete process.  This is parent of*/
+  /* Twnwage_dtls and record can't be deleted unless child record*/
+  /* is deleted first.*/
+  /*  */
+  H-TJHSD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TJHSD1A" (VDBCONTROL, VMESSAGE, H-TJHSD1) {isNoRefresh = yes}; /* DLI27A_D05*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 34*/
+  /* Twnemplr_wwh_fine - delete process. This is parent of*/
+  /* Twnempl_fine_glac and record can't be deleted unless child record*/
+  /* is deleted first.*/
+  /*  */
+  H-TEWFD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TEWFD1A" (VDBCONTROL, VMESSAGE, H-TEWFD1) {isNoRefresh = yes}; /* DLI27A_D04*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  /*  */
+  /* Step 35*/
+  /* TWNEMPLOYER - delete*/
+  /* FINALLY, DELETE THE RECORD WITH THE OLD EMPLOYER ID FROM THE EMPLOYER*/
+  /* MASTER TABLE.*/
+  /*  */
+  H-TEMPD1.EMPLR-ID = DLI27W1.PI1-OLD-ID;
+  call "TEMPD1A" (VDBCONTROL, VMESSAGE, H-TEMPD1) {isNoRefresh = yes}; /* DLI27A_D11*/
+  if (VDBCONTROL.URC > 104)
+    exit program;
+  end
+  VGVar.handleSysLibraryErrors = 0;
+  sysLib.commit();
+  /*  */
+  /* CBSI END*/
+end // end DLI27P9-MAIN-PROC
+
+
+Record DLI27W1 type basicRecord
+  10 PDLI-ID-INFO char(30) ; 
+    20 PI1-OLD-ID char(10) ; 
+    20 PI1-NEW-ID char(10) ; 
+    20 PI1-CURRENT-DT char(10) ; 
+end // end DLI27W1
 
-end // end DCP27P9-GET-CSLD
 
-
-
-// GET the cst ssn
-
-
-
-function DCP27P9-GET-CSTUPI()
-
-/* -----------------------------------------------------------*/
-
-/* Change History*/
-
-/* ==============*/
-
-/* DATE        NAME        DESCRIPTION*/
-
-/* ----        -----       ----------*/
-
-/* 29 may 1997               CREATION*/
-
-/* -----------------------------------------------------------*/
-
-/*  */
-
-/* Perform standard database application initialization*/
-
-    WDB00PI();
-
-    /* Initialize:*/
-
-    /* UACCTYP - Access type (R=read, W=write)*/
-
-    /* UAPPLNAM - Application name*/
-
-    VDBCONTROL.UACCTYP = "R";
-
-    VDBCOMMON.UAPPLNAM = "DCP27A";
-
-    /* Initialize SQL row record*/
-
-    /*  */
-
-    set H2-PERSON empty;
-
-    H2-PERSON.UPI = H-TIDCQ7.CST-UPI;
-
-    /* Move name of SQL row record used to common record*/
-
-    VDBCOMMON.USQLREC = "H2-PERSON";
-
-    VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-GET-CSTUPI";
-
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    /*  */
-
-    try
-
-        get H2-PERSON singleRow
-
-                with #sql{
-
-        select SSN
-
-        from TWNPERSON T1
-
-        WHERE UPI    = :UPI
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-      }
-
-                into SSN;
-
-    end
-
-    /*  */
-
-    /* Increment count of rows retrieved*/
-
-    if(sysVar.sqlData.sqlcode == 0)
-
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-
-    end
-
-    /* Set error control flags*/
-
-    /* UNRF - No record found flag (Y,N,1)*/
-
-    /* UDUP - Duplicate key flag (Y,N)*/
-
-    VDBCOMMON.UNRF = "Y";
-
-    VDBCOMMON.UDUP = "N";
-
-    /*  */
-
-    /* Perform DBM error processing*/
-
-    WDB00PE-SQLERR();
-
-    /*  */
-
-    /*  */
-
-end // end DCP27P9-GET-CSTUPI
-
-
-
-// PERFORM GET H2-2-PAH-PER
-
-
-
-function DCP27P9-GET-NCCNTY()
-
-/* PTR 7780 START*/
-
-    if(H-TIDCQ7.FUNC-AREA-CD == "N")
-
-        DCP27W2.WS-CST-CNTY = "99";
-
-        DCP27W2.WS-NCP-CNTY = "99";
-
-        return;
-
-    end
-
-    /* PTR 7780 END*/
-
-    /* PTR 6262 START*/
-
-
-
-    set H2-2-PAH-PER empty;
-
-    DCP27W2.WS-EXIT-FLAG = "N";
-
-    H2-2-PAH-PER.UPI = DCP27W.PI1-NCP-UPI;
-
-    DCP27P9-CL1();
-
-    if(VDBCONTROL.URC > 104)
-
-        exit program;
-
-    end
-
-    if(VDBCONTROL.URC == 100)
-
-        set H2-JOB-HISTORY empty;
-
-        DCP27W2.WS-EXIT-FLAG = "N";
-
-        H2-JOB-HISTORY.UPI = DCP27W.PI1-NCP-UPI;
-
-        DCP27P9-JHSCL1();
-
-        if(VDBCONTROL.URC > 104)
-
-            exit program;
-
-        end
-
-        if(VDBCONTROL.URC == 100)
-
-            DCP27W2.WS-CST-CNTY = "99";
-
-            DCP27W2.WS-NCP-CNTY = "99";
-
-            return;
-
-        /* ptr 9287 start*/
-
-        /* ELSE;*/
-
-        /* MOVE H2-JOB-HISTORY.CITY TO DCP27W2.WS-NCP-CITY;*/
-
-        /* ptr 9287 end*/
-
-        end
-
-    else
-
-        DCP27W2.WS-NCP-CITY = DCP27W2.WS-CITY;
-
-    end
-
-    H-TCDTSL.CODE-TBL-TYP = "CITYCNTY";
-
-    H-TCDTSL.CODE-DESC = DCP27W2.WS-NCP-CITY;
-
-    call "TCDTSLA"(VDBCONTROL, VMESSAGE, H-TCDTSL){isNoRefresh = yes};
-
-    if(VDBCONTROL.URC > 104)
-
-        exit program;
-
-    end
-
-    if(VDBCONTROL.URC == 0)
-
-        DCP27W2.WS-CST-CNTY = H-TCDTSL.CODE-TBL-CD;
-
-        DCP27W2.WS-NCP-CNTY = H-TCDTSL.CODE-TBL-CD;
-
-    else
-
-        DCP27W2.WS-CST-CNTY = "99";
-
-        DCP27W2.WS-NCP-CNTY = "99";
-
-    end
-
-    /* ptr 9287 start*/
-
-    if(DCP27W2.WS-NCP-CITY == " ")
-
-        DCP27W2.WS-CST-CNTY = "99";
-
-        DCP27W2.WS-NCP-CNTY = "99";
-
-    end
-
-    /* ptr 9287 start*/
-
-    /* PTR 6262 END*/
-
-end // end DCP27P9-GET-NCCNTY
-
-
-
-// READ FROM JOB HISTORY
-
-
-
-function DCP27P9-JHS-S12L1()
-
-/*  */
-
-// WI 2920 - Select status 'V', not "'C' or 'V'"
-
-// WI 3042 - Undo last change
-
-    WDB00PI();
-
-    /*  */
-
-    VDBCONTROL.UACCTYP = "R";
-
-    VDBCOMMON.UAPPLNAM = "DCP27A";
-
-    /*  */
-
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-JHS-S12L1";
-
-    try
-
-        get H2-JOB-HISTORY singleRow
-
-                with #sql{
-
-        select COUNT(*)
-
-        from TWNJOB_HISTORY T1
-
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-        WHERE JOB_END_DT > :DCP27W2.WS-PROC-DATE
-
-          AND JOB_BEG_DT <= :DCP27W2.WS-PROC-DATE
-
-          AND VRFN_STS in ('C', 'V')
-
-          AND ST_CD = 'NV'
-
-          AND UPI = :UPI
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-      }
-
-                into DCP27W2.WS-S12-ROWS;
-
-    end
-
-    VDBCOMMON.UNRF = "Y";
-
-    VDBCOMMON.UDUP = "Y";
-
-    /*  */
-
-    /* Perform DBM error processing*/
-
-    WDB00PE-SQLERR();
-
-    if(VDBCONTROL.URC > 104)
-
-        exit program;
-
-    end
-
-    /*  */
-
-end // end DCP27P9-JHS-S12L1
-
-
-
-// READ FROM EMPLOYER JOB HISTORY
-
-
-
-function DCP27P9-JHS-S13L1()
-
-/*  */
-
-/* PTR # 8214 - READ FROM JOB HISTORY TABLE*/
-
-/*  */
-
-// WI 2920 - Select status 'V', not "'C' or 'V'"
-
-// WI 3042 - Undo last change
-
-    WDB00PI();
-
-    /*  */
-
-    VDBCONTROL.UACCTYP = "R";
-
-    VDBCOMMON.UAPPLNAM = "DCP27A";
-
-    /*  */
-
-    VDBCOMMON.USQLREC = "H2-2-EMP-JHS";
-
-    VDBCONTROL.UPROC-OBJ = "H2-2-EMP-JHS";
-
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-JHS-S13L1";
-
-    try
-
-        get H2-2-EMP-JHS singleRow
-
-                with #sql{
-
-        select COUNT(*)
-
-        from TWNJOB_HISTORY T1,
-
-             TWNEMPLOYER T2
-
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-        WHERE T1.JOB_END_DT > :DCP27W2.WS-PROC-DATE
-
-          AND T1.JOB_BEG_DT <= :DCP27W2.WS-PROC-DATE
-
-          AND T1.VRFN_STS in ('C', 'V')
-
-          AND T2.ST_CD = 'NV'
-
-          AND T1.UPI = :UPI
-
-          AND T1.EMPLR_ID = T2.EMPLR_ID
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-      }
-
-                into DCP27W2.WS-S13-ROWS;
-
-    end
-
-    VDBCOMMON.UNRF = "Y";
-
-    VDBCOMMON.UDUP = "Y";
-
-    /*  */
-
-    /* Perform DBM error processing*/
-
-    WDB00PE-SQLERR();
-
-    if(VDBCONTROL.URC > 104)
-
-        exit program;
-
-    end
-
-    /*  */
-
-end // end DCP27P9-JHS-S13L1
-
-
-
-// LUW for DB Access
-
-
-
-function DCP27P9-JHSCL1()
-
-/* -----------------------------------------------------------*/
-
-/* Change History*/
-
-/* ==============*/
-
-/* DATE        NAME        DESCRIPTION*/
-
-/* ----        -----       ----------*/
-
-/* 3 Apr 1995   TBST149      CREATION*/
-
-/* -----------------------------------------------------------*/
-
-/* CBSI START*/
-
-    WDB00PI();
-
-    VDBCONTROL.UACCTYP = "R";
-
-    VDBCOMMON.UAPPLNAM = "DCP27A";
-
-    DCP27P9-JHSCP1();
-
-    if(DCP27W2.WS-EXIT-FLAG == "Y")
-
-        return;
-
-    end
-
-    VDBCOMMON.UNRF = "Y";
-
-    VDBCOMMON.UDUP = "N";
-
-    WDB00PE-SQLERR();
-
-end // end DCP27P9-JHSCL1
-
-
-
-// Control Retrieve of Data
-
-
-
-function DCP27P9-JHSCP1()
-
-/* -----------------------------------------------------------*/
-
-/* Change History*/
-
-/* ==============*/
-
-/* DATE        NAME        DESCRIPTION*/
-
-/* ----        -----       ----------*/
-
-/* 3 Apr 1995   TBST149      CREATION*/
-
-/* -----------------------------------------------------------*/
-
-/* CBSI START*/
-
-    DCP27P9-JHSCQ1();
-
-
-
-    /* PTR 9287 START*/
-
-    DCP27W2.WS-NCP-CITY = " ";
-
-    DCP27W2.WS-SQLCODE1 = sysVar.sqlData.sqlcode;
-
-    /* WHILE EZESQCOD = 0;*/
-
-    while(DCP27W2.WS-SQLCODE1 == 0)
-
-        DCP27P9-JHSCQS();
-
-        DCP27W2.WS-SQLCODE1 = sysVar.sqlData.sqlcode;
-
-        if(sysVar.sqlData.sqlcode == 0)
-
-            /* PTR 9287 START*/
-
-            if(H2-JOB-HISTORY.ST-CD == "NV")
-
-                DCP27W2.WS-NCP-CITY = H2-JOB-HISTORY.CITY;
-
-                DCP27W2.WS-EXIT-FLAG = "Y";
-
-                return;
-
-            else
-
-                H2-EMPLOYER.EMPLR-ID = H2-JOB-HISTORY.EMPLR-ID;
-
-                DCP27P9-EMPLR-L1();
-
-                if(sysVar.sqlData.sqlcode == 0)
-
-                    if(H2-EMPLOYER.ST-CD == "NV")
-
-                        DCP27W2.WS-NCP-CITY = H2-EMPLOYER.CITY;
-
-                        DCP27W2.WS-EXIT-FLAG = "Y";
-
-                        return;
-
-                    else
-
-                        if(H2-EMPLOYER.AGNT-ST == "NV")
-
-                            DCP27W2.WS-NCP-CITY = H2-EMPLOYER.AGNT-CITY;
-
-                            DCP27W2.WS-EXIT-FLAG = "Y";
-
-                            return;
-
-                        end
-
-                    end
-
-                end
-
-            end
-
-        end
-
-    end
-
-    /* CBSI END*/
-
-end // end DCP27P9-JHSCP1
-
-
-
-// SETINQ H2-JOB-HISTORY
-
-
-
-function DCP27P9-JHSCQ1()
-
-/* -----------------------------------------------------------*/
-
-/* Change History*/
-
-/* ==============*/
-
-/* DATE        NAME        DESCRIPTION*/
-
-/* ----        -----       ----------*/
-
-/* 3 Apr 1995   TBST149      CREATION*/
-
-/* 5/1/15      WI 2920     Select only status 'V', not "'C' or 'V'" */
-
-/* 6/19/15     WI 3042     Undo last change                         */
-
-/* -----------------------------------------------------------*/
-
-/* CBSI START*/
-
-/*  */
-
-/* Move name of SQL row record used to common record*/
-
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-JHSCQ1";
-
-    VDBCONTROL.UPROC-OPT = "SETINQ";
-
-    /*  */
-
-    try
-
-        open DCP27P9-JHSCQ1_RSI01
-
-                with #sql{
-
-        select EMPLR_ID,
-
-            ST_CD,
-
-            CRTN_DT,
-
-            CITY
-
-        from TWNJOB_HISTORY T1
-
-        WHERE
-
-            UPI        = :H2-JOB-HISTORY.UPI  AND
-
-            JOB_END_DT = '9999-12-31'         AND
-
-            VRFN_STS in ('C', 'V')       AND
-
-            ST_CD     in ( 'NV' , '  ')
-
-        ORDER BY CRTN_DT DESC
-
-      }
-
-                into EMPLR-ID, ST-CD, CRTN-DT, CITY for H2-JOB-HISTORY;
-
-    end
-
-    /*  */
-
-    /* Increment count of rows retrieved*/
-
-    if(sysVar.sqlData.sqlcode == 0)
-
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-
-    end
-
-    /* CBSI END*/
-
-end // end DCP27P9-JHSCQ1
-
-
-
-// SCAN H2-JOB-HISTORY
-
-
-
-function DCP27P9-JHSCQS()
-
-/* -----------------------------------------------------------*/
-
-/* This process SCANs the retrieved rows from the previous SETINQ.*/
-
-/*  */
-
-/*  */
-
-/* Change History*/
-
-/* ==============*/
-
-/* DATE        NAME        DESCRIPTION*/
-
-/* ----        -----       ----------*/
-
-/* 3 Apr 1995   TBST149      CREATION*/
-
-/* -----------------------------------------------------------*/
-
-/* CBSI START*/
-
-/* Move name of SQL row record used to common record*/
-
-    VDBCOMMON.USQLREC = "H2-JOB-HISTORY";
-
-    VDBCONTROL.UPROC-OBJ = "H2-JOB-HISTORY";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-JHSCQS";
-
-    VDBCONTROL.UPROC-OPT = "SCAN";
-
-    /*  */
-
-    try
-
-        get next H2-JOB-HISTORY;
-
-    end
-
-    /*  */
-
-    /* Increment count of rows retrieved*/
-
-    if(sysVar.sqlData.sqlcode == 0)
-
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-
-    end
-
-    /* CBSI END*/
-
-end // end DCP27P9-JHSCQS
-
-
-
-// Find next child for Alerts
-
-
-
-function DCP27P9-NXT-CHDALT()
-
-/*  */
-
-    VDBCOMMON.USQLREC = "H3-IVD-CASE-CHD";
-
-    VDBCONTROL.UPROC-OBJ = "H3-IVD-CASE-CHD";
-
-    VDBCONTROL.UPROC-OPT = "SCAN";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-NXT-CHDALT";
-
-    try
-
-        get next H3-IVD-CASE-CHD;
-
-    end
-
-    /*  */
-
-    if(sysVar.sqlData.sqlcode == 0)
-
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-
-        DCP27P9-GEN-CHDALT();
-
-    end
-
-    /*  */
-
-end // end DCP27P9-NXT-CHDALT
-
-
-
-// CREATE ALERTS ON FUNC AREA
-
-
-
-function DCP27P9-ORDEREXIST()
-
-/*  */
-
-    DCP27P9-DAA-S15Q1();
-
-    if(sysVar.sqlData.sqlcode == 0)
-
-        DCP27W2.WS-ORDER-FOUND = "Y";
-
-    else
-
-        DCP27W2.WS-ORDER-FOUND = "N";
-
-    end
-
-    /*  */
-
-end // end DCP27P9-ORDEREXIST
-
-
-
-// CREATE ALERTS ON FUNC AREA
-
-
-
-function DCP27P9-OUST-ALRT()
-
-/*  */
-
-    set H2-PERSON-ADRS-HST empty;
-
-    DCP27W2.WS-S11-ROWS = 0;
-
-    H2-PERSON-ADRS-HST.UPI = DCP27W2.WS-NCP-UPI;
-
-    DCP27P9-PAH-S11L1();
-
-    if(DCP27W2.WS-S11-ROWS > 0)
-
-    /*  */
-
-    /*  */
-
-    else
-
-        /*  */
-
-        set H2-JOB-HISTORY empty;
-
-        H2-JOB-HISTORY.UPI = DCP27W2.WS-NCP-UPI;
-
-        DCP27W2.WS-S12-ROWS = 0;
-
-        DCP27P9-JHS-S12L1();
-
-        if(DCP27W2.WS-S12-ROWS == 0)
-
-            DCP27W2.WS-S13-ROWS = 0;
-
-            set H2-2-EMP-JHS empty;
-
-            H2-2-EMP-JHS.UPI = DCP27W2.WS-NCP-UPI;
-
-            DCP27P9-JHS-S13L1();
-
-            if(DCP27W2.WS-S13-ROWS == 0)
-
-                /*  */
-
-                if(DCP27W2.WS-FUNC-AREA-CD != "L" && DCP27W2.WS-CASE-TYPE !=
-
-                                "Q")
-
-                    PCALINP.PAL-ALERT-CD = 390001;
-
-                    PCALINP.PAL-UPI = DCP27W2.WS-NCP-UPI;
-
-                    PCALINP.PAL-SUFFIX = DCP27W2.WS-CASE-SUFX;
-
-                    PCALINP.PAL-ALERT-ACTION = "C";
-
-                    PCALINP.PAL-DISPL-DT = "0001-01-01";
-
-                    PCALINP.PAL-DUE-DT = "0001-01-01";
-
-                    /*  */
-
-                    DCP27S01-CAL11();
-
-                end
-
-            end
-
-        end
-
-    end
-
-    /*  */
-
-end // end DCP27P9-OUST-ALRT
-
-
-
-// READ FROM PERSON ADRS HST
-
-
-
-function DCP27P9-PAH-S11L1()
-
-/*  */
-
-// WI 2920 - Select status 'V', not "'C' or 'V'"
-
-// WI 3042 - Undo last change and add 'P'
-
-    WDB00PI();
-
-    /*  */
-
-    VDBCONTROL.UACCTYP = "R";
-
-    VDBCOMMON.UAPPLNAM = "DCP27A";
-
-    /*  */
-
-    VDBCOMMON.USQLREC = "H2-PERSON-ADRS-HST";
-
-    VDBCONTROL.UPROC-OBJ = "H2-PERSON-ADRS-HST";
-
-    VDBCONTROL.UPROC-OPT = "INQUIRY";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-PAH-S11L1";
-
-    try
-
-        get H2-PERSON-ADRS-HST singleRow
-
-                with #sql{
-
-        select COUNT(*)
-
-        from TWNPERSON_ADRS_HST T1
-
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-        WHERE PRD_END_DT > :DCP27W2.WS-PROC-DATE
-
-          AND ADR_STS in ('C', 'P', 'V')
-
-          AND ST_CD = 'NV'
-
-          AND UPI = :UPI
-
-          AND ADR_TYPE <> 'BI'
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-      }
-
-                into DCP27W2.WS-S11-ROWS;
-
-    end
-
-    VDBCOMMON.UNRF = "Y";
-
-    VDBCOMMON.UDUP = "Y";
-
-    /*  */
-
-    /* Perform DBM error processing*/
-
-    WDB00PE-SQLERR();
-
-    if(VDBCONTROL.URC > 104)
-
-        exit program;
-
-    end
-
-    /*  */
-
-end // end DCP27P9-PAH-S11L1
-
-
-
-// SETINQ for Pop-Up List Data
-
-
-
-function DCP27P9-PRC-CHDALT()
-
-    WDB00PI();
-
-
-
-    VDBCONTROL.UACCTYP = "R";
-
-    VDBCOMMON.UAPPLNAM = "DCP27A";
-
-    set H3-IVD-CASE-CHD empty;
-
-    /*  */
-
-    VDBCOMMON.USQLREC = "H3-IVD-CASE-CHD";
-
-    VDBCONTROL.UPROC-OBJ = "H3-IVD-CASE-CHD";
-
-    VDBCONTROL.UPROC-OPT = "SETINQ";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-PRC-CHDALT";
-
-    /*  */
-
-    H3-IVD-CASE-CHD.NCP-UPI = DCP27W2.WS-NCP-UPI;
-
-    H3-IVD-CASE-CHD.CASE-SUFX = DCP27W2.WS-CASE-SUFX;
-
-    try
-
-        open DCP27P9-PRC-CHDALT_RSI01
-
-                with #sql{
-
-        select T2.FUNC_AREA_CD, T1.PATRN_STS_CD, T1.CHD_UPI
-
-        from TWNIVD_CASE_CHILD T1,
-
-             TWNIVD_CASE T2
-
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-
-        WHERE
-
-           T1.NCP_UPI = T2.NCP_UPI AND
-
-           T1.CASE_SUFX = T2.CASE_SUFX AND
-
-           T1.NCP_UPI = :NCP-UPI AND
-
-           T1.CASE_SUFX = :CASE-SUFX AND
-
-           T1.CHILD_RMVD_RSN = ' '
-
-         --** INSERT ORDER BY CLAUSE HERE **
-
-      }
-
-                into FUNC-AREA-CD, PATRN-STS-CD, CHD-UPI for H3-IVD-CASE-CHD;
-
-    end
-
-    VDBCOMMON.UNRF = "N";
-
-    VDBCOMMON.UDUP = "N";
-
-    WDB00PE-SQLERR();
-
-    VDBCONTROL.UPROC-OBJ = "H3-IVD-CASE-CHD";
-
-    VDBCOMMON.USQLREC = "H3-IVD-CASE-CHD";
-
-    VDBCONTROL.UPROC-OPT = "SCAN";
-
-    while(sysVar.sqlData.sqlcode == 0)
-
-        DCP27P9-NXT-CHDALT();
-
-    end
-
-end // end DCP27P9-PRC-CHDALT
-
-
-
-// used in dcp27a
-
-
-
-function DCP27P9-SCAN-CSLD()
-
-/* Move name of SQL row record used to common record*/
-
-    VDBCOMMON.USQLREC = "H2-IVD-CASE";
-
-    /*  */
-
-    VDBCONTROL.UPROC-OBJ = "H2-IVD-CASE";
-
-    VDBCONTROL.UPROC-OPT = "SCAN";
-
-    VDBCONTROL.UPROC-NM = "DCP27P9-SCAN-CSLD";
-
-    VDBCOMMON.USQLREC = "H2-IVD-CASE";
-
-    /*  */
-
-    try
-
-        get next H2-IVD-CASELD-CASE;
-
-    end
-
-    /*  */
-
-    /* Increment count of rows retrieved*/
-
-    if(sysVar.sqlData.sqlcode == 0)
-
-        VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-
-    end
-
-end // end DCP27P9-SCAN-CSLD
-
-
-
-// CALL TO CAL11A FOR ALERT
-
-
-
-function DCP27S01-CAL11()
-
-/*  */
-
-    PCALINP.PAL-PROCESS-DT = DCP27W2.WS-PROC-DATE;
-
-    /*  */
-
-    call "CAL11A"(VDBCONTROL, VMESSAGE, PCALINP){isNoRefresh = yes};
-
-    /*  */
-
-    if(VDBCONTROL.URC > 104)
-
-        exit program;
-
-    end
-
-    /*  */
-
-end // end DCP27S01-CAL11
