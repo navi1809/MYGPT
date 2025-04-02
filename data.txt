@@ -1,69 +1,39 @@
-package PGM_C_Batch;
+package PGM_T_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=CIN03A ****
-// COMPONENT NAME: CIN03A
+//*** PROGRAM=TCONIDA ****
+// COMPONENT NAME: TCONIDA - THIS IS A DB LAYER APPLICATION
 // ===============
 // 
 // DESCRIPTION:
 // ============
+// THIS IS A DB LAYER APPLICATION WITH THE FOLLOWING DB2
+// ACCESSES:
 // 
-// This application is a daily batch program which reads
-// the unmatched records on the State Directory of New Hires
-// (SDNH).  Using the SSNs on the file, it attempts to match
-// up with NCPs on the TWNPERSON file and on the alternate
-// SSN file.  For every hit, an alert and case tracking
-// entry is made for the worker associated with all the UPIs
-// encountered.
+// SQL COMMAND   TABLE NAME
+// ===========   ==========
+// INSERT        TWNIVD_CONTACTS
 // 
-// Revise text formatting for the two case tracking entries.
-// State EIN and other information added to second
-// entry.  - David Bugli 3/6/1998
 // 
-// ____________________________________________________________
-// Change History :
-// Date       Usrid  WI     Description
-// ---------  -----  -----  -----------
-// 30Jul2000  WNMAA  19903  Added logic to update/insert
-//                          TWNJOB_HISTORY table for automatic.
-// 30Oct2000  WNMAA  21243  Added logic to create cursor
-//                          to read TWNSDNH.
-// 19Aug2010  WNMMD  1002   Add LAST-UPD-DT to insert of
-//                          TWNPERSON_ADRS_HST.
-// ____________________________________________________________
-// ***********************
-Program CIN03A type basicProgram //VAGen Info - main batch program
+// ************************
+Program TCONIDA type basicProgram //VAGen Info - called batch program
+  (
+   VDBCONTROL VDBCONTROL, // record
+   VMESSAGE VMESSAGE, // record
+   H-TCONID H-TCONID // record
+  )
   {
   includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
   throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
-  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes, 
-  inputRecord = CIN03W
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
   }
 
   // Data Declarations
-  CEP01W CEP01W; // record
-  CIN03W CIN03W ; // record
-  CIN03W1 CIN03W1; // record
-  CIN03W2 CIN03W2; // record
-  G-IV-D G-IV-D; // record
   GDW GDW; // record
-  GNOMADS GNOMADS; // record
-  H-TCONID H-TCONID; // record
-  H-TPAHP5 H-TPAHP5; // record
   H2-2-DCC-SPT H2-2-DCC-SPT; // record
-  H2-ALTERNATE-SSN H2-ALTERNATE-SSN; // record
   H2-IVD-CONTACTS H2-IVD-CONTACTS; // record
-  H2-PERSON H2-PERSON; // record
-  H2-SDNH H2-SDNH; // record
-  H3-SDNH H3-SDNH; // record
-  PCALINP PCALINP; // record
-  PDCP27-PARM PDCP27-PARM; // record
-  TEMPV1W TEMPV1W; // record
   VDBCOMMON VDBCOMMON; // record
-  VDBCONTROL VDBCONTROL; // record
-  VMESSAGE VMESSAGE; // record
-  VSTRREC7 VSTRREC7; // record
 
   // VAGen Info - items needed for migration
   VAGen_EZESYS char(8);
@@ -77,256 +47,89 @@ Program CIN03A type basicProgram //VAGen Info - main batch program
   function main()
     // VAGen Info - initialization needed for migration
     VAGen_EZESYS = VGLib.getVAGSysType();
-    CIN03P9-MAIN-PROC: CIN03P9-MAIN-PROC();
+    TCONIDL1: TCONIDL1();
   end // end main
-end // end CIN03A
+end // end TCONIDA
 
 
-// Check for dup. Contact
-Function CIN03P9-CHK-CON()
+// LUW for DB Access
+Function TCONIDL1()
+  /* -----------------------------------------------------------*/
+  /* Change History*/
+  /* ==============*/
+  /* DATE        NAME        DESCRIPTION*/
+  /* ----        -----       ----------*/
+  /* 28 Dec 1994   TBST155      CREATION*/
+  /* -----------------------------------------------------------*/
+  /* CBSI START*/
+  /*  */
+  /* Perform standard database application initialization*/
   WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "CIN03A";
-  VDBCONTROL.UPROC-NM = "CIN03P9-CHK-CON";
-  VDBCONTROL.UPROC-OBJ = "H2-IVD-CONTACTS";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCOMMON.USQLREC = "H2-IVD-CONTACTS";
   /*  */
-  try
-    get H2-IVD-CONTACTS
-      with #sql{
-        select UPI
-        from TWNIVD_CONTACTS T1
-        WHERE UPI = :H-TCONID.UPI
-        AND   CASE_SUFX = :H-TCONID.CASE-SUFX
-        AND   CASE_FUNC_AREA = ' '
-        AND   CNTCT_TYPE = :H-TCONID.CNTCT-TYPE
-        AND   CNTCT_SRC = :H-TCONID.CNTCT-SRC
-        AND   CASE_SPCFC_IND = :H-TCONID.CASE-SPCFC-IND
-        AND   WRKR_ID = :H-TCONID.WRKR-ID
-        AND   SUBSTR(CNTCT_TXT,1,100) = :CIN03W.WS-CNTCT-TXT-1
-        AND   SUBSTR(CNTCT_TXT,101,100) = :CIN03W.WS-CNTCT-TXT-2
-        AND   SUBSTR(CNTCT_TXT,201,100) = :CIN03W.WS-CNTCT-TXT-3
-        AND   SUBSTR(CNTCT_TXT,301,100) = :CIN03W.WS-CNTCT-TXT-4
-        AND   SUBSTR(CNTCT_TXT,401,100) = :CIN03W.WS-CNTCT-TXT-5
-        AND   SUBSTR(CNTCT_TXT,501,100) = :CIN03W.WS-CNTCT-TXT-6
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into UPI ;
-  end
+  /* Initialize:*/
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "TCONIDA";
   /*  */
+  /* Initialize application-specific working storage records*/
+  set H2-IVD-CONTACTS empty;
+  /*  */
+  /* Perform process to retrieve data*/
+  TCONIDP1();
+  /*  */
+  /* Set error control flags*/
   VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "Y";
   /*  */
+  /* Perform DBM error processing*/
   WDB00PE-SQLERR();
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-end // end CIN03P9-CHK-CON
+  /* CBSI END*/
+end // end TCONIDL1
 
 
-// TWNIVD_CONTACTS with 2 records
-Function CIN03P9-CREA-CASE()
+// Control Retrieve of Data
+Function TCONIDP1()
+  /* -----------------------------------------------------------*/
+  /* Change History*/
+  /* ==============*/
+  /* DATE        NAME        DESCRIPTION*/
+  /* ----        -----       ----------*/
+  /* 28 Dec 1994   TBST155      CREATION*/
+  /* -----------------------------------------------------------*/
+  /* CBSI START*/
   /*  */
-  /* Set up basic contact information:*/
-  set H-TCONID empty;
-  H-TCONID.UPI = CIN03W.WS-UPI;
-  H-TCONID.CNTCT-SRC = "SDNH";
-  H-TCONID.CNTCT-TYPE = "I"; /* I = Interface*/
-  H-TCONID.CASE-FUNC-AREA = " ";
-  H-TCONID.CASE-SPCFC-IND = "N";
-  H-TCONID.CASE-SUFX = " ";
-  /* Get the 26-character time stamp:*/
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  CIN03W.WS-CRTD-TS = GDW.TS;
-  H-TCONID.CRTD-TS = CIN03W.WS-CRTD-TS;
-  /*  */
-  CIN03W.WS-FORMATTED-SSN1 = CIN03W.WS-SSN1;
-  CIN03W.WS-FORMATTED-SSN-FILL1 = "-";
-  CIN03W.WS-FORMATTED-SSN2 = CIN03W.WS-SSN2;
-  CIN03W.WS-FORMATTED-SSN-FILL2 = "-";
-  CIN03W.WS-FORMATTED-SSN3 = CIN03W.WS-SSN3;
-  /*  */
-  CIN03W.WS-EMPLR-FID = H2-SDNH.EMPLR-FID;
-  CIN03W.WS-EMPLR-FID-NUM = CIN03W.WS-EMPLR-FID;
-  CIN03W.WS-DB-EMPLR-FID-PREFIX = CIN03W.WS-EMPLR-FID-PREFIX;
-  CIN03W.WS-DB-EMPLR-FID-FILLER = "-";
-  CIN03W.WS-DB-EMPLR-FID-SUFFIX = CIN03W.WS-EMPLR-FID-SUFFIX;
-  /*  */
-  /* Employment data from the TWNSDNH table are moved into the*/
-  /* TWNIVD_CONTACTS table (two messages).*/
-  /*  */
-  /* Create first contact record:*/
-  set CIN03W1 empty;
-  CIN03W1.EMP-SSN-PRE1 = "THE FOLLOWING INFORMATION WAS ";
-  CIN03W1.EMP-SSN-PRE2 = "RECEIVED FOR SSN: ";
-  CIN03W1.EMP-SSN = CIN03W.WS-FORMATTED-SSN;
-  CIN03W1.EMP-FST-NM-PRE = " FROM SDNH:  EMPLOYEE NAME: ";
-  CIN03W1.EMP-FST-NM = H2-SDNH.EMP-FST-NM;
-  CIN03W1.EMP-MID-NM-PRE = " ";
-  CIN03W1.EMP-MID-NM = H2-SDNH.EMP-MID-NM;
-  CIN03W1.EMP-LST-NM-PRE = " ";
-  CIN03W1.EMP-LST-NM = H2-SDNH.EMP-LST-NM;
-  if (H2-SDNH.EMP-ADR1 != " ")
-    CIN03W1.EMP-ADR1-PRE = "; EMP ADR1: ";
-    CIN03W1.EMP-ADR1 = H2-SDNH.EMP-ADR1;
-  end
-  if (H2-SDNH.EMP-ADR2 != " ")
-    CIN03W1.EMP-ADR2-PRE = "; EMP ADR2: ";
-    CIN03W1.EMP-ADR2 = H2-SDNH.EMP-ADR2;
-  end
-  if (H2-SDNH.EMP-ADR3 != " ")
-    CIN03W1.EMP-ADR3-PRE = "; EMP ADR3: ";
-    CIN03W1.EMP-ADR3 = H2-SDNH.EMP-ADR3;
-  end
-  if (H2-SDNH.EMP-NH-CITY != " ")
-    CIN03W1.EMP-CITY-PRE = "; EMP CITY: ";
-    CIN03W1.EMP-CITY = H2-SDNH.EMP-NH-CITY;
-  end
-  if (H2-SDNH.EMP-NH-ST-CD != " ")
-    CIN03W1.EMP-ST-CD-PRE = "; EMP ST CD: ";
-    CIN03W1.EMP-ST-CD = H2-SDNH.EMP-NH-ST-CD;
-  end
-  if (H2-SDNH.EMP-NH-ZIP != " ")
-    CIN03W1.EMP-ZIP-CD-PRE = "; EMP ZIP CD: ";
-    CIN03W1.EMP-ZIP-CD = H2-SDNH.EMP-NH-ZIP;
-    CIN03W1.EMP-ZIP-CD-SUF = ";";
-  end
-  /*  */
-  /* Before adding Contact records, check for identical Contacts*/
-  /*  */
-  /* Create second contact record:*/
-  set CIN03W2 empty;
-  CIN03W2.EMP-SSN-PRE = "VERIFIED EMPLOYMENT FOR SSN: ";
-  CIN03W2.EMP-SSN = CIN03W.WS-FORMATTED-SSN;
-  CIN03W2.EMP-LST-NM-PRE = "; LAST NAME: ";
-  CIN03W2.EMP-LST-NM = H2-SDNH.EMP-LST-NM;
-  CIN03W2.EMPLR-FID-PRE = "; FROM EMPLOYER (FEDERAL EIN: ";
-  CIN03W2.EMPLR-FID = CIN03W.WS-DB-EMPLR-FID;
-  CIN03W2.EMPLR-SID-PRE = "; STATE EIN: ";
-  CIN03W2.EMPLR-SID = H2-SDNH.EMPLR-SID;
-  CIN03W2.EMP-SID-SUF = ") IS RECEIVED FROM SDNH.  ADDITIONAL INFORMATION FOLLOWS";
-  if (H2-SDNH.EMP-DOB != " ")
-    CIN03W2.EMP-DOB-PRE = "; DATE OF BIRTH: ";
-    CIN03W2.EMP-DOB = H2-SDNH.EMP-DOB;
-  end
-  if (H2-SDNH.EMP-SOH != " ")
-    CIN03W2.EMP-SOH-PRE = "; STATE OF HIRE: ";
-    CIN03W2.EMP-SOH = H2-SDNH.EMP-SOH;
-  end
-  if (H2-SDNH.EMP-DOH != " ")
-    CIN03W2.EMP-DOH-PRE = "; DATE OF HIRE: ";
-    CIN03W2.EMP-DOH = H2-SDNH.EMP-DOH;
-  end
-  if (H2-SDNH.EMPLR-NH-NM != " ")
-    CIN03W2.EMPLR-NM-PRE = "; EMPLOYER NAME: ";
-    CIN03W2.EMPLR-NM = H2-SDNH.EMPLR-NH-NM;
-  end
-  if (H2-SDNH.EMPLR-ADR1 != " ")
-    CIN03W2.EMPLR-ADR1-PRE = "; EMPLR ADR1: ";
-    CIN03W2.EMPLR-ADR1 = H2-SDNH.EMPLR-ADR1;
-  end
-  if (H2-SDNH.EMPLR-ADR2 != " ")
-    CIN03W2.EMPLR-ADR2-PRE = "; EMPLR ADR2: ";
-    CIN03W2.EMPLR-ADR2 = H2-SDNH.EMPLR-ADR2;
-  end
-  if (H2-SDNH.EMPLR-ADR3 != " ")
-    CIN03W2.EMPLR-ADR3-PRE = "; EMPLR ADR3: ";
-    CIN03W2.EMPLR-ADR3 = H2-SDNH.EMPLR-ADR3;
-  end
-  if (H2-SDNH.EMPLR-NH-CITY != " ")
-    CIN03W2.EMPLR-CITY-PRE = "; EMPLR CITY: ";
-    CIN03W2.EMPLR-CITY = H2-SDNH.EMPLR-NH-CITY;
-  end
-  if (H2-SDNH.EMPLR-NH-ST-CD != " ")
-    CIN03W2.EMPLR-ST-CD-PRE = "; EMPLR ST CD: ";
-    CIN03W2.EMPLR-ST-CD = H2-SDNH.EMPLR-NH-ST-CD;
-  end
-  if (H2-SDNH.EMPLR-NH-ZIP != " ")
-    CIN03W2.EMPLR-ZIP-CD-PRE = "; EMPLR ZIP CD: ";
-    CIN03W2.EMPLR-ZIP-CD = H2-SDNH.EMPLR-NH-ZIP;
-    CIN03W2.EMPLR-ZIP-CD-SUF = ";";
-  end
-  /*  */
-  /* Get worker-id, to be used in duplicate Contact checking*/
+  /* Move retrieve key value to SQL row record*/
   if (H-TCONID.CASE-SUFX == " ")
     H-TCONID.CASE-SUFX = "A";
   end
   /*  */
+  /* ********* ptr 10361 start ***********/
   H2-2-DCC-SPT.UPI = H-TCONID.UPI;
   H2-2-DCC-SPT.CASE-SUFX = H-TCONID.CASE-SUFX;
-  CIN03P9-GET-WRKR();
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
+  TCONIDP2();
   H-TCONID.WRKR-ID = H2-2-DCC-SPT.NOMADS-USRID;
-  /* Check for duplicate Contact entries*/
-  /* WI 23315 begin*/
-  /* Remove extra spaces from text*/
-  set VSTRREC7 empty;
-  VSTRREC7.UINSTRG = CIN03W1.WHOLE-REC;
-  VSTRREC7.USTRLENGTH = 600;
-  call "WST60A" (VSTRREC7);
-  CIN03W1.WHOLE-REC = VSTRREC7.UOUTSTRG;
+  /* ********* ptr 10361 end ***********/
   /*  */
-  set VSTRREC7 empty;
-  VSTRREC7.UINSTRG = CIN03W2.WHOLE-REC;
-  VSTRREC7.USTRLENGTH = 600;
-  call "WST60A" (VSTRREC7);
-  CIN03W2.WHOLE-REC = VSTRREC7.UOUTSTRG;
-  /* WI 23315 end*/
-
-  CIN03W.WS-CNTCT-TXT = CIN03W1.WHOLE-REC;
-
-  CIN03P9-CHK-CON();
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-  /* First Contact record found, now check for second*/
-
-    CIN03W.WS-CNTCT-TXT = CIN03W2.WHOLE-REC;
-
-    CIN03P9-CHK-CON();
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    if (sysVar.sqlData.sqlcode == 0)
-  /* Second Contact record found, set flag to bypass alert*/
-      CIN03W.WS-CRE-ALERT-FG = "N";
-    end
-  end
-  if (CIN03W.WS-CRE-ALERT-FG == "Y")
-  /* Insert first Contact record*/
-    H-TCONID.CNTCT-TXT = CIN03W1.WHOLE-REC;
-  /* TCONIDA determines the appropriate worker ID and*/
-  /* inserts values into the TWNIVD_CONTACTS table.*/
-    call "TCONIDA" (VDBCONTROL, VMESSAGE, H-TCONID) {isNoRefresh = yes};
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
+  H2-IVD-CONTACTS.UPI = H-TCONID.UPI;
+  H2-IVD-CONTACTS.CASE-SUFX = H-TCONID.CASE-SUFX;
+  H2-IVD-CONTACTS.CNTCT-TYPE = H-TCONID.CNTCT-TYPE;
+  /* *****************START PTR#11710*******************************/
+  /* MOVE H-TCONID.CASE-FUNC-AREA TO H2-IVD-CONTACTS.CASE-FUNC-AREA;*/
+  H2-IVD-CONTACTS.CASE-FUNC-AREA = " ";
+  /* *****************END   PTR#11710*******************************/
+  H2-IVD-CONTACTS.CNTCT-SRC = H-TCONID.CNTCT-SRC;
+  H2-IVD-CONTACTS.CASE-SPCFC-IND = H-TCONID.CASE-SPCFC-IND;
+  H2-IVD-CONTACTS.CNTCT-TXT = H-TCONID.CNTCT-TXT;
+  H2-IVD-CONTACTS.WRKR-ID = H-TCONID.WRKR-ID;
+  H2-IVD-CONTACTS.CRTD-TS = H-TCONID.CRTD-TS;
   /*  */
-    H-TCONID.CNTCT-TXT = CIN03W2.WHOLE-REC;
-
-  /* Get a new timestamp to avoid duplicate key on second record:*/
-    call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-    CIN03W.WS-CRTD-TS = GDW.TS;
-    H-TCONID.CRTD-TS = CIN03W.WS-CRTD-TS;
-  /*  */
-  /* TCONIDA determines the appropriate worker ID and*/
-  /* inserts values into the TWNIVD_CONTACTS table.*/
-    call "TCONIDA" (VDBCONTROL, VMESSAGE, H-TCONID) {isNoRefresh = yes};
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-  /*  */
-  end
-end // end CIN03P9-CREA-CASE
+  /* Perform process to retrieve data*/
+  TCONIDQ1();
+  /* CBSI END*/
+end // end TCONIDP1
 
 
 // READ  H2-2-DCC-SPT
-Function CIN03P9-GET-WRKR()
+Function TCONIDP2()
   /* Perform standard database application initialization*/
   WDB00PI();
   /*  */
@@ -334,10 +137,10 @@ Function CIN03P9-GET-WRKR()
   /* UACCTYP - Access type (R=read, W=write)*/
   /* UAPPLNAM - Application name*/
   VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "CIN03A";
+  VDBCOMMON.UAPPLNAM = "TCONIDA";
   VDBCOMMON.USQLREC = "H2-2-DCC-SPT";
   VDBCONTROL.UPROC-OBJ = "H2-2-DCC-SPT";
-  VDBCONTROL.UPROC-NM = "CIN03P9-GET-WRKR";
+  VDBCONTROL.UPROC-NM = "TCONIDP2";
   VDBCONTROL.UPROC-OPT = "INQUIRY";
   try
     get H2-2-DCC-SPT
@@ -353,9 +156,10 @@ Function CIN03P9-GET-WRKR()
           AND T1.SPRVS_UNIT = T2.SPRVS_UNIT
           AND T1.PSN_NMB    = T2.PSN_NMB
           AND T1.CASELD_IND = 'N'
-          AND T2.ASMNT_BEG_DT BETWEEN '0001-01-01' AND :H-TCONID.CRTD-DT
-          AND T2.ASMNT_END_DT BETWEEN :H-TCONID.CRTD-DT AND '9999-12-31'
-        FOR FETCH ONLY
+         --WI 29007
+          AND CURRENT DATE BETWEEN T2.ASMNT_BEG_DT AND T2.ASMNT_END_DT
+         --AND T2.ASMNT_BEG_DT BETWEEN '0001-01-01' AND :H-TCONID.CRTD-DT
+         --AND T2.ASMNT_END_DT BETWEEN :H-TCONID.CRTD-DT AND '9999-12-31'
          --** INSERT ORDER BY CLAUSE HERE **
       }
       into NOMADS-USRID ;
@@ -364,589 +168,43 @@ Function CIN03P9-GET-WRKR()
   VDBCOMMON.UDUP = "N";
   /* Perform DBM error processing*/
   WDB00PE-SQLERR();
-end // end CIN03P9-GET-WRKR
+end // end TCONIDP2
 
 
-// Update JOB & create IW letter
-Function CIN03P9-JOB-IW-LTR()
-  /* _______________________________________________________________________*/
-  /* Description :*/
-  /* This process Update JOB & create IW letter*/
+// INQURY Message Text Data
+Function TCONIDQ1()
+  /* -----------------------------------------------------------*/
+  /* Change History*/
+  /* ==============*/
+  /* DATE        NAME        DESCRIPTION*/
+  /* ----        -----       ----------*/
+  /* 28 Dec 1994   TBST155      CREATION*/
+  /* -----------------------------------------------------------*/
+  /* CBSI START*/
   /*  */
-  /* Change History :*/
-  /* Date       Usrid  WI     Description*/
-  /* ---------  -----  -----  -----------*/
-  /* 30Jul2000  WNMvp  19903  Update JOB & create IW letter*/
-  /* 17Nov2000  WNMLF  20899  Code to Update JOB & create IW letter moved*/
-  /* from this application to new call module*/
-  /* TEMPV1A*/
-  /* 25Mar2002  WNMAV  23315  Set ADR-STS = 'B' for TPAHP5A if Alt SSN.*/
-  /* Add INTRFC-SSN to TEMPV1W, H-TPAHP5.*/
-  /* 16Sep2002  WNMAV  22441  Send alert to NCPs only (suffix = '9')*/
-  /* 27Sep2002  WNMAV  22949  Change 'RA' address type to '4R' (TPAHP5A)*/
-  /* 19Aug2010  WNMMD  1002   Add LAST-UPD-DT to insert of*/
-  /* TWNPERSON_ADRS_HST.*/
-  /* _______________________________________________________________________*/
-
-  TEMPV1W.APPL = "CIN03A";
-  TEMPV1W.UPI = CIN03W.WS-UPI;
-  CIN03W.WS-EMPLR-FID = H2-SDNH.EMPLR-FID;
-  CIN03W.WS-EMPLR-FID-NUM = CIN03W.WS-EMPLR-FID;
-  CIN03W.WS-DB-EMPLR-FID-PREFIX = CIN03W.WS-EMPLR-FID-PREFIX;
-  CIN03W.WS-DB-EMPLR-FID-FILLER = "-";
-  CIN03W.WS-DB-EMPLR-FID-SUFFIX = CIN03W.WS-EMPLR-FID-SUFFIX;
-  TEMPV1W.EMPLR-FID = CIN03W.WS-DB-EMPLR-FID;
-  TEMPV1W.EMPLR-NM = H2-SDNH.EMPLR-NH-NM;
-  TEMPV1W.EMPLR-ZIP = H2-SDNH.EMPLR-NH-ZIP;
-  TEMPV1W.EMPLR-ST-CD = H2-SDNH.EMPLR-NH-ST-CD;
-  TEMPV1W.EMPLR-CITY = H2-SDNH.EMPLR-NH-CITY;
-  TEMPV1W.EMPLR-ADR1 = H2-SDNH.EMPLR-ADR1;
-  TEMPV1W.EMPLR-ADR2 = H2-SDNH.EMPLR-ADR2;
-  TEMPV1W.EMPLR-CNTRY-CD = H2-SDNH.EMPLR-CNTRY-CD;
-  TEMPV1W.EMP-DOH = H2-SDNH.EMP-DOH;
-  TEMPV1W.INFO-SRC = "SDNH";
-  TEMPV1W.INTRFC-SSN = CIN03W.WS-SSN;
-  TEMPV1W.ALT-SSN-FG = CIN03W.WS-ALT-SSN-FG;
+  /* Move name of SQL row record used to common record*/
+  VDBCOMMON.USQLREC = "H2-IVD-CONTACTS";
+  VDBCONTROL.UPROC-OBJ = "H2-IVD-CONTACTS";
+  VDBCONTROL.UPROC-NM = "TCONIDQ1";
+  VDBCONTROL.UPROC-OPT = "INSERT";
   /*  */
-  call "TEMPV1A" (VDBCONTROL, VMESSAGE, TEMPV1W) {isNoRefresh = yes};
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
+  /* CALL DATEAPP GDW,VDBCONTROL,VMESSAGE (NOMAPS;*/
+  try
+    add H2-IVD-CONTACTS
+      with #sql{
+        insert into TWNIVD_CONTACTS
+        (UPI, CASE_SUFX, CRTD_TS, CASE_FUNC_AREA, CNTCT_TYPE, CNTCT_SRC,
+            CASE_SPCFC_IND, WRKR_ID, CNTCT_TXT)
+        values (:UPI, :CASE-SUFX, :CRTD-TS, :CASE-FUNC-AREA, :CNTCT-TYPE,
+            :CNTCT-SRC, :CASE-SPCFC-IND, :WRKR-ID, :CNTCT-TXT)
+      } ;
   end
-
-  /* Update the NCP Address Info*/
-  H-TPAHP5.UPI = CIN03W.WS-UPI;
-  H-TPAHP5.CRTN-DT = CIN03W.WS-CRTD-DT;
-  H-TPAHP5.APPL = "CIN03A";
-  /* WI 22949 begin*/
-  /* MOVE 'RA' TO H-TPAHP5.ADR-TYPE;*/
-  H-TPAHP5.ADR-TYPE = "4R";
-  /* WI 22949 end*/
-  H-TPAHP5.ALT-SSN-FG = CIN03W.WS-ALT-SSN-FG;
-  H-TPAHP5.INTRFC-SSN = CIN03W.WS-SSN;
-  if (CIN03W.WS-ALT-SSN-FG == "Y")
-    H-TPAHP5.ADR-STS = "B";
-  else
-    H-TPAHP5.ADR-STS = "P";
-  end
-  H-TPAHP5.ADR-SRC = "SDNH";
-  H-TPAHP5.ADR1 = H2-SDNH.EMP-ADR1;
-  H-TPAHP5.ADR2 = H2-SDNH.EMP-ADR2;
-  H-TPAHP5.ADR3 = H2-SDNH.EMP-ADR3;
-  H-TPAHP5.CITY = H2-SDNH.EMP-NH-CITY;
-  H-TPAHP5.ST-CD = H2-SDNH.EMP-NH-ST-CD;
-  H-TPAHP5.ZIP-CD = H2-SDNH.EMP-NH-ZIP;
-  H-TPAHP5.ADR-FORMAT = "Y";
-  H-TPAHP5.LAST-UPD-DT = GDW.DTCD;
   /*  */
-  call "TPAHP5A" (VDBCONTROL, VMESSAGE, H-TPAHP5) {isNoRefresh = yes};
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-end // end CIN03P9-JOB-IW-LTR
-
-
-// Main process
-Function CIN03P9-MAIN-PROC()
-  /* *********/
-  set CIN03W empty;
-  set CIN03W1 empty;
-  set CIN03W2 empty;
-  set H2-SDNH empty;
-  set H3-SDNH empty;
-  set H2-PERSON empty;
-  set H2-ALTERNATE-SSN empty;
-  /*  */
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  /* The table TWNSDNH is read after a cursor is set for it:*/
-  CIN03P9-SDNH-PROC();
-  /*  */
-  /* Put out an error is no records are selected:*/
-  if (CIN03W.WS-ERR-FLAG == "Y")
-    VDBCONTROL.UMSQLCODE = 0;
-    VDBCONTROL.UPROC-OBJ = "TWNSDNH";
-    VDBCONTROL.UPROC-NM = "CIN03P9-MAIN-PROC";
-    VMESSAGE.UMSGINS[1] = " ";
-    VMESSAGE.UMSGINS[2] = "CIN03A";
-    VMESSAGE.UMSGCODE = "DLI0001E";
-    VDBCONTROL.UEZESQRRM = "NO DATA FOUND";
-    VMESSAGE.UMSGCODE-JCL-ERR = 4;
-    WCM00P2-TO-CEP01A();
-  end
-
-  VGVar.handleSysLibraryErrors = 0;
-  sysLib.commit();
-  /* **********/
-end // end CIN03P9-MAIN-PROC
-
-
-// Match on TWNPERSON & Alt SSN
-Function CIN03P9-MATCH-PROC()
-  /* _______________________________________________________________________*/
-  /* Description :*/
-  /* This process is the main driver process for this application.*/
-  /*  */
-  /* Change History :*/
-  /* Date       Usrid  WI     Description*/
-  /* ---------  -----  -----  -----------*/
-  /* 30Jul2000  WNMAA  19903  Added crea-job process.*/
-  /* 14Jan2002  WNMAV  22199  Don't create duplicate Contact data;*/
-  /* perform P9-CREA-CASE before P9-CREA-ALERT,*/
-  /* and make P9-CREA-ALER conditional.*/
-  /* 21Mar2002  WNMAV  23315  Use different alert for alternate SSN.*/
-  /* Drop P9-CREA-ALER; move alert logic in-line*/
-  /* 16Sep2002  WNMAV  22441  Send '9' as case suffix to alert only NCPs*/
-  /* _______________________________________________________________________*/
-  /* Set flag to "no match yet"*/
-  CIN03W.WS-HIT-FG = "N";
-  set H2-PERSON empty;
-  CIN03W.WS-SSN = H2-SDNH.EMP-SSN;
-  /*  */
-  /* Read TWNPERSON - There should be 1 or no hits*/
-  CIN03Q2-S02();
-  /*  */
+  /* Increment count of rows retrieved*/
   if (sysVar.sqlData.sqlcode == 0)
-    if (H2-PERSON.NCP-FG == "Y")
-      CIN03W.WS-UPI = H2-PERSON.UPI;
-  /*  */
-      CIN03W.WS-CRE-ALERT-FG = "Y";
-      CIN03P9-CREA-CASE();
-      if (CIN03W.WS-CRE-ALERT-FG == "Y")
-        set PCALINP empty;
-        PCALINP.PAL-ALERT-CD = 320107; /* Loc info received from SDNH*/
-        PCALINP.PAL-UPI = CIN03W.WS-UPI;
-  /* WI 22441 begin*/
-        PCALINP.PAL-SUFFIX = "9";
-  /* WI 22441 end*/
-        PCALINP.PAL-ALERT-ACTION = "C";
-        PCALINP.PAL-PROCESS-DT = CIN03W.WS-CRTD-DT;
-  /* Control is transferred to the application CAL11A to create alert*/
-        call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
-        if (VDBCONTROL.URC > 104)
-          WCM00P2-TO-CEP01A();
-        end
-      end
-      CIN03W.WS-ALT-SSN-FG = "N";
-      CIN03P9-JOB-IW-LTR();
-      CIN03W.WS-HIT-FG = "Y";
-    end
+    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
   end
-  /*  */
-  /* Set the cursor to read TWNALTERNATE_SSN*/
-  set H2-ALTERNATE-SSN empty;
-  H2-ALTERNATE-SSN.ALT-SSN = CIN03W.WS-SSN;
-  CIN03Q3-S03();
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-  /* Read the first record on TWNALTERNATE_SSN*/
-    CIN03Q3-S03-SCAN();
-    while (sysVar.sqlData.sqlcode == 0)
-      set H2-PERSON empty;
-      H2-PERSON.UPI = H2-ALTERNATE-SSN.UPI;
-      CIN03Q4-S04();
-      if (sysVar.sqlData.sqlcode == 0)
-        if (H2-PERSON.NCP-FG == "Y")
-          CIN03W.WS-UPI = H2-PERSON.UPI;
-          CIN03W.WS-CRE-ALERT-FG = "Y";
-          CIN03P9-CREA-CASE();
-          if (CIN03W.WS-CRE-ALERT-FG == "Y")
-            set PCALINP empty;
-            PCALINP.PAL-ALERT-CD = 320110;
-                                   /* Alt SSN received from SDNH*/
-            PCALINP.PAL-UPI = CIN03W.WS-UPI;
-  /* WI 22441 begin*/
-            PCALINP.PAL-SUFFIX = "9";
-  /* WI 22441 end*/
-            PCALINP.PAL-ALERT-ACTION = "C";
-            PCALINP.PAL-PROCESS-DT = CIN03W.WS-CRTD-DT;
-  /* Control is transferred to the application CAL11A to create alert*/
-            call "CAL11A" (VDBCONTROL, VMESSAGE, PCALINP) {isNoRefresh = yes};
-            if (VDBCONTROL.URC > 104)
-              WCM00P2-TO-CEP01A();
-            end
-          end
-          CIN03W.WS-ALT-SSN-FG = "Y";
-          CIN03P9-JOB-IW-LTR();
-          CIN03W.WS-HIT-FG = "Y";
-        end
-      end
-      CIN03Q3-S03-SCAN(); /* Read next Alt-SSN row*/
-    end
-  end
-  if (CIN03W.WS-HIT-FG == "Y")
-    CIN03P9-UPD-MATCH();
-  end
-
-  CIN03W.WS-UPI = 0;
-  /*  */
-end // end CIN03P9-MATCH-PROC
-
-
-// Set SDNH cursor, match loop
-Function CIN03P9-SDNH-PROC()
-  /* Set the cursor for reading the SDNH table*/
-  set H2-SDNH empty;
-  /*  */
-  /* Read the SDNH table and use each fetched SSN in the match process:*/
-  CIN03Q1-S01();
-  if (sysVar.sqlData.sqlcode == 0)
-    CIN03Q1-S01-SCAN();
-    while (sysVar.sqlData.sqlcode == 0)
-      CIN03P9-MATCH-PROC();
-      CIN03Q1-S01-SCAN();
-    end
-  end
-  VGVar.handleSysLibraryErrors = 0;
-  sysLib.commit();
-  /*  */
-end // end CIN03P9-SDNH-PROC
-
-
-// Update TWNSDNH for match
-Function CIN03P9-UPD-MATCH()
-  /*  */
-  set H3-SDNH empty;
-  H3-SDNH.EMP-SSN = CIN03W.WS-SSN;
-  H3-SDNH.CRTN-DT = H2-SDNH.CRTN-DT;
-  H3-SDNH.EMPLR-FID = H2-SDNH.EMPLR-FID;
-  CIN03Q6-U01();
-  /*  */
-end // end CIN03P9-UPD-MATCH
-
-
-// Get record from TWNSDNH
-Function CIN03Q1-S01()
-  /* *********************************************************************/
-  /* This process declares cursor for fetching data from the following  */
-  /* table                                                              */
-  /* 1. TWNSDNH                                                         */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.USQLREC = "H2-SDNH";
-  VDBCONTROL.UPROC-NM = "CIN03Q1-S01";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  VDBCONTROL.UPROC-OBJ = "H2-SDNH";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    open CIN03Q1-S01_RSI01
-      with #sql{
-        select EMP_SSN, EMPLR_FID, CRTN_DT, MATCH_IND,
-          EMP_LST_NM, EMP_FST_NM, EMP_MID_NM, EMP_ADR1,
-          EMP_ADR2, EMP_ADR3, EMP_NH_CITY, EMP_NH_ST_CD,
-          EMP_NH_ZIP, EMP_CNTRY_CD, EMP_CNTRY_NM,
-          EMP_CNTRY_ZIP, EMP_DOB, EMP_DOH, EMP_SOH,
-          EMPLR_SID, EMPLR_NH_NM, EMPLR_ADR1, EMPLR_ADR2,
-          EMPLR_ADR3, EMPLR_NH_CITY, EMPLR_NH_ST_CD,
-          EMPLR_NH_ZIP, EMPLR_CNTRY_CD, EMPLR_CNTRY_NM,
-          EMPLR_CNTRY_ZIP, EMPLR_OP_ADR1, EMPLR_OP_ADR2,
-          EMPLR_OP_ADR3, EMPLR_OP_CITY, EMPLR_OP_ST_CD,
-          EMPLR_OP_ZIP, EMPLR_OP_CNTRY_CD,
-          EMPLR_OP_CNTRY_NM, EMPLR_OP_CNTRY_ZIP
-        from twnsdnh T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE MATCH_IND = 'N'
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into EMP-SSN, EMPLR-FID, CRTN-DT, MATCH-IND,
-           EMP-LST-NM, EMP-FST-NM, EMP-MID-NM, EMP-ADR1,
-           EMP-ADR2, EMP-ADR3, EMP-NH-CITY, EMP-NH-ST-CD,
-           EMP-NH-ZIP, EMP-CNTRY-CD, EMP-CNTRY-NM,
-           EMP-CNTRY-ZIP, EMP-DOB, EMP-DOH, EMP-SOH,
-           EMPLR-SID, EMPLR-NH-NM, EMPLR-ADR1, EMPLR-ADR2,
-           EMPLR-ADR3, EMPLR-NH-CITY, EMPLR-NH-ST-CD,
-           EMPLR-NH-ZIP, EMPLR-CNTRY-CD, EMPLR-CNTRY-NM,
-           EMPLR-CNTRY-ZIP, EMPLR-OP-ADR1, EMPLR-OP-ADR2,
-           EMPLR-OP-ADR3, EMPLR-OP-CITY, EMPLR-OP-ST-CD,
-           EMPLR-OP-ZIP, EMPLR-OP-CNTRY-CD,
-           EMPLR-OP-CNTRY-NM, EMPLR-OP-CNTRY-ZIP
-      for H2-SDNH ;
-  end
-
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "Y";
-
-  WDB00PE-SQLERR();
-
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-
-  /*  */
-end // end CIN03Q1-S01
-
-
-// Do fetch on TWNSDNH
-Function CIN03Q1-S01-SCAN()
-  /* *********************************************************************/
-  /* This process fetches data from the following table                 */
-  /* 1. TWNSDNH                                                         */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.USQLREC = "H2-SDNH";
-  VDBCONTROL.UPROC-NM = "CIN03Q1-S01-SCAN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCONTROL.UPROC-OBJ = "H2-SDNH";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    get next H2-SDNH ;
-  end
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end CIN03Q1-S01-SCAN
-
-
-// Data selection criteria 2
-Function CIN03Q2-S02()
-  /* *********************************************************************/
-  /* This process fetches data from the following table:                */
-  /* 1. TWNPERSON                                                       */
-  /* *********************************************************************/
-  VDBCOMMON.USQLREC = "H2-PERSON";
-  VDBCONTROL.UPROC-NM = "CIN03Q2-S02";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    get H2-PERSON singleRow
-      with #sql{
-        select UPI, SSN, NCP_FG
-        from TWNPERSON T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE SSN = :CIN03W.WS-SSN
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into UPI, SSN, NCP-FG ;
-  end
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end CIN03Q2-S02
-
-
-// data selection criteria 1
-Function CIN03Q3-S03()
-  /* *********************************************************************/
-  /* This process declares cursor for fetching data from the following  */
-  /* table                                                              */
-  /* 1. TWNALTERNATE_SSN                                                */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.USQLREC = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UPROC-NM = "CIN03Q3-S03";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    open CIN03Q3-S03_RSI01
-      with #sql{
-        select UPI, ALT_SSN
-        from twnalternate_ssn T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE ALT_SSN = :ALT-SSN
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into UPI, ALT-SSN
-      for H2-ALTERNATE-SSN ;
-  end
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end CIN03Q3-S03
-
-
-// dsc 03 - scan
-Function CIN03Q3-S03-SCAN()
-  /* *********************************************************************/
-  /* This process fetches data from the following table                 */
-  /* 1. TWNALTERNATE_SSN                                                */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.USQLREC = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UPROC-NM = "CIN03Q3-S03-SCAN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  VDBCONTROL.UPROC-OBJ = "H2-ALTERNATE-SSN";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    get next H2-ALTERNATE-SSN ;
-  end
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end CIN03Q3-S03-SCAN
-
-
-// Get UPI based on alt SSN
-Function CIN03Q4-S04()
-  /* *********************************************************************/
-  /* This process declares cursor for fetching data from the following  */
-  /* table                                                              */
-  /* 1. TWNALTERNATE_SSN                                                */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.USQLREC = "H2-PERSON";
-  VDBCONTROL.UPROC-NM = "CIN03Q4-S04";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    get H2-PERSON singleRow
-      with #sql{
-        select UPI, SSN, NCP_FG
-        from TWNPERSON T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-          WHERE UPI = :UPI
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into UPI, SSN, NCP-FG ;
-  end
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end CIN03Q4-S04
-
-
-// Replace the SDNH record
-Function CIN03Q6-U01()
-  /* *********************************************************************/
-  /* This process replaces the record in the TWNSDNH table because the  */
-  /* match indicator needs to be set on.                                */
-  /* *********************************************************************/
-  WDB00PI();
-  VDBCOMMON.USQLREC = "H3-SDNH";
-  VDBCONTROL.UPROC-NM = "CIN03Q6-U01";
-  VDBCONTROL.UPROC-OPT = "REPLACE";
-  VDBCONTROL.UPROC-OBJ = "H3-SDNH";
-  VDBCONTROL.UACCTYP = "R";
-  try
-    execute 
-      #sql{
-         --** INSERT SQL STATEMENT HERE **
-        UPDATE TWNSDNH
-        SET MATCH_IND   = 'Y'
-        WHERE EMP_SSN   = :H3-SDNH.EMP-SSN
-          AND CRTN_DT   = :H3-SDNH.CRTN-DT
-          AND EMPLR_FID = :H3-SDNH.EMPLR-FID
-      }
-      for H3-SDNH ; // model = none
-  end
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end CIN03Q6-U01
-
-
-Record CIN03W type basicRecord
-  10 WS-TRACK-INFO char(450) ; 
-  10 WS-CHK-FLAG char(1) ; 
-  10 WS-COUNT num(2) ; 
-  10 WS-SSN char(9) ; 
-    15 WS-SSN1 char(3) ; 
-    15 WS-SSN2 char(2) ; 
-    15 WS-SSN3 char(4) ; 
-  10 WS-FORMATTED-SSN char(11) ; 
-    15 WS-FORMATTED-SSN1 char(3) ; 
-    15 WS-FORMATTED-SSN-FILL1 char(1) ; 
-    15 WS-FORMATTED-SSN2 char(2) ; 
-    15 WS-FORMATTED-SSN-FILL2 char(1) ; 
-    15 WS-FORMATTED-SSN3 char(4) ; 
-  10 WS-UPI int ; 
-  10 WS-UPI-CHAR char(9) ; 
-    15 WS-UPI-NUM num(9) ; 
-  10 WS-CRTD-TS char(26) ; 
-    15 WS-CRTD-DT char(10) ; 
-    15 WS-TIME-STAMP char(16) ; 
-  10 WS-ERR-FLAG char(1) ; 
-  10 WS-HIT-FG char(1) ; 
-  10 WS-EMPLR-FID int ; 
-  10 WS-EMPLR-FID-NUM num(9) ; 
-    15 WS-EMPLR-FID-CHA char(9) ; 
-      20 WS-EMPLR-FID-PREFIX char(2) ; 
-      20 WS-EMPLR-FID-SUFFIX char(7) ; 
-  10 WS-DB-EMPLR-FID char(10) ; 
-    15 WS-DB-EMPLR-FID-PREFIX char(2) ; 
-    15 WS-DB-EMPLR-FID-FILLER char(1) ; 
-    15 WS-DB-EMPLR-FID-SUFFIX char(7) ; 
-  10 WS-SDNH-COUNT num(9) ; 
-  10 WS-SDNH-MAX int ; 
-  10 WS-PROC-DATE char(10) ; 
-  10 WS-TEMP-UPI int ; 
-  10 WS-CRE-ALERT-FG char(1) ; 
-  10 WS-ALT-SSN-FG char(1) ; 
-  10 WS-CNTCT-TXT char(600) ; 
-    15 WS-CNTCT-TXT-1 char(100) ; 
-    15 WS-CNTCT-TXT-2 char(100) ; 
-    15 WS-CNTCT-TXT-3 char(100) ; 
-    15 WS-CNTCT-TXT-4 char(100) ; 
-    15 WS-CNTCT-TXT-5 char(100) ; 
-    15 WS-CNTCT-TXT-6 char(100) ; 
-end // end CIN03W
-
-
-//*** RECORD=CIN03W1 ****
-// This working storage is used to build the Case Tracking
-// entry record no. 1.
-// ***********************
-Record CIN03W1 type basicRecord
-  5 WHOLE-REC char(383) ; 
-    10 EMP-SSN-PRE1 char(30) ; 
-    10 EMP-SSN-PRE2 char(18) ; 
-    10 EMP-SSN char(11) ; // EMP_SSN
-    10 EMP-FST-NM-PRE char(28) ; 
-    10 EMP-FST-NM char(16) ; 
-    10 EMP-MID-NM-PRE char(1) ; 
-    10 EMP-MID-NM char(16) ; 
-    10 EMP-LST-NM-PRE char(1) ; 
-    10 EMP-LST-NM char(30) ; 
-    10 EMP-ADR1-PRE char(12) ; 
-    10 EMP-ADR1 char(40) ; 
-    10 EMP-ADR2-PRE char(12) ; 
-    10 EMP-ADR2 char(40) ; 
-    10 EMP-ADR3-PRE char(12) ; 
-    10 EMP-ADR3 char(40) ; 
-    10 EMP-CITY-PRE char(12) ; 
-    10 EMP-CITY char(25) ; // EMP_CITY
-    10 EMP-ST-CD-PRE char(13) ; 
-    10 EMP-ST-CD char(2) ; // EMP_ST_CD
-    10 EMP-ZIP-CD-PRE char(14) ; 
-    10 EMP-ZIP-CD char(9) ; // EMP_ZIP_CD
-    10 EMP-ZIP-CD-SUF char(1) ; 
-end // end CIN03W1
-
-
-//*** RECORD=CIN03W2 ****
-// This working storage is used to build the Case Tracking
-// entry record no. 2.
-// ***********************
-Record CIN03W2 type basicRecord
-  5 WHOLE-REC char(582) ; 
-    10 EMP-SSN-PRE char(29) ; 
-    10 EMP-SSN char(11) ; 
-    10 EMP-LST-NM-PRE char(13) ; 
-    10 EMP-LST-NM char(30) ; 
-    10 EMPLR-FID-PRE char(30) ; 
-    10 EMPLR-FID char(10) ; 
-    10 EMPLR-SID-PRE char(13) ; 
-    10 EMPLR-SID char(12) ; 
-    10 EMP-SID-SUF char(56) ; 
-    10 EMP-DOB-PRE char(17) ; 
-    10 EMP-DOB char(10) ; 
-    10 EMP-SOH-PRE char(17) ; 
-    10 EMP-SOH char(2) ; 
-    10 EMP-DOH-PRE char(16) ; 
-    10 EMP-DOH char(10) ; 
-    10 EMPLR-NM-PRE char(17) ; 
-    10 EMPLR-NM char(45) ; 
-    10 EMPLR-ADR1-PRE char(14) ; 
-    10 EMPLR-ADR1 char(40) ; 
-    10 EMPLR-ADR2-PRE char(14) ; 
-    10 EMPLR-ADR2 char(40) ; 
-    10 EMPLR-ADR3-PRE char(14) ; 
-    10 EMPLR-ADR3 char(40) ; 
-    10 EMPLR-CITY-PRE char(14) ; 
-    10 EMPLR-CITY char(25) ; 
-    10 EMPLR-ST-CD-PRE char(15) ; 
-    10 EMPLR-ST-CD char(2) ; 
-    10 EMPLR-ZIP-CD-PRE char(16) ; 
-    10 EMPLR-ZIP-CD char(9) ; 
-    10 EMPLR-ZIP-CD-SUF char(1) ; 
-end // end CIN03W2
+  /* CBSI END*/
+end // end TCONIDQ1
 
 
