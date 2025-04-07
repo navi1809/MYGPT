@@ -1,471 +1,542 @@
+package IVA_Batch;
+import egl.core.*;
+import CommonMigratedParts.*;
+import DataTables.*;
+//*** PROGRAM=AIF35A ****
+// COMPONENT NAME: AIF35A TOP UNPROCESSABLE FILE
+// ===============
+// 
+// DESCRIPTION:
+// ============
+// FILE IS RECEIVED FROM FNS VIA DIRECT CONNECT.  IT CONTAINS
+// DATA THEY HAVE RECEIVED FROM US (TOP WEEKLY UPDATE FILE)
+// THAT THEY ARE UNABLE TO PROCESS.  THE MOST COMMON ERRORS ARE
+// (67) CANNOT DECREASE A DEBT WITH A CURRENT ZERO BALANCE, AND
+// (88) TOP TRACE NUMBER IS MISSING OR INVALID
+//
+// ***********************
+Program AIF35A type basicProgram //VAGen Info - main batch program
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
+
+  // Data Declarations
+  AIF35W AIF35W; // record
+  AIF35W-DET AIF35W-DET; // record
+  AIF35W-HEAD AIF35W-HEAD; // record
+  AIF35W2 AIF35W2; // record
+  CEP01W CEP01W; // record
+  FORMATW FORMATW; // record
+  GDW GDW; // record
+  H2-DEBT-MATCH-REQ H2-DEBT-MATCH-REQ; // record
+  REP-COMMON REP-COMMON; // record
+  REP-EOFNOF REP-EOFNOF; // record
+  SR-132REP-RECOUT SR-132REP-RECOUT; // record
+  SR-AIF35-INREC SR-AIF35-INREC; // record
+  VDBCOMMON VDBCOMMON; // record
+  VDBCONTROL VDBCONTROL; // record
+  VMESSAGE VMESSAGE; // record
+  VSTRREC4 VSTRREC4; // record
+
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
+
+  // Use Declarations
+  use VDB00T1 {deleteAfterUse = yes}; // table
+
+  function main()
+    // VAGen Info - initialization needed for migration
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    AIF35P8-MAIN: AIF35P8-MAIN();
+  end // end main
+end // end AIF35A
+
+
+// MAIN PROCESS
+Function AIF35P8-MAIN()
+  AIF35P9-INIT-PARA();
+
+  AIF35W.WS-DATA-FLG = "N";
+
+  AIF35Q1-READIP();
+
+  if (SR-AIF35-INREC is endOfFile)
+    VMESSAGE.UMSGCODE-JCL-ERR = 0;
+    AIF35W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF35W.WS-ERR-LAST-FOUR;
+    WCM00P2-TO-CEP01A();
+  end
+
+  AIF35P9-PRN-HEAD();
+
+  while (SR-AIF35-INREC not endOfFile)
+    AIF35P9-APPLSPEC();
+    AIF35Q1-READIP();
+  end
+
+  AIF35W.WS-REM-LINES = REP-COMMON.WS-MAX-NO-LINES - REP-COMMON.WS-LINE-NO;
+  if (AIF35W.WS-REM-LINES < 2)
+    AIF35P9-PRN-HEAD();
+  end
+
+  /* print end of report*/
+  REP132P9-EOR-PROC();
+
+  AIF35Q8-CLOSE-RPT();
+  AIF35Q8-CLOSE-SR();
+  exit program;
+end // end AIF35P8-MAIN
+
+// application specific processin
+Function AIF35P9-APPLSPEC()
+  if (SR-AIF35-INREC.CNTL-ID == "CNTL")
+    return;
+  end
+
+  set AIF35W-DET empty;
+  set H2-DEBT-MATCH-REQ empty; 
+  H2-DEBT-MATCH-REQ.DEBT-YR = SR-AIF35-INREC.DBT-YR;
+  H2-DEBT-MATCH-REQ.DEBT-SQ-NMB = SR-AIF35-INREC.DBT-SQ-NMB;
+  H2-DEBT-MATCH-REQ.SSN = SR-AIF35-INREC.TAX-ID;
+  AIF35Q2-DMQ();
+
+  if (VDBCONTROL.URC != 0)
+    AIF35W-DET.S-DEBT-YR = SR-AIF35-INREC.DBT-YR;
+    AIF35W-DET.S-DEBT-SQ-NMB = SR-AIF35-INREC.DBT-SQ-NMB;
+    AIF35W-DET.S-SSN1 = SR-AIF35-INREC.SSN1;
+    AIF35W-DET.S-SSN2 = SR-AIF35-INREC.SSN2;
+    AIF35W-DET.S-SSN3 = SR-AIF35-INREC.SSN3;
+    AIF35W-DET.S-LAST-NAME = "NOT FOUND ON TWNDEBT-MATCH-REQ";
+
+    if (REP-COMMON.WS-LINE-NO >= REP-COMMON.WS-MAX-NO-LINES)
+      AIF35P9-PRN-HEAD();
+    end
+    SR-132REP-RECOUT.PRNT-CC = "0";
+    SR-132REP-RECOUT.UFIELD = AIF35W-DET.LINE1;
+    WR-132REP-OUT-FILE();
+    return;
+  end
+
+  AIF35W-DET.S-DEBT-YR = SR-AIF35-INREC.DBT-YR;
+  AIF35W-DET.S-DEBT-SQ-NMB = SR-AIF35-INREC.DBT-SQ-NMB;
+  AIF35W-DET.S-SSN1 = SR-AIF35-INREC.SSN1;
+  AIF35W-DET.S-SSN2 = SR-AIF35-INREC.SSN2;
+  AIF35W-DET.S-SSN3 = SR-AIF35-INREC.SSN3;
+  if (SR-AIF35-INREC.RECORD-TYPE == "1")
+    AIF35W-DET.S-FIRST-NAME = SR-AIF35-INREC.FIRST-NAME;
+    AIF35W-DET.S-LAST-NAME = SR-AIF35-INREC.LAST-NAME;
+  else
+    AIF35W-DET.S-FIRST-NAME = H2-DEBT-MATCH-REQ.FIRST-NAME;
+    AIF35W-DET.S-LAST-NAME = H2-DEBT-MATCH-REQ.LAST-NAME;
+  end
+  AIF35W-DET.S-ACTION = SR-AIF35-INREC.ACTION-CD;
+  AIF35W-DET.S-TYPE = SR-AIF35-INREC.RECORD-TYPE;
+  AIF35W-DET.S-STS = SR-AIF35-INREC.DEBT-CLOSED-IND;
+  AIF35W2.WS-AMOUNT = SR-AIF35-INREC.DEBT-AMT;
+  AIF35P9-FMT-AMT();
+  AIF35W-DET.S-AMOUNT = FORMATW.OUTPUT-CHAR;
+  AIF35W-DET.S-ERR-1 = SR-AIF35-INREC.TOP-ERR-1;
+  AIF35W-DET.S-ERR-2 = SR-AIF35-INREC.TOP-ERR-2;
+  AIF35W-DET.S-ERR-3 = SR-AIF35-INREC.TOP-ERR-3;
+  AIF35W-DET.S-ERR-4 = SR-AIF35-INREC.TOP-ERR-4;
+  AIF35W-DET.S-ERR-5 = SR-AIF35-INREC.TOP-ERR-5;
+  AIF35W-DET.S-ERR-6 = SR-AIF35-INREC.TOP-ERR-6;
+  AIF35W-DET.S-ERR-7 = SR-AIF35-INREC.TOP-ERR-7;
+  AIF35W-DET.S-ERR-8 = SR-AIF35-INREC.TOP-ERR-8;
+  AIF35W-DET.S-ERR-9 = SR-AIF35-INREC.TOP-ERR-9;
+  AIF35W-DET.S-ERR-10 = SR-AIF35-INREC.TOP-ERR-10;
+
+  if (REP-COMMON.WS-LINE-NO >= REP-COMMON.WS-MAX-NO-LINES)
+    AIF35P9-PRN-HEAD();
+  end
+
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  SR-132REP-RECOUT.UFIELD = AIF35W-DET.LINE1;
+  WR-132REP-OUT-FILE();
+end // end AIF35P9-APPLSPEC
+
+
+// PROCESS TO FORMAT AMOUNTS
+Function AIF35P9-FMT-AMT()
+  set FORMATW empty;
+  if (AIF35W2.WS-AMOUNT < 0)
+    AIF35W2.WS-AMOUNT = AIF35W2.WS-AMOUNT * (-1);
+    FORMATW.DOLLAR-FLAG = "S";
+  end
+  FORMATW.INPUT-NUMBER = AIF35W2.WS-AMOUNT;
+
+  if (FORMATW.INPUT-NUMBER != 0)
+    FORMATW.LENGTH = 13;
+    FORMATW.DEC-COUNT = 2;
+    FORMATW.FORMAT-FLAG = "N";
+    REPP9-FORMAT-PROC();
+  else
+    FORMATW.OUTPUT-CHAR = "         0.00";
+  end
+end // end AIF35P9-FMT-AMT
+
+
+// INTIALISE ALL VARIABLES
+Function AIF35P9-INIT-PARA()
+  /* set all report variables to initial values*/
+  /* ws-page-no      - current printing page number*/
+  /* ws-line-no      - current page line no*/
+  /* ws-new-page     - a new page indicator*/
+  /* ws-max-no-lines - lineage for a standard report frame*/
+
+  set AIF35W-HEAD empty;
+  set AIF35W-DET empty;
+  set AIF35W empty;
+  set AIF35W2 empty;
+
+  VGVar.handleHardIOErrors = 1;
+  REP-COMMON.WS-PAGE-NO = 0;
+  REP-COMMON.WS-LINE-NO = 1;
+  REP-COMMON.WS-NEW-PAGE = "Y";
+  REP-COMMON.WS-MAX-NO-LINES = 56;
+
+  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
+  REP-COMMON.WS-DT = GDW.DTL; /* current date*/
+  REP-COMMON.WS-YEAR = REP-COMMON.WS-YY;
+  REP-COMMON.WS-MONTH = REP-COMMON.WS-MM;
+  REP-COMMON.WS-DAY = REP-COMMON.WS-DD;
+  REP-COMMON.WS-F1 = "/";
+  REP-COMMON.WS-F2 = "/";
+  AIF35W-HEAD.UDATE = REP-COMMON.WS-DATE;
+  AIF35W-HEAD.UTIME = VGVar.currentFormattedTime; /* current time*/
+  AIF35W-HEAD.UAPPL = "AIF35A"; /* report name*/
+  VDBCOMMON.UAPPLNAM = "AIF35A";
+
+  AIF35P9-INITCON();
+  /* set standard header variables*/
+end // end AIF35P9-INIT-PARA
+
+
+// INITIALISE CONSTANTS
+Function AIF35P9-INITCON()
+
+  AIF35W-HEAD.LINE1-PAGE-TEXT = "PAGE-NBR";
+  AIF35W-HEAD.FILLER1 = " ";
+  AIF35W-HEAD.FILLER2 = " ";
+  AIF35W-HEAD.LINE1-STATE-TEXT = "STATE OF NEVADA";
+  AIF35W-HEAD.FILLER3 = " ";
+  AIF35W-HEAD.LINE1-DATE-TEXT = "DATE";
+  AIF35W-HEAD.FILLER4 = " ";
+
+  AIF35W-HEAD.FILLER5 = " ";
+  AIF35W-HEAD.LINE2-RPT-NAME = "TREASURY OFFSET UNPROCESSABLE";
+  AIF35W-HEAD.FILLER6 = " ";
+  AIF35W-HEAD.LINE2-TIME-TEXT = "TIME";
+  AIF35W-HEAD.FILLER7 = " ";
+
+  AIF35W-HEAD.LINE3-1 = "DEBT #   SSN";
+  AIF35W-HEAD.LINE3-2 = "LAST NAME";
+  AIF35W-HEAD.LINE3-3 = "FIRST NAME";
+  AIF35W-HEAD.LINE3-4 = "ACTN  TYPE  STS";
+  AIF35W-HEAD.LINE3-5 = "AMOUNT  ERROR CODES";
+end // end AIF35P9-INITCON
+
+
+// PRINTS REPORT HEADER
+Function AIF35P9-PRN-HEAD()
+  REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
+  AIF35W-HEAD.UPAGE = REP-COMMON.WS-PAGE-NO;
+
+  /* set carriage control flag for form feed if flag is set*/
+  if (REP-COMMON.WS-PAGE-NO > 1)
+    SR-132REP-RECOUT.PRNT-CC = "1";
+  end
+
+  /* move each line of header to map and print*/
+  SR-132REP-RECOUT.UFIELD = AIF35W-HEAD.LINE1;
+  WR-132REP-OUT-FILE();
+
+  SR-132REP-RECOUT.PRNT-CC = " ";
+  SR-132REP-RECOUT.UFIELD = AIF35W-HEAD.LINE2;
+  WR-132REP-OUT-FILE();
+
+  SR-132REP-RECOUT.PRNT-CC = "0";
+  SR-132REP-RECOUT.UFIELD = AIF35W-HEAD.LINE3;
+  WR-132REP-OUT-FILE();
+
+  REP-COMMON.WS-LINE-NO = 1;
+end // end AIF35P9-PRN-HEAD
+
+
+// PROCESS TO READ INPUT FILE
+Function AIF35Q1-READIP()
+  VDBCONTROL.UPROC-NM = "AIF35P9-READIP";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "SR-AIF35-INREC";
+  VMESSAGE.UMSGINS[2] = "AIF35A";
+  try
+    get next SR-AIF35-INREC ;
+  end
+  if (SR-AIF35-INREC is ioError && SR-AIF35-INREC not endOfFile)
+    VMESSAGE.UMSGCODE-JCL-ERR = 0;
+    AIF35W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF35W.WS-ERR-LAST-FOUR;
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF35Q1-READIP
+
+
+// TWNDEBT-MATCH-REQ
+Function AIF35Q2-DMQ()
+  WDB00PI();
+  VDBCONTROL.UPROC-NM = "AIF35Q2-DMQ";
+  VDBCOMMON.USQLREC = "H2-DEBT-MATCH-REQ";
+  VDBCONTROL.UPROC-OBJ = "H2-DEBT-MATCH-REQ";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-DEBT-MATCH-REQ
+      with #sql{
+        select DEBT_YR, DEBT_SQ_NMB, UPI, REQUEST_DT,
+          RESPONSE_DT, SSN, NAME_CTL, LAST_NAME,
+          FIRST_NAME, STS_CD, ERROR_CD, DEATH_DT,
+          FULL_NAME, STREET_ADDR, TOP_CITY, STATE,
+          ZIPCODE_1, ZIPCODE_2, NOTICE_DT,
+          TOPS_INITIAL_AMT, TOPS_LAST_ADJST,
+          TOPS_SENT_DT, TOPS_SNT_RCRD_TYP,
+          TOPS_SNT_CLOSD_IND, TOPS_RCVD_DT,
+          TOPS_ERROR_CD, TOPS_LST_COLLECTN,
+          TOPS_CHANGE_IND,
+          TOP_RESP_IND, TOP_INTERCEPT, TOP_DEBTOR, TOP_DEBT_ID
+        from TWNDEBT_MATCH_REQ T1
+        WHERE DEBT_YR     = :DEBT-YR
+          AND DEBT_SQ_NMB = :DEBT-SQ-NMB
+          AND SSN         = :SSN
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into DEBT-YR, DEBT-SQ-NMB, UPI, REQUEST-DT,
+           RESPONSE-DT, SSN, NAME-CTL, LAST-NAME,
+           FIRST-NAME, STS-CD, ERROR-CD, DEATH-DT,
+           FULL-NAME, STREET-ADDR, TOP-CITY, STATE,
+           ZIPCODE-1, ZIPCODE-2, NOTICE-DT,
+           TOPS-INITIAL-AMT, TOPS-LAST-ADJST,
+           TOPS-SENT-DT, TOPS-SNT-RCRD-TYP,
+           TOPS-SNT-CLOSD-IND, TOPS-RCVD-DT,
+           TOPS-ERROR-CD, TOPS-LST-COLLECTN,
+           TOPS-CHANGE-IND,
+           TOP-RESP-IND, TOP-INTERCEPT, TOP-DEBTOR, TOP-DEBT-ID;
+  end
+  AIF35Q9-SQL-CHKERR();
+end // end AIF35Q2-DMQ
+
+
+// CLOSE NOTICE FILE
+Function AIF35Q8-CLOSE-RPT()
+  VGVar.handleHardIOErrors = 1;
+  try
+    close SR-132REP-RECOUT ;
+  end
+  if (SR-132REP-RECOUT is ioError)
+    VDBCONTROL.UPROC-NM = "AIF35Q8-CLOSE-RPT";
+    VDBCONTROL.UPROC-OBJ = "SR-132REP-RECOUT";
+    VDBCONTROL.UPROC-OPT = "CLOSE";
+    AIF35W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF35W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIF35A";
+    if (SR-132REP-RECOUT is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-132REP-RECOUT is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-132REP-RECOUT is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF35Q8-CLOSE-RPT
+
+
+// CLOSE THE SINP FILE
+Function AIF35Q8-CLOSE-SR()
+  VGVar.handleHardIOErrors = 1;
+  try
+    close SR-AIF35-INREC ;
+  end
+  if (SR-AIF35-INREC is ioError)
+    VDBCONTROL.UPROC-NM = "AIF35Q8-CLOSE-SR";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF35-INREC";
+    VDBCONTROL.UPROC-OPT = "CLOSE";
+    AIF35W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIF35W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIF35A";
+    if (SR-AIF35-INREC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF35-INREC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF35-INREC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF35Q8-CLOSE-SR
+
+
+// PROCESS SQL ERRORS
+Function AIF35Q9-SQL-CHKERR()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIF35A";
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "Y";
+  VDBCONTROL.URC = 0;
+  WDB00PE-SQLERR();
+  if (VDBCONTROL.URC >= 104)
+    sysVar.returnCode = 8;
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIF35Q9-SQL-CHKERR
+
+
+Record AIF35W type basicRecord
+  10 WS-EOF char(1) ; 
+  10 WS-REM-LINES num(3) ; 
+  10 WS-DATE char(10) ; 
+    15 WS-DATE-CCYY char(4) ; 
+    15 WS-DATE-FLR1 char(1) ; 
+    15 WS-DATE-MM char(2) ; 
+    15 WS-DATE-FLR2 char(1) ; 
+    15 WS-DATE-DD char(2) ; 
+  10 WS-DT char(8) ; 
+    15 WS-CCYY char(4) ; 
+    15 WS-MM char(2) ; 
+    15 WS-DD num(2) ; 
+  10 WS-CURR-DT char(10) ; 
+    15 WS-CURR-CCYY char(4) ; 
+    15 WS-DASH1 char(1) ; 
+    15 WS-CURR-MM char(2) ; 
+    15 WS-DASH2 char(1) ; 
+    15 WS-CURR-DD char(2) ; 
+  10 WS-DATA-FLG char(1) ; 
+  10 WS-FIRST-TIME char(1) ; 
+  10 WS-SSN char(9) ; 
+  10 WS-ERROR char(1) ; 
+  10 WS-ERR-CD char(8) ; 
+    15 WS-ERR-FIRST-FOUR char(4) ; 
+    15 WS-ERR-LAST-FOUR char(4) ; 
+  10 WS-UPI-CHA char(9) ; 
+    15 WS-UPI num(9) ; 
+  10 WS-COUNT num(8) ; 
+  10 WS-AMOUNT decimal(9,2) ; 
+end // end AIF35W
+
+
+Record AIF35W-DET type basicRecord
+  5 LINE1 char(132) ; 
+    10 S-DEBT-YR num(2) ; 
+    10 S-DEBT-SQ-NMB num(5) ; 
+    10 LINE1-FLR1 char(2) ; 
+    10 S-DEBT-SSN char(11) ; 
+      15 S-SSN1 char(3) ; 
+      15 LINE1-FLR2 char(1) ; 
+      15 S-SSN2 char(2) ; 
+      15 LINE1-FLR3 char(1) ; 
+      15 S-SSN3 char(4) ; 
+    10 LINE1-FLR4 char(2) ; 
+    10 S-LAST-NAME char(25) ; 
+    10 LINE1-FLR5 char(1) ; 
+    10 S-FIRST-NAME char(23) ; 
+    10 LINE1-FLR6 char(1) ; 
+    10 S-ACTION char(1) ; 
+    10 LINE1-FLR7 char(5) ; 
+    10 S-TYPE char(1) ; 
+    10 LINE1-FLR8 char(5) ; 
+    10 S-STS char(1) ; 
+    10 LINE1-FLR9 char(3) ; 
+    10 S-AMOUNT char(13) ; 
+    10 LINE1-FLR10 char(2) ; 
+    10 S-ERR-1 char(2) ; 
+    10 LINE1-FLR11 char(1) ; 
+    10 S-ERR-2 char(2) ; 
+    10 LINE1-FLR12 char(1) ; 
+    10 S-ERR-3 char(2) ; 
+    10 LINE1-FLR13 char(1) ; 
+    10 S-ERR-4 char(2) ; 
+    10 LINE1-FLR14 char(1) ; 
+    10 S-ERR-5 char(2) ; 
+    10 LINE1-FLR15 char(1) ; 
+    10 S-ERR-6 char(2) ; 
+    10 LINE1-FLR16 char(1) ; 
+    10 S-ERR-7 char(2) ; 
+    10 LINE1-FLR17 char(1) ; 
+    10 S-ERR-8 char(2) ; 
+    10 LINE1-FLR18 char(1) ; 
+    10 S-ERR-9 char(2) ; 
+    10 LINE1-FLR19 char(1) ; 
+    10 S-ERR-10 char(2) ; 
+end // end AIF35W-DET
+
+
+Record AIF35W-HEAD type basicRecord
+  10 LINE1 char(132) ; 
+    15 LINE1-PAGE-TEXT char(8) ; 
+    15 FILLER1 char(1) ; 
+    15 UPAGE char(4) ; 
+    15 FILLER2 char(46) ; 
+    15 LINE1-STATE-TEXT char(15) ; 
+    15 FILLER3 char(43) ; 
+    15 LINE1-DATE-TEXT char(4) ; 
+    15 FILLER4 char(3) ; 
+    15 UDATE char(8) ; 
+  10 LINE2 char(132) ; 
+    15 UAPPL char(8) ; 
+    15 FILLER5 char(43) ; 
+    15 LINE2-RPT-NAME char(29) ; 
+    15 FILLER6 char(37) ; 
+    15 LINE2-TIME-TEXT char(4) ; 
+    15 FILLER7 char(3) ; 
+    15 UTIME char(8) ; 
+  10 LINE3 char(132) ; 
+    15 LINE3-1 char(22) ; 
+    15 LINE3-2 char(26) ; 
+    15 LINE3-3 char(23) ; 
+    15 LINE3-4 char(24) ; 
+    15 LINE3-5 char(37) ; 
+end // end AIF35W-HEAD
+
+
+Record AIF35W2 type basicRecord
+  10 WS-DATE-TS char(26) ; 
+    15 WS-DATE char(10) ; 
+      20 WS-CCYY char(4) ; 
+      20 WS-DASH1 char(1) ; 
+      20 WS-MM char(2) ; 
+      20 WS-DASH2 char(1) ; 
+      20 WS-DD char(2) ; 
+    15 WS-DASH3 char(1) ; 
+    15 WS-TIME char(15) ; 
+  10 WS-PRN-DATE char(10) ; 
+    15 WS-PRN-MM char(2) ; 
+    15 WS-PRN-DASH1 char(1) ; 
+    15 WS-PRN-DD char(2) ; 
+    15 WS-PRN-DASH2 char(1) ; 
+    15 WS-PRN-CCYY char(4) ; 
+  10 WS-AMOUNT decimal(9,2) ; 
+  10 WS-COUNT int ; 
+  10 WS-NUMB int ; 
+  10 WS-OUTPUT1 char(13) ; 
+    15 WS-OUTPUT1A char(2) ; 
+    15 WS-FLR1 char(1) ; 
+    15 WS-OUTPUT1B char(10) ; 
+  10 WS-OUTPUT2 char(13) ; 
+    15 WS-FLR2 char(1) ; 
+    15 WS-OUTPUT2A char(2) ; 
+    15 WS-OUTPUT2B char(10) ; 
+end // end AIF35W2
 
-**1. What will be the output?**
-```java
-public class Test1 {
-    public static void main(String[] args) {
-        String a = "abc";
-        String b = new String("abc");
-        System.out.println(a == b);
-        System.out.println(a.equals(b));
-    }
-}
-```
-**Answer:**
-```
-false
-true
-```
-- `==` checks reference, and `new String()` creates a new object.
-- `.equals()` checks value, which is the same.
-
----
-
-**2. What is the output of the following?**
-```java
-public class Test2 {
-    public static void main(String[] args) {
-        Integer x = 128;
-        Integer y = 128;
-        System.out.println(x == y);
-    }
-}
-```
-**Answer:**
-```
-false
-```
-- Integer caching only applies from `-128` to `127`. `128` is not cached.
-
----
-
-**3. What will this print?**
-```java
-public class Test3 {
-    public static void main(String[] args) {
-        String s1 = "Hello";
-        String s2 = "Hel" + "lo";
-        System.out.println(s1 == s2);
-    }
-}
-```
-**Answer:**
-```
-true
-```
-- The compiler optimizes `"Hel" + "lo"` to `"Hello"` at compile time.
-
----
-
-**4. Predict the output:**
-```java
-class Parent {
-    static void print() {
-        System.out.println("Parent");
-    }
-}
-class Child extends Parent {
-    static void print() {
-        System.out.println("Child");
-    }
-    public static void main(String[] args) {
-        Parent obj = new Child();
-        obj.print();
-    }
-}
-```
-**Answer:**
-```
-Parent
-```
-- Static methods are **not overridden**, they are hidden.
-
----
-
-**5. What will be the result?**
-```java
-public class Test5 {
-    public static void main(String[] args) {
-        int i = 0;
-        i = i++ + ++i;
-        System.out.println(i);
-    }
-}
-```
-**Answer:**
-```
-2
-```
-- Post-increment uses `0`, pre-increment becomes `2`: `i = 0 + 2`.
-
----
-
-### 🌐 **Advanced Java – Threads & Collections**
-
----
-
-**6. Output?**
-```java
-public class ThreadTest implements Runnable {
-    public void run() {
-        System.out.println("Running");
-    }
-
-    public static void main(String[] args) {
-        Thread t = new Thread(new ThreadTest());
-        t.run();  // Not start()
-    }
-}
-```
-**Answer:**
-```
-Running
-```
-- `.run()` is called like a normal method, not a new thread.
-
----
-
-**7. Given the below, what’s the output?**
-```java
-import java.util.*;
-
-public class MapTest {
-    public static void main(String[] args) {
-        Map<String, String> map = new HashMap<>();
-        map.put(null, "One");
-        map.put(null, "Two");
-        System.out.println(map.size());
-        System.out.println(map.get(null));
-    }
-}
-```
-**Answer:**
-```
-1
-Two
-```
-- `HashMap` allows one `null` key, and the second `put` replaces the first.
-
----
-
-**8. What will this produce?**
-```java
-public class StringTest {
-    public static void main(String[] args) {
-        String s = "abc";
-        s.concat("def");
-        System.out.println(s);
-    }
-}
-```
-**Answer:**
-```
-abc
-```
-- Strings are immutable. `concat` returns a new string, which is not used.
-
----
-
-### 🌱 **Spring Boot / Spring JPA / REST**
-
----
-
-**9. What does this controller return?**
-```java
-@RestController
-public class HelloController {
-
-    @GetMapping("/hello")
-    public String hello() {
-        return null;
-    }
-}
-```
-**Answer:**
-- Returns **HTTP 204 No Content**. Spring handles `null` as no content for `@RestController`.
-
----
-
-**10. What happens if `@Entity` class has no `@Id`?**  
-```java
-@Entity
-public class Product {
-    private String name;
-}
-```
-**Answer:**
-- Runtime exception: **`org.hibernate.AnnotationException: No identifier specified for entity`**
-
----
-
-**11. What’s wrong with this repository?**
-```java
-public interface UserRepo extends JpaRepository<User, Long> {
-    User findByEmail(String email);
-    List<User> findByAge(int age);
-    void deleteByName(String name);
-}
-```
-**Answer:**
-- `void deleteByName(String name);` is valid only **if return type is `long` or `void`**, but it's better to use `@Modifying`.
-
----
-
-**12. Consider the following:**
-```java
-@Query("SELECT u FROM User u WHERE u.age = :age")
-List<User> getByAge(@Param("age") int age);
-```
-**What happens if `@Param("age")` is not provided?**  
-**Answer:**
-- Runtime error: **`IllegalArgumentException: Parameter with that name [age] not found`**
-
----
-
-### 🗃️ **SQL (MySQL/PostgreSQL)**
-
----
-
-**13. Given a table `employee(name, salary)`, get 2nd highest salary:**
-```sql
-SELECT MAX(salary)
-FROM employee
-WHERE salary < (SELECT MAX(salary) FROM employee);
-```
-**Answer:**
-- This returns the second-highest salary.
-
----
-
-**14. What does this SQL do?**
-```sql
-SELECT name FROM employee e
-WHERE EXISTS (
-    SELECT 1 FROM department d WHERE d.manager_id = e.id
-);
-```
-**Answer:**
-- Returns employees who are managers of some department.
-
----
-
-**15. Find duplicates in a column `email` of `users` table:**
-```sql
-SELECT email, COUNT(*) 
-FROM users 
-GROUP BY email 
-HAVING COUNT(*) > 1;
-```
-**Answer:**
-- Shows all duplicate emails with their count.
-
-Awesome 😎 Let's dive into **some trickier code puzzles and internals**, especially around **Spring Boot, REST APIs, Spring JPA**, and mix in a bit of advanced **Java behavior**.
-
----
-
-## 🔥 Advanced Java + Spring Boot Trick Questions
-
----
-
-### **1. Spring Boot – Bean Overriding Conflict**
-
-```java
-@Configuration
-public class AppConfig {
-    @Bean
-    public String message() {
-        return "From Config";
-    }
-}
-
-@RestController
-public class HelloController {
-    @Bean
-    public String message() {
-        return "From Controller";
-    }
-}
-```
-
-**Q: Will the application start?**
-
-**Answer:**
-❌ No.  
-You can't declare a `@Bean` method inside a `@RestController` (or any `@Component`) directly unless it’s a `@Configuration`. Spring will throw `BeanDefinitionOverrideException` or a conflict due to duplicate bean names.
-
----
-
-### **2. Spring Boot – Multiple DataSources**
-
-**Q: What happens if you configure two data sources but don’t mark any as `@Primary` or use `@Qualifier`?**
-
-**Answer:**  
-Spring will throw:  
-```
-No qualifying bean of type 'DataSource' available: expected single matching bean but found 2
-```
-
-To fix it, either mark one with `@Primary` or use `@Qualifier` where needed.
-
----
-
-### **3. Spring Boot + JPA: Lazy Loading Outside Transaction**
-
-```java
-@Entity
-public class Book {
-    @ManyToOne(fetch = FetchType.LAZY)
-    private Author author;
-}
-```
-
-```java
-@GetMapping("/book/{id}")
-public Book getBook(@PathVariable Long id) {
-    return bookRepository.findById(id).get();
-}
-```
-
-**Q: What happens when you call `/book/1`?**
-
-**Answer:**  
-- The `author` property will not load (Lazy), and if Jackson tries to serialize it after the transaction is closed, you'll get:  
-  ```
-  org.hibernate.LazyInitializationException: could not initialize proxy - no Session
-  ```
-
-**Fix:** Use `@Transactional` at service level or DTO pattern to control loading.
-
----
-
-### **4. Spring JPA – Dirty Checking**
-
-```java
-@Transactional
-public void updateUserEmail(Long id) {
-    User u = userRepository.findById(id).get();
-    u.setEmail("new@example.com");
-    // no repository.save() here
-}
-```
-
-**Q: Will the email be updated in DB?**
-
-**Answer:**  
-✅ Yes.  
-JPA performs **dirty checking** — any change to managed entities inside a transaction is automatically flushed to DB.
-
----
-
-### **5. Java Trick – Hidden NullPointerException**
-
-```java
-public class TrickyNull {
-    static String s = null;
-
-    public static void main(String[] args) {
-        if (s.equals("hello"))
-            System.out.println("Match");
-        else
-            System.out.println("No match");
-    }
-}
-```
-
-**Q: What is the output?**
-
-**Answer:**
-💥 Throws `NullPointerException` because `s` is `null` and you’re calling `.equals()` on it.
-
-**Fix:** Use `"hello".equals(s)` instead — it avoids NPE.
-
----
-
-### **6. Spring REST – RequestBody & Validation**
-
-```java
-@PostMapping("/register")
-public ResponseEntity<?> register(@RequestBody @Valid UserDTO dto) {
-    return ResponseEntity.ok("OK");
-}
-```
-
-**Q: What happens if the JSON is missing fields?**
-
-**Answer:**
-- Spring will return `400 Bad Request` with validation error messages in the response body.  
-- You can customize this by implementing a `@ControllerAdvice` with a custom `MethodArgumentNotValidException` handler.
-
----
-
-### **7. Spring Boot Actuator Exposure**
-
-**Q: By default, which endpoints are exposed in Spring Boot Actuator 3.x?**
-
-**Answer:**
-- Only **`/actuator/health`** and **`/actuator/info`** are exposed to the web by default. Others require enabling explicitly in `application.properties`:
-```properties
-management.endpoints.web.exposure.include=*
-```
-
----
-
-### **8. Spring Boot – Custom Starter**
-
-**Q: How can you build a custom Spring Boot starter?**
-
-**Answer:**  
-- Create a JAR with your auto-config and dependencies.
-- Add a `spring.factories` file (for Spring Boot 2.x) or `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` for 3.x.
-```properties
-org.springframework.boot.autoconfigure.EnableAutoConfiguration=com.example.MyAutoConfig
-```
-
----
-
-### **9. Java Puzzle – String Pool + Interning**
-
-```java
-public class InternTest {
-    public static void main(String[] args) {
-        String a = new String("hello");
-        String b = "hello";
-        System.out.println(a == b);
-        System.out.println(a.intern() == b);
-    }
-}
-```
-
-**Answer:**
-```
-false
-true
-```
-- `.intern()` returns a reference from the string pool, which matches `"hello"`.
-
----
-
-### **10. SQL: Fetch Top N per Group**
-
-**Q: Write a SQL query to get the highest salary employee per department.**
-
-**Answer:**
-```sql
-SELECT *
-FROM employee e
-WHERE salary = (
-  SELECT MAX(salary)
-  FROM employee
-  WHERE department_id = e.department_id
-);
-```
-
-Alternative (if supported):
-```sql
-SELECT *
-FROM (
-  SELECT *, ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC) rn
-  FROM employee
-) t
-WHERE rn = 1;
-```
 
