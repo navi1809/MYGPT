@@ -1,115 +1,475 @@
-class Parent {
-static void print() {
-System.out.println("Parent");
-}
-}
-class Child extends Parent {
-static void print() {
-System.out.println("Child");
-}
-public static void main(String[] args) {
-Parent obj = new Child();
-obj.print();
-}
-}
+package IVA_Batch;
+import egl.core.*;
+import CommonMigratedParts.*;
+import DataTables.*;
+//*** PROGRAM=AIF26A ****
+// THIS IS A NEW APPLICATION CREATED TO FORMAT SCHOOL LUNCH
+// REPORT.
+// IT COMPARES THE PREVIOUS MONTH'S FILE FORMATTED BY AIN97A
+// WITH THE CURRENT MONTH'S FILE AND PREPARES A NEW REPORT BY
+// POPULATING THE RECORD TYPE 'A'(NEW),'D'(DELETE)
+// ***********************
+Program AIF26A type basicProgram //VAGen Info - main batch program
+  {
+  includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
+  throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
+  I4GLItemsNullable = no, textLiteralDefaultIsString = no, localSQLScope = yes
+  }
 
-Answered wrong
+  // Data Declarations
+  AIF26W AIF26W; // record
+  AIF26W1 AIF26W1; // record
+  BDATEREC BDATEREC; // record
+  CEP01W CEP01W; // record
+  H2-MASS-CHNG-PARMS H2-MASS-CHNG-PARMS; // record
+  SR-AIF26-RECIN SR-AIF26-RECIN; // record
+  SR-AIF26A-NEW-REC SR-AIF26A-NEW-REC; // record
+  SR-AIF26A-OLD-REC SR-AIF26A-OLD-REC; // record
+  VDBCOMMON VDBCOMMON; // record
+  VDBCONTROL VDBCONTROL; // record
+  VMESSAGE VMESSAGE; // record
 
+  // VAGen Info - items needed for migration
+  VAGen_EZESYS char(8);
+  VAGen_EZEREPLY num(1);
+  VAGen_EZE_WAIT_TIME bin(9,2);
+  VAGen_EZE_ITEMLEN int;
 
-public class Test5 {
-public static void main(String[] args) {
-int i = 0;
-i = i++ + ++i;
-System.out.println(i);
-}
-}
+  // Use Declarations
+  use VDB00T1 {deleteAfterUse = yes}; // table
 
-Wrong answer
-
-public static void main(String[] args) {
-Map<String, String> map = new HashMap<>();
-map.put(null, "One");
-map.put(null, "Two");
-System.out.println(map.size());
-System.out.println(map.get(null));
-}
-}
-
-correct answer
-
-
-@RestController
-public class HelloController {
-
-@GetMapping("/hello")
-public String hello() {
-return null;
-}
-}
-
-partially correct
+  function main()
+    // VAGen Info - initialization needed for migration
+    VAGen_EZESYS = VGLib.getVAGSysType();
+    AIF26P9-MAIN: AIF26P9-MAIN();
+  end // end main
+end // end AIF26A
 
 
-What happens if `@Entity` class has no `@Id`?
+// MAIN PROCESS
+Function AIF26P9-MAIN()
+  /* **/
 
-@Entity
-public class Product {
-private String name;
-}
+  set AIF26W empty;
+  set AIF26W1 empty;
+  set SR-AIF26A-OLD-REC empty;
+  set SR-AIF26A-NEW-REC empty;
+  set SR-AIF26-RECIN empty;
 
+  /* Read date*/
+  WCM00P3-FETCHBDTS();
 
-wrong answer
+  /* populate the ws-process date with dates from the BDATEPARM file*/
+  AIF26W1.WS-PROCESS-DT-CC = BDATEREC.BDATE-PROCESS-DATE-CC;
+  AIF26W1.WS-PROCESS-DT-YY = BDATEREC.BDATE-PROCESS-DATE-YY;
+  AIF26W1.WS-PROCESS-DT-MM = BDATEREC.BDATE-PROCESS-DATE-MM;
+  AIF26W1.WS-PROCESS-DT-DD = "01";
+  AIF26W1.WS-PROCESS-DT-F1 = "-";
+  AIF26W1.WS-PROCESS-DT-F2 = "-";
 
+  /* Get Mass change values*/
+  AIF26P9-SEL-MCH-L();
 
-What’s wrong with this repository?
+  if (VDBCONTROL.URC > 104)
+    WCM00P2-TO-CEP01A();
+  end
 
-public interface UserRepo extends JpaRepository<User, Long> {
-User findByEmail(String email);
-List<User> findByAge(int age);
-void deleteByName(String name);
-}
+  AIF26W.WS-MASS-DIFF = H2-MASS-CHNG-PARMS.MASS-CHNG-AMT1;
 
-Wrong answer
+  /* Get old record*/
+  AIF26P9-RD-OLD-FIL();
 
+  /* Get new record*/
+  AIF26P9-RD-NEW-FIL();
 
-@Configuration
-public class AppConfig {
-@Bean
-public String message() {
-return "From Config";
-}
-}
+  /* Perform Pocedure para*/
+  AIF26P9-PROC-PARA();
 
-@RestController
-public class HelloController {
-@Bean
-public String message() {
-return "From Controller";
-}
-}
-
-
-Q: Will the application start?
-
-
-correct answer
+  /* **/
+end // end AIF26P9-MAIN
 
 
-What happens if you configure two data sources but don’t mark any as `@Primary` or use `@Qualifier`?
-Not correct
+Function AIF26P9-PROC-CHG()
+  /* **/
+
+  /* Calculate difference in $, for CST only*/
+  if (SR-AIF26A-OLD-REC.AIF26-RECOLD-AMT < 
+  SR-AIF26A-NEW-REC.AIF26-RECNEW-AMT)
+    AIF26W.WS-DIFF = (SR-AIF26A-NEW-REC.AIF26-RECNEW-AMT -     SR-AIF26A-OLD-REC.AIF26-RECOLD-AMT) / 100;
+  end
+
+  if (SR-AIF26A-OLD-REC.AIF26-RECOLD-AMT > 
+  SR-AIF26A-NEW-REC.AIF26-RECNEW-AMT)
+    AIF26W.WS-DIFF = (SR-AIF26A-OLD-REC.AIF26-RECOLD-AMT -     SR-AIF26A-NEW-REC.AIF26-RECNEW-AMT) / 100;
+  end
+
+  if (SR-AIF26A-OLD-REC.AIF26-RECOLD-AMT == 
+  SR-AIF26A-NEW-REC.AIF26-RECNEW-AMT)
+    AIF26W.WS-DIFF = 0;
+  end
+
+  if (AIF26W.WS-DIFF > AIF26W.WS-MASS-DIFF)
+    SR-AIF26-RECIN.AIF26-RECIN = SR-AIF26A-NEW-REC.AIF26-RECNEW;
+
+    /* Writes CST record into file*/
+    AIF26P9-WRITE-FILE();
+    AIF26W.WS-NEW-KEY1 = AIF26W.WS-NEW-KEY;
+
+    /* Read next record*/
+    AIF26P9-RD-NEW-FIL();
+
+    while (AIF26W.WS-NEW-KEY == AIF26W.WS-NEW-KEY1)
+      SR-AIF26-RECIN.AIF26-RECIN = SR-AIF26A-NEW-REC.AIF26-RECNEW;
+
+      /* Writes child record into file*/
+      AIF26P9-WRITE-FILE();
+      AIF26P9-RD-NEW-FIL();
+    end
+
+    AIF26W.WS-OLD-KEY1 = AIF26W.WS-OLD-KEY;
+
+    /* Read next record, untill thE block is skipped*/
+    AIF26P9-RD-OLD-FIL();
+    while (AIF26W.WS-OLD-KEY == AIF26W.WS-OLD-KEY1)
+      AIF26P9-RD-OLD-FIL();
+    end
+  else
+    /* Read next record, untill th block is skipped*/
+    AIF26W.WS-NEW-KEY1 = AIF26W.WS-NEW-KEY;
+    AIF26P9-RD-NEW-FIL();
+    while (AIF26W.WS-NEW-KEY == AIF26W.WS-NEW-KEY1)
+
+      AIF26P9-RD-NEW-FIL();
+    end
+
+    /* Read next record, untill th block is skipped*/
+    AIF26W.WS-OLD-KEY1 = AIF26W.WS-OLD-KEY;
+    AIF26P9-RD-OLD-FIL();
+    while (AIF26W.WS-OLD-KEY == AIF26W.WS-OLD-KEY1)
+      AIF26P9-RD-OLD-FIL();
+    end
+  end
+
+  /* **/
+end // end AIF26P9-PROC-CHG
 
 
-@Transactional
-public void updateUserEmail(Long id) {
-User u = userRepository.findById(id).get();
-u.setEmail("new@example.com");
-}
+Function AIF26P9-PROC-DEL()
+  /* **/
 
-Not answered
+  /* recor exists in old file and not there in new file*/
+  SR-AIF26-RECIN.AIF26-RECIN = SR-AIF26A-OLD-REC.AIF26-RECOLD;
+  SR-AIF26-RECIN.AIF26-RECIN-AMT = 000000000;
+
+  /* Writes CST record into file*/
+  AIF26P9-WRITE-FILE();
+
+  AIF26W.WS-OLD-KEY1 = AIF26W.WS-OLD-KEY;
+
+  /* Read next record*/
+  AIF26P9-RD-OLD-FIL();
+
+  while (AIF26W.WS-OLD-KEY == AIF26W.WS-OLD-KEY1)
+
+    SR-AIF26-RECIN.AIF26-RECIN = SR-AIF26A-OLD-REC.AIF26-RECOLD;
+    SR-AIF26-RECIN.AIF26-RECIN-AMT = 000000000;
+
+    /* Writes child record into file*/
+    AIF26P9-WRITE-FILE();
+
+    AIF26P9-RD-OLD-FIL();
+
+  end
+
+  /* **/
+end // end AIF26P9-PROC-DEL
 
 
-Given a table `employee(name, salary)`, get 2nd highest salary:
-Not answered
+Function AIF26P9-PROC-NEW()
+  /* **/
 
-Find duplicates in a column `email` of `users` table:
-Not Answered
+  /* record exists in new file and not there in old file*/
+  SR-AIF26-RECIN.AIF26-RECIN = SR-AIF26A-NEW-REC.AIF26-RECNEW;
+
+  /* Writes CST record into file*/
+  AIF26P9-WRITE-FILE();
+  AIF26W.WS-NEW-KEY1 = AIF26W.WS-NEW-KEY;
+
+  /* Read next record*/
+  AIF26P9-RD-NEW-FIL();
+  while (AIF26W.WS-NEW-KEY == AIF26W.WS-NEW-KEY1)
+
+    SR-AIF26-RECIN.AIF26-RECIN = SR-AIF26A-NEW-REC.AIF26-RECNEW;
+
+    /* Writes child record into file*/
+    AIF26P9-WRITE-FILE();
+    AIF26P9-RD-NEW-FIL();
+  end
+
+  /* **/
+end // end AIF26P9-PROC-NEW
+
+
+Function AIF26P9-PROC-PARA()
+  /* **/
+
+  while (AIF26W.WS-OLD-EZERT8 == "00000000" || 
+  AIF26W.WS-NEW-EZERT8 == "00000000")
+
+    /* Exists in old file and not there in new file*/
+    if (AIF26W.WS-OLD-KEY < AIF26W.WS-NEW-KEY)
+      AIF26P9-PROC-DEL();
+    else
+
+      /* Exists in both files*/
+      if (AIF26W.WS-OLD-KEY == AIF26W.WS-NEW-KEY)
+        AIF26P9-PROC-CHG();
+      else
+
+        /* Exists in new file and not there in old file*/
+        if (AIF26W.WS-OLD-KEY > AIF26W.WS-NEW-KEY)
+          AIF26P9-PROC-NEW();
+        end
+      end
+    end
+
+  end
+
+  /* **/
+end // end AIF26P9-PROC-PARA
+
+
+Function AIF26P9-RD-NEW-FIL()
+  /* **/
+
+  AIF26W.WS-NEW = " ";
+  /*  */
+  try
+    get next SR-AIF26A-NEW-REC ;
+  end
+
+  /*  */
+  if (SR-AIF26A-NEW-REC is ioError && SR-AIF26A-NEW-REC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF26P9-RD-NEW-FIL";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF26A-NEW-REC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.UMSGINS[2] = "AIF26A";
+
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
+    if (SR-AIF26A-NEW-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF26A-NEW-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF26A-NEW-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* end check for format mismatch*/
+      end /* end check for file not found*/
+    end /* end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end /* end check for record found*/
+
+  if (sysVar.errorCode == "00000000")
+    AIF26W.WS-NEW = SR-AIF26A-NEW-REC.AIF26-RECNEW;
+  else
+    if (sysVar.errorCode == "00000102") /* end of file condition;*/
+      AIF26W.WS-NEW-KEY = 99999999999;
+    end
+  end
+
+  AIF26W.WS-NEW-EZERT8 = sysVar.errorCode;
+
+  /* **/
+end // end AIF26P9-RD-NEW-FIL
+
+
+Function AIF26P9-RD-OLD-FIL()
+  /* **/
+
+  AIF26W.WS-OLD = " ";
+  /*  */
+  try
+    get next SR-AIF26A-OLD-REC ;
+  end
+
+  /*  */
+  if (SR-AIF26A-OLD-REC is ioError && SR-AIF26A-OLD-REC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF26P9-RD-OLD-FIL";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF26A-OLD-REC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    VMESSAGE.UMSGINS[2] = "AIF26A";
+
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
+    if (SR-AIF26A-OLD-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF26A-OLD-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF26A-OLD-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* end check for format mismatch*/
+      end /* end check for file not found*/
+    end /* end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end /* end check for record found*/
+
+  if (sysVar.errorCode == "00000000")
+    AIF26W.WS-OLD = SR-AIF26A-OLD-REC.AIF26-RECOLD;
+  else
+    if (sysVar.errorCode == "00000102") /* end of file condition;*/
+      AIF26W.WS-OLD-KEY = 99999999999;
+    end
+  end
+
+  AIF26W.WS-OLD-EZERT8 = sysVar.errorCode;
+
+  /* **/
+end // end AIF26P9-RD-OLD-FIL
+
+
+// LUW for DB Access
+Function AIF26P9-SEL-MCH-L()
+  /* **/
+
+  /* Perform standard database application initialization*/
+  WDB00PI();
+
+  /* Initialize:*/
+  /* UACCTYP - Access type (R=read, W=write)*/
+  /* UAPPLNAM - Application name*/
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIF26A";
+
+  /* Initialize SQL row record*/
+  set H2-MASS-CHNG-PARMS empty;
+
+  /* Perform process to retrieve data*/
+  AIF26P9-SEL-MCH-P();
+
+  /* Set error control flags*/
+  /* UNRF - No record found flag (Y,N,1)*/
+  /* UDUP - Duplicate key flag (Y,N)*/
+  VDBCOMMON.UNRF = "N";
+  VDBCOMMON.UDUP = "N";
+
+  /* * Perform DBM error processing*/
+  WDB00PE-SQLERR();
+
+  /* **/
+end // end AIF26P9-SEL-MCH-L
+
+
+// Set Control Retrieve of Data
+Function AIF26P9-SEL-MCH-P()
+  /* **/
+
+  H2-MASS-CHNG-PARMS.MASS-CHNG-DATA-TYP = "P";
+  H2-MASS-CHNG-PARMS.MASS-CHNG-TYPE = "Z01";
+  H2-MASS-CHNG-PARMS.PRGM-TYPE = "CM";
+  H2-MASS-CHNG-PARMS.EFF-FR-DT = AIF26W1.WS-PROCESS-DT;
+  H2-MASS-CHNG-PARMS.EFF-TO-DT = AIF26W1.WS-PROCESS-DT;
+
+  AIF26P9-SEL-MCH-Q();
+
+  /* **/
+end // end AIF26P9-SEL-MCH-P
+
+
+// READ ON H2-MASS-CHNG-PARMS
+Function AIF26P9-SEL-MCH-Q()
+  /* **/
+
+  /* Move name of SQL row record used to common record*/
+  VDBCOMMON.USQLREC = "H2-MASS-CHNG-PARMS";
+  VDBCONTROL.UPROC-OBJ = "H2-MASS-CHNG-PARMS";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCONTROL.UPROC-NM = "AIF26P9-SEL-MCH-Q";
+
+  /*  */
+  try
+    get H2-MASS-CHNG-PARMS singleRow
+      with #sql{
+        select MASS_CHNG_AMT1
+        from TWNMASS_CHNG_PARMS T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE MASS_CHNG_DATA_TYP = :MASS-CHNG-DATA-TYP
+          AND MASS_CHNG_TYPE     = :MASS-CHNG-TYPE
+          AND PRGM_TYPE          = :PRGM-TYPE
+          AND EFF_FR_DT         <= :EFF-FR-DT
+          AND EFF_TO_DT         >= :EFF-TO-DT
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into MASS-CHNG-AMT1 ;
+  end
+
+  /* **/
+end // end AIF26P9-SEL-MCH-Q
+
+
+Function AIF26P9-WRITE-FILE()
+  /* **/
+  try
+    add SR-AIF26-RECIN ;
+  end
+
+  /*  */
+  if (SR-AIF26-RECIN is ioError && SR-AIF26-RECIN not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIF26P9-WRITE-FILE";
+    VDBCONTROL.UPROC-OBJ = "SR-AIF26-RECIN";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    VMESSAGE.UMSGINS[2] = "AIF26A";
+
+    /* the following conditions are added to move the corresponding*/
+    /* error message*/
+    if (SR-AIF26-RECIN is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIF26-RECIN is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIF26-RECIN is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* end check for format mismatch*/
+      end /* end check for file not found*/
+    end /* end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end /* end check for record found*/
+
+  /* **/
+end // end AIF26P9-WRITE-FILE
+
+
+Record AIF26W type basicRecord
+  10 WS-OLD char(80) ; 
+    15 WS-OLD-KEY num(11) ; 
+    15 WS-FILLER1 char(69) ; // filler for - sign
+  10 WS-NEW char(80) ; 
+    15 WS-NEW-KEY num(11) ; 
+    15 WS-FILLER2 char(69) ; // filler for - sign
+  10 WS-OLD-EZERT8 char(8) ; 
+  10 WS-NEW-EZERT8 char(8) ; 
+  10 WS-OLD-KEY1 num(11) ; 
+  10 WS-NEW-KEY1 num(11) ; 
+  10 WS-DIFF decimal(9,2) ; 
+  10 WS-MASS-DIFF decimal(9,2) ; 
+end // end AIF26W
+
+
+Record AIF26W1 type basicRecord
+  5 WS-PROCESS-DT char(10) ; 
+    10 WS-PROCESS-DT-CCYY-N num(4) ; 
+      15 WS-PROCESS-DT-CC char(2) ; 
+      15 WS-PROCESS-DT-YY char(2) ; 
+    10 WS-PROCESS-DT-F1 char(1) ; 
+    10 WS-PROCESS-DT-MM-N num(2) ; 
+      15 WS-PROCESS-DT-MM char(2) ; 
+    10 WS-PROCESS-DT-F2 char(1) ; 
+    10 WS-PROCESS-DT-DD-N num(2) ; 
+      15 WS-PROCESS-DT-DD char(2) ; 
+end // end AIF26W1
+
+
