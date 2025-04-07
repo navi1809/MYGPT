@@ -2,27 +2,21 @@ package IVA_Batch;
 import egl.core.*;
 import CommonMigratedParts.*;
 import DataTables.*;
-//*** PROGRAM=AIN55A ****
-// COMPONENT NAME: AIN55A - Control Report
+//*** PROGRAM=AIN98A ****
+// COMPONENT NAME: AIN98A DIRECT MATCH FOR FREE OR REDUCED SCHOOL MEALS FILE
 // ===============
 // 
 // DESCRIPTION:
 // ============
-// The control report is printed at the end of every
-// report.The
-// report description of the corresponding report is printed.
-// CONTROL:
-// This application is invoked as follows:
-// CALL AIN55A SR-AININT-CTRL-FIL(NOMAPS;
-// 
-// 
+// REPORT OF ALL CHILDREN 4 TO 25 TANF 'FS' FMC PARTICIPANTS
 // ***********************
-Program AIN55A type basicProgram //VAGen Info - called batch program
-  (
-   VDBCONTROL VDBCONTROL, // record
-   VMESSAGE VMESSAGE, // record
-   AIN55W AIN55W // record
-  )
+// WI 3736  Reconfigure Direct Certification Data for Department of Education (05-08-2013)
+//         1) Include all SNAP-eligible clients except those with zero month-to-date entitlement allotments
+//         2) Include TN, TC and AF clients with COA, COS, COK and CON aid codes
+//         3) Include FMC clients with children
+// Coded by Hedy Russell; tested by Catherine Boedenauer
+
+Program AIN98A type basicProgram //VAGen Info - main batch program
   {
   includeReferencedFunctions = yes, allowUnqualifiedItemReferences = yes, 
   throwNrfEofExceptions = yes, handleHardIOErrors = no, V60ExceptionCompatibility = yes, 
@@ -30,16 +24,34 @@ Program AIN55A type basicProgram //VAGen Info - called batch program
   }
 
   // Data Declarations
-  AIN55W-DET AIN55W-DET; // record
-  AIN55W-HEAD AIN55W-HEAD; // record
+  AIN98WS AIN98WS; // record
+  AIN98MC AIN98MC; //record
+  BDATEREC BDATEREC; // record
   CEP01W CEP01W; // record
   FORMATW FORMATW; // record
   GDW GDW; // record
+  H-TCDTS1 H-TCDTS1; // record
+  H2-5-EVREVM-PERFMC H2-5-EVREVM-PERFMC; // record
+  H2-ASST-UNIT H2-ASST-UNIT; // record
+  H2-CASE-MEMBER-HST H2-CASE-MEMBER-HST; // record
+  H2-ELIG-BDGT-UNIT H2-ELIG-BDGT-UNIT; //record
+  H2-ELIG-VERSION H2-ELIG-VERSION; // record
+  H2-MASS-CHNG-PARMS H2-MASS-CHNG-PARMS; //record
+  H2-MEMBER-REL H2-MEMBER-REL; // record
+  H2-PERSON H2-PERSON; // record
+  H2-PERSON-ADRS-HST H2-PERSON-ADRS-HST; // record
+  H2-PRGM-CASE-HSTRY H2-PRGM-CASE-HSTRY; //RECORD
+  H-TCDTSL H-TCDTSL; // record
+  P-DATE-REC3 P-DATE-REC3; // record
   REP-COMMON REP-COMMON; // record
   REP-EOFNOF REP-EOFNOF; // record
-  SR-80REP-RECCALL SR-80REP-RECCALL; // record
-  SR-AININT-CTRL-FIL SR-AININT-CTRL-FIL; // record
+  SCHLNCH SCHLNCH; // record
+  SR-132REP-RECOUT SR-132REP-RECOUT; // record
+  SR-AIN98-RECIN SR-AIN98-RECIN; // record
   VDBCOMMON VDBCOMMON; // record
+  VDBCONTROL VDBCONTROL; // record
+  VMESSAGE VMESSAGE; // record
+  VSTRREC4 VSTRREC4; // record
 
   // VAGen Info - items needed for migration
   VAGen_EZESYS char(8);
@@ -53,462 +65,1599 @@ Program AIN55A type basicProgram //VAGen Info - called batch program
   function main()
     // VAGen Info - initialization needed for migration
     VAGen_EZESYS = VGLib.getVAGSysType();
-    AIN55P9-MAIN: AIN55P9-MAIN();
+    AIN98PX9-MAIN: AIN98PX9-MAIN();
   end // end main
-end // end AIN55A
+end // end AIN98A
 
+// APPLICATION SPECIFIC LOGIC
+Function AIN98PX9-APPLSPEC()
+  /* *********************************************************************/
+  /* STRATEGY - ISSUE THE SQL TO PULL ALL SCHOOL RECORDS THAT QUALIFY*/
+  /* *********************************************************************/
+  AIN98QX1-S01();
+  if (AIN98WS.WS-MAIN-URC == 0)
+  /* IF EZESQCOD = 0;*/
+    AIN98QX1-S01-SCAN();
+  end
+  if (AIN98WS.WS-MAIN-URC != 0)
+    REP132P9-NRF-PROC();
+    SysLib.writeStdout(" " );
+    SysLib.writeStdout("AIN98A APPLSPEC END - CURSOR INITIALZE ");
+    SysLib.writeStdout("AIN98A APPLSPEC END - URC NOT 0 ");
+    SysLib.writeStdout("AIN98A AIN98WS.WS-MAIN-URC: " + AIN98WS.WS-MAIN-URC);
+    AIN98PX9-CLOS-PARA();
+  end
+  /* WHILE EZESQCOD = 0;*/
+  while (WS-MAIN-URC == 0)
+        AIN98PX9-MOVE-DATA();
+        AIN98QX4-CMHE-Q1();
+        if (AIN98WS.WS-MRGD-IND == "Y" ||
+        	AIN98WS.WS-LEFT-HH-IND == "Y")
+        	SLX-ELIGIBILITY = "N";
+        if (AIN98WS.WS-ENV != "NOMADS")
+  			SysLib.writeStdout(" " );
+  			SysLib.writeStdout("AIN98A ELIGIBILITY FAILED " );
+  			SysLib.writeStdout("AIN98A MERGED OR LEFT HOUSEHOLD");
+		end
+        end
+        if (AIN98WS.WS-ENV != "NOMADS")
+  			SysLib.writeStdout(" " );
+  			SysLib.writeStdout("AIN98A PRE WRITE RECORD " );
+  			SysLib.writeStdout("AIN98A ICI:              " + AIN98WS.WS-ICI);
+ 		 	SysLib.writeStdout("AIN98A APPL UPI:         " + AIN98WS.WS-APPL-UPI);
+ 		 	SysLib.writeStdout("AIN98A SLX STUDENT UPI:  " + SLX-STDNT-UPI);
+  			SysLib.writeStdout("AIN98A SLX-HOH-UPI:      " + SLX-HOH-UPI);
+  			SysLib.writeStdout("AIN98A WS-MTD-ENTLM-AMT: " + AIN98WS.WS-MTD-ENTLM-AMT);
+  			SysLib.writeStdout("AIN98A SLX-CERT-TYPE:    " + SLX-CERT-TYPE);
+ 			SysLib.writeStdout("AIN98A WS-MRGD-IND:      " + AIN98WS.WS-MRGD-IND);
+ 			SysLib.writeStdout("AIN98A WS-LEFT-HH-IND:   " + AIN98WS.WS-LEFT-HH-IND);
+  			SysLib.writeStdout("AIN98A HH-LEFT-DT:       " + H2-CASE-MEMBER-HST.HH-LEFT-DT);
+  			SysLib.writeStdout("AIN98A SLX-ELIGIBILITY:  " + SLX-ELIGIBILITY);
+		end
+
+        if (SLX-ELIGIBILITY == "F" ||
+        	SLX-ELIGIBILITY == "R")
+        	AIN98PX9-WRITE-EXTR();
+        END
+    AIN98PX9-CLEAR-WS();
+    AIN98QX1-S01-SCAN();
+  end
+  SysLib.writeStdout(" " );
+  SysLib.writeStdout("AIN98A RECORDS WRITTEN: " + AIN98WS.WS-REC-OUT);
+  SysLib.writeStdout(" " );
+  SysLib.writeStdout("******** AIN98A END ********" );
+  exit program;
+end // end AIN98PX9-APPLSPEC
+
+// WI 1842
+Function AIN98PX9-ELIGIBILITY()
+  SLX-ELIGIBILITY = "F";
+  WS-FPL-PCT = 0;
+  WS-NET-INCM-AMT = 0;
+  WS-GROSS-COUNTABLE-INCOME = 0;
+  WS-DEEMED-UERND-INCM = 0;
+  WS-DEEMED-ERND-INCM = 0;
+  WS-BU-NEED-COUNT = 0;
+  WS-RANGE-FR = 0;
+
+  AIN98QX4-ENTITLEMENT();
+
+  if (AIN98WS.WS-ENV != "NOMADS")
+  		SysLib.writeStdout(" " );
+  		SysLib.writeStdout("AIN98A AIN98PX9-ELIGIBILITY " );
+  		SysLib.writeStdout("AIN98A AFTER ENTITLEMENT " );
+  		SysLib.writeStdout("AIN98A ICI:               " + AIN98WS.WS-ICI);
+  		SysLib.writeStdout("AIN98A STUDENT UPI:       " + AIN98WS.WS-STDNT-UPI);
+  		SysLib.writeStdout("AIN98A ELIG CD:           " + AIN98WS.WS-ELIG-CD);
+  		SysLib.writeStdout("AIN98A BU NEED COUNT:     " + AIN98WS.WS-BU-NEED-COUNT);
+  		SysLib.writeStdout("AIN98A NET INCOME:        " + AIN98WS.WS-NET-INCM-AMT);
+  		SysLib.writeStdout("AIN98A GROSS COUNTABLE:   " + AIN98WS.WS-GROSS-COUNTABLE-INCOME);
+		SysLib.writeStdout("AIN98A DEEMED UERND INCM: " + AIN98WS.WS-DEEMED-UERND-INCM);
+		SysLib.writeStdout("AIN98A DEEMED ERND INCM:  " + AIN98WS.WS-DEEMED-ERND-INCM);
+  		SysLib.writeStdout("AIN98A LAST BU CONSIGNED: " + AIN98WS.WS-LST-BU-CNSD);
+  end
+
+
+// Folowing check is to make sure that if the BU NEED COUNT returned is 0
+// that we change the BU NEED COUNT to 1 or 2 for a better check against FPL.
+// AD, KB, and EM MAABD cases return a BU NEED COUNT of 0, resulting in always
+// a school lunch indicator of "F"ree.  The following tests of the neeed count
+// attempt to more correctly apply the FPL check.
+//
+// If the need count is 0 and there is no deemed income (earned or unearned)
+// then the need count is set to 1.  If there is deemed income (earned or unearned)
+// then the need count is set to 2.
+
+  if (WS-BU-NEED-COUNT == 0 &&
+  	  WS-DEEMED-UERND-INCM == 0 &&
+  	  WS-DEEMED-ERND-INCM  == 0)
+  	 WS-BU-NEED-COUNT = 1;
+  end
+  if ((WS-BU-NEED-COUNT == 0) &&
+  	  (WS-DEEMED-UERND-INCM > 0 ||
+  	   WS-DEEMED-ERND-INCM  > 0))
+  	 WS-BU-NEED-COUNT = 2;
+  end
+  
+  if (AIN98WS.WS-ENV != "NOMADS")
+  		SysLib.writeStdout(" " );
+  		SysLib.writeStdout("AIN98A AIN98PX9-ELIGIBILITY " );
+  		SysLib.writeStdout("AIN98A AFTER BU NEED COUNT CHECK " );
+  		SysLib.writeStdout("AIN98A BU NEED COUNT:     " + AIN98WS.WS-BU-NEED-COUNT);
+  end
+  
+  if (WS-BU-NEED-COUNT > 0)
+  
+	  if (WS-BU-NEED-COUNT < 9)
+	  	WS-RANGE-FR = WS-BU-NEED-COUNT;
+	    AIN98QX4-LOAD-FPL();
+	  if (AIN98WS.WS-ELIG-CD == 4)
+	  	 WS-FPL-TEST-AMT = WS-NET-INCM-AMT;
+	  end
+	  if (AIN98WS.WS-ELIG-CD == 5) 
+	  	 WS-FPL-TEST-AMT = WS-GROSS-COUNTABLE-INCOME;
+	  end
+
+	  	WS-FPL-PCT =  (WS-FPL-TEST-AMT /
+	  				   AIN98MC.WS-MASS-CHANGE-AMT1) 
+	  				   * 100;
+  	end
+  	if (WS-BU-NEED-COUNT > 8)
+  		WS-RANGE-FR = 8;
+    	AIN98QX4-LOAD-FPL();
+	    if (AIN98WS.WS-ELIG-CD == 4)
+	  	   WS-FPL-TEST-AMT = WS-NET-INCM-AMT;
+	    end
+	    if (AIN98WS.WS-ELIG-CD == 5)
+	  	   WS-FPL-TEST-AMT = WS-GROSS-COUNTABLE-INCOME;
+	    end
+  		WS-FPL-PCT =  (WS-FPL-TEST-AMT /(AIN98MC.WS-MASS-CHANGE-AMT1
+  		            + (AIN98MC.WS-MASS-CHANGE-AMT2 * (WS-BU-NEED-COUNT - 8))))
+	  			    * 100;
+  	end
+  	SLX-ELIGIBILITY = "N";
+  	if (AIN98WS.WS-FPL-PCT <= 130.00)
+			SLX-ELIGIBILITY = "F";
+  	end
+  	if (AIN98WS.WS-FPL-PCT > 130 &&
+  		  AIN98WS.WS-FPL-PCT <= 185)
+			SLX-ELIGIBILITY = "R";
+  	end
+  end
+    if (AIN98WS.WS-ENV != "NOMADS")
+  		SysLib.writeStdout("AIN98A FPL PERCENTAGE: " + AIN98WS.WS-FPL-PCT);
+  		SysLib.writeStdout("AIN98A ELIGIBILITY: " + SLX-ELIGIBILITY);
+  		SysLib.writeStdout(" " );
+	end
+END // AIN98PX9-ELIGIBILITY()
+   	
+// CLEAR WORKING STORAGE
+Function AIN98PX9-CLEAR-WS()
+  WS-LST-NM = " ";
+  WS-FRST-NM = " ";
+  WS-MID-NM = " ";
+  WS-DOB = " ";
+  WS-ETHNC-CD = " ";
+  WS-RSDN-CNTY-CD = " ";
+  WS-CITY = " ";
+  WS-ZIP-CD = " ";
+  WS-FS-ELIG-CD = " ";
+  WS-AFDC-ELIG-CD = " ";
+  WS-TC-ELIG-CD = " ";
+  WS-TN-ELIG-CD = " ";
+  WS-FS-AID-CD = " ";
+  WS-AFDC-AID-CD = " ";
+  WS-TC-AID-CD = " ";
+  WS-TN-AID-CD = " ";
+  WDS-SSN = " ";
+  WS-CHLD-NAME = " ";
+  WS-HOH-NAME = " ";
+  WS-SPOUSE-NAME = " ";
+  WS-PROG-STAT = " ";
+  WS-ICI = 0;
+  WS-HOH-UPI = 0;
+  WS-SPOUSE-UPI = 0;
+  WS-LKUP-UPI = 0;
+  WS-LKUP-ICI = 0;
+  WS-ODD-DAYS = 0;
+  WS-DIF-DAYS = 0;
+  WS-YEARS = 0;
+  set SCHLNCH empty;
+end // end AIN98PX9-CLEAR-WS
+
+// CLOSES THE APPLICATION
+Function AIN98PX9-CLOS-PARA()
+  /* *******************************************************************/
+  /* process to close the application                  */
+  /* *******************************************************************/
+  exit program;
+end // end AIN98PX9-CLOS-PARA
+
+// FIND COL OF LAST NON-BLNK CHAR
+Function AIN98PX9-COUNT-CHAR()
+  WS-INDX1 = 1;
+  WS-LASTX = 0;
+  while (WS-INDX1 < 51)
+    if (AIN98WS.WS-TMP-ADDR-CHAR[WS-INDX1] != " ")
+      move WS-INDX1 to WS-LASTX withV60Compat;
+      WS-INDX1 = WS-INDX1 + 1;
+    else
+      WS-INDX1 = WS-INDX1 + 1;
+    end
+  end
+end // end AIN98PX9-COUNT-CHAR
+
+// DETR APPROX DOBS FOR AGE 4-19
+Function AIN98PX9-DETR-AGE()
+  AIN98WS.WS-4YR-CCYY = AIN98WS.WS-MTH-BEG-CCYY - 4;
+  AIN98WS.WS-4YR-MM = AIN98WS.WS-MTH-BEG-MM;
+  AIN98WS.WS-4YR-DD = AIN98WS.WS-MTH-BEG-DD;
+  WS-HASH11 = "-";
+  WS-HASH12 = "-";
+  AIN98WS.WS-19YR-CCYY = AIN98WS.WS-MTH-BEG-CCYY - 19;
+  AIN98WS.WS-19YR-MM = AIN98WS.WS-MTH-BEG-MM;
+  AIN98WS.WS-19YR-DD = AIN98WS.WS-MTH-BEG-DD;
+  WS-HASH13 = "-";
+  WS-HASH14 = "-";
+  AIN98WS.WS-22YR-CCYY = AIN98WS.WS-MTH-BEG-CCYY - 22;
+  AIN98WS.WS-22YR-MM = AIN98WS.WS-MTH-BEG-MM;
+  AIN98WS.WS-22YR-DD = AIN98WS.WS-MTH-BEG-DD;
+  WS-HASH15 = "-";
+  WS-HASH16 = "-";
+end // end AIN98PX9-DETR-AGE
+
+// ELIMINATE DUEL OR TRI SPACES
+Function AIN98PX9-ELIM-SPACE()
+  WS-INDX1 = 1;
+  WS-INDX2 = 2;
+  WS-INDXX = 1;
+  while (WS-INDX2 < 51)
+    if (AIN98WS.WS-TMP-ADDR-CHAR[WS-INDX1] == " "
+     && AIN98WS.WS-TMP-ADDR-CHAR[WS-INDX2] == " ")
+      AIN98WS.WS-CONCAT-ADDR-CHAR[WS-INDXX] = " ";
+      WS-INDX1 = WS-INDX1 + 1;
+      WS-INDX2 = WS-INDX2 + 1;
+  /* WS-INDXX = WS-INDX1 - 1;*/
+    else
+      AIN98WS.WS-CONCAT-ADDR-CHAR[WS-INDXX] = AIN98WS.WS-TMP-ADDR-CHAR[WS-INDX1];
+      WS-INDX1 = WS-INDX1 + 1;
+      WS-INDX2 = WS-INDX2 + 1;
+      WS-INDXX = WS-INDXX + 1;
+    end
+    if (WS-INDX1 > WS-LASTX)
+      WS-INDX2 = 51;
+    end
+  end
+end // end AIN98PX9-ELIM-SPACE
+
+
+// INSERT ', ' BETWIX LAST&FIRST
+Function AIN98PX9-INSRT-SPAC()
+  WS-INDX1 = 1;
+  WS-INDXX = 1;
+  WS-INDX2 = 2;
+  WS-INDX3 = 3;
+  WS-INDX4 = 4;
+  AIN98WS.WS-SPACE-FND = "N";
+  while (WS-INDX3 < 27)
+    if (AIN98WS.WS-TMP-NAME-CHAR[WS-INDX1] != " "
+     && AIN98WS.WS-TMP-NAME-CHAR[WS-INDX2] == " "
+     && AIN98WS.WS-TMP-NAME-CHAR[WS-INDX3] != " "
+     && WS-INDX2 > VSTRREC4.USTINDX2
+     && AIN98WS.WS-SPACE-FND == "N")
+      AIN98WS.WS-SPACE-FND = "Y";
+      AIN98WS.WS-TMP-NAME-CHAR[WS-INDX2] = ",";
+      AIN98WS.WS-CONCAT-CHAR[WS-INDX1] = AIN98WS.WS-TMP-NAME-CHAR[WS-INDX1];
+      AIN98WS.WS-CONCAT-CHAR[WS-INDX2] = AIN98WS.WS-TMP-NAME-CHAR[WS-INDX2];
+      AIN98WS.WS-CONCAT-CHAR[WS-INDX4] = AIN98WS.WS-TMP-NAME-CHAR[WS-INDX3];
+      AIN98WS.WS-CONCAT-CHAR[WS-INDX3] = " ";
+      move WS-INDX4 to WS-INDX1 withV60Compat;
+      WS-INDXX = WS-INDX1 + 1;
+      WS-INDX2 = WS-INDX1 + 1;
+      WS-INDX3 = WS-INDX1 + 2;
+    else
+      AIN98WS.WS-CONCAT-CHAR[WS-INDXX] = AIN98WS.WS-TMP-NAME-CHAR[WS-INDX1];
+      WS-INDX1 = WS-INDX1 + 1;
+      WS-INDX2 = WS-INDX2 + 1;
+      WS-INDX3 = WS-INDX3 + 1;
+      WS-INDX4 = WS-INDX4 + 1;
+      WS-INDXX = WS-INDXX + 1;
+    end
+  end
+end // end AIN98PX9-INSRT-SPAC
 
 // INTIALISE ALL VARIABLES
-Function AIN55P9-INIT-PARA()
-  /* cbsi start*/
-  /* ************************************************************************/
-  /* This process initialises all tha report records and varaiables*/
-  /* empties all the records*/
-  /* ************************************************************************/
-  /* SET ALL REPORT VARIABLES TO INITIAL VALUES*/
-  set SR-80REP-RECCALL empty;
-  set REP-COMMON empty;
-  set AIN55W-DET empty;
-  set AIN55W-HEAD empty;
-  set CEP01W empty;
-  set FORMATW empty;
-  set REP-EOFNOF empty;
-  set VDBCOMMON empty;
-
-  /* set all serial records empty*/
-  /* note - use sr-132rep-recout or sr-80rep-recout if your*/
-  /* serial file format is 132 or 80 respectively*/
-
-  /* SET SR-80AIN55-RECOUT EMPTY;*/
-  /* for this called program instead of sr-80rep-recout*/
-  /* we will use sr-80ain55-recout to associate a  different*/
-  /* logical filename with respect to the main application*/
-
-
-  /* cbsi end*/
-  REP-COMMON.WS-PAGE-NO = 1;
-  REP-COMMON.WS-LINE-NO = 1;
-  REP-COMMON.WS-NEW-PAGE = "Y";
-  /* PERFORM PROCESS TO INITIALISE CONSTANTS*/
-  AIN55P9-INITCON();
-
-  REP-COMMON.WS-MAX-NO-LINES = 56;
-
-  /* PERFORM PROCESS TO READ INPUT PARAMETER FILE*/
-
-  AIN55P9-SCAN();
-
-  /* ERROR PROCESSING FOR SERIAL RECORD*/
-
-  if ((SR-AININT-CTRL-FIL is endOfFile))
-    AIN55P9-PRN-HEAD();
-      /* print end of report condition*/
-    SR-80REP-RECCALL.PRNT-CC = "-";
-   /* return error code to indicate abnormal ending*/
-    sysVar.returnCode = 8;
-      /* print no data condition*/
-    REP-EOFNOF.WS-80-FILLER1 = "******************************";
-    REP-EOFNOF.WS-80-FILLER2 = "******************************";
-    REP-EOFNOF.WS-80-VAR = " NO DATA TO REPORT *";
-    SR-80REP-RECCALL.UFIELD = REP-EOFNOF.WS-80-END;
-
-  /* perform write sequential record*/
-    WR-80REP-OUT-CALL();
-    return;
+Function AIN98PX9-INTL-RTN()
+  /* To return control back to program if hard error occurs*/
+  VGVar.handleHardIOErrors = 1;
+  /* process to initialize all additional records*/
+  AIN98PX9-SET-EMPTY();
+  /* Determin the envifonment*/
+  set H-TCDTS1 empty;
+  H-TCDTS1.CODE-TBL-TYP = "ENVIRONS";
+  H-TCDTS1.CODE-TBL-CD = "ENV";
+  call "TCDTS1A"(VDBCONTROL, VMESSAGE, H-TCDTS1);
+  if(VDBCONTROL.URC > 104)
+      exit program;
   end
-  /* cbsi end*/
-end // end AIN55P9-INIT-PARA
-
-
-// INITIALISE CONSTANTS
-Function AIN55P9-INITCON()
-  /* cbsi start*/
-  /* ************************************************************************/
-  /* This process is to initialise all the report constants*/
-  /* ************************************************************************/
-  /* this process intialises all the reports constants*/
-  AIN55W-HEAD.CONSTANT1 = "PAGE-NBR";
-  AIN55W-HEAD.FILLER1 = " ";
-  AIN55W-HEAD.FILLER2 = " ";
-  AIN55W-HEAD.CONSTANT2 = "STATE";
-  AIN55W-HEAD.FILLER3 = " ";
-  AIN55W-HEAD.CONSTANT3 = "OF";
-  AIN55W-HEAD.FILLER4 = " ";
-  AIN55W-HEAD.CONSTANT4 = "NEVADA";
-  AIN55W-HEAD.FILLER5 = " ";
-  AIN55W-HEAD.CONSTANT5 = "DATE";
-  AIN55W-HEAD.FILLER6 = " ";
-  AIN55W-HEAD.FILLER7 = " ";
-  AIN55W-HEAD.FILLER8 = " ";
-  AIN55W-HEAD.CONSTANT6 = "TIME";
-  AIN55W-HEAD.FILLER9 = " ";
-  AIN55W-DET.FILLER1 = " ";
-  AIN55W-DET.FILLER2 = " ";
-  AIN55W-DET.FILLER3 = " ";
-  AIN55W-DET.FILLER4 = " ";
-  AIN55W-DET.FILLER5 = " ";
-  AIN55W-DET.FILLER6 = " ";
-  AIN55W-DET.FILLER7 = " ";
-  AIN55W-DET.FILLER8 = " ";
-  AIN55W-DET.FILLER9 = " ";
-  AIN55W-DET.FILLER10 = " ";
-  AIN55W-DET.FILLER11 = " ";
-  AIN55W-DET.FILLER12 = " ";
-  AIN55W-DET.CONSTANT1 = "NO OF RECORDS           :";
-  AIN55W-DET.CONSTANT2 = "NO OF RECORDS PROCESSED :";
-  AIN55W-DET.CONSTANT3 = "NO OF RECORDS SKIPPED   : ";
-  AIN55W-HEAD.S-APPL-ID = "AIN55A";
-  /* cbsi end*/
-end // end AIN55P9-INITCON
-
-
-// REPORTS MAIN PARA
-Function AIN55P9-MAIN()
-  /* cbsi start*/
-  /* ************************************************************************/
-  /* This program has main control over this application*/
-  /* initailises all the report variables*/
-  /* prints ths report*/
-  /* closes the application*/
-  /* ************************************************************************/
-  /* PERFORM PROCESS TO INITIALISE VARIABLES*/
-
-  AIN55P9-INIT-PARA();
-
-  /* PERFORM PROCESS TO PRINT REPORT*/
-
-  AIN55P9-PRINT-PARA();
-
-  /* closes the application*/
-  exit program;
-  /* cbsi end*/
-end // end AIN55P9-MAIN
-
-
-// POPULATING REPORTS DETAILS
-Function AIN55P9-POP-DET()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* **/
-  /* This process is to format and move the retrieved values to the report*/
-  /* variables*/
-  /* concatinates some variables using wst50a*/
-  /* uses a common reports process format-proc*/
-  /* sets all the flags to format the report variable*/
-  /* ***********************************************************************/
-  /* **/
-  if (SR-AININT-CTRL-FIL.AININT-CNT-NO-RECS != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = SR-AININT-CTRL-FIL.AININT-CNT-NO-RECS;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN55W-DET.S-NO-OF-RECORDS = FORMATW.OUTPUT-CHAR;
-  else
-    AIN55W-DET.S-NO-OF-RECORDS = "      0";
+  if(VDBCONTROL.URC == 0)
+      AIN98WS.WS-ENV = H-TCDTS1.CODE-DESC;
   end
-
-  if (SR-AININT-CTRL-FIL.AININT-CNT-REC-PRO != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = SR-AININT-CTRL-FIL.AININT-CNT-REC-PRO;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN55W-DET.S-NO-OF-REC-PROCESSED = FORMATW.OUTPUT-CHAR;
-  else
-    AIN55W-DET.S-NO-OF-REC-PROCESSED = "      0";
-  end
-  if (SR-AININT-CTRL-FIL.AININT-CNT-REC-SKIP != 0)
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = SR-AININT-CTRL-FIL.AININT-CNT-REC-SKIP;
-    FORMATW.LENGTH = 7;
-    FORMATW.FORMAT-FLAG = "N";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN55W-DET.S-NO-OF-REC-SKIPPED = FORMATW.OUTPUT-CHAR;
-  else
-    AIN55W-DET.S-NO-OF-REC-SKIPPED = "      0";
-  end
-  /* CBSI END*/
-end // end AIN55P9-POP-DET
-
-
-// PROCESS TO PRINT THE REPORT
-Function AIN55P9-PRINT-PARA()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the report*/
-  /* 1.prints the no data to report if there is no data*/
-  /* 2.performs the additional processing process*/
-  /* ***********************************************************************/
-  /*  */
-  /* WI 15471     11/20/98        D.KOON    BEGIN*/
-  /* Change the IF to WHILE so that all control records are read and*/
-  /* written to a report and add a read for the next record.*/
-  /*  */
-  while (SR-AININT-CTRL-FIL not endOfFile)
-  /* IF SR-AININT-CTRL-FIL NOT EOF;*/
-   /* PRINT HEADER  AT THE START OF A NEW PAGE*/
-
-      /* PRINT THE HEADER DETAILS*/
-
-    AIN55P9-PRN-HEAD();
-
-       /* RESET NEW PAGE INDICATOR*/
-
-    /* PERFORM PROCESS TO POPULATE THE DETAILS*/
-
-    AIN55P9-POP-DET();
-    /* PERFORM PROCESS TO PRINT THE DETAILS*/
-
-    AIN55P9-PRN-DETAIL();
-      /* print end of report condition*/
-    SR-80REP-RECCALL.PRNT-CC = "0";
-    REP-EOFNOF.WS-80-FILLER1 = "******************************";
-    REP-EOFNOF.WS-80-FILLER2 = "******************************";
-    REP-EOFNOF.WS-80-VAR = "  END OF REPORT    *";
-    SR-80REP-RECCALL.UFIELD = REP-EOFNOF.WS-80-END;
-
-  /* perform write sequential record*/
-    WR-80REP-OUT-CALL();
-
-  /* perform read the next control record*/
-    AIN55P9-SCAN();
-    REP-COMMON.WS-PAGE-NO = REP-COMMON.WS-PAGE-NO + 1;
-  /*  */
-  /* WI 15471        END*/
-  end
-  /* cbsi end*/
-end // end AIN55P9-PRINT-PARA
-
-
-// to print the detail line
-Function AIN55P9-PRN-DETAIL()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the detail record*/
-  /* uses the common process to print the record*/
-  /* ***********************************************************************/
-  SR-80REP-RECCALL.PRNT-CC = "-";
-  SR-80REP-RECCALL.UFIELD = AIN55W-DET.LINE1;
-  WR-80REP-OUT-CALL();
-  SR-80REP-RECCALL.PRNT-CC = " ";
-  SR-80REP-RECCALL.UFIELD = AIN55W-DET.LINE2;
-  WR-80REP-OUT-CALL();
-  SR-80REP-RECCALL.PRNT-CC = " ";
-  SR-80REP-RECCALL.UFIELD = AIN55W-DET.LINE3;
-  WR-80REP-OUT-CALL();
-  SR-80REP-RECCALL.PRNT-CC = " ";
-  SR-80REP-RECCALL.UFIELD = AIN55W-DET.LINE4;
-  WR-80REP-OUT-CALL();
-  SR-80REP-RECCALL.PRNT-CC = " ";
-  SR-80REP-RECCALL.UFIELD = AIN55W-DET.LINE5;
-  WR-80REP-OUT-CALL();
-  SR-80REP-RECCALL.PRNT-CC = " ";
-  SR-80REP-RECCALL.UFIELD = AIN55W-DET.LINE6;
-  WR-80REP-OUT-CALL();
-  /* CBSI END*/
-end // end AIN55P9-PRN-DETAIL
-
-
-// process is to print the header
-Function AIN55P9-PRN-HEAD()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* This process is to print the header record*/
-  /* sets the page number*/
-  /* sets the control character*/
-  /* uses the common process to print the record*/
-  /* resets the control character*/
-  /* ***********************************************************************/
-  /* SET DATE AND TIME STANDARD HEADER FIELDS*/
+  /* set standard header variables*/
   call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  REP-COMMON.WS-DT = GDW.DTL;
+  REP-COMMON.WS-DT = GDW.DTL; /* current date*/
   REP-COMMON.WS-YEAR = REP-COMMON.WS-YY;
   REP-COMMON.WS-MONTH = REP-COMMON.WS-MM;
   REP-COMMON.WS-DAY = REP-COMMON.WS-DD;
   REP-COMMON.WS-F1 = "/";
   REP-COMMON.WS-F2 = "/";
-  AIN55W-HEAD.U-DATE = REP-COMMON.WS-DATE;
-  AIN55W-HEAD.U-TIME = VGVar.currentFormattedTime;
-  AIN55W-HEAD.U-PAGE-NBR = REP-COMMON.WS-PAGE-NO;
-  AIN55W-HEAD.S-APPL-ID = "AIN55A";
-  /* MOVE EACH LINE OF HEADER TO MAP AND PRINT IT*/
-  SR-80REP-RECCALL.PRNT-CC = " ";
-  SR-80REP-RECCALL.UFIELD = AIN55W-HEAD.LINE1;
-  WR-80REP-OUT-CALL();
-  SR-80REP-RECCALL.PRNT-CC = " ";
-  AIN55P9-TITLE-PARA();
-  SR-80REP-RECCALL.UFIELD = AIN55W-HEAD.LINE2;
-  WR-80REP-OUT-CALL();
-  /* cbsi end*/
-end // end AIN55P9-PRN-HEAD
+  /* get the bdaterec*/
+  AIN98PX9-READIP-RTN();
+  AIN98WS.WS-MTH-BEG-CCYY = AIN98WS.WS-RPT-CCYY;
+  AIN98WS.WS-MTH-BEG-MM = AIN98WS.WS-RPT-MM;
+  AIN98WS.WS-MTH-BEG-DD = 01;
+  AIN98WS.WS-HASH7 = "-";
+  AIN98WS.WS-HASH8 = "-";
+  AIN98WS.WS-MTH-END-CCYY = AIN98WS.WS-RPT-CCYY;
+  AIN98WS.WS-MTH-END-MM = AIN98WS.WS-RPT-MM;
+  AIN98WS.WS-MTH-END-DD = 0;
+  AIN98WS.WS-HASH9 = "-";
+  AIN98WS.WS-HASH10 = "-";
+  AIN98WS.WS-REC-OUT = 0;
+  AIN98PX9-LEAP-CHK();
+  AIN98PX9-VALIDATE();
+  AIN98PX9-DETR-AGE();
+  SysLib.writeStdout("******** AIN98A START ********" );
+  SysLib.writeStdout(" " );
+  SysLib.writeStdout("AIN98A INPUT DATE......: " + AIN98WS.WS-TOPREC);
+  SysLib.writeStdout("AIN98A BEGIN DATE......: " + AIN98WS.WS-MTH-BEG-DATE);
+  SysLib.writeStdout("AIN98A END DATE........: " + AIN98WS.WS-MTH-END-DATE);
+  SysLib.writeStdout("AIN98A RPT-CCYY........: " + AIN98WS.WS-RPT-CCYY);
+  SysLib.writeStdout("AIN98A RPT-MM..........: " + AIN98WS.WS-RPT-MM);
+  SysLib.writeStdout("AIN98A 22 YEAR DOB DATE: " + AIN98WS.WS-22YR-DOB-DT);
+end // end AIN98PX9-INTL-RTN
 
 
-// PROCESS TO READ INPUT FILE
-Function AIN55P9-SCAN()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* **/
-  /* This porcess is to read the input file*/
-  /* ***********************************************************************/
-  /* **/
-  VGVar.handleHardIOErrors = 1;
-  VDBCONTROL.UPROC-NM = "AIN55P9-READIP";
-  VDBCONTROL.UPROC-OBJ = "SR-AININT-CTRL-FIL";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  try
-    get next SR-AININT-CTRL-FIL ;
+// leap year check
+Function AIN98PX9-LEAP-CHK()
+  /* calculate the last day of the month*/
+  if (AIN98WS.WS-RPT-MM == 01 || 
+  AIN98WS.WS-RPT-MM == 03 || 
+  AIN98WS.WS-RPT-MM == 05 || 
+  AIN98WS.WS-RPT-MM == 07 || 
+  AIN98WS.WS-RPT-MM == 08 || 
+  AIN98WS.WS-RPT-MM == 10 || 
+  AIN98WS.WS-RPT-MM == 12)
+    AIN98WS.WS-MTH-END-DD = 31;
   end
-  /* cbsi start*/
-  if (((SR-AININT-CTRL-FIL is ioError) && 
-  (SR-AININT-CTRL-FIL not endOfFile)))
-    /* ** Changes due to PTR # 11840 - start ****/
-    VMESSAGE.UMSGINS[2] = "AIN55A";
-    AIN55W.WS-ERR-CD = sysVar.errorCode;
-    VMESSAGE.UMSGINS[1] = AIN55W.WS-ERR-LAST-FOUR;
+  if (AIN98WS.WS-RPT-MM == 04 || 
+  AIN98WS.WS-RPT-MM == 06 || 
+  AIN98WS.WS-RPT-MM == 09 || 
+  AIN98WS.WS-RPT-MM == 11)
+    AIN98WS.WS-MTH-END-DD = 30;
+  end
+
+  /* Check for LEAP YEAR*/
+  /* Years divisible by 4 is a LEAP YEAR;  But every 100th year is not a*/
+  /* LEAP YEAR; But every 400th year is a LEAP YEAR*/
+  REP-COMMON.WS-YYYY = AIN98WS.WS-RPT-CCYY;
+
+  if (AIN98WS.WS-RPT-MM == 02)
+    REP-COMMON.WS-REM1 = REP-COMMON.WS-YYYY % 4;
+    REP-COMMON.WS-REM2 = REP-COMMON.WS-YYYY % 100;
+    REP-COMMON.WS-REM3 = REP-COMMON.WS-YYYY % 400;
+    if (REP-COMMON.WS-REM1 != 0)
+      REP-COMMON.WS-LEAP-FLAG = "N";
+    else
+      REP-COMMON.WS-LEAP-FLAG = "Y";
+      if (REP-COMMON.WS-REM2 == 0)
+        REP-COMMON.WS-LEAP-FLAG = "N";
+        if (REP-COMMON.WS-REM3 == 0)
+          REP-COMMON.WS-LEAP-FLAG = "Y";
+        end
+      end
+    end
+    if (REP-COMMON.WS-LEAP-FLAG == "Y")
+      AIN98WS.WS-MTH-END-DD = 29;
+    else
+      AIN98WS.WS-MTH-END-DD = 28;
+    end
+  end
+end // end AIN98PX9-LEAP-CHK
+
+
+// PROCESS MAIN LINE
+Function AIN98PX9-MAIN()
+  AIN98PX9-INTL-RTN();
+  AIN98PX9-APPLSPEC();
+end // end AIN98PX9-MAIN
+
+// MOVE DATA FIELDS TO EXTR
+Function AIN98PX9-MOVE-DATA()
+  /* ********************************************************************/
+  /* PROCESS TO MOVE EXTRACT DATA TO EXTRACT RECORD*/
+  /* ********************************************************************/
+
+  SLX-RECORD = " ";
+
+  /* ********************************************************************/
+  /* POPULATE STUDENT UPI*/
+  /* ********************************************************************/
+
+  SLX-STDNT-UPI = AIN98WS.WS-STDNT-UPI; 
+  
+  /* ************************************************************************/
+  /* POPULATE CHILD-NAME*/
+  /* ************************************************************************/
+
+  SLX-LST-NAME = AIN98WS.WS-LST-NM;
+  SLX-FST-NAME = AIN98WS.WS-FRST-NM;
+  SLX-MID-NAME = AIN98WS.WS-MID-NM;
+
+  /* ************************************************************************/
+  /* POPULATE CHILD-DOB*/
+  /* ************************************************************************/
+
+  if (AIN98WS.WS-CC < "20")
+
+    SLX-DOBCENT = "19";
+
+  else
+
+    SLX-DOBCENT = "20";
+
+  end
+
+  SLX-DOBYY = AIN98WS.WS-YY;
+  SLX-DOBMM = AIN98WS.WS-MM;
+  SLX-DOBDD = AIN98WS.WS-DD;
+
+  /* ************************************************************************/
+  /* POPULATE HOH-UPI*/
+  /* ************************************************************************/
+
+  SLX-HOH-UPI = AIN98WS.WS-APPL-UPI;
+  
+  /* ************************************************************************/
+  /* POPULATE HOH-NAME*/
+  /* ************************************************************************/
+
+  SLX-HOH-LST-NAME = AIN98WS.WS-HOH-LST-NM;
+  SLX-HOH-FST-NAME = AIN98WS.WS-HOH-FRST-NM;
+  SLX-HOH-MID-NAME = AIN98WS.WS-HOH-MID-NM;
+
+  /* ************************************************************************/
+  /* POPULATE RESIDENTIAL ADDRESS-1*/
+  /* ************************************************************************/
+
+   AIN98WS.WS-ADDR-TYPE  = "CR";
+
+   if (AIN98WS.WS-APPL-UPI != AIN98WS.WS-HOH-UPI
+       && AIN98WS.WS-APPL-UPI != 0)
+
+       AIN98WS.WS-LKUP-UPI = AIN98WS.WS-APPL-UPI;
+
+       AIN98QX4-S04();
+
+   else
+
+       AIN98WS.WS-LKUP-UPI = AIN98WS.WS-HOH-UPI;
+
+       AIN98QX4-S04();
+   end
+   
+   if (AIN98WS.WS-MAIN-URC != 0 ||
+   		(AIN98WS.WS-STR-NM == "" &&
+   		AIN98WS.WS-HOUSE-NMB == ""&&
+   		AIN98WS.WS-OTHER-ADDR == ""))
+   	  AIN98WS.WS-ADDR-TYPE  = "RA";
+
+      if (AIN98WS.WS-APPL-UPI != AIN98WS.WS-HOH-UPI
+         && AIN98WS.WS-APPL-UPI != 0)
+
+         AIN98WS.WS-LKUP-UPI = AIN98WS.WS-APPL-UPI;
+
+         AIN98QX4-S04();
+
+      else
+
+        AIN98WS.WS-LKUP-UPI = AIN98WS.WS-HOH-UPI;
+
+        AIN98QX4-S04();
+      end
+   end
+   
+   if (AIN98WS.WS-MAIN-URC != 0 ||
+   		(AIN98WS.WS-STR-NM == "" &&
+   		AIN98WS.WS-HOUSE-NMB == "" &&
+   		AIN98WS.WS-OTHER-ADDR == ""))
+      AIN98WS.WS-ADDR-TYPE  = "BI";
+
+      if (AIN98WS.WS-APPL-UPI != AIN98WS.WS-HOH-UPI
+         && AIN98WS.WS-APPL-UPI != 0)
+
+        AIN98WS.WS-LKUP-UPI = AIN98WS.WS-APPL-UPI;
+
+        AIN98QX4-S04();
+
+      else
+
+        AIN98WS.WS-LKUP-UPI = AIN98WS.WS-HOH-UPI;
+
+        AIN98QX4-S04();
+      end
+   end
+
+  VSTRREC4.USTRING = AIN98WS.WS-HOUSE-NMB;
+  VSTRREC4.UCONCAT = AIN98WS.WS-STR-DIR;
+  VSTRREC4.UCONCAT2 = AIN98WS.WS-STR-NM;
+  VSTRREC4.UCONCAT3 = AIN98WS.WS-STR-TYPE;
+  VSTRREC4.USTRLEN = 8;
+  VSTRREC4.UCONLEN = 2;
+  VSTRREC4.UCONLEN2 = 25;
+  VSTRREC4.UCONLEN3 = 4;
+
+  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
+
+  AIN98WS.WS-TEST-ADDR = VSTRREC4.USTRING;
+
+  set VSTRREC4 empty;
+
+  VSTRREC4.USTRING = AIN98WS.WS-OTHER-ADDR;
+  VSTRREC4.UCONCAT = AIN98WS.WS-TEST-ADDR;
+  VSTRREC4.UCONCAT2 = AIN98WS.WS-APT-NMB;
+  VSTRREC4.USTRLEN = 25;
+  VSTRREC4.UCONLEN = 40;
+  VSTRREC4.UCONLEN2 = 5;
+
+  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
+
+  AIN98WS.WS-50CH-ADDR = VSTRREC4.USTRING;
+
+  set VSTRREC4 empty;
+
+  AIN98WS.WS-TMP-ADDR = AIN98WS.WS-50CH-ADDR;
+
+  AIN98PX9-COUNT-CHAR();
+
+  AIN98WS.WS-CONCAT-ADDR = " ";
+
+  AIN98PX9-ELIM-SPACE();
+
+  SLX-RES-ADDR = AIN98WS.WS-CONCAT-ADDR;
+
+
+  /* ************************************************************************/
+  /* POPULATE CITY*/
+  /* ************************************************************************/
+
+  SLX-RES-CITY = AIN98WS.WS-CITY;
+
+  /* ************************************************************************/
+  /* POPULATE STATE*/
+  /* ************************************************************************/
+
+	SLX-RES-STATE = AIN98WS.WS-ST-CD;
+
+  /* ************************************************************************/
+  /* POPULATE ZIP-CD*/
+  /* ************************************************************************/
+
+  SLX-RES-ZIP9L = AIN98WS.WS-ZIP9L;
+
+  AIN98QX4-RSDN-CNTY();
+  
+  SLX-RSDN-CNTY-CD = AIN98WS.WS-RSDN-CNTY-CD;
+
+  AIN98WS.WS-ADDR-TYPE  = "CM";
+
+  if (AIN98WS.WS-APPL-UPI != AIN98WS.WS-HOH-UPI
+   && AIN98WS.WS-APPL-UPI != 0)
+
+    AIN98WS.WS-LKUP-UPI = AIN98WS.WS-APPL-UPI;
+
+    AIN98QX4-S04();
+
+  else
+
+    AIN98WS.WS-LKUP-UPI = AIN98WS.WS-HOH-UPI;
+
+    AIN98QX4-S04();
+
+  end
+
+  if (AIN98WS.WS-MAIN-URC != 0)
+   AIN98WS.WS-ADDR-TYPE  = "MA";
+
+   if (AIN98WS.WS-APPL-UPI != AIN98WS.WS-HOH-UPI
+   && AIN98WS.WS-APPL-UPI != 0)
+
+    AIN98WS.WS-LKUP-UPI = AIN98WS.WS-APPL-UPI;
+
+    AIN98QX4-S04();
+
+   else
+
+    AIN98WS.WS-LKUP-UPI = AIN98WS.WS-HOH-UPI;
+
+    AIN98QX4-S04();
+   end
+  end
+  
+  if (AIN98WS.WS-MAIN-URC == 0) 
+  /* IF EZESQCOD = 0;*/
+    AIN98PX9-MAIL-ADDR-1();
+  else
+//  if (AIN98WS.WS-MAIN-URC != 0)
+    AIN98PX9-MAIL-ADDR-2();
+  end
+  
+  /* ************************************************************************/
+  /* SET CREATE DATE TO DATE AT TIME OF EXECUTION*/
+  /* ************************************************************************/
+
+  SLX-CCYY-OF-RUN = REP-COMMON.WS-CCYY;
+  SLX-MM-OF-RUN = REP-COMMON.WS-MM;
+  SLX-DD-OF-RUN = REP-COMMON.WS-DD;
+  SLX-DASH-1 = "-";
+  SLX-DASH-2 = "-";
+
+  /* ************************************************************************/
+  /* POPULATE SEX-CODE*/
+  /* ************************************************************************/
+
+  SLX-SEX-CD = AIN98WS.WS-SEX-CD;
+  case(AIN98WS.WS-ELIG-CD)
+        when("1")
+            SLX-CERT-TYPE = "S";
+            SLX-ELIGIBILITY = "F";
+        when("2") 
+            SLX-CERT-TYPE = "T";
+            SLX-ELIGIBILITY = "F";
+        when("3")
+            SLX-CERT-TYPE = "T";
+            SLX-ELIGIBILITY = "F";
+        when("4")
+            SLX-CERT-TYPE = "M";
+            SLX-MEDICAL-MAGI = "Y";
+            AIN98PX9-ELIGIBILITY();
+			if (AIN98WS.WS-AID-CD[1:2] == "NC")
+           		SLX-ELIGIBILITY = "N";
+			end
+        when("5")
+            SLX-CERT-TYPE = "M";
+            SLX-MEDICAL-MAGI = "N";
+            AIN98PX9-ELIGIBILITY();
+  			if (AIN98WS.WS-ENV != "NOMADS")
+  				SysLib.writeStdout(" " );
+  				SysLib.writeStdout("AIN98A NOMADS TEST " );
+  				SysLib.writeStdout("AIN98A ICI:             " + AIN98WS.WS-ICI);
+  				SysLib.writeStdout("AIN98A APPL UPI:        " + AIN98WS.WS-APPL-UPI);
+  				SysLib.writeStdout("AIN98A WS-HOH-UPI:      " + AIN98WS.WS-HOH-UPI);
+  				SysLib.writeStdout("AIN98A WS-AID-CD:       " + AIN98WS.WS-AID-CD);
+  				SysLib.writeStdout("AIN98A BU NEED COUNT:   " + WS-BU-NEED-COUNT);
+  				SysLib.writeStdout("AIN98A NET INCOME:      " + WS-NET-INCM-AMT);
+  				SysLib.writeStdout("AIN98A GROSS COUNTABLE: " + WS-GROSS-COUNTABLE-INCOME);
+
+  			end
+            if (AIN98WS.WS-AID-CD == "AD3" ||
+                AIN98WS.WS-AID-CD == "AD9" ||
+                AIN98WS.WS-AID-CD == "EM2" || 
+                AIN98WS.WS-AID-CD == "EM3" ||
+                AIN98WS.WS-AID-CD == "EM4" ||
+                AIN98WS.WS-AID-CD == "EM8" ||
+                AIN98WS.WS-AID-CD == "EM9" ||
+                AIN98WS.WS-AID-CD == "KB3" ||
+                AIN98WS.WS-AID-CD == "KB9")
+            else
+            		SLX-ELIGIBILITY = "N";
+            if (AIN98WS.WS-ENV != "NOMADS")
+  				SysLib.writeStdout(" " );
+  				SysLib.writeStdout("AIN98A ELIGIBILITY FAILED " );
+  				SysLib.writeStdout("AIN98A MAABD AID CODE NOT AD 3/9, EM 2/3/9, KB 3/9");
+			end
+            end
+        otherwise
+            return;
+  end
+  /* ************************************************************************/
+  /* POPULATE PHONE #*/
+  /* ************************************************************************/
+
+  
+  AIN98WS.WS-LKUP-UPI = AIN98WS.WS-APPL-UPI;
+
+  AIN98QX2-S02();
+
+  if (AIN98WS.WS-MAIN-URC == 0)
+  	SLX-CL-PHN-NMB = H2-PERSON.CELL-PHN-NMB;
+  	SLX-EMAIL = H2-PERSON.EMAIL-ID;
+    SLX-HM-PHN-NMB = H2-PERSON.HM-PHN-NMB;
+    SLX-MSG-PHN-NMB = H2-PERSON.MSG-PHN-NMB;
+  end
+
+  
+  /*  */
+end // end AIN98PX9-MOVE-DATA
+
+// READ INPUT RECORD
+Function AIN98PX9-READIP-RTN()
+  /* ***********************************************************/
+  /* This process to Read the input file and validate the*/
+  /* record to check for numeric field*/
+  /* ***********************************************************/
+  /* -----------------------------------------------------------*/
+  /* THE DATE PARM MUST REPRESENT THE YEAR MONTH DAY*/
+  /* -----------------------------------------------------------*/
+  VDBCONTROL.UPROC-NM = "AIN98A-READIP-RTN";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "SR-AIN98-RECIN";
+  try
+    get next SR-AIN98-RECIN ;
+  end
+  /* check if any i/o error has occured*/
+  if (SR-AIN98-RECIN is ioError && SR-AIN98-RECIN not endOfFile)
+    VMESSAGE.UMSGINS[2] = "AIN98A";
+    VMESSAGE.UMSGCODE = sysVar.errorCode;
+    AIN98WS.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN98WS.WS-ERR-LAST-FOUR;
     VDBCONTROL.UEZESQRRM = "INPUT PARAMETER FILE - I/O ERROR";
-    /* PERFORM WCM00P2-TO-CEP01A;*/
-    /* ** Changes due to PTR # 11840 - end   ****/
-    WEZERT8-TO-URC();
-    /* MOVE VDBCONTROL.URC TO VMESSAGE.UMSGCODE;*/
+    WCM00P2-TO-CEP01A();
+  end
+  if (SR-AIN98-RECIN is endOfFile)
+    VMESSAGE.UMSGCODE = "AIN9802E";
+    VMESSAGE.UMSGINS[2] = "AIN98A";
+    VDBCONTROL.UEZESQRRM = "MISSING INPUT PARAMETER - DATE";
+    WCM00P2-TO-CEP01A();
     exit program;
   end
-  /* cbsi end*/
-end // end AIN55P9-SCAN
+  /* check for numeric field*/
+  /* if not prints invalid input*/
+  if ((SR-AIN98-RECIN.PI1-LST-MTH-YR not numeric))
+    VMESSAGE.UMSGCODE = "AIN9802E";
+    VMESSAGE.UMSGINS[2] = "AIN98A";
+    VDBCONTROL.UEZESQRRM = "NON-NUMERIC PARAMETER - DATE";
+    WCM00P2-TO-CEP01A();
+    exit program;
+  end
+  /* move input param to your working stoage*/
+  /* to convert char input to num input*/
+  AIN98WS.WS-TOPREC = SR-AIN98-RECIN.TOPREC;
+  move WS-RPT-CCYY to WS-RPT-Y withV60Compat;
+  move WS-RPT-MM to WS-RPT-M withV60Compat;
+  move WS-RPT-DD to WS-RPT-D withV60Compat;
+  WS-DASH1 = "-";
+  WS-DASH2 = "-";
+end // end AIN98PX9-READIP-RTN
 
+// CLEAR ALL RECORDS
+Function AIN98PX9-SET-EMPTY()
+  /* *******************************************************************/
+  /* process to initialize all records                */
+  /* *******************************************************************/
+  set P-DATE-REC3 empty;
+  set REP-COMMON empty;
+  set REP-EOFNOF empty;
+  set VMESSAGE empty;
+  set CEP01W empty;
+  set VDBCONTROL empty;
+  set VDBCOMMON empty;
+  set FORMATW empty;
+  set AIN98WS empty;
+  set SR-AIN98-RECIN empty;
+  set BDATEREC empty;
+  set H2-5-EVREVM-PERFMC empty;
+  set SCHLNCH empty;
+end // end AIN98PX9-SET-EMPTY
 
-// MV REP  TITLE OF CALLING APPL
-Function AIN55P9-TITLE-PARA()
-  /* cbsi start*/
-  /* ***********************************************************************/
-  /* **/
-  /* This process is to move the appropriate headings to the report*/
-  /* It depends on the application which is calling this appl*/
-  /* Because it is a control report*/
-  /* ***********************************************************************/
-  /* **/
+// VALIDATES  INPUT  PARAMETERS
+Function AIN98PX9-VALIDATE()
+  /* check for month & year validation*/
+  if ((AIN98WS.WS-RPT-MM < 1 || 
+  AIN98WS.WS-RPT-MM > 12) || 
+  AIN98WS.WS-RPT-CCYY < 1900)
+    VMESSAGE.UMSGINS[2] = "AIN98A";
+    VDBCONTROL.UEZESQRRM = "INVALID DATE PARAMETER ";
+    WCM00P2-TO-CEP01A();
+    exit program;
+  end
+end // end AIN98PX9-VALIDATE
 
+// WRITE THE EXTRACT RECORD
+Function AIN98PX9-WRITE-EXTR()
+  try
+    add SCHLNCH ;
+  end
   /*  */
-  /* WI 15471    11/20/98   D.KOON   BEGIN COMMENT*/
-  /* Change ESD title to show which type of control record is being*/
-  /* written to the report.*/
-  /* WI 15471      END COMMENT*/
-  /*  */
-  /* control file processing*/
-  if (AIN55W.WS-PRG-NAME == "AIN23A")
-  /* report title for ain23a*/
-    AIN55W-HEAD.S-REPORT-TITLE = " SSI(SDX) BENEFITS LISTING ";
+  /* Check for ABEND.*/
+  if (SCHLNCH is ioError)
+    VDBCONTROL.UPROC-NM = "AIN98PX9-WRITE-EXTR";
+    VDBCONTROL.UPROC-OBJ = "SCHLNCH";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    VMESSAGE.UMSGINS[2] = "AIN98A";
+    AIN98WS.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN98WS.WS-ERR-LAST-FOUR;
+  /* MOVE 'WRITE ON OUTPUT RECORD FAILED'*/
+  /* TO VDBCONTROL.UEZESQRRM;*/
+
+    VDBCONTROL.UMSQLCODE = 0;
+    WCM00P2-TO-CEP01A();
+  end
+  AIN98WS.WS-REC-OUT = AIN98WS.WS-REC-OUT + 1;
+end // end AIN98PX9-WRITE-EXTR
+
+// GET SCHOOL RECORDS
+Function AIN98QX1-S01()
+  /* *********************************************************/
+  /* process to set cursor to fetch SCHOOL RECORDS*/
+  /* *********************************************************/
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN98A";
+  VDBCOMMON.USQLREC = "H2-5-EVREVM-PERFMC";
+  VDBCONTROL.UPROC-NM = "AIN98Q1-S01";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCONTROL.UPROC-OBJ = "H2-5-EVREVM-PERFMC";
+  try
+    open AIN98Q1-S01_RSI01
+      with #sql{  SELECT T1.BNFT_YR
+        ,T1.BNFT_MTH
+        ,T1.PRGM_CASE_TYPE
+        ,T1.VER_NMB
+        ,T1.MTD_ENTLM_AMT
+        ,CASE WHEN TC.PRGM = 'FS' THEN '1'
+              WHEN TC.PRGM = 'TC' THEN '2'
+              WHEN TC.PRGM = 'TN' THEN '3'
+              WHEN TC.PRGM = 'AF' THEN '4'
+              WHEN TC.PRGM = 'MA' THEN '5'
+          END AS ELIG_CD
+        ,T1.ICI
+        ,T2.UPI
+        ,T2.AID_CD
+        ,T2.LST_BU_CNSD
+        ,T3.DOB
+        ,T3.SEX_CD
+        ,T3.FRST_NM
+        ,T3.MID_NM
+        ,T3.LST_NM
+        ,T3.MRGD_IND
+        ,T4.APPL_UPI
+        ,T4.HOH_UPI
+        ,T5.FRST_NM AS HOH_FRST_NM
+        ,T5.MID_NM AS HOH_MID_NM
+        ,T5.LST_NM AS HOH_LST_NM
+
+  FROM
+     (SELECT TB.BNFT_YR
+            ,TB.BNFT_MTH
+            ,CASE WHEN TB.FS_ELIG <> 0 THEN 'FS'
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG <> 0) THEN 'TC'
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG <> 0) THEN 'TN'
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG = 0 AND TB.AF_ELIG <> 0) THEN 'AF'
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG = 0 AND TB.AF_ELIG = 0 AND TB.MA_ELIG <> 0) THEN 'MA'
+             END AS PRGM
+            ,CASE WHEN TB.FS_ELIG <> 0 THEN TB.FS_ELIG
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG <> 0) THEN TB.TC_ELIG
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG <> 0) THEN TB.TN_ELIG
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG = 0 AND TB.AF_ELIG <> 0) THEN TB.AF_ELIG
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG = 0 AND TB.AF_ELIG = 0 AND TB.MA_ELIG <> 0) THEN TB.MA_ELIG
+             END AS PRGM_ELIG
+            ,CASE WHEN TB.FS_ELIG <> 0 THEN TB.FS_ICI
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG <> 0) THEN TB.TC_ICI
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG <> 0) THEN TB.TN_ICI
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG = 0 AND TB.AF_ELIG <> 0) THEN TB.AF_ICI
+                  WHEN (TB.FS_ELIG = 0 AND TB.TC_ELIG = 0 AND TB.TN_ELIG = 0 AND TB.AF_ELIG = 0 AND TB.MA_ELIG <> 0) THEN TB.MA_ICI
+             END AS PRGM_ICI
+            ,TB.UPI
+            ,TB.DOB
+            ,TB.FS_ICI
+            ,TB.TC_ICI
+            ,TB.TN_ICI
+            ,TB.AF_ICI
+            ,TB.MA_ICI
+            ,TB.FS_ELIG
+            ,TB.TC_ELIG
+            ,TB.TN_ELIG
+            ,TB.AF_ELIG
+            ,TB.MA_ELIG
+
+      FROM
+         (SELECT TA.BNFT_YR
+                ,TA.BNFT_MTH
+                ,TA.UPI
+                ,TA.DOB
+                ,MIN(TA.FS_ICI) AS FS_ICI
+                ,MIN(TA.TC_ICI) AS TC_ICI
+                ,MIN(TA.TN_ICI) AS TN_ICI
+                ,MIN(TA.AF_ICI) AS AF_ICI
+                ,MIN(TA.MA_ICI) AS MA_ICI
+                ,SUM(FS_ELIG) AS FS_ELIG
+                ,SUM(TC_ELIG) AS TC_ELIG
+                ,SUM(TN_ELIG) AS TN_ELIG
+                ,SUM(AF_ELIG) AS AF_ELIG
+                ,SUM(MA_ELIG) AS MA_ELIG
+           FROM
+             (SELECT T2.BNFT_YR
+                    ,T2.BNFT_MTH
+                    ,T2.UPI
+                    ,T3.DOB
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'FS'
+                          AND T1.MTD_ENTLM_AMT > 0
+                          THEN T2.ICI END AS FS_ICI
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'TC'
+                          THEN T2.ICI END AS TC_ICI
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'TN'
+                          THEN T2.ICI END AS TN_ICI
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'AF'
+                          THEN T2.ICI END AS AF_ICI
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'MA'
+                          THEN T2.ICI END AS MA_ICI
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'FS'
+                          AND T1.MTD_ENTLM_AMT > 0
+                          THEN 1 ELSE 0 END AS FS_ELIG
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'TC'
+                          THEN 1 ELSE 0 END AS TC_ELIG
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'TN'
+                          THEN 1 ELSE 0 END AS TN_ELIG
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'AF'
+                          THEN 1 ELSE 0 END AS AF_ELIG
+                    ,CASE WHEN T2.PRGM_CASE_TYPE = 'MA'
+                          THEN 1 ELSE 0 END AS MA_ELIG
+              FROM TWNELIG_VERSION T1
+                  ,TWNELG_VER_MBR T2
+                  ,TWNPERSON T3
+              WHERE T1.ICI > 0
+              AND   T1.PRGM_CASE_TYPE IN ('AF', 'FS', 'TC', 'TN', 'MA')
+              AND   T1.BNFT_YR = :AIN98WS.WS-RPT-CCYY
+              AND   T1.BNFT_MTH = :AIN98WS.WS-RPT-MM
+              AND   T1.LST_POSTD_VER_IND = 'Y'
+              AND   T1.CASE_RSLT_CD = 'E'
+              AND   T1.ICI = T2.ICI
+              AND   T1.PRGM_CASE_TYPE = T2.PRGM_CASE_TYPE
+              AND   T1.BNFT_YR = T2.BNFT_YR
+              AND   T1.BNFT_MTH = T2.BNFT_MTH
+              AND   T1.VER_NMB = T2.VER_NMB
+              AND NOT T2.ELIG_CD IN ('3', '7', '9', ' ')
+              AND   T2.UPI = T3.UPI
+              AND   T3.SEX_CD IN ('F', 'M')
+              AND   YEAR(:AIN98WS.WS-MTH-BEG-DATE - T3.DOB) BETWEEN 3 AND 22
+--              AND   T3.DOB <= :AIN98WS.WS-MTH-BEG-DATE
+--              AND   T3.DOB >= :AIN98WS.WS-22YR-DOB-DT
+--              AND   T3.DOB <= :AIN98WS.WS-4YR-DOB-DT
+--              AND   T3.DOB >= :AIN98WS.WS-19YR-DOB-DT
+              ORDER BY T2.UPI ) TA
+          WHERE TA.UPI > 0
+          GROUP BY TA.BNFT_YR, TA.BNFT_MTH, TA.UPI, TA.DOB
+          ORDER BY TA.UPI ) TB
+      WHERE TB.UPI > 0 ) TC
+  ,TWNELIG_VERSION T1
+  ,TWNELG_VER_MBR T2
+  ,TWNPERSON T3
+  ,TWNFAM_CASE T4
+  ,TWNPERSON T5
+  WHERE TC.PRGM_ICI = T1.ICI
+  AND   TC.PRGM = T1.PRGM_CASE_TYPE
+  AND   TC.BNFT_YR = T1.BNFT_YR
+  AND   TC.BNFT_MTH = T1.BNFT_MTH
+  AND   T1.LST_POSTD_VER_IND = 'Y'
+  AND   T1.CASE_RSLT_CD = 'E'
+  AND   T1.ICI = T2.ICI
+  AND   T1.PRGM_CASE_TYPE = T2.PRGM_CASE_TYPE
+  AND   T1.BNFT_YR = T2.BNFT_YR
+  AND   T1.BNFT_MTH = T2.BNFT_MTH
+  AND   T1.VER_NMB = T2.VER_NMB
+  AND   TC.UPI = T2.UPI
+  AND   T2.UPI = T3.UPI
+  AND   T1.ICI = T4.ICI
+  AND   T4.HOH_UPI = T5.UPI
+  ORDER BY 6, 7, 8
+  FOR FETCH ONLY
+      }       
+      into AIN98WS.WS-BNFT-YR, AIN98WS.WS-BNFT-MTH, AIN98WS.WS-PRGM-CASE-TYPE,
+	  AIN98WS.WS-VER-NMB, AIN98WS.WS-MTD-ENTLM-AMT, AIN98WS.WS-ELIG-CD,
+	  AIN98WS.WS-ICI, AIN98WS.WS-STDNT-UPI,  AIN98WS.WS-AID-CD, AIN98WS.WS-LST-BU-CNSD,
+	  AIN98WS.WS-DOB, AIN98WS.WS-SEX-CD, 
+	  AIN98WS.WS-FRST-NM, AIN98WS.WS-MID-NM, AIN98WS.WS-LST-NM,	  
+	  AIN98WS.WS-MRGD-IND, AIN98WS.WS-APPL-UPI, AIN98WS.WS-HOH-UPI,
+	  AIN98WS.WS-HOH-FRST-NM, AIN98WS.WS-HOH-MID-NM, AIN98WS.WS-HOH-LST-NM	  
+      for H2-5-EVREVM-PERFMC ;
+  end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+    AIN98WS.WS-MAIN-URC = VDBCONTROL.URC;
+  
+end // end AIN98Q1-S01
+
+// FETCH SCHOOL ROWS
+Function AIN98QX1-S01-SCAN() 
+  /* ********************************************************************/
+  /* process to fetch the SCHOOL RECORD*/
+  /* ********************************************************************/
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN98A";
+  VDBCOMMON.USQLREC = "H2-5-EVREVM-PERFMC";
+  VDBCONTROL.UPROC-NM = "AIN98Q1-S01-SCAN";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  VDBCONTROL.UPROC-OBJ = "H2-5-EVREVM-PERFMC";
+  set H2-5-EVREVM-PERFMC empty;
+  try
+    get next H2-5-EVREVM-PERFMC ;
+  end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+    AIN98WS.WS-MAIN-URC = VDBCONTROL.URC;
+end // end AIN98Q1-S01-SCAN
+
+// GET HOH NAME
+Function AIN98QX2-S02()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN98A";
+  VDBCOMMON.USQLREC = "H2-PERSON";
+  VDBCONTROL.UPROC-NM = "AIN98Q3-S02";
+  VDBCONTROL.UPROC-OPT = "SELECT";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
+  try
+    get H2-PERSON singleRow
+      with #sql{
+        select UPI, LST_NM, FRST_NM, SSN, HM_PHN_NMB,
+         	   CELL_PHN_NMB, MSG_PHN_NMB, EMAIL_ID
+        from TWNPERSON T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE
+        T1.UPI = :AIN98WS.WS-LKUP-UPI
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into UPI, LST-NM, FRST-NM, SSN, HM-PHN-NMB, 
+      			CELL-PHN-NMB, MSG-PHN-NMB, EMAIL-ID;
+  end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+end // end AIN98QX2-S02()
+
+// GET SPUOSE UPI
+Function AIN98QX3-S03()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN98A";
+  VDBCOMMON.USQLREC = "H2-MEMBER-REL";
+  VDBCONTROL.UPROC-NM = "AIN98Q3-S03";
+  VDBCONTROL.UPROC-OPT = "SELECT";
+  VDBCONTROL.UPROC-OBJ = "H2-MEMBER-REL";
+  try
+    get H2-MEMBER-REL
+      with #sql{
+        select FROM_UPI, ICI, TO_UPI, PRD_BEG_DT, PRD_END_DT
+        from TWNMEMBER_REL T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE
+        T1.FROM_UPI = :AIN98WS.WS-LKUP-UPI AND
+        T1.ICI = :AIN98WS.WS-LKUP-ICI AND
+        T1.PRD_BEG_DT <= :AIN98WS.WS-MTH-BEG-DATE AND
+        T1.PRD_END_DT >= :AIN98WS.WS-MTH-END-DATE AND
+        T1.RELSH_CD = '02'
+         --** INSERT ORDER BY CLAUSE HERE **
+        ORDER BY T1.PRD_BEG_DT DESC
+        FOR FETCH ONLY
+      }
+      into FROM-UPI, ICI, WS-SPOUSE-UPI, PRD-BEG-DT, PRD-END-DT ;
+  end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+  
+end // end AIN98QX3-S03()
+
+Function AIN98QX4-S04()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN98A";
+  VDBCOMMON.USQLREC = "H2-PERSON-ADRS-HST";
+  VDBCONTROL.UPROC-NM = "AIN98Q3-S04";
+  VDBCONTROL.UPROC-OPT = "SELECT";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON-ADRS-HST";
+  AIN98WS.WS-CITY = " ";
+  AIN98WS.WS-ZIP-CD = " ";
+  AIN98WS.WS-ST-CD = " ";
+  AIN98WS.WS-APT-NMB = " ";
+  AIN98WS.WS-STR-TYPE = " ";
+  AIN98WS.WS-STR-NM = " ";
+  AIN98WS.WS-STR-DIR = " ";
+  AIN98WS.WS-HOUSE-NMB = " ";  
+try
+    get H2-PERSON-ADRS-HST singleRow
+      with #sql{
+        SELECT  T1.RSDN_CNTY_CD,
+        		T1.CITY,
+                T1.ZIP_CD,
+                T1.ST_CD,
+                T1.APT_NMB,
+                T1.STR_TYPE,
+                T1.STR_NM,
+                T1.STR_DIR,
+                T1.HOUSE_NMB,
+                T1.OTH_ADDR
+        FROM TWNPERSON_ADRS_HST T1
+        WHERE T1.UPI = :AIN98WS.WS-LKUP-UPI
+        AND T1.ADR_TYPE = :AIN98WS.WS-ADDR-TYPE
+        AND T1.PRD_BEG_TS= (SELECT MAX(T5.PRD_BEG_TS)
+                       FROM TWNPERSON_ADRS_HST T5
+                       WHERE T5.UPI = T1.UPI
+                       AND T5.ADR_TYPE = T1.ADR_TYPE)
+        }
+        into AIN98WS.WS-RSDN-CNTY-CD, AIN98WS.WS-CITY ,AIN98WS.WS-ZIP-CD,
+             AIN98WS.WS-ST-CD, AIN98WS.WS-APT-NMB,
+             AIN98WS.WS-STR-TYPE, AIN98WS.WS-STR-NM,
+             AIN98WS.WS-STR-DIR, AIN98WS.WS-HOUSE-NMB, AIN98WS.WS-OTHER-ADDR;
+  end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+    AIN98WS.WS-MAIN-URC = VDBCONTROL.URC;
+
+end // end AIN98QX4-S04()
+
+Function AIN98QX4-S05()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN98A";
+  VDBCOMMON.USQLREC = "H2-PERSON-ADRS-HST";
+  VDBCONTROL.UPROC-NM = "AIN98Q3-S04";
+  VDBCONTROL.UPROC-OPT = "SELECT";
+  VDBCONTROL.UPROC-OBJ = "H2-PERSON-ADRS-HST";
+  AIN98WS.WS-CITY = " ";
+  AIN98WS.WS-ZIP-CD = " ";
+  AIN98WS.WS-ST-CD = " ";
+  AIN98WS.WS-APT-NMB = " ";
+  AIN98WS.WS-STR-TYPE = " ";
+  AIN98WS.WS-STR-NM = " ";
+  AIN98WS.WS-STR-DIR = " ";
+  AIN98WS.WS-HOUSE-NMB = " ";  
+try
+    get H2-ASST-UNIT singleRow
+      with #sql{
+        SELECT  T1.TOTAL_INCOME
+        FROM TWNASST_UNIT T1 
+        WHERE T1.ICI = :AIN98WS.WS-LKUP-ICI
+        AND T1.TARGET_UPI = :AIN98WS.WS-LKUP-UPI
+        AND T1.ADR_TYPE =   :AIN98WS.WS-ADDR-TYPE
+		AND T1.BNFT_YR =    :WS-RPT-CCYY
+		AND T1.BNFT_MTH =   :WS-RPT-MM
+        }
+        into AIN98WS.WS-TOTAL-INCOME;
+  end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+    AIN98WS.WS-MAIN-URC = VDBCONTROL.URC;
+
+end // end AIN98QX4-S05 
+
+Function AIN98QX4-RSDN-CNTY()
+  /* ************************************************************************/
+  /* POPULATE COUNTY-CODE                                                   */   
+  /* THE FOLLOWING TWO T LAYER CALLS ARE TO GET THE CORRECT COUNTY CODE     */
+  /* FOR A GIVEN ZIP CODE.                                                  */   
+  /* THE FIRST CALL RETURNS THE CITY NAME FOR THE PROVIDED ZIP CODE.  THIS  */
+  /* IS DONE SO THAT ANY MISSPELLINGS OF THE CITY NAME IN THE ADDRESS ARE   */
+  /* NOT AN ISSUE.  THE SECOND T LAYER CALL RETURNS THE COUNTY CODE TO THE  */
+  /* PROVIDED CITY NAME.                                                    */
+  /* ************************************************************************/
+
+  H-TCDTS1.CODE-TBL-TYP = "ZIPCODE";
+  H-TCDTS1.CODE-TBL-CD = AIN98WS.WS-ZIP9L;
+  call "TCDTS1A" (VDBCONTROL, VMESSAGE, H-TCDTS1) {isNoRefresh = yes};
+
+  H-TCDTSL.CODE-TBL-TYP = "CITYCNTY";
+  H-TCDTSL.CODE-DESC = H-TCDTS1.CODE-DESC;
+  call "TCDTSLA"(VDBCONTROL, VMESSAGE, H-TCDTSL){isNoRefresh = yes};
+  if(VDBCONTROL.URC > 104)
+      exit program;
+  end
+  if(VDBCONTROL.URC == 0)
+      AIN98WS.WS-RSDN-CNTY-CD = H-TCDTSL.CODE-TBL-CD;
   else
-    if (AIN55W.WS-PRG-NAME == "AIN25A")
-  /* report title for ain25a*/
-      AIN55W-HEAD.S-REPORT-TITLE = "  BENDEX BENEFIT LISTING  ";
-    else
-      if (AIN55W.WS-PRG-NAME == "AIN28A")
-  /* report title for ain28a*/
-        AIN55W-HEAD.S-REPORT-TITLE = " SSA WAGE EARNINGS LISTING  ";
-      else
-        if (AIN55W.WS-PRG-NAME == "AIN32A")
-  /* report title for ain32a*/
-          AIN55W-HEAD.S-REPORT-TITLE = "NUMIDENT DISCREPENCY REPORT ";
-        else
-          if (AIN55W.WS-PRG-NAME == "AIN35A")
-  /* report title for ain35a*/
-            AIN55W-HEAD.S-REPORT-TITLE = "     IRS 1099 EXCHANGE     ";
-          else
-            if (AIN55W.WS-PRG-NAME == "AIN39A")
-  /* report title for ain39a*/
-  /* MOVE '       ESD INTERFACE       ' TO*/
-  /* AIN55W-HEAD.S-REPORT-TITLE;*/
-              AIN55W-HEAD.S-RPT-FIRST = "  ESD INTERFACE";
-              if (AIN55W-HEAD.U-PAGE-NBR == "0001")
-                AIN55W-HEAD.S-RPT-SECOND = " - RESPONSE ";
-              else
-                AIN55W-HEAD.S-RPT-SECOND = " - CHANGE   ";
-              end
-            else
-              if (AIN55W.WS-PRG-NAME == "AIN50A")
-   /* report title for ain50a*/
-                AIN55W-HEAD.S-REPORT-TITLE = "    CHILD WELFARE REPORT   ";
-              else
-                if (AIN55W.WS-PRG-NAME == "AIN53A")
-    /* report title for ain39a*/
-                  AIN55W-HEAD.S-REPORT-TITLE = "  VITAL STATISTICS REPORT  ";
-                else
-                  if (AIN55W.WS-PRG-NAME == "AIN54A")
-   /* report title for ain39a*/
-                    AIN55W-HEAD.S-REPORT-TITLE = "      SIIS INTERFACE       ";
-                  end /* ain54a*/
-                end /* ain53a*/
-              end /* ain50a*/
-            end /* ain39a*/
-          end /* ain35a*/
-        end /* ain32a*/
-      end /* ain28a*/
-    end /* ain25a*/
-  end /* ain23a*/
-  /* cbsi end*/
-end // end AIN55P9-TITLE-PARA
+      AIN98WS.WS-RSDN-CNTY-CD = "99";
+  end
+
+end // end AIN98QX4-RSDN-CNTY
+
+Function AIN98QX4-CMHE-Q1()
+  /* ******************* WI 13053 ************************/
+  VDBCOMMON.USQLREC = "H2-CASE-MEMBER-HST";
+
+  VDBCONTROL.UPROC-OBJ = "H2-CASE-MEMBER-HST";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  VDBCONTROL.UPROC-NM = "AIN98QX4-CMHE-Q1";
+  VDBCOMMON.USQLREC = "H2-CASE-MEMBER-HST";
+
+  set H2-CASE-MEMBER-HST empty;
+  AIN98WS.WS-LEFT-HH-IND = "N";
+  /*  */
+  try
+    get H2-CASE-MEMBER-HST
+      with #sql{
+        select HH_LEFT_DT, HH_LEFT_RSN_CD
+        from TWNCASE_MEMBER_HST T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+        WHERE UPI             = :AIN98WS.WS-STDNT-UPI
+        AND   ICI             = :AIN98WS.WS-ICI
+        AND   PRD_BEG_DT      = :AIN98WS.WS-MTH-BEG-DATE
+        AND   HH_LEFT_DT     <> '9999-12-31'
+         --** INSERT ORDER BY CLAUSE HERE **
+        FOR FETCH ONLY
+      }
+      into HH-LEFT-DT, HH-LEFT-RSN-CD ;
+  end
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  if ( H2-CASE-MEMBER-HST.HH-LEFT-DT != "9999-12-31" &&
+       H2-CASE-MEMBER-HST.HH-LEFT-DT != "")
+	AIN98WS.WS-LEFT-HH-IND = "Y";
+  end
+  if (AIN98WS.WS-ENV != "NOMADS")
+  	SysLib.writeStdout(" " );
+  	SysLib.writeStdout("AIN98A AIN98QX4-CMHE-Q1 " );
+  	SysLib.writeStdout("AIN98A ICI:             " + AIN98WS.WS-ICI);
+  	SysLib.writeStdout("AIN98A STDNT UPI:       " + AIN98WS.WS-STDNT-UPI);
+  	SysLib.writeStdout("AIN98A WS-MTH-BEG-DATE: " + AIN98WS.WS-MTH-BEG-DATE);
+  	SysLib.writeStdout("AIN98A HH-LEFT-DT:      " + H2-CASE-MEMBER-HST.HH-LEFT-DT);
+  	SysLib.writeStdout("AIN98A WS-LEFT-HH-IND:  " + AIN98WS.WS-LEFT-HH-IND);
+  end
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  WDB00PE-SQLERR();
+end // end AIN98QX4-CMHE-Q1
+
+Function AIN98QX4-LOAD-FPL()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN98A";
+  VDBCOMMON.USQLREC = "H2-ASST-UNIT";
+  VDBCONTROL.UPROC-NM = "AIN98Q3-S06";
+  VDBCONTROL.UPROC-OPT = "SELECT";
+  VDBCONTROL.UPROC-OBJ = "H2-ASST-UNIT";
+  AIN98WS.WS-CITY = " ";
+  AIN98WS.WS-ZIP-CD = " ";
+  AIN98WS.WS-ST-CD = " ";
+  AIN98WS.WS-APT-NMB = " ";
+  AIN98WS.WS-STR-TYPE = " ";
+  AIN98WS.WS-STR-NM = " ";
+  AIN98WS.WS-STR-DIR = " ";
+  AIN98WS.WS-HOUSE-NMB = " ";  
+try
+    get H2-MASS-CHNG-PARMS
+      with #sql{
+        SELECT   T1.MASS_CHNG_AMT1
+        		,T1.MASS_CHNG_AMT2
+        FROM TWNMASS_CHNG_PARMS T1 
+		WHERE MASS_CHNG_DATA_TYP = 'P'
+		AND MASS_CHNG_TYPE = 'C01'
+		AND PRGM_TYPE = 'CM'
+		AND EFF_FR_DT <= :AIN98WS.WS-MTH-BEG-DATE
+		AND EFF_TO_DT >= :AIN98WS.WS-MTH-BEG-DATE
+        AND RANGE_FR   = :WS-RANGE-FR
+		}
+        into AIN98MC.WS-MASS-CHANGE-AMT1, AIN98MC.WS-MASS-CHANGE-AMT2;
+  end
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+    AIN98WS.WS-MAIN-URC = VDBCONTROL.URC;
+
+end // end AIN98QX4-LOAD-FPL
 
 
-Record AIN55W-DET type basicRecord
-  10 LINE1 char(80) ; 
-    15 FILLER1 char(24) ; 
-    15 CONSTANT1 char(25) ; 
-    15 FILLER2 char(1) ; 
-    15 S-NO-OF-RECORDS char(7) ; 
-    15 FILLER3 char(23) ; 
-  10 LINE2 char(80) ; 
-  10 FILLER4 char(80) ; 
-  10 LINE3 char(80) ; 
-    15 FILLER5 char(24) ; 
-    15 CONSTANT2 char(25) ; 
-    15 FILLER6 char(1) ; 
-    15 S-NO-OF-REC-PROCESSED char(7) ; 
-    15 FILLER7 char(23) ; 
-  10 LINE4 char(80) ; 
-  10 FILLER8 char(80) ; 
-  10 LINE5 char(80) ; 
-    15 FILLER9 char(24) ; 
-    15 CONSTANT3 char(25) ; 
-    15 FILLER10 char(1) ; 
-    15 S-NO-OF-REC-SKIPPED char(7) ; 
-    15 FILLER11 char(23) ; 
-  10 LINE6 char(80) ; 
-  10 FILLER12 char(80) ; 
-  10 LINE7 char(80) ; 
-  10 CONSTANT4 char(18) ; 
-  10 FILLER13 char(62) ; 
-end // end AIN55W-DET
+Function AIN98PX9-MAIL-ADDR-1()
+  /* ************************************************************************/
+  /* POPULATE MAILING ADDRESS-1*/
+  /* ************************************************************************/
 
+  VSTRREC4.USTRING = AIN98WS.WS-HOUSE-NMB;
+  VSTRREC4.UCONCAT = AIN98WS.WS-STR-DIR;
+  VSTRREC4.UCONCAT2 = AIN98WS.WS-STR-NM;
+  VSTRREC4.UCONCAT3 = AIN98WS.WS-STR-TYPE;
+  VSTRREC4.USTRLEN = 8;
+  VSTRREC4.UCONLEN = 2;
+  VSTRREC4.UCONLEN2 = 25;
+  VSTRREC4.UCONLEN3 = 4;
 
-Record AIN55W-HEAD type basicRecord
-  10 LINE1 char(80) ; 
-    15 CONSTANT1 char(8) ; 
-    15 FILLER1 char(5) ; 
-    15 U-PAGE-NBR char(4) ; 
-    15 FILLER2 char(16) ; 
-    15 CONSTANT2 char(5) ; 
-    15 FILLER3 char(1) ; 
-    15 CONSTANT3 char(2) ; 
-    15 FILLER4 char(1) ; 
-    15 CONSTANT4 char(6) ; 
-    15 FILLER5 char(15) ; 
-    15 CONSTANT5 char(4) ; 
-    15 FILLER6 char(5) ; 
-    15 U-DATE char(8) ; 
-  10 LINE2 char(80) ; 
-    15 S-APPL-ID char(8) ; 
-    15 FILLER7 char(19) ; 
-    15 S-REPORT-TITLE char(27) ; 
-      20 S-RPT-FIRST char(15) ; 
-      20 S-RPT-SECOND char(12) ; 
-    15 FILLER8 char(9) ; 
-    15 CONSTANT6 char(4) ; 
-    15 FILLER9 char(5) ; 
-    15 U-TIME char(8) ; 
-end // end AIN55W-HEAD
+  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
 
+  AIN98WS.WS-TEST-ADDR = VSTRREC4.USTRING;
 
+  set VSTRREC4 empty;
+
+  VSTRREC4.USTRING = AIN98WS.WS-OTHER-ADDR;
+  VSTRREC4.UCONCAT = AIN98WS.WS-TEST-ADDR;
+  VSTRREC4.UCONCAT2 = AIN98WS.WS-APT-NMB;
+  VSTRREC4.USTRLEN = 25;
+  VSTRREC4.UCONLEN = 40;
+  VSTRREC4.UCONLEN2 = 5;
+
+  call "WST50A" (VSTRREC4) {isNoRefresh = yes};
+
+  AIN98WS.WS-50CH-ADDR = VSTRREC4.USTRING;
+
+  set VSTRREC4 empty;
+
+  AIN98WS.WS-TMP-ADDR = AIN98WS.WS-50CH-ADDR;
+
+  AIN98PX9-COUNT-CHAR();
+
+  AIN98WS.WS-CONCAT-ADDR = " ";
+
+  AIN98PX9-ELIM-SPACE();
+
+  SLX-MAIL-ADDR = AIN98WS.WS-CONCAT-ADDR;
+
+  /* ************************************************************************/
+  /* POPULATE CITY*/
+  /* ************************************************************************/
+
+  SLX-MAIL-CITY = AIN98WS.WS-CITY;
+
+  /* ************************************************************************/
+  /* POPULATE CITY*/
+  /* ************************************************************************/
+
+	SLX-MAIL-STATE = AIN98WS.WS-ST-CD;
+	
+  /* ************************************************************************/
+  /* POPULATE ZIP-CD*/
+  /* ************************************************************************/
+
+  SLX-MAIL-ZIP9L = AIN98WS.WS-ZIP9L;
+
+end
+
+Function AIN98PX9-MAIL-ADDR-2 ()
+  /* ************************************************************************/
+  /* POPULATE ADDRESS-1*/
+  /* ************************************************************************/
+
+  SLX-MAIL-ADDR = SLX-RES-ADDR;
+
+  /* ************************************************************************/
+  /* POPULATE CITY*/
+  /* ************************************************************************/
+
+  SLX-MAIL-CITY = SLX-RES-CITY;
+
+  /* ************************************************************************/
+  /* POPULATE CITY*/
+  /* ************************************************************************/
+
+	SLX-MAIL-STATE = SLX-RES-STATE;
+	
+  /* ************************************************************************/
+  /* POPULATE ZIP-CD*/
+  /* ************************************************************************/
+
+  SLX-MAIL-ZIP9L = SLX-MAIL-ZIP9L;
+
+end
+
+// GET FS MTD-ENTITLEMENT
+FUNCTION AIN98QX4-ENTITLEMENT()
+  WDB00PI();
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.USQLREC = "H2-ELIG-BDGT-UNIT";
+  VDBCONTROL.UPROC-NM = "AIN98QX4-ENTITLEMENT";
+  VDBCONTROL.UPROC-OPT = "SELECT";
+  VDBCONTROL.UPROC-OBJ = "H2-ELIG-BDGT-UNIT";	
+  TRY
+  	GET H2-ELIG-BDGT-UNIT
+  	  WITH #SQL{
+  	    SELECT T1.BU_NEED_COUNT, T1.NET_INCM_AMT, T1.DEEMED_UERND_INCM, T1.DEEMED_ERND_INCM,
+  	    (T1.UERND_INCM_AMT + T1.DEEMED_UERND_INCM + T1.GRS_EARND_AMT + T1.DEEMED_ERND_INCM) AS GRS_CNTBL_INC
+		FROM TWNELG_BDGT_UNIT T1
+		WHERE T1.ICI 			= :AIN98WS.WS-ICI
+		AND T1.PRGM_CASE_TYPE 	= :AIN98WS.WS-PRGM-CASE-TYPE
+		AND T1.BNFT_YR 			= :WS-RPT-CCYY
+		AND T1.BNFT_MTH 		= :WS-RPT-MM
+		AND T1.BU_NMB 			= :AIN98WS.WS-LST-BU-CNSD
+  	  }
+  	  INTO WS-BU-NEED-COUNT, WS-NET-INCM-AMT, WS-DEEMED-UERND-INCM, WS-DEEMED-ERND-INCM, WS-GROSS-COUNTABLE-INCOME;
+  END
+    VDBCOMMON.UNRF = "Y";
+    VDBCOMMON.UDUP = "N";
+    WDB00PE-SQLERR();
+    if ( VDBCONTROL.URC != 0)
+        WS-MTD-ENTLM-AMT = 0;
+        WS-BU-NEED-COUNT = 0;
+        WS-NET-INCM-AMT = 0;
+    end
+END
+
+Record AIN98WS type basicRecord
+  5 WS-WORKING-STORAGE-AREA char(1147) ; 
+    10 WS-TOPREC char(80) ; 
+      15 WS-RPT-CCYY num(4) ; 
+      15 WS-RPT-MM num(2) ; 
+      15 WS-RPT-DD num(2) ; 
+      15 * char(72) ; 
+    10 WS-DB-CREATE-DT char(10) ; 
+      15 WS-DB-MM char(2) ; 
+      15 * char(1) ; 
+      15 WS-DB-DD char(2) ; 
+      15 * char(3) ; 
+      15 WS-DB-YY char(2) ; 
+    10 WS-TODAYS-DATE char(10) ; 
+    10 WS-RPT-DT char(10) ; 
+      15 WS-RPT-Y num(4) ; 
+      15 WS-DASH1 char(1) ; 
+      15 WS-RPT-M num(2) ; 
+      15 WS-DASH2 char(1) ; 
+      15 WS-RPT-D num(2) ; 
+    10 WS-FSCL-CCYY num(4) ; 
+    10 WS-MTH-BEG-DATE char(10) ; 
+      15 WS-MTH-BEG-CCYY num(4) ; 
+        20 WS-MTH-BEG-CC char(2) ; 
+        20 WS-MTH-BEG-YY num(2) ; 
+      15 WS-HASH7 char(1) ; 
+      15 WS-MTH-BEG-MM num(2) ; 
+      15 WS-HASH8 char(1) ; 
+      15 WS-MTH-BEG-DD num(2) ; 
+    10 WS-MTH-END-DATE char(10) ; 
+      15 WS-MTH-END-CCYY num(4) ; 
+      15 WS-HASH9 char(1) ; 
+      15 WS-MTH-END-MM num(2) ; 
+      15 WS-HASH10 char(1) ; 
+      15 WS-MTH-END-DD num(2) ; 
+    10 WS-4YR-DOB-DT char(10) ; 
+      15 WS-4YR-CCYY num(4) ; 
+      15 WS-HASH11 char(1) ; 
+      15 WS-4YR-MM num(2) ; 
+      15 WS-HASH12 char(1) ; 
+      15 WS-4YR-DD num(2) ; 
+    10 WS-19YR-DOB-DT char(10) ; 
+      15 WS-19YR-CCYY num(4) ; 
+      15 WS-HASH13 char(1) ; 
+      15 WS-19YR-MM num(2) ; 
+      15 WS-HASH14 char(1) ; 
+      15 WS-19YR-DD num(2) ; 
+    10 WS-22YR-DOB-DT char(10) ; 
+      15 WS-22YR-CCYY num(4) ; 
+      15 WS-HASH15 char(1) ; 
+      15 WS-22YR-MM num(2) ; 
+      15 WS-HASH16 char(1) ; 
+      15 WS-22YR-DD num(2) ; 
+    10 WS-LEAP-YEAR-FLAG char(1) ; 
+    10 WS-ERR-CD char(4) ; 
+      15 WS-ERR-LAST-FOUR char(4) ; 
+    10 WS-LKUP-UPI int ; 
+    10 WS-SPOUSE-UPI int ; 
+    10 WS-STDNT-UPI int ; 
+    10 WS-LKUP-ICI int ; 
+    10 WS-CHLD-NAME char(26) ; 
+    10 WS-HOH-NAME char(26) ; 
+    10 WS-TMP-NAME char(26) ; 
+      15 WS-TMP-NAME-CHAR char(1) [26] ; 
+    10 WS-CONCAT-NM char(26) ; 
+      15 WS-CONCAT-CHAR char(1) [26] ; 
+    10 WS-INDX1 num(2) ; 
+    10 WS-INDX2 num(2) ; 
+    10 WS-INDX3 num(2) ; 
+    10 WS-INDX4 num(2) ; 
+    10 WS-INDXX num(2) ; 
+    10 WS-LASTX num(2) ; 
+    10 WS-SPOUSE-NAME char(26) ; 
+      15 WS-SPOUSE-CHAR char(1) [26] ; 
+    10 WS-PROG-STAT char(2) ;
+       15 WS-FS-PROG-STAT CHAR(1) ;
+       15 WS-TANF-PROG-STAT CHAR(1); 
+    10 WDS-SSN char(9) ; 
+    10 WS-HOH-LST-NM char(21) ; 
+    10 WS-HOH-FRST-NM char(16) ; 
+    10 WS-HOH-MID-NM char(16) ; 
+    10 WS-LEFT-HH-IND char(1) ; 
+    10 WS-MRGD-IND char(1) ; 
+    10 WS-LST-NM char(21) ; 
+    10 WS-FRST-NM char(16) ; 
+    10 WS-MID-NM char(16) ; 
+    10 WS-DOB char(10) ; 
+      15 WS-CC char(2) ; 
+      15 WS-YY char(2) ; 
+      15 * char(1) ; 
+      15 WS-MM char(2) ; 
+      15 * char(1) ; 
+      15 WS-DD char(2) ; 
+    10 WS-ETHNC-CD char(1) ; 
+    10 WS-RSDN-CNTY-CD char(2) ; 
+    10 WS-CITY char(20) ; 
+    10 WS-ZIP-CD char(11) ; 
+      15 WS-ZIP9L char(9) ; 
+      15 WS-ZIP2R char(2) ; 
+    10 WS-BNFT-YR char(4) ;
+    10 WS-BNFT-MTH char(2) ;
+    10 WS-VER-NMB char(2) ;
+    10 WS-SCHD-PAY-AMT num(7,2); 
+    10 WS-PRGM-CASE-TYPE char(2) ;
+    10 WS-ELIG-CD char(1) ;
+	10 WS-LST-BU-CNSD num(5);
+    10 WS-AID-CD char(3) ;
+    10 WS-FS-ELIG-CD char(1) ;
+    10 WS-MTD-ENTLM-AMT num(7,2); 
+    10 WS-AFDC-ELIG-CD char(1) ; 
+    10 WS-TC-ELIG-CD char(1) ; 
+    10 WS-TN-ELIG-CD char(1) ; 
+    10 WS-FS-AID-CD char(3) ; 
+    10 WS-AFDC-AID-CD char(3) ; 
+    10 WS-TC-AID-CD char(3) ; 
+    10 WS-TN-AID-CD char(3) ;
+    10 WS-ELIG-FLAG char(1); 
+    10 WS-TANF-FLAG char(1); 
+    10 WS-FS-FLAG char(1);
+    10 WS-MAIN-URC NUM(3); 
+    10 WS-SSN char(9) ; 
+    10 WS-ICI int ; 
+    10 WS-HOH-UPI int ; 
+    10 WS-APPL-UPI int ; 
+    10 WS-HOH-SSN char(9) ; 
+    10 WS-OTHER-ADDR char(25) ; 
+    10 WS-HOUSE-NMB char(8) ; 
+    10 WS-STR-DIR char(2) ; 
+    10 WS-STR-NM char(25) ; 
+    10 WS-STR-TYPE char(4) ; 
+    10 WS-APT-NMB char(5) ; 
+    10 WS-MA-CITY char(20) ; 
+    10 WS-MA-ZIP-CD char(11) ; 
+      15 WS-MA-ZIP9L char(9) ; 
+      15 WS-MA-ZIP2R char(2) ; 
+    10 WS-MA-ST-CD char(3) ; 
+    10 WS-MA-HOUSE-NMB char(8) ; 
+    10 WS-MA-STR-DIR char(2) ; 
+    10 WS-MA-STR-NM char(25) ; 
+    10 WS-MA-STR-TYPE char(4) ; 
+    10 WS-MA-APT-NMB char(5) ; 
+    10 WS-OTH-ADDR char(25) ; 
+    10 WS-SEX-CD char(1) ; 
+    10 WS-HM-PHN-NMB char(10) ; 
+    10 WS-MS-PHN-NMB char(10) ; 
+    10 WS-MODFR char(3) ; 
+    10 WS-ST-CD char(3) ; 
+    10 WS-TEST-ADDR char(40) ; 
+    10 WS-50CH-ADDR char(50) ; 
+    10 WS-ADDR-TYPE char(2) ; 
+    10 WS-TMP-ADDR char(50) ; 
+      15 WS-TMP-ADDR-CHAR char(1) [50] ; 
+    10 WS-CONCAT-ADDR char(50) ; 
+      15 WS-CONCAT-ADDR-CHAR char(1) [50] ; 
+    10 WS-LFT-JST-ADDR char(50) ; 
+      15 WS-LFT-BLNK-BLNK char(2) ; 
+      15 WS-RT-48CHAR char(48) ; 
+    10 WS-EXTR-CTR num(8) ; 
+    10 WS-AGE-VAR char(15) ; 
+      15 WS-DIF-DAYS num(8) ; 
+      15 WS-ODD-DAYS num(4) ; 
+      15 WS-YEARS num(3) ; 
+    10 WS-HH-LEFT-DT char(10) ; 
+    10 WS-SPACE-FND char(1) ; 
+    10 WS-TOTAL-INCOME num (7,2);
+    10 WS-FPL num (7,2);
+    10 WS-BU-NEED-COUNT int;
+    10 WS-NET-INCM-AMT num (7,2);
+    10 WS-UERND-INCM-AMT num (7,2);
+    10 WS-GRS-EARND-AMT num (7,2);
+    10 WS-GROSS-COUNTABLE-INCOME num (7,2);
+    10 WS-DEEMED-UERND-INCM num (7,2);
+    10 WS-DEEMED-ERND-INCM num (7,2);
+    10 WS-FPL-TEST-AMT num (7,2);
+    10 WS-FPL-PCT num (7,2);
+	10 WS-CATGL-ELIG char(1);
+    10 WS-REC-OUT num (10);
+	10 WS-RANGE-FR int;
+    10 WS-ENV char(8);
+end // end AIN98WS
+
+Record AIN98MC type basicRecord
+  5 WS-CHANGE-REC char(14);
+  	10 WS-MASS-CHANGE-AMT1 num (7,2);
+  	10 WS-MASS-CHANGE-AMT2 num (7,2);
+end // end AIN98MC
