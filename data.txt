@@ -1,25 +1,982 @@
-ONGOING MONTHLY TRANSACTION SUMMARY BY AID CODE - BLIND  
+package gov.illinois.ies.business.batch.ffm.outbound;
 
-TWNMTH_TXN_SUM_BLD
+import gov.illinois.framework.factories.FwServiceFactory;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.management.util.FwConstants;
+import gov.illinois.framework.management.util.FwPropertyLoader;
+import gov.illinois.framework.management.util.PMDRules;
+import gov.illinois.fw.batch.IESExceptionBO;
+import gov.illinois.fw.batch.Controller.TIERSBatchController;
+import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.fw.business.exceptions.ApplicationException;
+import gov.illinois.fw.business.exceptions.TIERSValidationException;
+import gov.illinois.fw.business.rules.AbstractBO;
+import gov.illinois.fw.management.logger.Debug;
+import gov.illinois.ies.business.batch.in.TokenServiceHelper;
+import gov.illinois.ies.business.entities.dataclearances.InterfacesExceptionVO;
+import gov.illinois.ies.business.entities.interfaces.InFfmOutboundQueueCargo;
+import gov.illinois.ies.business.entities.interfaces.InFfmOutboundQueueCollection;
+import gov.illinois.ies.business.rules.mo.util.StringUtils;
 
-DAILY FOOD STAMPS REPORT-INACTIVE EBT ACCOUNTS
-DAILY TANF CASH REPORT-INACTIVE EBT ACCOUNTS
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.security.cert.X509Certificate;
+import java.sql.Connection;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
-TWNDLY_INACT_EBT
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBElement;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.Marshaller;
+import javax.xml.bind.Unmarshaller;
+import javax.xml.soap.SOAPFault;
+import javax.xml.transform.stream.StreamSource;
+import javax.xml.ws.BindingProvider;
+import javax.xml.ws.Dispatch;
+import javax.xml.ws.soap.SOAPFaultException;
 
-AFR32A-
-PAYMENTS REPORT FOR TANF/FMC
-PAYMENTS REPORT FOR TANF CHILD ONLY
-PAYMENTS REPORT FOR TANF NEON
+import org.apache.wink.client.ClientResponse;
+import org.apache.wink.client.Resource;
+import org.apache.wink.client.RestClient;
+import org.xml.sax.SAXException;
 
-TWNPAY_TANF_RPT
+import com.deloitte.us.uscmpilies32.ffmservicert_service_consumer_ffmoutboundservice_.AccountTransferPortTypeTransferAccountInput;
+import com.deloitte.us.uscmpilies32.ffmservicert_service_consumer_ffmoutboundservice_.AccountTransferPortTypeTransferAccountOutput;
+import com.deloitte.us.uscmpilies32.ffmservicert_service_consumer_ffmoutboundservice_.FFMServiceRT_service_consumer_FFMOutboundService__connectors_AccountTransferPortType_transferAccount_WSD_PortProxy;
+import com.deloitte.us.uscmpilies32.ffmservicert_service_consumer_ffmoutboundservice_.ObjectFactory;
+import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
+import com.rest.cms.ffm.AccountTransferRequestPayloadType;
+import com.rest.cms.ffm.AccountTransferResponsePayloadType;
+import com.rest.cms.ffm.InsuranceApplicantType;
+import com.rest.cms.ffm.PersonType;
+import com.rest.cms.ffm.ResponseMetadataType;
 
-AME44A-
-COUNTY CASE/PERSON COUNT REPORT
-OFFICE CASE/PERSON COUNT REPORT
 
-TWNCNTY_OFC_PR_CNT
+public class OutboundFFMHelper extends AbstractBO {
 
-AMA18A-
-ONGOING MONTHLY TRANSACTION SUMMARY - TOTAL MAABD
-TWNMTH_MA_TXN_SMRY
+	private Connection con;
+	private ILog logger = null;
+
+	public static final String CHIP_ELIGIBILITY_TYPE = "ChipEligibility";
+	public static final String MAGI_ELIGIBILITY_TYPE = "MagiEligibility";
+	public static final String NONMAGI_ELIGIBILITY_TYPE = "NonMagiEligibility";
+	public static final String EXCHANGE_SYSTEM_TYPE = "IllinoisIES";
+	private static final String PROPERTIES_FILE_NAME = "TIERS";
+	private static final String APPLICATION_CONTENT_TYPE = "application/x-www-form-urlencoded";
+	private static String INVALID_CREDENTIALS = "Invalid Credentials, Please check your headers";
+	private static final String TOKEN_EXPIRED_ERROR_MSG = "CMS Hub Access Token has expired.";
+	private IESExceptionBO exceptionBo = null;
+	private TIERSBatchController batchController;
+	public int processedRecords = 0;
+	public int totalExceptions = 0;
+	private static String APPLICATION_JSON  = "application/json";
+	private static String AUTHORIZATION = "AUTHORIZATION";
+
+	public OutboundFFMHelper(Connection con) {
+		super(con);
+		this.con = con;
+		initialize();
+	}
+	
+	private void initialize() {
+		batchController = (TIERSBatchController) TIERSBatchController.getBatchControllers();
+		exceptionBo = new IESExceptionBO(batchController);
+	}
+
+	/**
+	 * 
+	 * @param ffmOutboundVO
+	 * @return
+	 * @throws InterfacesException
+	 */
+	public FFMOutboundVO populateFFMAccountDetailsData(FFMOutboundVO ffmOutboundVO, Connection con) throws InterfacesException {
+		String accountData = "";
+		try {
+			AccountTransferRequestPayloadType accountTransferRequestPayloadType =
+			createOutboundDataVO(ffmOutboundVO);
+
+			// marshall the data and save in the Outbound table and to send in Request
+			accountData = marshallRestAccountData(accountTransferRequestPayloadType);
+
+			// Log the xml in ims.log file
+			imsDebug(accountData);
+
+			ffmOutboundVO.setAccountData(accountData);
+
+			// save xml data in the Outbound Queue table and update the status
+
+			if(accountTransferRequestPayloadType!=null && accountTransferRequestPayloadType.getTransferHeader()!=null && accountTransferRequestPayloadType.getTransferHeader().getTransferActivity()!=null 
+					&& accountTransferRequestPayloadType.getTransferHeader().getTransferActivity().getTransferActivityReferralQuantity()!=null 
+					&& accountTransferRequestPayloadType.getTransferHeader().getTransferActivity().getTransferActivityReferralQuantity()!=FFMConversionUtil.getQuantityType(BigDecimal.ZERO)){
+				//call CMS Token service
+				String token = null;
+				//For the first time Token will be empty and token will not be empty when re-invoking the service.
+				if( StringUtils.isEmpty(token) )
+				{
+					//Retrieve the Token from DB
+					TokenServiceHelper.conn = con;
+					token = TokenServiceHelper.retrieveToken(FwConstants.CMS_SERVICE);	
+					TokenServiceHelper.conn  = null;
+				}
+				
+				// call FFM to update
+				callRestFFMOutboundService(accountData,token,con);
+				// update the data Outbound Queue table and update the status
+				ffmOutboundVO.setFfmStatus("P");
+			}else{
+				ffmOutboundVO.setFfmStatus("E");
+			}
+
+			// update the FFM Outbound entry with Processed Status
+			buildFFMOutboundQueueData(ffmOutboundVO);
+
+		} catch (Throwable exception) {
+			throw new InterfacesException(exception.getMessage(), accountData, exception);
+		}
+
+		return ffmOutboundVO;
+
+	}
+
+	/**
+	 * 
+	 * @return
+	 * @throws Exception
+	 */
+	public void processFFMOutbound(List<FFMOutboundVO> FFMOutboundVOList, Set<InFfmOutboundQueueCargo> inFfmOutboundQueueCargoSet, Connection connection) throws Exception {
+		OutboundFFMHelper outboundFFMHelper = new OutboundFFMHelper(connection);
+		for (FFMOutboundVO ffmOutboundVO : FFMOutboundVOList) {
+			boolean success = true;
+			FFMOutboundResultVO outboundFFMBatchResult = new FFMOutboundResultVO();
+			try {
+				FFMOutboundVO finalFfmOutboundVO = outboundFFMHelper.populateFFMAccountDetailsData(ffmOutboundVO, connection);
+				outboundFFMBatchResult.setStatus(Boolean.TRUE);
+				outboundFFMBatchResult.setFfmOutboundVO(finalFfmOutboundVO);
+			} catch (InterfacesException ie) {
+				/*
+				 * #PMD_Override - R6 - Exception is not being propagated
+				 * because building this method is building the returned object
+				 * data and exception will be handled by the calling method
+				 */
+				PMDRules.markApprovedCatchBlock("R6");
+				success = false;
+				FFMOutboundVO finalFfmOutboundVO = new FFMOutboundVO();
+				outboundFFMBatchResult.setInterfaceException(ie);
+				outboundFFMBatchResult.setCaseNum(ffmOutboundVO.getCaseNum());
+				outboundFFMBatchResult.setStatus(Boolean.FALSE);
+				buildOutboundQueueStatus(finalFfmOutboundVO, ffmOutboundVO.getCaseNum(), ie.getMessage(), ie.getAccountData(), ffmOutboundVO.getFfmOutboundSeqNum());
+				outboundFFMBatchResult.setFfmOutboundVO(finalFfmOutboundVO);
+				handleErrors(outboundFFMBatchResult);
+			} catch (Throwable ex) {
+				/*
+				 * #PMD_Override - R6 - Exception is not being propagated
+				 * because building this method is building the returned object
+				 * data and exception will be handled by the calling method
+				 */
+				PMDRules.markApprovedCatchBlock("R6");
+				success = false;
+				FFMOutboundVO finalFfmOutboundVO = new FFMOutboundVO();
+				outboundFFMBatchResult.setInterfaceException(new InterfacesException("Error while processing the casenum" + ffmOutboundVO.getCaseNum() + ex.getMessage()));
+				outboundFFMBatchResult.setCaseNum(ffmOutboundVO.getCaseNum());
+				outboundFFMBatchResult.setStatus(Boolean.FALSE);
+				buildOutboundQueueStatus(finalFfmOutboundVO, ffmOutboundVO.getCaseNum(), "Error while processing the casenum" + ffmOutboundVO.getCaseNum() + ex.getMessage(), "",
+						ffmOutboundVO.getFfmOutboundSeqNum());
+				outboundFFMBatchResult.setFfmOutboundVO(finalFfmOutboundVO);
+				handleErrors(outboundFFMBatchResult);
+			}
+			
+			try{
+				updateOutboundQueueStatus(outboundFFMBatchResult, inFfmOutboundQueueCargoSet, connection);
+			} catch (Exception e) {
+				success = false;
+				throw e;
+			} finally {
+				if (success) {
+					processedRecords++;
+				} else {
+					totalExceptions++;
+				}
+			}
+		}
+	}
+	
+	/**
+	 * @param ffmOutboundResultVOList
+	 * @throws InterruptedException
+	 * @throws ExecutionException
+	 * @throws Exception
+	 */
+	public void handleErrors(FFMOutboundResultVO ffmOutboundResultVO) throws Exception {
+		Boolean status = Boolean.TRUE;
+
+		status = ffmOutboundResultVO.getStatus();
+		if (!status.booleanValue()) {
+			TIERSValidationException e = null;
+			if (ffmOutboundResultVO.getInterfaceException() != null && ffmOutboundResultVO.getInterfaceException().getMessage() != null) {
+				 e = new TIERSValidationException("IN-FFMOB-DLY" + ": Exception in OutboundFFMBatchBO.handleErrors: Failed" + ffmOutboundResultVO.getInterfaceException().getMessage(), ffmOutboundResultVO.getInterfaceException());
+
+			} else {
+				 e = new TIERSValidationException("IN-FFMOB-DLY" + ": Exception in OutboundFFMBatchBO.handleErrors: Failed", ffmOutboundResultVO.getInterfaceException());
+
+			}
+			exceptionBo.writeExceptionRecord(BatchConstants.BATCH_ERROR, "IN-FFMOB-DLY" + ": Exception in OutboundFFMBatchBO.handleErrors: Failed", e.getMessage() + ffmOutboundResultVO.getCaseNum(),
+					BatchConstants.REPORT_BODY, false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR,
+					BatchConstants.DEFAULT_LOGGER_FILE, true, e, null, null, null);
+		}
+	}
+	
+
+	/**
+	 * commit InFfmOutboundQueueCargo table..
+	 * 
+	 * @param outboundFFMBatchResult
+	 * @param inFfmOutboundQueueCargoSet
+	 * @param connection
+	 * @throws Exception
+	 */
+	public void updateOutboundQueueStatus(FFMOutboundResultVO outboundFFMBatchResult, Set<InFfmOutboundQueueCargo> inFfmOutboundQueueCargoSet, Connection connection) throws Exception {
+		FFMOutboundVO ffmOutboundVO = new FFMOutboundVO();
+		if (inFfmOutboundQueueCargoSet != null && inFfmOutboundQueueCargoSet.size() > 0) {
+			InFfmOutboundQueueCollection inFfmOutboundQueueCollection = new InFfmOutboundQueueCollection(connection);
+			ffmOutboundVO = outboundFFMBatchResult.getFfmOutboundVO();
+			for (InFfmOutboundQueueCargo inFfmOutboundQueueCargo : inFfmOutboundQueueCargoSet) {
+				if (inFfmOutboundQueueCargo.getFfmOutboundQueueSeqNum() == ffmOutboundVO.getFfmOutboundSeqNum()) {
+
+					if (ffmOutboundVO.getAccountData() != null) {
+						inFfmOutboundQueueCargo.setBlobData(ffmOutboundVO.getAccountData().trim());
+					} else {
+						inFfmOutboundQueueCargo.setBlobData(null);
+					}
+
+					if (ffmOutboundVO.getFfmStatus() != null) {
+						inFfmOutboundQueueCargo.setSendToFfmInd(ffmOutboundVO.getFfmStatus());
+						inFfmOutboundQueueCargo.setTransferToFfmDt(ffmOutboundVO.getTransferToFfmDt());
+						inFfmOutboundQueueCargo.setXmlCreationErrorMsg(ffmOutboundVO.getXmlCreationErrorMsg());
+					}
+					inFfmOutboundQueueCollection.clear();
+					inFfmOutboundQueueCollection.setCargo(inFfmOutboundQueueCargo);
+					try {
+						inFfmOutboundQueueCollection.update(inFfmOutboundQueueCollection);
+						// PMD_Override - R5 - This commit statement can be
+						// justified because there is rollback in the catch block
+						PMDRules.markApprovedStatement("R5");
+						connection.commit();
+					} catch (Exception e) {
+						connection.rollback();
+						//throw exception need code changes
+						throw e;
+					}
+					break;
+				}
+			}
+		}
+	}
+	
+
+	private void buildOutboundQueueStatus(FFMOutboundVO finalFfmOutboundVO, String caseNum, String errorMessage, String accountData, long seqNum) {
+
+		try {
+			
+			log(ILog.ERROR, "trying to update the DB with T OR F ");
+			finalFfmOutboundVO.setCaseNum("" + caseNum);
+
+			if (errorMessage != null && (errorMessage.toUpperCase().contains("CONNECT") || errorMessage.toUpperCase().contains("REFUSED") || errorMessage.toUpperCase().contains("TIMED OUT")
+					|| errorMessage.toUpperCase().contains("TIME OUT") || errorMessage.toUpperCase().contains("GATEWAY")
+					|| errorMessage.toUpperCase().contains("FINDBYCASENUMBER") || errorMessage.contains("SQLCODE=-668")
+					|| errorMessage.toUpperCase().contains("WSTXEOFEXCEPTION") || errorMessage.toUpperCase().contains("TIMEOUTEXCEPTION")
+					|| errorMessage.toUpperCase().contains("SQLTRANSACTIONROLLBACKEXCEPTION")))
+				finalFfmOutboundVO.setFfmStatus(OutboundFFMBatchContants.sendToFfmInd_T);
+
+			else
+				finalFfmOutboundVO.setFfmStatus(OutboundFFMBatchContants.sendToFfmInd_F);
+
+			finalFfmOutboundVO.setFfmErrorData(errorMessage);
+			finalFfmOutboundVO.setFfmOutboundSeqNum(seqNum);
+			// Do not save the xml is the status is T
+			if (finalFfmOutboundVO.getFfmStatus().equals(OutboundFFMBatchContants.sendToFfmInd_F) && accountData != null && !accountData.isEmpty()) {
+				finalFfmOutboundVO.setAccountData(accountData);
+			} else {
+				finalFfmOutboundVO.setAccountData(null);
+			}
+
+			OutboundFFMHelper.buildFFMOutboundQueueData(finalFfmOutboundVO);
+
+		} catch (Throwable ex) {
+			/*
+			 * #PMD_Override - R6 - Exception is not being propagated because
+			 * building this method is building the returned object data and
+			 * exception will be handled by the calling method
+			 */
+			PMDRules.markApprovedCatchBlock("R6");
+			log(ILog.ERROR, "Issue while updating the Outbound Queue table with failure Status and Error Message: " + ex.getMessage());
+		}
+
+	}
+
+	/**
+	 * Just need to write
+	 * 
+	 * @return
+	 */
+	private AccountTransferRequestPayloadType createOutboundDataVO(FFMOutboundVO ffmOutboundVO) throws InterfacesException {
+		AccountTransferRequestPayloadType requestPayload = null;
+		try {
+			GetIndividualDataManager individualDataManager = new GetIndividualDataManager(con);
+
+			Map<Long, PersonType> personMap = individualDataManager.buildIndividualInformation(Long.valueOf(ffmOutboundVO.getCaseNum()));
+
+			// crate the Insurance Level Data
+			Map<Long, InsuranceApplicantType> insuranceApplicantMap = null;
+
+			// create Application level data
+			GetInsuranceDataForCaseManager caseManager = new GetInsuranceDataForCaseManager(con);
+			insuranceApplicantMap = caseManager.getApplicantTypes(ffmOutboundVO, personMap);
+
+			// create Eligibility Data
+			CreateApplicationTransferRequestManager applicationTransferRequestManager = new CreateApplicationTransferRequestManager(con);
+			requestPayload = applicationTransferRequestManager.createAccountTransferRequest(personMap, ffmOutboundVO, insuranceApplicantMap);
+
+		} catch (Throwable e) {
+			log(ILog.ERROR, "Exception in OutboundFFMHelper - createOutboundDataVO() : " + e.getMessage());
+			throw new InterfacesException(e.getMessage(), e);
+		}
+
+		return requestPayload;
+	}
+	
+	private static final String SEPARATOR_PREFIX = "===FILE:";
+	private static final String SEPARATOR_SUFFIX = "===";
+
+	public static void main(String[] args) throws IOException {
+	File folder = new File("C:/Users/namaddireddy/Downloads/Modernaization/Interfaces/Interface_JCLs"); // folder with source files
+	File output = new File("C:/Users/namaddireddy/Downloads/Modernaization/Interfaces/output/out.txt");
+
+	try (BufferedWriter writer = new BufferedWriter(new FileWriter(output))) {
+	for (File file : folder.listFiles()) {
+	if (file.isFile()) {
+	writer.write(SEPARATOR_PREFIX + file.getName() + SEPARATOR_SUFFIX);
+	writer.newLine();
+	Files.lines(file.toPath()).forEach(line -> {
+	try {
+	writer.write(line);
+	writer.newLine();
+	} catch (IOException e) {
+	throw new RuntimeException(e);
+	}
+	});
+	}
+	}
+	}
+
+	System.out.println("Files combined successfully into " + output.getName());
+	}
+
+	/**
+	 * 
+	 * @param accountTransferRequestPayloadType
+	 * @return
+	 */
+	@Deprecated
+	private AccountTransferResponsePayloadType callFFMOutboundService(AccountTransferRequestPayloadType accountTransferRequestPayloadType) throws InterfacesException {
+		log(ILog.DEBUG, "In OutboundFFMHelper.callFFMOutboundService, Before call ");
+		AccountTransferResponsePayloadType responsePayload = new AccountTransferResponsePayloadType();
+
+		AccountTransferPortTypeTransferAccountOutput output = null;
+
+		try {
+			final FFMServiceRT_service_consumer_FFMOutboundService__connectors_AccountTransferPortType_transferAccount_WSD_PortProxy proxy = new FFMServiceRT_service_consumer_FFMOutboundService__connectors_AccountTransferPortType_transferAccount_WSD_PortProxy();
+			Dispatch dispatch = proxy._getDescriptor().getDispatch();
+			BindingProvider bp = (BindingProvider) dispatch;
+
+			Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
+
+			SSLSocketFactory sslsocketfactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+			bp.getRequestContext().put("com.sun.xml.internal.ws.transport.https.client.SSLSocketFactory", sslsocketfactory);
+
+			bp.getRequestContext().put(INInterfacesHelper.CONNECT_TIMEOUT, properties.getProperty("IMS_TRANSACTION_EXECUTION_TIMEOUT"));
+			bp.getRequestContext().put(INInterfacesHelper.REQUEST_TIMEOUT, properties.getProperty("IMS_TRANSACTION_EXECUTION_TIMEOUT"));
+
+			final AccountTransferPortTypeTransferAccountInput parameters = new AccountTransferPortTypeTransferAccountInput();
+			//parameters.setAccountTransferRequest(accountTransferRequestPayloadType);
+			String esbEndPoint = properties.getProperty("FFM_OUTBOUND_ENDPOINT");
+			String serviceEndpoint = properties.getProperty("FFM_SERVICE_ENDPOINT");
+			ObjectFactory factory = new ObjectFactory();
+			parameters.setUrl(factory.createAccountTransferPortTypeTransferAccountInputUrl(esbEndPoint));
+			proxy._getDescriptor().setEndpoint(serviceEndpoint);
+			
+			String timeout="14000";
+			if(properties.getProperty("WEB_SERIVICES_IES_TIMEOUT")!=null){
+				timeout = properties.getProperty("WEB_SERIVICES_IES_TIMEOUT");
+			}
+			ExecutorService executor = Executors.newCachedThreadPool();
+			Callable<Object> task = new Callable<Object>() {
+				public AccountTransferPortTypeTransferAccountOutput call() throws InterfacesException {
+
+					return proxy.accountTransferPortTypeTransferAccount(parameters);
+
+				}
+
+			};
+			Future<Object> future = executor.submit(task);
+			try {
+				output = (AccountTransferPortTypeTransferAccountOutput) future.get(Long.parseLong(timeout), TimeUnit.MILLISECONDS);
+			} catch (TimeoutException ex) {
+				throw new InterfacesException(getStackTraceAsString(ex), ex);
+			} catch (InterruptedException e) {
+				throw new InterfacesException(getStackTraceAsString(e), e);
+			} catch (ExecutionException e) {
+				throw new InterfacesException(getStackTraceAsString(e), e);
+			} finally {
+				future.cancel(true); 
+
+			}
+
+		} catch (Exception ex) {
+			if (ex instanceof SOAPFaultException) {
+				SOAPFaultException soapFaultException = (SOAPFaultException) ex;
+				SOAPFault fault = soapFaultException.getFault();
+				log(ILog.ERROR, "In OutboundFFMHelper.callFFMOutboundService, SSA returned with SOAP Fault : " + fault.toString() + " : for Input ");
+				throw new InterfacesException(fault.toString(), ex);
+			} else {
+				log(ILog.ERROR, "In OutboundFFMHelper.callFFMOutboundService, System threw Excpetion : " + ex.getMessage() + " : for Input ");
+				throw new InterfacesException(ex.getMessage(), ex);
+			}
+
+		}
+
+		/*if (output != null) {
+			responsePayload = output.getAccountTransferResponse();
+			if (responsePayload != null) {
+				ResponseMetadataType responseMetadataType = responsePayload.getResponseMetadata();
+				if (responseMetadataType != null && !InterfacesExceptionVO.SSA_SUCCESS_CODE.equals(responseMetadataType.getResponseCode())) {
+					List<String> validationMessageError = responseMetadataType.getTDSResponseDescriptionText();
+					StringBuilder validationMessageText = new StringBuilder("");
+					for (String validationMessage : validationMessageError) {
+						validationMessageText.append(validationMessage);
+					}
+					log(ILog.ERROR, "In OutboundFFMHelper.callFFMOutboundService, Exception response from FFM Outbound WS call : Code :" + responseMetadataType.getResponseCode() + " :Decription :"
+							+ responseMetadataType.getResponseDescriptionText() + " Response TD description : With ValidationMessage Text" + validationMessageText);
+					throw new InterfacesException("Error Code :" + responseMetadataType.getResponseCode() + ".Error Description :" + responseMetadataType.getResponseDescriptionText() + " "
+							+ validationMessageText);
+				}
+
+			} else {
+				JAXBElement<Fault> faultElement = output.getFault();
+				String erroMessage = "";
+				if (faultElement != null && faultElement.getValue() != null && faultElement.getValue().getReasons() != null && !faultElement.getValue().getReasons().isEmpty()) {
+					List<Reasons> faultString = faultElement.getValue().getReasons();
+					for (Reasons reason : faultString) {
+						erroMessage = erroMessage + reason.getContent();
+					}
+					log(ILog.ERROR, "In OutboundFFMHelper.callFFMOutboundService, System Return with NULL response and fault String : " + erroMessage + " : for Input ");
+				}
+				log(ILog.ERROR, "In OutboundFFMHelper.callFFMOutboundService, System Return with NULL response : " + " : for Input ");
+				throw new InterfacesException(erroMessage);
+			}
+
+		} else {
+			log(ILog.ERROR, "In SSACompositeWsInputAdapter.callSSACompositeService, System Return with NULL response : " + " : for Input ");
+			throw new InterfacesException(InterfacesExceptionVO.GLOBAL_TECHNICAL_ERROR);
+		}
+*/
+		log(ILog.DEBUG, "In SSACompositeWsInputAdapter.callSSACompositeService, After call ");
+		return null;
+	}
+	
+	 /* 
+	 * @param accountTransferRequestPayloadType
+	 * @return
+	 */
+	private AccountTransferResponsePayloadType callRestFFMOutboundService(String accountData, String token, Connection connection) throws InterfacesException
+	{
+		log(ILog.DEBUG, "In OutboundFFMHelper.callFFMOutboundService, Before call ");
+		String response = null;
+		ClientResponse clientResponse = null;
+
+		try
+		{
+			//disableSslVerification();
+			String WEB_SERIVICES_IES_TIMEOUT_PROPERTY = "WEB_SERIVICES_IES_TIMEOUT";
+			String ffmRestEndpoint = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("FFM_REST_ENDPOINT");
+			String bearerString = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("BEARER_STRING");
+			String messadeIdString = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("MESSAGE_ID_STRING");
+			String xmlString = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty("XML_STRING");
+			String wsTimeOut = FwPropertyLoader.getPropertyOf(FwConstants.APPLICATION_PROPERTY_FILE, WEB_SERIVICES_IES_TIMEOUT_PROPERTY);
+			String authorization = FwPropertyLoader.getProperties(PROPERTIES_FILE_NAME).getProperty(AUTHORIZATION);
+			String queryParam = authorization + bearerString +" "+ token;
+			queryParam = queryParam + "&" + messadeIdString + UUID.randomUUID().toString();
+			queryParam = queryParam + "&" + xmlString;
+			Future<Object> future = null;
+			try
+			{
+
+				queryParam = queryParam + accountData;
+				final String param = queryParam;
+
+				// Don't commit next 5 lines of code. this is only for local testing
+				/*
+				  ClientConfig config = new ClientConfig();
+				  BasicAuthSecurityHandler basicAuthSecHandler = new BasicAuthSecurityHandler();
+				  basicAuthSecHandler.setUserName("AppUser");
+				  basicAuthSecHandler.setPassword("app1ic@ti0n");
+				  config.handlers(basicAuthSecHandler);*/
+				 
+
+				if (ffmRestEndpoint == null || ffmRestEndpoint.trim().isEmpty() || bearerString == null || bearerString.trim().isEmpty()
+						|| messadeIdString == null || messadeIdString.trim().isEmpty() || xmlString == null || xmlString.trim().isEmpty())
+				{
+					Debug.println("Exception in In OutboundFFMHelper.callFFMOutboundService, FFM_REST_ENDPOINT or BEARER_STRING or MESSAGE_ID_STRING or XML_STRING is null ");
+					log(ILog.ERROR,
+							"Exception in In OutboundFFMHelper.callFFMOutboundService, FFM_REST_ENDPOINT or BEARER_STRING or MESSAGE_ID_STRING or XML_STRING is null ");
+					throw new InterfacesException("FFM_REST_ENDPOINT or BEARER_STRING or MESSAGE_ID_STRING or XML_STRING is null ");
+				}
+
+				if (wsTimeOut == null || wsTimeOut.trim().isEmpty())
+				{
+					wsTimeOut = "14000";
+				}
+
+				// for local testing
+				/*System.setProperty("https.protocols", "SSL");
+				RestClient client = new RestClient(config);*/
+				// for commit
+				RestClient client = new RestClient();
+				final Resource clientResource = client.resource(ffmRestEndpoint);
+
+				clientResource.header("Accept", APPLICATION_JSON);				
+				clientResource.header("Content-Type", APPLICATION_CONTENT_TYPE);
+
+				// Getting executor service and creating a task
+				ExecutorService executor = Executors.newCachedThreadPool();
+				Callable<Object> task = new Callable<Object>()
+				{
+					public ClientResponse call() throws Exception
+					{
+						return clientResource.post(param);
+					}
+				};
+
+				future = executor.submit(task);
+
+				clientResponse = (ClientResponse) future.get(Long.parseLong(wsTimeOut), TimeUnit.MILLISECONDS);
+
+				Debug.println("Exception in In OutboundFFMHelper.callFFMOutboundService, After call ");
+
+			}
+			catch (TimeoutException ex)
+			{
+				throw new InterfacesException(getStackTraceAsString(ex), ex);
+			}
+			catch (InterruptedException e)
+			{
+				throw new InterfacesException(getStackTraceAsString(e), e);
+			}
+			catch (ExecutionException e)
+			{
+				throw new InterfacesException(getStackTraceAsString(e), e);
+			}
+			finally
+			{
+				future.cancel(true);
+
+			}
+
+		}
+		catch (Exception ex)
+		{
+
+			log(ILog.ERROR, "In OutboundFFMHelper.callFFMOutboundService, System threw Excpetion : " + ex.getMessage() + " : for Input ");
+			throw new InterfacesException(ex.getMessage(), ex);
+
+		}
+
+		try
+		{
+			if (clientResponse != null)
+			{
+				String resp = clientResponse.getEntity(String.class);
+
+				if (resp != null && !resp.trim().isEmpty())
+				{
+					Debug.println("In OutboundFFMHelper.callFFMOutboundService, response is not null ");
+					Gson gson = new Gson();
+					CMSJSONResponse ffmResponse = gson.fromJson(resp, CMSJSONResponse.class);
+					if (null != ffmResponse && null != ffmResponse.body)
+						response = ffmResponse.body.getResponse();
+				}
+				if (response != null && !response.trim().isEmpty())
+				{
+					if (response.contains(INVALID_CREDENTIALS))
+					{
+						Debug.println("In OutboundFFMHelper.callFFMOutboundService:: Invalid Credentials, Please check your headers ");
+						TokenServiceHelper.conn = connection;
+						TokenServiceHelper.invokeTokenService(FwConstants.CMS_SERVICE, token);
+						TokenServiceHelper.conn = null;
+						throw new InterfacesException(TOKEN_EXPIRED_ERROR_MSG);
+
+					}
+					else if(response.contains("Schema Validation Failure"))
+					{
+						throw new InterfacesException("Schema Validation Failure");
+					}
+					else
+					{
+						AccountTransferResponsePayloadType accountTransferResponsePayloadType = unmarshalFFMXMLString(response);
+						if(accountTransferResponsePayloadType == null)
+						{
+							throw new InterfacesException("FFM Response is Null");
+							
+						}
+						else
+						{
+							ResponseMetadataType responseMetadata = accountTransferResponsePayloadType.getResponseMetadata();
+							if (responseMetadata != null && !InterfacesExceptionVO.SSA_SUCCESS_CODE.equals(responseMetadata.getResponseCode().getValue())) {
+								List<String> validationMessageError = FFMConversionUtil.getStringListTextType(responseMetadata.getTDSResponseDescriptionText());
+								StringBuilder validationMessageText = new StringBuilder("");
+								for (String validationMessage : validationMessageError) {
+									validationMessageText.append(validationMessage);
+								}
+								log(ILog.ERROR, "In OutboundFFMHelper.callFFMOutboundService, Exception response from FFM Outbound WS call : Code :" + responseMetadata.getResponseCode().getValue() + " :Decription :"
+										+ responseMetadata.getResponseDescriptionText().getValue() + " Response TD description : With ValidationMessage Text" + validationMessageText);
+								throw new InterfacesException("Error Code :" + responseMetadata.getResponseCode().getValue() + ".Error Description :" + responseMetadata.getResponseDescriptionText().getValue() + " "
+										+ validationMessageText);
+							}
+							
+						}
+					}
+				}
+			}
+			Debug.println("In OutboundFFMHelper.callFFMOutboundService, after transforming response to pojo ");
+		}
+		catch (Exception e)
+		{
+			throw new InterfacesException("In OutboundFFMHelper.callFFMOutboundService" + e.getMessage());
+		}
+		finally
+		{
+			if (response == null || response.isEmpty())
+			{
+				throw new InterfacesException("In OutboundFFMHelper.callFFMOutboundService..response is null..");
+			}
+		}
+		Debug.println("In OutboundFFMHelper.callFFMOutboundService -- End");
+		return null;
+	}
+
+	private AccountTransferResponsePayloadType unmarshalFFMXMLString(String xml)throws JAXBException, SAXException {
+		
+		StringReader reader = null;
+		AccountTransferResponsePayloadType responseData = null;
+		try 
+		{
+			reader = new StringReader(xml);	
+			JAXBContext jaxbContext = JAXBContext
+					.newInstance(AccountTransferResponsePayloadType.class);
+			Unmarshaller jaxbUnmarshaller = jaxbContext.createUnmarshaller();
+			JAXBElement<AccountTransferResponsePayloadType> response = jaxbUnmarshaller
+					.unmarshal(new StreamSource(reader),
+							AccountTransferResponsePayloadType.class);
+			responseData = response.getValue();		
+			
+		} catch (JAXBException e) {
+			Debug.println("In OutboundFFMHelper.unmarshalFFMXMLString -- End");
+			throw e;
+		} catch (Exception e) {
+			Debug.println("In OutboundFFMHelper.unmarshalFFMXMLString -- End");
+			throw new JAXBException(e.getMessage(), e);
+		} finally {
+			if( reader != null )
+			{
+				reader.close();
+			}
+		}
+		
+		return responseData;
+	}
+
+	/**
+	 * 
+	 * @param accountTransferRequestPayloadType
+	 * @return
+	 * @throws InterfacesException
+	 */
+	@Deprecated
+	public String marshallAccountData(AccountTransferRequestPayloadType accountTransferRequestPayloadType) throws InterfacesException {
+		JAXBContext jaxbContext;
+		String acountDataXml = "";
+		StringWriter writer = null;
+		try {
+			Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
+			String esbEndPoint = properties.getProperty("FFM_OUTBOUND_ENDPOINT");
+			// String serviceEndPoint =
+			ObjectFactory factory = new ObjectFactory();
+			AccountTransferPortTypeTransferAccountInput accountInput = new AccountTransferPortTypeTransferAccountInput();
+			accountInput.setUrl(factory.createAccountTransferPortTypeTransferAccountInputUrl(esbEndPoint));
+			//accountInput.setAccountTransferRequest(accountTransferRequestPayloadType);
+			jaxbContext = JAXBContext.newInstance(AccountTransferPortTypeTransferAccountInput.class);
+
+			// serialise to xml
+			writer = new StringWriter();
+
+			Marshaller marshaller = jaxbContext.createMarshaller();
+			marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
+			marshaller.marshal(accountInput, writer);
+			acountDataXml = writer.toString();
+
+		} catch (JAXBException e) {
+			log(ILog.ERROR, "JAXBException in OutboundFFMHelper.marshallAccountData while marshalling the Account Data");
+			throw new InterfacesException("Exception in OutboundFFMHelper.marshallAccountData while marshalling the Account Data", e);
+		} catch (Exception e) {
+			log(ILog.ERROR, "IOException in OutboundFFMHelper.marshallAccountData while marshalling the Account Data");
+			throw new InterfacesException("Exception in OutboundFFMHelper.marshallAccountData while marshalling the Account Data", e);
+		} finally {
+			try {
+				writer.close();
+			} catch (IOException e) {
+				throw new InterfacesException(e);
+			}
+		}
+
+		return acountDataXml;
+
+	}
+	public String marshallRestAccountData(AccountTransferRequestPayloadType accountTransferRequestPayloadType) throws InterfacesException {
+		JAXBContext jaxbContext;
+		String acountDataXml = "";
+		StringWriter writer = null;
+		try {
+			
+			jaxbContext = JAXBContext.newInstance(AccountTransferRequestPayloadType.class);
+			// serialise to xml
+			writer = new StringWriter();
+			Marshaller marshaller = jaxbContext.createMarshaller();
+			marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
+			marshaller.marshal(accountTransferRequestPayloadType, writer);
+			acountDataXml = writer.toString();
+			//System.out.println("==============================="+acountDataXml);
+
+		} catch (JAXBException e) {
+			log(ILog.ERROR, "JAXBException in OutboundFFMHelper.marshallAccountData while marshalling the Account Data");
+			throw new InterfacesException("Exception in OutboundFFMHelper.marshallAccountData while marshalling the Account Data", e);
+		} catch (Exception e) {
+			log(ILog.ERROR, "IOException in OutboundFFMHelper.marshallAccountData while marshalling the Account Data");
+			throw new InterfacesException("Exception in OutboundFFMHelper.marshallAccountData while marshalling the Account Data", e);
+		} finally {
+			try {
+				if(writer != null)
+					writer.close();
+			} catch (IOException e) {
+				throw new InterfacesException(e);
+			}
+		}
+
+		return acountDataXml;
+
+	}
+
+	/**
+	 * 
+	 * @param ffmOutboundVO
+	 * @throws InterfacesException
+	 */
+	public void updateFFMOutboundQueueData(FFMOutboundVO ffmOutboundVO) throws InterfacesException {
+		List<InFfmOutboundQueueCargo> inFfmOutboundQueueCargoList = fetchOutboundDataForCaseNum("N", ffmOutboundVO.getCaseNum());
+
+		if (inFfmOutboundQueueCargoList != null && !inFfmOutboundQueueCargoList.isEmpty()) {
+
+			InFfmOutboundQueueCargo inFfmOutboundQueueCargo = inFfmOutboundQueueCargoList.get(0);
+
+			if (ffmOutboundVO.getAccountData() != null)
+				inFfmOutboundQueueCargo.setBlobData(ffmOutboundVO.getAccountData().trim());
+
+			if (ffmOutboundVO.getFfmStatus() != null) {
+				inFfmOutboundQueueCargo.setSendToFfmInd(ffmOutboundVO.getFfmStatus());
+				if (ffmOutboundVO.getFfmStatus().equalsIgnoreCase("P")) {
+					inFfmOutboundQueueCargo.setTransferToFfmDt(INInterfacesHelper.generateAuditDate());
+					inFfmOutboundQueueCargo.setXmlCreationErrorMsg(null);
+				}
+			}
+
+			if (ffmOutboundVO.getFfmErrorData() != null && !ffmOutboundVO.getFfmErrorData().trim().isEmpty()) {
+				if (ffmOutboundVO.getFfmErrorData() != null && !ffmOutboundVO.getFfmErrorData().trim().isEmpty()) {
+					if (ffmOutboundVO.getFfmErrorData().trim().length() > 999)
+						inFfmOutboundQueueCargo.setXmlCreationErrorMsg(ffmOutboundVO.getFfmErrorData().trim().substring(0, 998));
+					else
+						inFfmOutboundQueueCargo.setXmlCreationErrorMsg(ffmOutboundVO.getFfmErrorData().trim());
+				}
+			}
+			InFfmOutboundQueueCollection inFfmOutboundQueueCollection;
+			if (con == null) {
+				inFfmOutboundQueueCollection = new InFfmOutboundQueueCollection();
+			} else {
+				inFfmOutboundQueueCollection = new InFfmOutboundQueueCollection(con);
+			}
+			inFfmOutboundQueueCollection.add(inFfmOutboundQueueCargo);
+			try {
+				inFfmOutboundQueueCollection.update(inFfmOutboundQueueCollection);
+			} catch (ApplicationException e) {
+				log(ILog.ERROR, "Exception in updateFFMOutboundQueueData method of OutboundFFMBatchBO : " + e.getMessage());
+				throw new InterfacesException("Error While getting the FFM Outbound Records for Processing", e);
+			}
+		}
+	}
+
+	/**
+	 * 
+	 * @param ffmOutboundVO
+	 * @throws InterfacesException
+	 */
+	public static void buildFFMOutboundQueueData(FFMOutboundVO ffmOutboundVO) throws InterfacesException {
+		if (ffmOutboundVO.getFfmStatus() != null) {
+			if (ffmOutboundVO.getFfmStatus().equalsIgnoreCase("P")) {
+				ffmOutboundVO.setTransferToFfmDt(INInterfacesHelper.generateAuditDate());
+				ffmOutboundVO.setXmlCreationErrorMsg(null);
+			}else if(ffmOutboundVO.getFfmStatus().equalsIgnoreCase("E")){
+				ffmOutboundVO.setTransferToFfmDt(INInterfacesHelper.generateAuditDate());
+				ffmOutboundVO.setXmlCreationErrorMsg("One or more rules failed validation The value of ext:TransferActivityReferralQuantity must be greater than 0.");
+			}
+		}
+
+		if (ffmOutboundVO.getFfmErrorData() != null && !ffmOutboundVO.getFfmErrorData().trim().isEmpty()) {
+			if (ffmOutboundVO.getFfmErrorData().trim().length() > 999)
+				ffmOutboundVO.setXmlCreationErrorMsg(ffmOutboundVO.getFfmErrorData().trim().substring(0, 998));
+			else
+				ffmOutboundVO.setXmlCreationErrorMsg(ffmOutboundVO.getFfmErrorData().trim());
+		}
+	}
+
+	public List<InFfmOutboundQueueCargo> fetchOutboundDataForCaseNum(String ffmInd, String caseNum) throws InterfacesException {
+		List<InFfmOutboundQueueCargo> inFfmOutboundQueueCargoList = null;
+		try {
+			InFfmOutboundQueueCollection inFfmOutboundQueueCollection = null;
+			InFfmOutboundQueueCargo[] inFfmOutboundQueueCargoArray = null;
+			
+			List argumentsList = new ArrayList();
+			Object[] methodArgs = new Object[1];
+
+			argumentsList.add(ffmInd);
+			argumentsList.add(caseNum);
+
+			methodArgs[0] = argumentsList;
+			if (con == null) {
+				inFfmOutboundQueueCollection = new InFfmOutboundQueueCollection();
+			} else {
+				inFfmOutboundQueueCollection = new InFfmOutboundQueueCollection(con);
+			}
+
+			inFfmOutboundQueueCargoArray = (InFfmOutboundQueueCargo[]) inFfmOutboundQueueCollection.select("findAppDataForCaseNum", methodArgs);
+			if (inFfmOutboundQueueCargoArray != null && inFfmOutboundQueueCargoArray.length > 0) {
+				inFfmOutboundQueueCargoList = Arrays.asList(inFfmOutboundQueueCargoArray);
+			}
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in fecthOutboundDataToSendFFM method of OutboundFFMBatchBO : " + e.getMessage());
+			throw new InterfacesException("Error While getting the ED Indv Eligibility Records for Processing", e);
+		}
+
+		return inFfmOutboundQueueCargoList;
+
+	}
+
+	/**
+	 * get a logger if not already acquired
+	 * 
+	 * @return ILog
+	 */
+	private ILog getLogger() {
+		if (logger == null) {
+			logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
+		}
+		return logger;
+	}
+
+	/**
+	 * Logs the provided message at the level specified in ims.log
+	 * 
+	 * @param message
+	 *            java.lang.String
+	 */
+	private void imsDebug(String message) {
+		if (getLogger().isLoggable(FwConstants.LOGGING_CATEGORY_IMS, ILog.DEBUG)) {
+			getLogger().log(FwConstants.LOGGING_CATEGORY_IMS, ILog.DEBUG, message);
+		}
+	}
+	
+	/**
+     * This method returns the error message as string object
+     * 
+     * @param t
+     * @return
+	 * @throws IOException 
+     */
+	public static String getStackTraceAsString(Throwable t) throws IOException {
+		if (t == null) {
+			return "";
+		} else {
+			StringWriter sw = new StringWriter();
+			t.printStackTrace(new PrintWriter(sw));
+			String stackTrace = sw.toString();
+			sw.close();
+			return stackTrace;
+		}
+	}
+	class CMSJSONResponse
+	{
+		@SerializedName("body")
+		public Body	body;
+	
+		public Body getBody()
+		{
+			return body;
+		}
+	
+		public void setBody(Body body)
+		{
+			this.body = body;
+		}
+	
+		public class Body
+		{
+			@SerializedName("response")
+			public String	response;
+	
+			public String getResponse()
+			{
+				return response;
+			}
+	
+			public void setResponse(String response)
+			{
+				this.response = response;
+			}
+		}		
+	}
+	
+}
