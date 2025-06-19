@@ -1,29 +1,550 @@
-SELECT DISTINCT R.CASE_NUM FROM BRG_OWNER.ED_CASE_RECERT_DATES R ");
-			queryBuilder.append("INNER JOIN BRG_OWNER.ED_ELIGIBILITY EE ON R.CASE_NUM = EE.CASE_NUM AND R.EDG_NUM = EE.EDG_NUM ");
-			queryBuilder.append("INNER JOIN BRG_OWNER.DC_CASES DC ON DC.CASE_NUM = R.CASE_NUM AND DC.CASE_STATUS_CD = 'AP' ");
-			queryBuilder.append("LEFT OUTER JOIN BRG_OWNER.ED_MASS_CHANGE_TRIGGER EMCT ON EMCT.CASE_NUM = DC.CASE_NUM AND EMCT.SCHD_RUN_DT = ? AND TRIGGER_CD = ? ");
-			queryBuilder.append("LEFT OUTER JOIN BRG_OWNER.ED_AUTO_REDE_DETERMN REDE ON R.CASE_NUM = REDE.CASE_NUM  ");
-			queryBuilder.append("AND REDE.CREATE_DT BETWEEN ? AND ? ");
-			queryBuilder.append("AND PROCESS_SW IN ('S', 'X') AND FORM_GENERATED_CD = 'B' ");
-			queryBuilder.append("WHERE EMCT.CASE_NUM IS NULL AND R.PROGRAM_CD IN ('FP','MA', 'ME', 'MC', 'HB', 'TF') ");
-			queryBuilder.append("AND R.REVIEW_PACKET_RECEIVED_DT IS NULL AND R.EFF_END_DT IS NULL ");
-			queryBuilder.append("AND (R.PROGRAM_CD = 'TF' OR REDE.CASE_NUM IS NOT NULL) ");
-			queryBuilder.append("AND R.RECERT_REVIEW_DUE_DT BETWEEN ? AND ? ");
-			queryBuilder.append("AND EE.PAYMENT_END_DT IS NULL ");
-			queryBuilder.append("AND EE.CURRENT_ELIG_IND = 'A' AND EE.CG_STATUS_CD = 'AP' AND EE.DELETE_SW = 'N' WITH UR
-			
-			
-			
-			SELECT DISTINCT R.CASE_NUM FROM BRG_OWNER.ED_CASE_RECERT_DATES R 
---			INNER JOIN BRG_OWNER.ED_ELIGIBILITY EE ON R.CASE_NUM = EE.CASE_NUM AND R.EDG_NUM = EE.EDG_NUM 
-			INNER JOIN BRG_OWNER.DC_CASES DC ON DC.CASE_NUM = R.CASE_NUM AND DC.CASE_STATUS_CD = 'AP' 
---			LEFT OUTER JOIN BRG_OWNER.ED_MASS_CHANGE_TRIGGER EMCT ON EMCT.CASE_NUM = DC.CASE_NUM AND EMCT.SCHD_RUN_DT = '2025-05-15' AND TRIGGER_CD = 'SP004' 
-			INNER JOIN BRG_OWNER.ED_AUTO_REDE_DETERMN REDE ON R.CASE_NUM = REDE.CASE_NUM  
-			AND REDE.CREATE_DT BETWEEN '2025-02-01' AND '2025-02-28' 
-			AND PROCESS_SW IN ('S', 'X') AND FORM_GENERATED_CD = 'B' 
-			WHERE EMCT.CASE_NUM IS NULL AND R.PROGRAM_CD IN ('FP','MA', 'ME', 'MC', 'HB') 
-			AND R.REVIEW_PACKET_RECEIVED_DT IS NULL AND R.EFF_END_DT IS NULL  
-			AND R.RECERT_REVIEW_DUE_DT BETWEEN '2025-04-01' AND '2025-04-30' 
---			AND EE.PAYMENT_END_DT IS NULL 
---			AND EE.CURRENT_ELIG_IND = 'A' AND EE.CG_STATUS_CD = 'AP' AND EE.DELETE_SW = 'N' 
-WITH UR;
+/**
+ * This is used for generating alerts to the worker/supervisor 
+ * based on the business function code, employee id, job title code etc.
+ * This also disposes the alerts either manually or through system.
+ */
+package gov.illinois.ies.business.batch.al;
+
+import java.sql.Timestamp;
+
+import gov.illinois.ies.business.entities.cases.DcCasesCargo;
+import gov.illinois.ies.business.entities.cases.DcCasesCollection;
+import gov.illinois.ies.business.entities.eligibility.EdDcIndvDisqPenaltiesCargo;
+import gov.illinois.ies.business.entities.eligibility.EdDcIndvDisqPenaltiesCollection;
+import gov.illinois.ies.business.entities.eligibility.EdEligibilityCargo;
+import gov.illinois.ies.business.entities.eligibility.EdEligibilityCollection;
+import gov.illinois.ies.business.entities.mci.CvEdMciEdgIndividualCargo;
+import gov.illinois.ies.business.entities.mci.CvEdMciEdgIndividualCollection;
+import gov.illinois.ies.business.rules.al.ALSOPUtil;
+import gov.illinois.ies.business.rules.al.AlConstants;
+import gov.illinois.ies.business.rules.al.AlMassUpdateManager;
+import gov.illinois.fw.batch.Controller.TIERSBatchController;
+import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.fw.business.exceptions.TIERSBatchException;
+import gov.illinois.fw.management.logger.Debug;
+
+/**
+ * This class <code>MassUpdateAABDCashGrantAdjustments</code> 
+ * Increase in AABD Cash Grant Adjustment. All approved ongoing AABD Cash EDGs
+ * 
+ * JOB_ID : MU-ED003-ALY
+ * TRIGGER CODE: MU003
+ */
+public class MassUpdateAABDCashGrantAdjustments extends AlAlertGenerationProcess {
+	
+	EdDcIndvDisqPenaltiesCollection edDcIndvDisqPenaltiesColl = null;
+	CvEdMciEdgIndividualCollection cvEdMciEdgIndividualColl = null;
+	private DcCasesCollection dcCasesColl = null;
+	private DcCasesCargo[] dcCasesRslts = null;
+	private Object[] obj = null;
+	private AlMassUpdateManager aMassUpdManager = null;
+	private static final String MASS_UPDATE_USER_ID_NFC = "NFCALERTS";
+	//EdIndvPenaltiesCollection penaltyColl = null;
+	EdEligibilityCollection eligColl = null;
+	Timestamp endDate = null;
+	private static final String JOB_ID_ED001 = "MU-ED001-MLY";
+	private static final String JOB_ID_ED004 = "MU-ED004-YLY";
+	private static final String JOB_ID_MU_ED003_ALY = "MU-ED003-ALY";
+	private static final String JOB_ID_SP004 = "AL-ALNFC-MLY";
+	
+	/**
+	 * Field msgBuffer.
+	 */
+	private static StringBuffer msgExpSummary = new StringBuffer();
+	
+	/**
+	 * Field msgBuffer.
+	 */
+	private static StringBuffer msgExpDetails = new StringBuffer();
+	/**
+	 * Field tbc.
+	 */
+	private static TIERSBatchController tbc;
+
+	public MassUpdateAABDCashGrantAdjustments(){
+	    super();
+	}
+
+	/**
+	 * This method initializes EXCEPTION_REPORT_TITLE, SUMMARY_REPORT_TITLE variables and dates.
+	 * 
+	 * @throws TIERSBatchException 
+	 */
+	protected void preProcess() throws TIERSBatchException{
+		super.preProcess();
+		initializeDates();
+		EXCEPTION_REPORT_TITLE = "Non Fixed Certifications - SP004/ED001/ED002/ED004/ED005 Triggers Exception Report";
+		SUMMARY_REPORT_TITLE =  "Non Fixed Certifications - SP004/ED001/ED002/ED004/ED005 Triggers Summary Report";
+		endDate = ALSOPUtil.addDays(beginDate, 1);
+		aMassUpdManager = new AlMassUpdateManager(conn);
+		//penaltyColl = new EdIndvPenaltiesCollection(conn);
+		//eligColl =new EdEligibilityCollection(conn);
+		edDcIndvDisqPenaltiesColl = new EdDcIndvDisqPenaltiesCollection(conn);
+		cvEdMciEdgIndividualColl = new CvEdMciEdgIndividualCollection(conn);
+		eligColl = new EdEligibilityCollection(applicationConnection);
+	}
+	
+	/**
+	 * This method finds the Non Fixed Certifications and triggers mass update SP004.
+	 * This also generates Divestment period ending Alert.
+	 * 
+	 * @throws TIERSBatchException 
+	 */
+	/* (non-Javadoc)
+	 * @see gov.illinois.fw.batch.AbstractBatch#process()
+	 */
+	protected void process() throws TIERSBatchException {
+		/*int valReturned = 0;
+		long caseNum = 0;
+	    dcCasesColl = new DcCasesCollection(conn);
+	    obj = new Object[2];
+	    obj[0] = firstDayOfMonth.toString().substring(0,10).trim();
+	    obj[1] = lastDayofMonth.toString().substring(0,10).trim();
+	    
+	    try {
+	    	dcCasesRslts = (DcCasesCargo[])dcCasesColl.select("findByNonFixedCertifications",obj);
+	    } catch(Exception e) {
+			msgExpSummary = new StringBuffer();
+			msgExpDetails = new StringBuffer();
+
+			msgExpSummary.append("AlNonFixedCertifications :: process() findBy Failed : findByNonFixedCertifications");
+			msgExpDetails.append("Exception:").append(e.getMessage());
+
+			writeExceptionRecord(msgExpSummary.toString(),
+					msgExpDetails.toString(),BatchConstants.FATAL,false);
+				throw new TIERSBatchException(e.getMessage());
+	    }
+	    
+        while (dcCasesRslts != null) {
+        	valReturned = dcCasesRslts.length;
+		    for(int i=0;i<valReturned;i++){
+		        try {
+		        	boolean triggerED002Flag = false;
+					tbc.savepoint(conn,"savepointALNFC1");
+		        	caseNum = dcCasesRslts[i].getCaseNum();
+		            totalRecordsProcessed++;
+		            triggerED002Flag = isEDTriggerRequired(caseNum);
+		            if(triggerED002Flag) {
+		            	insertMUTrigger(caseNum, "ED002");
+			            Debug.println("ED002 triggered successfully...");
+		            } else {
+		            	insertMUTrigger(caseNum, "SP004");
+			            Debug.println("SP004 triggered successfully...");
+		            }
+		            logicalCommit(conn);
+		        } catch(Exception ex) {
+				    tbc.rollback(conn,"savepointALNFC1");
+		        	StringBuffer msgExpSummary = new StringBuffer();
+					StringBuffer msgExpDetails = new StringBuffer();
+
+					msgExpSummary.append(caseNum);
+					msgExpDetails.append("Insert of SP004 into Mass Update Table Failed: ").append(ex.getMessage());
+		        	writeExceptionRecord(msgExpSummary.toString(),
+							msgExpDetails.toString(),BatchConstants.WARNING,true);
+		        	totalExceptions++;
+		        }
+		    }
+			try {
+		    	dcCasesRslts = (DcCasesCargo[])dcCasesColl.next("findByNonFixedCertifications");
+			} catch (Exception e1) {
+				msgExpSummary = new StringBuffer();
+				msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append("Prefetch Logic for findByNonFixedCertifications(next) Failed");
+				msgExpDetails.append("Exception:").append(e1.getMessage());
+
+				writeExceptionRecord(msgExpSummary.toString(),
+						msgExpDetails.toString(),BatchConstants.FATAL,false);
+				throw new TIERSBatchException(e1.getMessage());
+			} 
+        }
+        genDivestmentAlert();*/
+        
+        try {
+	        if (jobId.equalsIgnoreCase(JOB_ID_MU_ED003_ALY)){
+	        	generateMU003Triggers();
+	        }else if (jobId.equalsIgnoreCase(JOB_ID_SP004)){
+	        	generateSP004Trigger();
+	        }
+	        /*else if (jobId.equalsIgnoreCase(JOB_ID_ED004)){
+	        	generateED004Triggers();
+	        }*/
+	        /*else if (jobId.equalsIgnoreCase(JOB_ID_ED001)){
+	        	generateED001Triggers();
+	        }*/
+        }
+        catch (Exception e1) {
+			msgExpSummary = new StringBuffer();
+			msgExpDetails = new StringBuffer();
+
+			msgExpSummary.append("Prefetch Logic ED001, ED004 or ED005 Failed");
+			msgExpDetails.append("Exception:").append(e1.getMessage());
+
+			writeExceptionRecord(msgExpSummary.toString(),
+					msgExpDetails.toString(),BatchConstants.FATAL,false);
+			throw new TIERSBatchException(e1.getMessage());
+		} 
+	}
+
+	
+	/**
+	 * Business logic: 
+	 * 1. Program code : All Medical and Cash and 
+	 * 2. Review pending cd = RR and 
+	 * 3. REVIEW_PACKET_RECEIVED_DT is null and 
+	 * 4. RECERT_REVIEW_DUE_DT is on cut off dt
+	 * @throws TIERSBatchException
+	 */
+	private void generateSP004Trigger() throws TIERSBatchException {
+		int valReturned = 0;
+		long caseNum = 0;
+	    dcCasesColl = new DcCasesCollection(conn);
+	    obj = new Object[2];
+	    obj[0] = "SP004";
+ 	    obj[1] = beginDate;
+	    
+	    try {
+	    	dcCasesRslts = (DcCasesCargo[])dcCasesColl.select("findFailureToReturnPacketByCutOffDt", obj);
+	    } catch(Exception e) {
+			msgExpSummary = new StringBuffer();
+			msgExpDetails = new StringBuffer();
+
+			msgExpSummary.append("AlNonFixedCertifications :: generateSP004Trigger() findBy Failed : findFailureToReturnPacketByCutOffDt");
+			msgExpDetails.append("Exception:").append(e.getMessage());
+
+			writeExceptionRecord(msgExpSummary.toString(),
+					msgExpDetails.toString(),BatchConstants.FATAL,false);
+				throw new TIERSBatchException(e.getMessage());
+	    }
+	    
+        while (dcCasesRslts != null) {
+        	valReturned = dcCasesRslts.length;
+		    for(int i=0;i<valReturned;i++){
+		        try {
+		        	tbc.savepoint(conn,"savepointALNFC1");
+		        	caseNum = dcCasesRslts[i].getCaseNum();
+		            totalRecordsProcessed++;
+		            insertMUTrigger(caseNum, "SP004");
+			        Debug.println("SP004 triggered successfully...");
+		            logicalCommit(conn);
+		        } catch(Exception ex) {
+				    tbc.rollback(conn,"savepointALNFC1");
+		        	StringBuffer msgExpSummary = new StringBuffer();
+					StringBuffer msgExpDetails = new StringBuffer();
+
+					msgExpSummary.append(caseNum);
+					msgExpDetails.append("Insert of SP004 into Mass Update Table Failed: ").append(ex.getMessage());
+		        	writeExceptionRecord(msgExpSummary.toString(),
+							msgExpDetails.toString(),BatchConstants.WARNING,true);
+		        	totalExceptions++;
+		        }
+		    }
+			try {
+		    	dcCasesRslts = (DcCasesCargo[])dcCasesColl.next("findFailureToReturnPacketByCutOffDt");
+			} catch (Exception e1) {
+				msgExpSummary = new StringBuffer();
+				msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append("Prefetch Logic for findFailureToReturnPacketByCutOffDt(next) Failed");
+				msgExpDetails.append("Exception:").append(e1.getMessage());
+
+				writeExceptionRecord(msgExpSummary.toString(),
+						msgExpDetails.toString(),BatchConstants.FATAL,false);
+				throw new TIERSBatchException(e1.getMessage());
+			} 
+        }
+	}
+	
+	/**
+	 * This method is used to trigger mass update SP004 or ED002.
+	 * 
+	 * @throws TIERSBatchException
+	 */
+	private void insertMUTrigger(long caseNum, String edMUTrigger) 
+		throws TIERSBatchException {
+		try {
+			aMassUpdManager.insertMassUpdateTrigger(edMUTrigger,caseNum,beginDate,MASS_UPDATE_USER_ID_NFC);
+            totalProcessedEDBCtriggers++;
+		} catch(Exception e){
+			throw new TIERSBatchException(edMUTrigger + " - "+e.getMessage());
+		}
+	}
+	
+	/**
+	 * This method generates Divestment period ending Alert.
+	 *  
+	 * @throws TIERSBatchException
+	 */
+	private void genDivestmentAlert() throws TIERSBatchException {
+		
+		EdDcIndvDisqPenaltiesCargo[] edDcIndvDisqPenaltiesCargoArr = null;
+		EdDcIndvDisqPenaltiesCargo edDcIndvDisqPenaltiesCargo = new EdDcIndvDisqPenaltiesCargo();
+		long caseNum = 0;
+		String exceptionSummary = null;
+		Object[] penaltyObj = new Object[1];
+		CvEdMciEdgIndividualCargo cvEdMciEdgIndividualCargo = null;
+		CvEdMciEdgIndividualCargo[] cvEdMciEdgIndividualCargoArr = null;
+		try {
+			edDcIndvDisqPenaltiesCargo.setPenDisBeginDt(firstDayOfMonth);
+			edDcIndvDisqPenaltiesCargo.setPenDisEndDt(lastDayofMonth);
+			penaltyObj[0] = edDcIndvDisqPenaltiesCargo;
+			edDcIndvDisqPenaltiesCargoArr = (EdDcIndvDisqPenaltiesCargo[]) edDcIndvDisqPenaltiesColl
+					.select(AlConstants.FINDER_findByPenDisEndDt, penaltyObj);
+		} catch (Exception e) {
+			msgExpSummary = new StringBuffer();
+			msgExpDetails = new StringBuffer();
+
+			msgExpSummary.append("AlNonFixedCertifications :: genDivestmentAlert() findBy Failed : findByPenDisEndDt");
+			msgExpDetails.append("Exception:").append(e.getMessage());
+
+			writeExceptionRecord(msgExpSummary.toString(),
+					msgExpDetails.toString(),BatchConstants.FATAL,false);
+				throw new TIERSBatchException(e.getMessage());
+		}
+		Debug.println("edDcIndvDisqPenaltiesCargoArr.length: " + edDcIndvDisqPenaltiesCargoArr.length);
+		while (edDcIndvDisqPenaltiesCargoArr != null && edDcIndvDisqPenaltiesCargoArr.length > 0) {
+			for (int i=0; i < edDcIndvDisqPenaltiesCargoArr.length; i++) {
+				try {
+					tbc.savepoint(conn,"savepointALNFC2");
+					caseNum = edDcIndvDisqPenaltiesCargoArr[i].getCaseNum();
+					if (caseNum > 0) {
+						Object[] parms = new Object[1];
+						parms[0] = new Long(caseNum);
+						try {
+							cvEdMciEdgIndividualCargoArr = (CvEdMciEdgIndividualCargo[]) cvEdMciEdgIndividualColl
+									.select("findByCaseNumFromDual", parms);
+						} catch(Exception e) {
+							msgExpSummary = new StringBuffer();
+							msgExpDetails = new StringBuffer();
+
+							msgExpSummary.append("AlNonFixedCertifications :: genDivestmentAlert() findBy Failed : findByCaseNumEdgTraceId");
+							msgExpDetails.append("Exception:").append(e.getMessage());
+
+							writeExceptionRecord(msgExpSummary.toString(),
+									msgExpDetails.toString(),BatchConstants.FATAL,false);
+								throw new TIERSBatchException(e.getMessage());
+						}
+
+						if (cvEdMciEdgIndividualCargoArr != null && cvEdMciEdgIndividualCargoArr.length > 0) {
+		                    totalRecordsProcessed++;
+							aMassUpdManager.insertMassUpdateTrigger(AlConstants.ALERT_MASS_UPDATE_054, caseNum, endDate, jobId);
+							Debug.println("Alert AL054 triggered successfully...");
+							logicalCommit(conn);
+							totalProcessedEDBCtriggers++;
+						}
+					}
+
+				} catch (Exception e) {
+					StringBuffer msgExpSummary = new StringBuffer();
+				    StringBuffer msgExpDetails = new StringBuffer();
+            		msgExpSummary.append(caseNum);
+			    	msgExpDetails.append("Insert of AL054 into Mass Update Table Failed: ").append(e.getMessage());
+	        	    writeExceptionRecord(msgExpSummary.toString(),
+					msgExpDetails.toString(),BatchConstants.WARNING,true);
+	        	    totalExceptions++;
+				}
+			}
+			try {
+				edDcIndvDisqPenaltiesCargoArr = (EdDcIndvDisqPenaltiesCargo[]) edDcIndvDisqPenaltiesColl.next(AlConstants.FINDER_findByPenDisEndDt);
+			} catch (Exception e1) {
+			    tbc.rollback(conn,"savepointALNFC2");
+				msgExpSummary = new StringBuffer();
+				msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append("Prefetch Logic for findByPenDisEndDt(next) Failed");
+				msgExpDetails.append("Exception:").append(e1.getMessage());
+
+				writeExceptionRecord(msgExpSummary.toString(),
+						msgExpDetails.toString(),BatchConstants.FATAL,false);
+				throw new TIERSBatchException(e1.getMessage());
+			}
+		}
+	}
+	
+    /**
+     * This the main method of the program.
+     * 
+     * @param args input arguments to the method. 
+     * @throws TIERSBatchException
+     */
+	public static void main(String[] args) throws TIERSBatchException {
+        MassUpdateAABDCashGrantAdjustments alFC = new MassUpdateAABDCashGrantAdjustments();
+		tbc = new TIERSBatchController();
+		try{
+			alFC.begin(args);
+		}catch(TIERSBatchException e){
+			alFC.writeExceptionRecord("Program AlNonFixedCertification Aborted:",
+					e.getMessage(),BatchConstants.FATAL,false);
+		} finally {
+			alFC.end();
+		}
+    }
+	
+	/**
+	 * This method checks whether EDBC trigger ED002 is required or not
+	 * @param caseNum
+	 * @return boolean
+	 * @throws TIERSBatchException
+	 */
+	private boolean isEDTriggerRequired(long caseNum) 
+		throws TIERSBatchException {
+		DcCasesCargo dcCasesCargo = new DcCasesCargo();
+		DcCasesCollection dcCasesColl = new DcCasesCollection(conn);
+		DcCasesCargo dcCasesRslts[] = null;
+		dcCasesCargo.setCaseNum(caseNum);
+	    obj = new Object[3];
+	    obj[0] = dcCasesCargo;
+	    obj[1] = firstDayOfMonth.toString().substring(0,10).trim();
+	    obj[2] = lastDayofMonth.toString().substring(0,10).trim();
+		
+	    try {
+	    	dcCasesRslts = (DcCasesCargo[]) dcCasesColl.select("findByCaseNumNonFixedCert", obj);
+	    } catch(Exception e) {
+			msgExpSummary = new StringBuffer();
+			msgExpDetails = new StringBuffer();
+	
+			msgExpSummary.append(getClass()+">>isEDTriggerRequired()>>findByCaseNumNonFixedCert Failed");
+			msgExpDetails.append("Exception:").append(e.getMessage());
+	
+			writeExceptionRecord(msgExpSummary.toString(),
+					msgExpDetails.toString(),BatchConstants.FATAL,false);
+				throw new TIERSBatchException(e.getMessage());
+	    }
+	    if(dcCasesRslts!=null && dcCasesRslts.length>0) {
+	    	return true;
+	    } else {
+	    	return false;
+	    }
+	}
+	
+	private void generateMU003Triggers() throws TIERSBatchException {
+		 final String ED_TRIGGER_CD = "MU003";
+		 String caseNum = "";
+		 try {
+			 EdEligibilityCargo[] arrCargos = (EdEligibilityCargo[]) eligColl.select("findOngoingAABDCases");
+			 
+			 for (EdEligibilityCargo cargo : arrCargos){
+				 caseNum = String.valueOf(cargo.getCaseNum()); 
+				 totalRecordsProcessed++;
+				 
+				 insertMUTrigger(cargo.getCaseNum(), ED_TRIGGER_CD);
+				 
+			 }
+			 
+			 logicalCommit(conn);
+		  
+		 } 
+		 catch(TIERSBatchException ex) {
+			 	tbc.rollback(conn,"savepointMU003");
+			 
+	        	StringBuffer msgExpSummary = new StringBuffer();
+				StringBuffer msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append(caseNum);
+				msgExpDetails.append("Insert of MU003 into Mass Update Table Failed: ").append(ex.getMessage());
+	        	writeExceptionRecord(msgExpSummary.toString(),	msgExpDetails.toString(),BatchConstants.WARNING,true);
+	        	totalExceptions++;
+	      }
+		 catch(Exception e) {
+			   
+			    msgExpSummary = new StringBuffer();
+				msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append("AlNonFixedCertifications :: process() findBy Failed : findOngoingAABDCases");
+				msgExpDetails.append("Exception:").append(e.getMessage());
+
+				writeExceptionRecord(msgExpSummary.toString(), msgExpDetails.toString(),BatchConstants.FATAL,false);
+					throw new TIERSBatchException(e.getMessage());
+		 }
+		
+	}
+	
+	private void generateED004Triggers() throws TIERSBatchException {
+		 String caseNum = "";
+		 final String ED_TRIGGER_CD = "ED004";
+		 
+		 try {
+			 EdEligibilityCargo[] arrCargos = (EdEligibilityCargo[]) eligColl.select("findOngoingSnapCases");
+			 
+			 for (EdEligibilityCargo cargo : arrCargos){
+				 caseNum = String.valueOf(cargo.getCaseNum()); 
+				 
+				 totalRecordsProcessed++;
+				 insertMUTrigger(cargo.getCaseNum(), ED_TRIGGER_CD);
+			 }
+			 
+			 logicalCommit(conn);
+		  
+		 } 
+		 catch(TIERSBatchException ex) {
+			 	tbc.rollback(conn,"savepointED004");
+			 
+	        	StringBuffer msgExpSummary = new StringBuffer();
+				StringBuffer msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append(caseNum);
+				msgExpDetails.append("Insert of ED004 into Mass Update Table Failed: ").append(ex.getMessage());
+	        	writeExceptionRecord(msgExpSummary.toString(),	msgExpDetails.toString(),BatchConstants.WARNING,true);
+	        	totalExceptions++;
+	      }
+		 catch(Exception e) {
+			   
+			    msgExpSummary = new StringBuffer();
+				msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append("AlNonFixedCertifications :: process() findBy Failed : findOngoingSnapCases");
+				msgExpDetails.append("Exception:").append(e.getMessage());
+				
+				totalExceptions++;
+				
+				writeExceptionRecord(msgExpSummary.toString(), msgExpDetails.toString(),BatchConstants.FATAL,false);
+					throw new TIERSBatchException(e.getMessage());
+				
+		 }
+	}
+	
+	private void generateED001Triggers() throws TIERSBatchException {
+		 String caseNum = "";
+		 final String ED_TRIGGER_CD = "ED001";
+		 
+		 try {
+			 EdEligibilityCargo[] arrCargos = (EdEligibilityCargo[]) eligColl.select("findSpendDownCasesByRecurringPayment");
+			 
+			 for (EdEligibilityCargo cargo : arrCargos){
+				 caseNum = String.valueOf(cargo.getCaseNum()); 
+				 
+				 totalRecordsProcessed++;
+				 
+				 insertMUTrigger(cargo.getCaseNum(), ED_TRIGGER_CD);
+				 
+			 }
+			 
+			 logicalCommit(conn);
+		  
+		 } 
+		 catch(TIERSBatchException ex) {
+			 	tbc.rollback(conn,"savepointED001");
+			 
+	        	StringBuffer msgExpSummary = new StringBuffer();
+				StringBuffer msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append(caseNum);
+				msgExpDetails.append("Insert of ED001 into Mass Update Table Failed: ").append(ex.getMessage());
+	        	writeExceptionRecord(msgExpSummary.toString(),	msgExpDetails.toString(),BatchConstants.WARNING,true);
+	        	totalExceptions++;
+	      }
+		 catch(Exception e) {
+			   
+			    msgExpSummary = new StringBuffer();
+				msgExpDetails = new StringBuffer();
+
+				msgExpSummary.append("AlNonFixedCertifications :: process() findBy Failed : findSpendDownCasesByRecurringPayment");
+				msgExpDetails.append("Exception:").append(e.getMessage());
+				
+				totalExceptions++;
+				
+				writeExceptionRecord(msgExpSummary.toString(), msgExpDetails.toString(),BatchConstants.FATAL,false);
+					throw new TIERSBatchException(e.getMessage());
+		 }
+	}
+}
