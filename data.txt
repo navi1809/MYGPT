@@ -1,279 +1,66 @@
-public DcCasesCargo[] retrieveRecordsForTextMsgDZActivity(int maxRows, String parallelPartition) throws TIERSRunTimeException
-	{
-		String finderName = "retrieveRecordsForTextMsgDZActivity";
+package gov.illinois.ies.business.batch.mu;
 
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		ArrayList<DcCasesCargo> v = new ArrayList<DcCasesCargo>();
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.fw.business.exceptions.TIERSBatchException;
+import gov.illinois.fw.management.referencetables.ReferenceTableManager;
+import gov.illinois.ies.business.batch.ed.util.EdBatchConstants;
+import gov.illinois.ies.business.rules.al.ALSOPUtil;
+import gov.illinois.ies.business.rules.bi.BiUtils;
 
-		try
-		{
-			conn = getConnection();
-			String sqlQuery = SELECT_SQL;
+import java.sql.Timestamp;
 
-			sqlQuery = sqlQuery + " WHERE CASE_STATUS_CD IN('AP','PE') AND PHN_TXT_TYP_CD IS NULL AND VAL_PHN_NUM_CD IS NULL " + parallelPartition + " with ur ";
+import org.apache.commons.lang.StringUtils;
 
-			statement = conn.prepareStatement(sqlQuery);
-			rs = statement.executeQuery();
+public class SnapDelayedAppBatchUtil {
 
-			DcCasesCargo colrows[] = null;
-
-			while (rs.next())
-			{
-				if ((rs.getString("OTHER_PH_NUM") != null && !rs.getString("OTHER_PH_NUM").trim().isEmpty())
-						|| (rs.getString("PH_NUM") != null && !rs.getString("PH_NUM").trim().isEmpty())
-						|| (rs.getString("MSG_PHN_NUM") != null && !rs.getString("MSG_PHN_NUM").trim().isEmpty()))
-				{
-					DcCasesCargo row = new DcCasesCargo();
-					getRowFromResultSet(row, rs);
-					v.add(row);
-				}
-			}
-
-			colrows = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-
-			return colrows;
-
-		}
-		catch (SQLException e)
-		{
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-
-		finally
-		{
-			try
-			{
-				if (rs != null && getClose())
-					rs.close();
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try
-			{
-				if (statement != null)
-				{
-					closeStatement(finderName, statement, maxRows, v.size());
-
-				}
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + finderName + " " + e.getMessage(), e);
-			}
-			try
-			{
-				if (conn != null && getClose())
-					conn.close();
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + finderName + " " + e.getMessage(), e);
-			}
-		}
-
-	}
-	//Changes done by UmaRani for ILIES-287940 starts
-	//Vulnarable Switch Logic starts
 	/**
-	 *Method findByCaseNum.
-	 * This method is used to retreive records for a given case number
-	 * @param maxRows int
-	 * @param lCaseNum long
-	 * @return DcCasesCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findVulnerableIndvByCaseNum(int maxRows, long lCaseNum)
-	throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			conn = getConnection();
-			statement =
-				conn.prepareStatement(
-						"SELECT VULNERABLE_SW FROM DC_CASES Where CASE_NUM = ? WITH UR ");
-			statement.setLong(1, lCaseNum);
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				DcCasesCargo row = new DcCasesCargo(); 
-				row.setVulnerableSw(getCharacterFromResultSet(rs,"VULNERABLE_SW"));
-				v.add(row);
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	//ILIES-287940 ends
-	
-	//SOP-1866 START
-	public DcCasesCargo[] findByCaseNumWithCaseStatusCd(int maxRows, ArrayList list) throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		
-		ResultSet rs = null;
-		DcCasesCargo colrows[] = null;
-		StringBuffer sbClause = new StringBuffer();
-		try {
-			Debug.println("Inside method findByCaseNumWithCaseStatusCd");
-			conn = getConnection();
-			String clause = "WHERE CASE_NUM IN (";
-			int iCaseSize = list.size();
-			for (int i = 0; i < iCaseSize; i++) {
-				sbClause.append(list.get(i));
-				if (!((i + 1) == list.size()))
-				{
-					sbClause.append(",");
-				}
-			}
-			clause += sbClause.toString()
-			+ ") AND CASE_STATUS_CD = 'AP' WITH UR ";
-			statement = conn.prepareStatement(" SELECT CASE_NUM FROM DC_CASES " + " " + clause);
-			
-			Debug.println("the query is findByCaseNumWithCaseStatusCd" 
-					+ " " + clause);
-			
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (rs.next() && cnt++ < maxRows) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				v.add(row);
-			}
-			
-			colrows = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			Debug.println("Exiting method findByCaseNumWithCaseStatusCd");
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-		}
-		return colrows;
-	}
-	//SOP-1866 END
-	
-	/**
-	 * ILIES-291522 - ROHIYADAV - TWN being called for case change
-	 * Method findByCaseNumProgStatusCdEffEndDt. This method is used to retrieve records for records which are not pending and in IR mode 
-	 * given case number and program code
+	 * Method returns no. of holidays from As of date
+	 * holidayDtRange - contains the date range including the begin date till 
+	 * next working day. The next working day is excluded. When the next working day is not 
+	 * a holiday holidayDtRange array will have only the begin date . So the actual number of
+	 * holidays will be 1 less the array size.
 	 * 
-	 * @param maxRows
-	 *            int - max rows
-	 * @param caseNum
-	 *            Long - caseNum
-	 * @param progCode
-	 *            String - progCode
-	 * @return DcCaseProgramCargo[] - returns cargo
-	 * @throws TIERSRunTimeException
+	 * 
+	 * @return Timestamp
 	 */
-	public DcCasesCargo[] findByCaseNumProgStatusCdEffEndDt(int maxRows,
-			String caseNum) throws TIERSRunTimeException {
-		Debug.println(" findByCaseNumProgStatusCdEffEndDt " + " caseNum= " + caseNum);
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		final String SELECT_SQL_LOCAL = "SELECT DC.CASE_NUM, DC.CASE_MODE_CD FROM DC_CASES";
-		try {
-			conn = getConnection();
-
-			statement = conn.prepareStatement(SELECT_SQL_LOCAL 
-					+ " DC LEFT JOIN BRG_OWNER.DC_CASE_PROGRAM DP ON DC.CASE_NUM = DP.CASE_NUM AND DP.EFF_END_DT IS NULL AND (DP.PROG_STATUS_CD = 'PE' OR DP.REINSTATE_COMPLIANCE_DT IS NOT NULL) WHERE DC.CASE_MODE_CD = 'IR' AND DC.CASE_NUM = "+caseNum+" AND DP.CASE_NUM IS NULL WITH UR");
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				row.setCaseModeCd(rs.getString("CASE_MODE_CD"));
-				v.add(row);
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(),e);
-		} finally {
-			try {
-				if (rs != null)
-					rs.close();
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(),e);
-			}
-			try {
-				if (statement != null)
-					statement.close();
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(),e);
-			}
-			try {
-				if (conn != null && getClose())
-					conn.close();
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(),e);
-			}
+	public static int getNumberOfHolidaysFromAsofDate(Timestamp beginDate)throws Exception{
+		Timestamp [] holidayDtRange = null;
+		int noOfHolidays=0;
+		holidayDtRange= ALSOPUtil.getDateRange(beginDate); 
+		if(null!=holidayDtRange && holidayDtRange.length >0) {
+			noOfHolidays=holidayDtRange.length-1; 
 		}
+		return noOfHolidays;
 	}
 	
+	/**
+	 * This method is used get the cut off / ER implementation date for fetching the SNAP application.
+	 * This date is used in the driving query to limit fetching the SNAP 
+	 * appliations/cases with application date created prior to the cut off Date.
+	 * 
+	 * The value of this date is decided by functional team.
+	 * 
+	 * @throws TIERSBatchException  Object
+	 */
+	public static java.sql.Timestamp retImplementationDate() throws TIERSBatchException{
+
+		java.sql.Timestamp cutoffdate = ALSOPUtil.getTSfromString(EdBatchConstants.SNAP_DELAYED_CUTOFF_DATE_HIGH_DATE);
+		String refData = null;
+		try {
+			refData = ReferenceTableManager.getValueByColumn(true, "EDSNAPDELAYEDCUTOFF", "CUTOFFDATE", "DESCRIPTION");
+			if(refData != null && !StringUtils.isBlank(refData)){
+				cutoffdate = BiUtils.strDateToTimestamp(refData, "yyyy-mm-dd");
+			}
+
+/*			if(null==cutoffdate) {
+				cutoffdate = ALSOPUtil.getTSfromString((FwProperty.getInstance().getProperty(FwConstants.APPLICATION_PROPERTY_FILE, FwConstants.SNAP_DELAYED_CUTOFF_DATE)));
+			 }*/
+		} catch (Exception e) {
+			throw new TIERSBatchException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "Exception at retImplementationDate() - cutOffDate : " +cutoffdate + " " +e.getMessage(), e);
+		}
+		
+		
+		return cutoffdate;
+	}
 }
