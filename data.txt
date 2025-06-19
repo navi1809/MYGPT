@@ -1,56 +1,223 @@
- public DcCasesCargo[] findMAABDMedicalCasesByCutOffDt(int maxRows, String trigCd, Timestamp cutOffDt) throws TIERSRunTimeException {
-        Debug.println("findMAABDMedicalCasesByCutOffDt" + " maxRows= " + maxRows);
-        ArrayList v = new ArrayList();
-        Connection conn = null;
-        PreparedStatement statement = null;
-        ResultSet rs = null;
-        DcCasesCargo[] colrows = null;
+package gov.illinois.ies.business.batch.mu;
 
+import gov.illinois.framework.exceptions.FwException;
+import gov.illinois.framework.factories.FwServiceFactory;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.management.util.FwConstants;
+import gov.illinois.framework.management.util.FwProperty;
+import gov.illinois.ies.business.rules.al.ALSOPUtil;
+import gov.illinois.ies.business.rules.co.CoHelper;
+import gov.illinois.ies.business.entities.dccases.DCCasesCargo;
+import gov.illinois.ies.business.entities.dccases.DCCasesCollection;
+import gov.illinois.ies.business.entities.correspondence.COCorrespondence;
+import gov.illinois.fw.batch.AbstractBatch;
+import gov.illinois.fw.batch.Adapter.BatchParameter;
+import gov.illinois.fw.batch.Controller.TIERSBatchController;
+import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.fw.business.exceptions.TIERSBatchException;
+import gov.illinois.fw.business.exceptions.TIERSException;
+import gov.illinois.fw.management.referencetables.ReferenceTableManager;
+import gov.illinois.ies.business.rules.bi.BiUtils;
+
+import java.sql.Connection;
+import java.sql.Timestamp;
+import java.util.*;
+
+public class GenerateClosureNoticeForMAMedicalBatch extends AbstractBatch {
+
+    private static ILog logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
+    public static TIERSBatchController tbc = null;
+
+    private Connection con;
+    private String asOfDate;
+    private int exitStatus = 0;
+    private Timestamp beginDate;
+    private int fetchSize;
+
+    static int readcntNotices = 0;
+    static int processedCountNotices = 0;
+    static int totalprocessedCountNotices = 0;
+    static int excepCountNotices = 0;
+    static int totalExcepCount = 0;
+    static int totalReadCount = 0;
+    static int totalSuccessCount = 0;
+
+    private String jobId;
+    private int recordsReadInChunk = 0;
+    private int recSentForProcessingInChunkNotices = 0;
+    private String caseNumStr = "";
+    private String appNumStr = "";
+    private List<COCorrespondence> coTriggerArray;
+
+    public static void main(String[] args) {
+        GenerateClosureNoticeForMAMedicalBatch instance = new GenerateClosureNoticeForMAMedicalBatch();
         try {
-            conn = getConnection();
-
-            StringBuilder queryBuilder = new StringBuilder("SELECT DISTINCT R.CASE_NUM FROM BRG_OWNER.ED_CASE_RECERT_DATES R ");
-            queryBuilder.append("INNER JOIN BRG_OWNER.DC_CASES DC ON DC.CASE_NUM = R.CASE_NUM AND DC.CASE_STATUS_CD = 'AP' ");
-            queryBuilder.append("INNER JOIN BRG_OWNER.ED_AUTO_REDE_DETERMN REDE ON R.CASE_NUM = REDE.CASE_NUM ");
-            queryBuilder.append("AND REDE.CREATE_DT BETWEEN ? AND ? AND PROCESS_SW IN ('S', 'X') AND FORM_GENERATED_CD = 'B' ");
-            queryBuilder.append("WHERE R.PROGRAM_CD IN ('FP','MA', 'ME', 'MC', 'HB') ");
-            queryBuilder.append("AND R.REVIEW_PACKET_RECEIVED_DT IS NULL AND R.EFF_END_DT IS NULL ");
-            queryBuilder.append("AND R.RECERT_REVIEW_DUE_DT BETWEEN ? AND ? ");
-
-            statement = conn.prepareStatement(queryBuilder.toString(), ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
-            Timestamp createDtSubMnths = DateUtility.subMonths(cutOffDt, 2);
-            statement.setTimestamp(1, DateUtility.getStartOfDay(DateUtility.getFirstDayOfMonth(createDtSubMnths)));
-            statement.setTimestamp(2, DateUtility.getEndOfDay(DateUtility.getLastDayOfMonth(createDtSubMnths)));
-
-            statement.setTimestamp(3, DateUtility.getStartOfDay(DateUtility.getFirstDayOfMonth(cutOffDt)));
-            statement.setTimestamp(4, DateUtility.getEndOfDay(DateUtility.getLastDayOfMonth(cutOffDt)));
-
-            int cnt = 0;
-            rs = statement.executeQuery();
-            while (cnt++ < maxRows && rs.next()) {
-                DcCasesCargo row = new DcCasesCargo();
-                getCustomRowFromResultSet(row, rs, "findMAABDMedicalCasesByCutOffDt");
-                v.add(row);
-            }
-            colrows = new DcCasesCargo[v.size()];
-            v.toArray(colrows);
+            instance.init(args);
+        } catch (TIERSBatchException tbe) {
+            instance.exitStatus = 1;
+            tbe.printStackTrace();
         } catch (Exception e) {
-            throw new TIERSRunTimeException(e.getMessage(), e);
+            instance.exitStatus = 1;
+            e.printStackTrace();
         } finally {
             try {
-                if (rs != null && getClose()) {
-                    rs.close();
+                if (instance.exitStatus == 1) {
+                    instance.abort();
+                } else {
+                    instance.complete();
                 }
-                if (statement != null) {
-                    closeStatement("findMAABDMedicalCasesByCutOffDt", statement, maxRows, v.size());
-                    Debug.println("called close statement for findMAABDMedicalCasesByCutOffDt");
-                }
-                if (conn != null && getClose()) {
-                    conn.close();
-                }
-            } catch (SQLException e) {
-                throw new TIERSRunTimeException(e.getClass().getName() + " findMAABDMedicalCasesByCutOffDt " + e.getMessage(), e);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            System.exit(instance.exitStatus);
+        }
+    }
+
+    private void init(String[] args) throws TIERSBatchException {
+        if (args != null && args.length > 0) {
+            jobId = args[0];
+        } else {
+            throw new TIERSException("No job ID provided for batch: " + getClass().getName());
+        }
+
+        tbc = getTIERSBatchController();
+        tbc.setJobId(jobId);
+        tbc.setProgramName(getClass().getSimpleName());
+
+        BatchParameter bP = tbc.getParameters();
+        asOfDate = bP.getAsOfDate();
+        con = tbc.getConnection();
+
+        processBeginTime = TIERSBatchController.getTimeStamp();
+        start();
+    }
+
+    protected void preProcess() throws TIERSBatchException {
+        try {
+            beginDate = ALSOPUtil.getTSfromString(getParameters().getAsOfDate());
+            if ((con = getConnection()) == null) {
+                throw new TIERSBatchException("Could not obtain DB connection.");
+            }
+            fetchSize = Integer.parseInt(FwProperty.getInstance().getProperty(FwConstants.APPLICATION_PROPERTY_FILE, FwConstants.BATCH_FETCH_SIZE));
+        } catch (Exception e) {
+            throw new TIERSBatchException("Exception at preProcess(): " + e.getMessage(), e);
+        }
+    }
+
+    protected void process() throws TIERSBatchException {
+        try {
+            generateCONoticeForMAMedicalCases(con);
+        } catch (Exception e) {
+            throw new TIERSBatchException("Exception at process(): " + e.getMessage(), e);
+        }
+    }
+
+    protected void postProcess() throws TIERSBatchException {
+        try {
+            totalExcepCount = excepCountNotices;
+            totalReadCount = readcntNotices;
+            totalSuccessCount = totalprocessedCountNotices;
+            getTIERSBatchController().insertSummaryRecord(totalReadCount, totalSuccessCount, totalExcepCount);
+        } catch (Exception ex) {
+            throw new TIERSBatchException("Exception at postProcess(): " + ex.getMessage(), ex);
+        }
+    }
+
+    protected void stop() throws TIERSBatchException {
+    }
+
+    private Timestamp getCutoffDate() throws TIERSBatchException {
+        try {
+            String refData = ReferenceTableManager.getValueByColumn(true, "EDMAMEDICALCUTOFF", "CUTOFFDATE", "DESCRIPTION");
+            if (refData != null && !refData.trim().isEmpty()) {
+                return BiUtils.strDateToTimestamp(refData, "yyyy-mm-dd");
+            } else {
+                return ALSOPUtil.getTSfromString("12/31/9999");
+            }
+        } catch (Exception e) {
+            throw new TIERSBatchException("Exception at getCutoffDate(): " + e.getMessage(), e);
+        }
+    }
+
+    private void generateCONoticeForMAMedicalCases(Connection con) throws Exception {
+        DCCasesCollection dcCasesCollection = new DCCasesCollection(con);
+        String caseFinder = "findByAllCasesForMAMedicalNotices";
+        Timestamp erCutOffDt = getCutoffDate();
+        int noOfHolidays = ALSOPUtil.getDateRange(beginDate).length - 1;
+        String coDocId = "FXX999";
+
+        Object[] methodArgs = new Object[] { erCutOffDt, noOfHolidays, beginDate, coDocId };
+
+        if (erCutOffDt.equals(ALSOPUtil.getTSfromString("12/31/9999"))) {
+            writeExceptionRecord(BatchConstants.INFO, "MAMEDICAL_CUTOFF_DATE is HIGH DATE", "MAMEDICAL_CUTOFF_DATE is HIGH DATE", BatchConstants.REPORT_BODY, false, BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE, ILog.INFO, BatchConstants.EDBC_LOGGER_FILE, true, null, jobId, null, null);
+            return;
+        }
+
+        dcCasesCollection.setSelectSize(fetchSize);
+        DCCasesCargo[] arrMAMedicalNoticeCargos = (DCCasesCargo[]) dcCasesCollection.select(caseFinder, methodArgs);
+
+        while (arrMAMedicalNoticeCargos != null && arrMAMedicalNoticeCargos.length > 0) {
+            readcntNotices += arrMAMedicalNoticeCargos.length;
+            createCONotices(arrMAMedicalNoticeCargos, coDocId);
+            arrMAMedicalNoticeCargos = (DCCasesCargo[]) dcCasesCollection.next(caseFinder);
+        }
+    }
+
+    public void createCONotices(DCCasesCargo[] dcCasesCargos, String coDocId) throws Exception {
+        coTriggerArray = new ArrayList<>();
+
+        for (DCCasesCargo cargo : dcCasesCargos) {
+            try {
+                COCorrespondence coReqObj = new COCorrespondence();
+                coReqObj.setDocId(coDocId);
+                coReqObj.setCaseAppNumber(String.valueOf(cargo.getCaseNum()));
+                coReqObj.setCaseAppFlag("C");
+                coReqObj.setOfficeNumber(cargo.getOfficeNum());
+                coReqObj.setLangCd(CoHelper.getNoticeLanguageCode(cargo.getLanguageCd()));
+                setCOCorrespondence(coReqObj);
+                coTriggerArray.add(coReqObj);
+            } catch (Exception ex) {
+                excepCountNotices++;
+                writeExceptionRecord(BatchConstants.BATCH_ERROR, "Error creating CO notice", ex.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.EDBC_LOGGER_FILE, true, ex, coDocId, null, null);
             }
         }
-        return colrows;
+
+        callCOTrigger(coTriggerArray, coDocId);
     }
+
+    public void setCOCorrespondence(COCorrespondence coReqObj) throws TIERSBatchException {
+        try {
+            coReqObj.setGenerateDate(beginDate);
+            coReqObj.setCancelledEdgTraceId(0);
+            coReqObj.setPrintMode("B");
+            coReqObj.setDraftSwitch("N");
+            coReqObj.setMiscParameters(asOfDate);
+            coReqObj.setRequestUserId(tbc.getJobId());
+        } catch (Exception e) {
+            throw new TIERSBatchException("Exception at setCOCorrespondence(): " + e.getMessage(), e);
+        }
+    }
+
+    private void callCOTrigger(List<COCorrespondence> coTriggerArray, String coDocId) throws TIERSBatchException {
+        try {
+            if (coTriggerArray != null && !coTriggerArray.isEmpty()) {
+                processedCountNotices += coTriggerArray.size();
+                totalprocessedCountNotices += coTriggerArray.size();
+                tbc.insertIntoCORequestHistory(coTriggerArray);
+                logger.log(BatchConstants.EDBC_LOGGER_FILE, ILog.INFO, "Inserted into CO_REQUEST_HISTORY. Count: " + coTriggerArray.size());
+
+                if (tbc.isCommitRequired()) {
+                    con.commit();
+                    logger.log(BatchConstants.EDBC_LOGGER_FILE, ILog.INFO, "Committed transaction for inserted notices.");
+                }
+            } else {
+                logger.log(BatchConstants.EDBC_LOGGER_FILE, ILog.INFO, "No CO notices to insert.");
+            }
+        } catch (Exception e) {
+            tbc.rollback(con, jobId);
+            excepCountNotices += coTriggerArray != null ? coTriggerArray.size() : 0;
+            writeExceptionRecord(BatchConstants.SYS_ERROR, "Exception at callCOTrigger", e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE, ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, e, coDocId, null, null);
+            throw new TIERSBatchException("Exception in callCOTrigger(): " + e.getMessage(), e);
+        }
+    }
+}
