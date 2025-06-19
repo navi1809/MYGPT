@@ -1,698 +1,129 @@
 
 package gov.illinois.ies.business.batch.mu;
 
-import gov.illinois.framework.exceptions.FwException;
-import gov.illinois.framework.factories.FwServiceFactory;
-import gov.illinois.framework.management.logging.ILog;
-import gov.illinois.framework.management.util.FwConstants;
-import gov.illinois.framework.management.util.FwProperty;
-import gov.illinois.framework.management.util.PMDRules;
 import gov.illinois.fw.batch.AbstractBatch;
-import gov.illinois.fw.batch.Adapter.BatchParameter;
 import gov.illinois.fw.batch.Controller.TIERSBatchController;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.factories.FwServiceFactory;
 import gov.illinois.fw.batch.HelperClasses.BatchConstants;
-import gov.illinois.fw.business.exceptions.FrameworkException;
 import gov.illinois.fw.business.exceptions.TIERSBatchException;
 import gov.illinois.fw.business.exceptions.TIERSException;
-import gov.illinois.fw.business.exceptions.TIERSRunTimeException;
-import gov.illinois.fw.business.exceptions.TIERSValidationException;
-import gov.illinois.ies.business.batch.ed.util.EdBatchConstants;
-import gov.illinois.ies.business.batch.ed.util.EdDebugger;
-import gov.illinois.ies.business.batch.mu.CaseLoadManagementBatchProcess.DocId;
-import gov.illinois.ies.business.entities.application.ArApplicationForAidCargo;
-import gov.illinois.ies.business.entities.application.ArApplicationForAidCollection;
-import gov.illinois.ies.business.entities.correspondence.COCorrespondence;
-import gov.illinois.ies.business.entities.correspondence.CoMasterCargo;
-import gov.illinois.ies.business.entities.correspondence.CoMasterCollection;
-import gov.illinois.ies.business.entities.correspondence.CoRequestHistoryCargo;
-import gov.illinois.ies.business.entities.correspondence.CoRequestHistoryCollection;
-import gov.illinois.ies.business.entities.correspondence.CoRequestHistoryDetailCargo;
-import gov.illinois.ies.business.entities.correspondence.CoRequestHistoryDetailCollection;
-import gov.illinois.ies.business.entities.correspondence.CoRequestRecipientsCargo;
-import gov.illinois.ies.business.entities.correspondence.CoRequestRecipientsCollection;
 import gov.illinois.ies.business.rules.al.ALSOPUtil;
-import gov.illinois.ies.business.rules.co.CoHelper;
-import gov.illinois.ies.business.rules.di.DIConstants;
-import gov.illinois.ies.business.rules.ed.DateComparisons;
+import gov.illinois.ies.business.util.co.COCorrespondence;
+import gov.illinois.ies.business.util.co.COCorrespondenceCollection;
+import gov.illinois.ies.business.rules.co.CORequestHelper;
+import gov.illinois.ies.business.constants.EdBatchConstants;
+import gov.illinois.ies.business.entities.dc.DcCasesCargo;
+import gov.illinois.ies.business.entities.dc.DcCasesCollection;
+import gov.illinois.ies.business.util.batch.MAABDCutoffUtil;
 
-import java.sql.BatchUpdateException;
 import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Savepoint;
-import java.sql.Statement;
 import java.sql.Timestamp;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
+public class SendMAABDClosureNoticeBatch extends AbstractBatch {
 
+    private static SendMAABDClosureNoticeBatch batchInstance = null;
+    private static TIERSBatchController tbc = null;
+    private static ILog logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
 
-/**
- * This batch is used to 
- * JOB_ID : ED-XX516-DLY  - Generates 360J Notices (FXX516)for SNAP Delayed Applications
- * @param <ArApplicationForAidCargo>
- */
-public class Generate360JNoticeForSnapDelayedAppBatch extends AbstractBatch {
-	private int fetchSize = 1000;  
-	private int exitStatus = 0;
-	String asOfDate;
-	String processBeginTime;
-	Connection con;
-	/**
-	 * Field batchUserId.
-	 */
-	protected String batchUserId = null;
-	private Timestamp beginDate = null;
+    private Connection conn = null;
+    private Timestamp beginDate = null;
+    private Timestamp cutoffDate = null;
+    private int totalRecordsProcessed = 0;
+    private int totalExceptions = 0;
+    private DcCasesCollection dcCasesColl = null;
+    private DcCasesCargo[] dcCasesRslts = null;
+    private Object[] obj = null;
+    private static String jobId = null;
 
-	 /**
-	  * Field tbc.
-	  */
-	public static TIERSBatchController tbc = null;
+    private static final String DOC_ID = EdBatchConstants.CO_DOC_ID_MAABD_CLOSURE;
 
-	private static ILog logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
-	
-	/** Summary Counts. */
-	static int totalExcepCount =0;
-	static int totalReadCount =0;
-	static int totalSuccessCount =0;
-	
-	/** Summary Counts Notices */
-	static int readcntNotices =0;
-	static int processedCountNotices =0;
-	static int totalprocessedCountNotices =0;
-
-	static int excepCountNotices =0;
-
-	static int recordsErredInChunkNotices = 0;
-	static int recSentForProcessingInChunkNotices = 0;
-	static int recordsProcessedInChunk=0;
-	static int totalRecordsExceptioned =0;
-	private static int recordsReadInChunk = 0;
-
-	Timestamp [] holidayDtRange = null;
-	int noOfHolidays=0;
-	Timestamp  erCutOffDt = null;
-	
-	//CO Notice variables
-	private List<COCorrespondence> coTriggerArray = null;
-	private CoRequestHistoryCollection coRequestHistorycoll = null; 
-	private CoRequestHistoryCargo[] coRequestHistoryCargos = null; 
-
-	private CoMasterCollection coMasterColl = null;
-	private CoMasterCargo[] coMasterCargos = null;
-
-	private COCorrespondence coReqObj = null;
-	public String coDocId = EdBatchConstants.CO_DOC_ID_DELAYED_SNAP;
-	String batchUserid  = null;
-	private String insertCoReqSeqStr = null;
-	private Set<Long> insertCoReqSeqSet = null;
-	private CoRequestHistoryDetailCollection coRequestHistoryDtlcoll = null;
-	private CoRequestRecipientsCollection coRequestRecipColl = null;
-
-	private CoRequestHistoryDetailCargo[] coRequestHistoryDtlcargos = null;	
-	private CoRequestRecipientsCargo[] coRequestRecipCargos = null;
-	private String caseNumStr = "";
-	private String appNumStr = "";
-
-
-	private static Generate360JNoticeForSnapDelayedAppBatch generate360JNoticeForSnapDelayedAppBatch = null;
-	
-	 /**
-     * This the main method of the program.
-     * 
-     * @param args input arguments to the method. 
-     * @throws TIERSBatchException
-     */
-	public static void main(String[] args) {
-		try{
-			generate360JNoticeForSnapDelayedAppBatch = new Generate360JNoticeForSnapDelayedAppBatch();
-			generate360JNoticeForSnapDelayedAppBatch.init(args);
-		}catch(TIERSBatchException tbe){
-			generate360JNoticeForSnapDelayedAppBatch.exitStatus = BatchConstants.EXIT_FAILURE;
-			generate360JNoticeForSnapDelayedAppBatch.writeExceptionRecord(BatchConstants.FATAL , "JOB_ID: "+jobId +"Exception at main() : ", tbe.getMessage(), BatchConstants.REPORT_BODY, false, 
-					BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, tbe, (String)jobId.subSequence(0, 8), null, null); 			
-		} catch(Exception e){
-			generate360JNoticeForSnapDelayedAppBatch.exitStatus = BatchConstants.EXIT_FAILURE;
-			generate360JNoticeForSnapDelayedAppBatch.writeExceptionRecord(BatchConstants.FATAL , "JOB_ID: "+jobId +"Exception at main() : ", e.getMessage(), BatchConstants.REPORT_BODY, false, 
-					BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, e, (String)jobId.subSequence(0, 8), null, null); 
-			} finally {
-			try {
-				if(generate360JNoticeForSnapDelayedAppBatch.exitStatus == BatchConstants.EXIT_FAILURE){
-					generate360JNoticeForSnapDelayedAppBatch.abort();
-				}else{
-					generate360JNoticeForSnapDelayedAppBatch.complete();
-				}
-			} catch (Exception e2) {
-				generate360JNoticeForSnapDelayedAppBatch.exitStatus = BatchConstants.EXIT_FAILURE;
-				generate360JNoticeForSnapDelayedAppBatch.writeExceptionRecord(BatchConstants.FATAL , "JOB_ID: "+jobId +"Exception at main() : ", e2.getMessage(), BatchConstants.REPORT_BODY, false, 
-						BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, e2, (String)jobId.subSequence(0, 8), null, null); 
-			}
-			System.exit(generate360JNoticeForSnapDelayedAppBatch.exitStatus);
-		}
+    public static void main(String[] args) {
+        try {
+            batchInstance = new SendMAABDClosureNoticeBatch();
+            batchInstance.init(args);
+        } catch (Exception e) {
+            batchInstance.writeExceptionRecord("Fatal Error at main", e.getMessage(), BatchConstants.REPORT_BODY, true);
+            System.exit(BatchConstants.EXIT_FAILURE);
+        }
     }
-	
-	 /**
-	* Initializes the Batch framework parameters.
-	* 
-	* @param aParams String[]
-	* @throws TIERSBatchException 
-	*/
-	
-	private void init(String[] aArgs) throws TIERSBatchException {
-		try {
-			if (aArgs != null && aArgs.length != 0) {
-				jobId = aArgs[0];
-			} else {
-				throw new TIERSException("No job id found for this batch: "
-						+ this.getClass().getName());
-			}
-			tbc = getTIERSBatchController();
-			tbc.setJobId(jobId);
-			String fullProgramName = this.getClass().getName();
-			String programName = fullProgramName.substring(fullProgramName.lastIndexOf(".")+1,fullProgramName.length());
-			tbc.setOverWriteFlag(false);
-			tbc.setProgramName(programName);
-			BatchParameter bP = tbc.getParameters();
-			asOfDate = bP.getAsOfDate();
-			con = tbc.getConnection();
-			processBeginTime = TIERSBatchController.getTimeStamp();
-			start();
-		}catch (Exception tbe) {
-			generate360JNoticeForSnapDelayedAppBatch.writeExceptionRecord(BatchConstants.FATAL , "JOB_ID: "+jobId +"Exception at preProcess() : ", tbe.getMessage(), BatchConstants.REPORT_BODY, false, 
-					BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, tbe, (String)jobId.subSequence(0, 8), null, null); 
-			throw new TIERSBatchException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, tbe.getMessage(), tbe);
-      } 		
-	}
-	/**
-	 * 
-	 * 
-	 * @throws TIERSBatchException 
-	 */
-	protected void preProcess() throws TIERSBatchException{
-		try {
-			beginDate =
-				ALSOPUtil.getTSfromString(getParameters().getAsOfDate());
-			if ((con = getConnection()) == null) {
-				throw new TIERSBatchException("Could not obtain a database connection");
-			}		
-			fetchSize = Integer.parseInt(FwProperty.getInstance().getProperty(FwConstants.APPLICATION_PROPERTY_FILE, FwConstants.BATCH_FETCH_SIZE));
 
-		} catch (Exception e) { 
-			generate360JNoticeForSnapDelayedAppBatch.writeExceptionRecord(BatchConstants.FATAL , "JOB_ID: "+jobId +"Exception at preProcess() : ", e.getMessage(), BatchConstants.REPORT_BODY, false, 
-					BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, e, (String)jobId.subSequence(0, 8), null, null); 
-			throw new TIERSBatchException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, e.getMessage(), e);
-		}
-	}
-	
-	/**
-	 * Method that process the Delayed SNAP applications.
-	 * Business : Correspondence Notice will be created for Delayed SNAP applications after 29 days past Application date.
-	 * 
-	 * 
-	 * @throws TIERSBatchException 
-	 */
-	
-	protected void process() throws TIERSBatchException {
-		try {	
-			
-			//get the number of holidays from as of date
-			noOfHolidays = SnapDelayedAppBatchUtil.getNumberOfHolidaysFromAsofDate(beginDate); 
-			
-			
-			/*getting the reference table value for Delayed Snap ER cutOff date. The cases and Applications
-			 * created prior to the cut off date will not be picked. If reference table value is
-			 * null then get the date from property file */
-			
-			erCutOffDt=SnapDelayedAppBatchUtil.retImplementationDate();
-			
-			 
-			//fetch all snap delayed applications for creating CO Notices and insert records in CO tables for creating  notices
-	        generateCONoticeForSnapDelayedApplications(con);
-	  
-        }catch (Exception e){
-        	generate360JNoticeForSnapDelayedAppBatch.writeExceptionRecord(BatchConstants.FATAL , "JOB_ID: "+jobId +" Exception at process() : ", e.getMessage(), BatchConstants.REPORT_BODY, false, 
-					BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, e, (String)jobId.subSequence(0, 8), null, null); 
-        	throw new TIERSBatchException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, e.getMessage(), e);
-		} 
-	}
-	
-	/**
-	 * The main process  happens in this method 
-	 * 
-	 * @throws TIERSBatchException
-	 */	
-	
-	/**
-	 * Business logic: 
-	 * @throws Exception 
-	 */	
-	
-	private void generateCONoticeForSnapDelayedApplications(Connection con) throws Exception{
-		ArApplicationForAidCargo[] arrSnapDelayedAppNoticeCargos = null;
-		ArApplicationForAidCollection arAppColl = new ArApplicationForAidCollection(con);
-		
-		
-		/***********************************LUW starts **********************************
-		 *  Fetch all Snap Delayed Apps/Cases for which Notice need to be created.
-		 *  
-		 ***********************************************************************************/
-		String caseAppFinder = "findByAllCasesAndAppForDelayedSnapNotices";
-		
-		try { 
-		
-			try {
-				Object[] methodArgs = new Object[4];
-				methodArgs[0] =erCutOffDt;  //ER Cut Off date
-				methodArgs[1] =noOfHolidays; // no of holidays between as of date and next working day.
-				methodArgs[2] =beginDate; // batch run date/as of date
-				methodArgs[3] =coDocId; // Doc id for 360J Notice
+    private void init(String[] args) throws TIERSBatchException {
+        try {
+            if (args != null && args.length != 0) {
+                jobId = args[0];
+            } else {
+                throw new TIERSException("No job id found for this batch: " + this.getClass().getName());
+            }
 
+            tbc = getTIERSBatchController();
+            tbc.setJobId(jobId);
+            tbc.setProgramName(this.getClass().getSimpleName());
+            tbc.setOverWriteFlag(false);
 
-				if(erCutOffDt.equals(ALSOPUtil.getTSfromString(EdBatchConstants.SNAP_DELAYED_CUTOFF_DATE_HIGH_DATE))) {
-					writeExceptionRecord(BatchConstants.INFO, " SNAP_DELAYED_CUTOFF_DATE is HIGH DATE ","SNAP_DELAYED_CUTOFF_DATE is HIGH DATE " , BatchConstants.REPORT_BODY, false, 
-							BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.INFO, BatchConstants.EDBC_LOGGER_FILE, true, null, jobId, null, null);
-					return;
-				}
-				arAppColl.setSelectSize(fetchSize);
-			 	arrSnapDelayedAppNoticeCargos = (ArApplicationForAidCargo[]) arAppColl.select(caseAppFinder,methodArgs);
-			} catch(Exception e) {
-				throw new TIERSBatchException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "JOB_ID: "+jobId +" Exception at generateCONoticeForSnapDelayedApplications()-->findByAllCasesAndAppForDelayedSnapNotices() : "+e.getMessage(), e);
-			}
-		
-		if(null == arrSnapDelayedAppNoticeCargos ||arrSnapDelayedAppNoticeCargos.length ==0 ){
-			logger.log(BatchConstants.EDBC_LOGGER_FILE, ILog.INFO, " No SNAP CASES/APPS  Eligible for creating notices "); 
+            beginDate = ALSOPUtil.getTSfromString(tbc.getParameters().getAsOfDate());
+            cutoffDate = MAABDCutoffUtil.getCutoffDate(beginDate);
 
-		}
-		while(arrSnapDelayedAppNoticeCargos != null && arrSnapDelayedAppNoticeCargos.length>0) {
-	  		logger.log(BatchConstants.EDBC_LOGGER_FILE,ILog.INFO,"Start creating Notices for arrSnapDelayedAppNoticeCargos . Resultset Size" + arrSnapDelayedAppNoticeCargos.length);
-			try{
-				readcntNotices +=arrSnapDelayedAppNoticeCargos.length;
-				createCONotices(arrSnapDelayedAppNoticeCargos);
-				
-			}catch(FrameworkException ex) {
-				throw ex;
-			} catch(FwException ex) {
-				throw ex;
-			} catch(TIERSRunTimeException ex) {
-				throw ex;
-			} catch(Exception ex) {
-				throw ex;
-			}
-		
-			try {	
-				arrSnapDelayedAppNoticeCargos = (ArApplicationForAidCargo[]) arAppColl.next(caseAppFinder);
-				
-			}catch(Exception e){
-				logger.log(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "Exception in generateTaskForSnapDelayedApplications()- findbyAllCasesAndAppForDelayedSnap " +
-						"Error:  "+ e); 
-				throw e; 
-			}
-	            
-			} 
-		}catch (Exception e){
-			throw e;
-		}
-	
-	}
-	
-	
-	/**
-	 * Business logic: 
-	 * 
-	 * @throws TIERSBatchException
-	 */	
-	
-	
-	/*
-	*
-	 * This method is overridden from AbstractBatch and handles any post process
-	 * activities unique to this class.
-	 * @throws TIERSBatchException
-	 */
-	protected void postProcess() throws TIERSBatchException {
-		try {
-			totalExcepCount = excepCountNotices;
-			totalReadCount = readcntNotices;
-			totalSuccessCount = totalprocessedCountNotices;
-			
-			getTIERSBatchController().insertSummaryRecord(totalReadCount, totalSuccessCount,totalExcepCount);
-		} catch (Exception excep) {
-			generate360JNoticeForSnapDelayedAppBatch.writeExceptionRecord(BatchConstants.FATAL , "JOB_ID: "+jobId +" Exception at postProcess() : ", excep.getMessage(), BatchConstants.REPORT_BODY, false, 
-					BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.FATAL, BatchConstants.EDBC_LOGGER_FILE, true, excep, (String)jobId.subSequence(0, 8), null, null); 
-			throw new TIERSBatchException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "JOB_ID: "+jobId +"Exception at postProcess() : "+excep.getMessage(), excep);
-		}
-	}
-	
-	
-	/**
-	 * Method stop is overridden by Batch programs. Stop is called 
-	 * when the program has to be terminated.
-	 * 
-	 * @throws TIERSBatchException  Object
-	 */
-	protected void stop()  throws TIERSBatchException{
-	}
-	
-	
+            conn = tbc.getConnection();
+            start();
 
-	public void  createCONotices(ArApplicationForAidCargo[]  arrSnapDelayedAppNoticeCargos) throws Exception {
-		try {
-			coTriggerArray = new ArrayList<COCorrespondence>();	
-			
-			for(ArApplicationForAidCargo cargo : arrSnapDelayedAppNoticeCargos){					
-				try{
-					coReqObj = new COCorrespondence();						
-					coReqObj.setDocId(coDocId); 
-					coReqObj.setAttachmentForCo(null); 
-					coReqObj.setCaseAppNumber(String.valueOf(cargo.getCaseNum())); 
-					coReqObj.setApplicationNumber(cargo.getAppNum());
-					//For SNAP Cases
-					if(cargo.getCaseNum()==0) {
-						coReqObj.setCaseAppFlag(EdBatchConstants.CASE_APP_NUM_A);				
-					}
-					//For SNAP applications
-					else {
-						coReqObj.setCaseAppFlag(EdBatchConstants.CASE_APP_NUM_C);
-					}
-					coReqObj.setOfficeNumber(cargo.getOfficeNum()); // From ArApplicationForAid
-					
-					/*if(cargo.getLanguageCd().equalsIgnoreCase("0")) {
-						coReqObj.setLangCd(EdBatchConstants.NOTICE_LANG_ENGLISH); // From ArApplicationForAid
-					}else {
-						coReqObj.setLangCd(EdBatchConstants.NOTICE_LANG_SPANISH);// From ArApplicationForAid
-					}*/
+        } catch (Exception e) {
+            throw new TIERSBatchException("Exception during init: " + e.getMessage(), e);
+        }
+    }
 
-					coReqObj.setLangCd(CoHelper.getNoticeLanguageCode(cargo.getLanguageCd()));
-					setCOCorrespondence(coReqObj);
-					coTriggerArray.add(coReqObj);						
-				}catch (Exception ex) {
-					//PMD_Override - R6 -  Exception will be handled at the FW level based on the exception code.
-					PMDRules.markApprovedCatchBlock("R6");
-					excepCountNotices++;
-					writeExceptionRecord(BatchConstants.BATCH_ERROR , "Exception at createCONotices() - while adding to coTriggerArray : ", ex.getMessage(), BatchConstants.REPORT_BODY, false, 
-					BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.ERROR, BatchConstants.EDBC_LOGGER_FILE, true, ex, DocId.FXX459.toString(), null, null);
-				}
-			}
-											
-			callCOTrigger(coDocId);
-		} catch(FwException fw) {
-			throw fw;
-		} catch(TIERSRunTimeException tre) {
-			throw tre;
-		} catch(Exception ex) {
-			throw ex;
-	    }
-	}
-	
-	
-	private void callCOTrigger(String docId)throws TIERSBatchException, TIERSRunTimeException, FrameworkException {
-			Set<String> caseNumSet = new HashSet<String>();
-			Set<String> appNumSet = new HashSet<String>();
+    protected void preProcess() throws TIERSBatchException {}
 
-			Savepoint savePoint = null;
-			long startTime = 0l;
-			try {
-				if( coTriggerArray != null ) {
-					recSentForProcessingInChunkNotices = 0;
-					recordsReadInChunk = coTriggerArray.size();
-					
-	        		tbc.savepoint(con, jobId);
-					for(COCorrespondence coCores : coTriggerArray){
-						if(!StringUtils.isBlank(coCores.getCaseAppNumber()) && Long.valueOf(coCores.getCaseAppNumber()).longValue()>0) {
-							caseNumSet.add(coCores.getCaseAppNumber());	 //Added a check to add case number only when case num is not 0	
-						} else {
-						appNumSet.add(coCores.getApplicationNumber());//Add the application number only when there no case num
-						}
-					}
-					
-					if(((null!=caseNumSet) && (0 < caseNumSet.size())) ||(null!=appNumSet)&&( 0 < appNumSet.size())){
-						generateNoticeByCaseNumSet(caseNumSet,appNumSet, jobId.replaceAll("-", ""));
+    protected void process() throws TIERSBatchException {
+        sendClosureNotices();
+    }
 
-						EdDebugger.debugInformation("generateNoticeByCaseNumSet() in ms :: "+(System.currentTimeMillis() - startTime));
-						}
-						
-						//PMD_Override - R5 - This commit statement can be justified because there is rollback in the catch blocks
-	            		PMDRules.markApprovedStatement("R5");
-						con.commit();
-						totalprocessedCountNotices=processedCountNotices;
-					}
-				
-			} 
-			catch(FrameworkException fwex){
-					tbc.rollback(con,jobId);
-					throw new FrameworkException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "JOB_ID: "+jobId +" Exception at generateCONoticeForSnapDelayedApplications - callCOTrigger(): "+fwex.getMessage(), fwex);
-			}
-			catch(FwException fw){
-				tbc.rollback(con,jobId);
-				throw new FrameworkException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "JOB_ID: "+jobId +" Exception at generateCONoticeForSnapDelayedApplications -  callCOTrigger(): "+fw.getMessage(), fw);
+    protected void postProcess() throws TIERSBatchException {
+        try {
+            tbc.insertSummaryRecord(totalRecordsProcessed, totalRecordsProcessed - totalExceptions, totalExceptions);
+        } catch (Exception e) {
+            throw new TIERSBatchException("Exception during postProcess: " + e.getMessage(), e);
+        }
+    }
 
-			}catch(TIERSRunTimeException tre){
-				tbc.rollback(con,jobId);
-				throw new TIERSRunTimeException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "JOB_ID: "+jobId +" Exception at generateCONoticeForSnapDelayedApplications -  callCOTrigger(): "+tre.getMessage(), tre);
-			} 
-			catch(TIERSValidationException tvex){
-				//PMD_Override - R6 -  Exception is not being propagated because the next records have to be processed and flow should continue.
-				PMDRules.markApprovedCatchBlock("R6");
-				excepCountNotices += recordsReadInChunk;
-				tbc.rollback(con,jobId);
-				writeExceptionRecord(BatchConstants.BATCH_ERROR , " Exception at  generateCONoticeForSnapDelayedApplications - callCOTrigger() : ", tvex.getMessage(), BatchConstants.REPORT_BODY, false, 
-							BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.ERROR, BatchConstants.EDBC_LOGGER_FILE, true, tvex, coDocId, null, null);			
-			}
-			catch (Exception e) {
-				//PMD_Override - R6 -  Exception is not being propagated because the next records have to be processed and flow should continue.
-				PMDRules.markApprovedCatchBlock("R6");
-				excepCountNotices += recordsReadInChunk;
-				tbc.rollback(con,jobId);
-				writeExceptionRecord(BatchConstants.BATCH_ERROR , " Exception at generateCONoticeForSnapDelayedApplications callCOTrigger() : ", e.getMessage(), BatchConstants.REPORT_BODY, false, 
-							BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.ERROR, BatchConstants.EDBC_LOGGER_FILE, true, e, coDocId, null, null);			
-			}
-			
-		}
-	
+    protected void stop() throws TIERSBatchException {}
 
+    private void sendClosureNotices() throws TIERSBatchException {
+        dcCasesColl = new DcCasesCollection(conn);
+        obj = new Object[2];
+        obj[0] = "SP004";
+        obj[1] = cutoffDate;
 
-/**
- * @param coReqObj
- * @param cargo
- * @param dcCasesCargo
- */
-public void setCOCorrespondence(COCorrespondence coReqObj) throws TIERSBatchException{
-	try {
-		coReqObj.setGenerateDate(DateComparisons.getTimestamp(beginDate));
-		
-		coReqObj.setCancelledEdgTraceId(0);		
-		coReqObj.setPrintMode(DIConstants.DI_NOTICE_PRINT_MODE_B); //Need to finalize this with CO team,
-		coReqObj.setDraftSwitch(DIConstants.DRAFT_SW_N);//Need to finalize this with CO tea,
-		coReqObj.setMiscParameters(asOfDate);
-		coReqObj.setRequestUserId(tbc.getJobId());
-		
-	} catch (Exception e) {
-		throw new TIERSBatchException("Exception at setCOCorrespondence()::"+ e.getMessage(), e);
-	}
-}
-	/**
-	 * Correspondence CO trigger method which update/insert records into CO_REQUEST_HISTORY, 
-	 * CO_REQUEST_HISTORY_DETAIL, CO_RECIPIENTS
-	 * @param maxRows
-	 * @param cutOffDt
-	 * @return
-	 * @throws Exception 
-	 */
-	private void generateNoticeByCaseNumSet(Set<String> caseNumSet, Set<String> appNumSet,String jobId) throws Exception {
-		try {
-			
-			this.batchUserid = jobId;
-			if(null!=caseNumSet && caseNumSet.size()>0) {
-				caseNumStr = StringUtils.join(caseNumSet, ",");
-			}
-			else {
-				caseNumStr="";
-			}
-			if(null!=appNumSet && appNumSet.size()>0) {
-				appNumStr = "'" + StringUtils.join(appNumSet, "','") + "'";
-			}
-			else {
-				appNumStr="";
-			}
-			insertCoNoticeByCaseNumSet();			
-		} catch(FwException fw) {
-			throw fw;
-		} catch(TIERSRunTimeException tre) {
-			throw tre;
-		} catch (Exception e) {
-			throw e;
-		} 
-	}
-	
-	/**
-	 * Inserts CO_REQUEST_HISTORY, CO_REQUEST_HISTORY_DETAIL and CO_RECIPIENTS tables
-	 * @throws Exception 
-	 */
-	private void insertCoNoticeByCaseNumSet() throws Exception {
-		try {
-			List<COCorrespondence> insertCoCorresList = new ArrayList<COCorrespondence>();
-			for(COCorrespondence coCores : coTriggerArray){
-				insertCoCorresList.add(coCores);
-			}
-			
-			insertCoRequestHistory(insertCoCorresList);
-		} catch (Exception e) {
-			throw e;
-		}
-	}
-	
-	/**
-	 * Insert in  CO_REQUEST_HISTORY table 
-	 * @throws Exception 
-	 */
-	private void insertCoRequestHistory(List<COCorrespondence> insertCoCorresList) throws Exception {
-		try {
-			try {
-				coMasterColl = new CoMasterCollection(con);
-				coMasterCargos= (CoMasterCargo[]) coMasterColl.select("findByDocIdEffBeginEndDt", new Object[]{coDocId, beginDate});
-				
-				if(null != coMasterCargos && 0 < coMasterCargos.length){
-					for(CoMasterCargo cargo : coMasterCargos){
-						for(COCorrespondence coCo : insertCoCorresList){
-							coCo.setDocId(cargo.getDocId());
-							coCo.setDocType(cargo.getDocTypeCd());
-							coCo.setMassGeneratedSw(cargo.getMassEnabledSw());
-							coCo.setManualCorrespondence(cargo.getGenerateManuallySw() == 'N' ? false : true);
-							coCo.setPrintMode(cargo.getPrintModeCd());
-						}
-					}
-				}
-			} catch (Exception e) {
-				throw e;
-			}
-			
-			try {
-				coRequestHistorycoll = new CoRequestHistoryCollection(con);
-				coRequestHistoryCargos = (CoRequestHistoryCargo[])coRequestHistorycoll.select("insertRecord", 
-						new Object[]{insertCoCorresList, this.batchUserid, fetchSize});
-				
-				
-				if(null != coRequestHistoryCargos && 0 < coRequestHistoryCargos.length){
-					processedCountNotices += coRequestHistoryCargos[0].getCaseNum();
-				}
-				
-				EdDebugger.debugInformation("insertCoRequestHistory():: CO_REQUEST_HISTORY_DETAIL INSERTED COUNT:: " +processedCountNotices);
-			}catch (Exception e) {
-				BatchUpdateException bue = (BatchUpdateException) extractException(e, BatchUpdateException.class);
-				if (bue != null) {
-					int[] updateCounts = bue.getUpdateCounts();
-					SQLException rex = bue.getNextException();
-					//recSentForProcessingInChunkNotices = insertCoCorresList.size();
-					for (int i = 0; i < updateCounts.length; i++) {
-						COCorrespondence coTrgrBean = insertCoCorresList.get(i);
-						if (updateCounts[i] == Statement.EXECUTE_FAILED){
-							totalRecordsExceptioned = totalRecordsExceptioned+1;
-							//PMD_Override -- Writing the exception in case of statement.addBatch and statement.executeBatch.
-							PMDRules.markApprovedCatchBlock("R6");
-							excepCountNotices++;
-							writeExceptionRecord(BatchConstants.BATCH_ERROR ,
-									" Exception at Generate360JNoticeForSNAPDelayedApp.insertCoRequestHistory() :",
-									" Case# "+coTrgrBean.getCaseAppNumber() + " App# " +coTrgrBean.getApplicationNumber() + " - Exception occured when performing update using executeBatch"+rex.getMessage(), BatchConstants.REPORT_BODY, false, 
-									BatchConstants.SYS_ERROR_FW_EXCEPTION_LOG_FILE , ILog.ERROR, BatchConstants.EDBC_LOGGER_FILE, true, new TIERSRunTimeException(rex), coDocId, null, null);
-							rex = bue.getNextException();
-						}else{
-							processedCountNotices++;
-						}
-					}
-				} else {
-					throw new Exception("Exception while inserting records in the CoRequestHistory table.", e);
-				}
-			}
-			insertCoRequestHistoryDetail(insertCoCorresList);
-			
-		}catch (Exception e) {
-			throw e;
-		}
-	}
-	
-	/**
-	 * Reads CO_REQ_SEQ number from CO_REQUEST_HISTORY tables for DETAIL and RECIPIENTS tables insert
-	 * @return
-	 * @throws Exception 
-	 */
-	private Set<Long> getCoReqSeqNumSet() throws Exception {
-		insertCoReqSeqSet = new HashSet<Long>();
-		CoRequestHistoryCargo[] coReqHistorycargos =null;
-		
-		try {
-			coRequestHistorycoll = new CoRequestHistoryCollection(con);
-			coReqHistorycargos = (CoRequestHistoryCargo[])coRequestHistorycoll.select("findCoReqSeqNoByCaseNumAppNum", 
-					new Object[]{caseNumStr,appNumStr,  coDocId, beginDate});
-			
-			if(null != coReqHistorycargos && 0 < coReqHistorycargos.length){
-				for(CoRequestHistoryCargo cargo : coReqHistorycargos){
-					insertCoReqSeqSet.add(cargo.getCoReqSeq());
-				}
-			}
-		} catch (Exception e) {
-			throw e;
-		}
-		return insertCoReqSeqSet;
-	}
-	
-	/**
-	 * Inserts CO_REQUEST_HISTORY_DETAIL table
-	 * Fetch the co_req_seq from co_request_history table and then insert into the details table.
-	 * @param insertCoCorresList
-	 * @throws Exception 
-	 */
-	private void insertCoRequestHistoryDetail(List<COCorrespondence> insertCoCorresList) throws Exception {
-		try {
-			if(0 < getCoReqSeqNumSet().size()){
-				insertCoReqSeqStr = StringUtils.join(insertCoReqSeqSet, ",");
-				
-				coRequestHistoryDtlcoll = new CoRequestHistoryDetailCollection(con);
-				coRequestHistoryDtlcargos = (CoRequestHistoryDetailCargo[]) coRequestHistoryDtlcoll.select("insertRecord", 
-						new Object[]{insertCoReqSeqStr, batchUserid, beginDate});
-				
-				long insertCount = 0l;
-				
-				if(null != coRequestHistoryDtlcargos && 0 < coRequestHistoryDtlcargos.length){
-					insertCount = coRequestHistoryDtlcargos[0].getCoReqSeq();
-				}
-				EdDebugger.debugInformation("insertCoRequestHistoryDetail():: CO_REQUEST_HISTORY_DETAIL INSERTED COUNT:: " +insertCount);
-				insertCoRecipients(insertCoCorresList);
-			}else{
-				EdDebugger.debugInformation("No Records found");
-			}
-			
-		} catch (Exception e) {
-			throw e;
-		}
-	}
-	
-	
-	/**
-	 * Inserts CO_RECIPIENTS table based on co_req_seq
-	 * 
-	 * @param insertCoCorresList
-	 * @throws Exception 
-	 */
-	private void insertCoRecipients(List<COCorrespondence> insertCoCorresList) throws TIERSBatchException {
-		try {
-			coRequestRecipColl = new CoRequestRecipientsCollection(con);
-			coRequestRecipCargos = (CoRequestRecipientsCargo[])coRequestRecipColl.select("insertRecord", 
-					new Object[]{true,insertCoReqSeqStr, batchUserid, beginDate});
-			
-			long insertCount = 0l;
-			
-			if(null != coRequestRecipCargos && 0 < coRequestRecipCargos.length){
-				insertCount = coRequestRecipCargos[0].getCoReqSeq(); //insert count
-			}
-			EdDebugger.debugInformation("insertCoRecipients():: CO_REQUEST_RECIPIENTS INSERTED COUNT:: " +insertCount);
-						
-		} catch (Exception e) {
-			throw new TIERSBatchException("Exception in insertCoRecipients :" + e.getMessage(), e);
-		}
-	}
-	
-	
+        try {
+            dcCasesRslts = (DcCasesCargo[]) dcCasesColl.select("findMAABDMedicalCasesByCutOffDt", obj);
+        } catch (Exception e) {
+            writeExceptionRecord("Case selection failed", e.getMessage(), BatchConstants.REPORT_BODY, true);
+            throw new TIERSBatchException(e.getMessage());
+        }
 
+        while (dcCasesRslts != null) {
+            for (DcCasesCargo cargo : dcCasesRslts) {
+                try {
+                    tbc.savepoint(conn, "savepointMAABDNotice");
+                    Set<String> caseNumSet = new HashSet<>();
+                    caseNumSet.add(String.valueOf(cargo.getCaseNum()));
+                    CORequestHelper.generateNoticeByCaseNumSet(caseNumSet, null, DOC_ID, conn);
+                    logicalCommit(conn);
+                    totalRecordsProcessed++;
+                } catch (Exception ex) {
+                    tbc.rollback(conn, "savepointMAABDNotice");
+                    writeExceptionRecord("Failed to send notice for case: " + cargo.getCaseNum(), ex.getMessage(), BatchConstants.REPORT_BODY, true);
+                    totalExceptions++;
+                }
+            }
+            try {
+                dcCasesRslts = (DcCasesCargo[]) dcCasesColl.next("findMAABDMedicalCasesByCutOffDt");
+            } catch (Exception e1) {
+                writeExceptionRecord("Prefetch logic failed", e1.getMessage(), BatchConstants.REPORT_BODY, true);
+                throw new TIERSBatchException(e1.getMessage());
+            }
+        }
+    }
 }
