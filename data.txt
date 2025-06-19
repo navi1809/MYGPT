@@ -1,1368 +1,84 @@
-/**
-	 * @param maxRows
-	 * @param cutOffDt
-	 * @return
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findFailureToReturnPacketByCutOffDt(int maxRows, String trigCd, Timestamp cutOffDt)	throws TIERSRunTimeException {
-		Debug.println("findFailureToReturnPacketByCutOffDt" + " maxRows= " + maxRows);
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		DcCasesCargo[] colrows = null;
-		StringBuffer sqlClause = new StringBuffer();
+public DcCasesCargo[] retrieveRecordsForTextMsgDZActivity(int maxRows, String parallelPartition) throws TIERSRunTimeException
+	{
+		String finderName = "retrieveRecordsForTextMsgDZActivity";
 
-		try {
+		PreparedStatement statement = null;
+		Connection conn = null;
+		ResultSet rs = null;
+		ArrayList<DcCasesCargo> v = new ArrayList<DcCasesCargo>();
+
+		try
+		{
 			conn = getConnection();
-			
-			StringBuilder queryBuilder = new StringBuilder("SELECT DISTINCT R.CASE_NUM FROM BRG_OWNER.ED_CASE_RECERT_DATES R ");
-			queryBuilder.append("INNER JOIN BRG_OWNER.ED_ELIGIBILITY EE ON R.CASE_NUM = EE.CASE_NUM AND R.EDG_NUM = EE.EDG_NUM ");
-			queryBuilder.append("INNER JOIN BRG_OWNER.DC_CASES DC ON DC.CASE_NUM = R.CASE_NUM AND DC.CASE_STATUS_CD = 'AP' ");
-			queryBuilder.append("LEFT OUTER JOIN BRG_OWNER.ED_MASS_CHANGE_TRIGGER EMCT ON EMCT.CASE_NUM = DC.CASE_NUM AND EMCT.SCHD_RUN_DT = ? AND TRIGGER_CD = ? ");
-			queryBuilder.append("LEFT OUTER JOIN BRG_OWNER.ED_AUTO_REDE_DETERMN REDE ON R.CASE_NUM = REDE.CASE_NUM  ");
-			queryBuilder.append("AND REDE.CREATE_DT BETWEEN ? AND ? ");
-			queryBuilder.append("AND PROCESS_SW IN ('S', 'X') AND FORM_GENERATED_CD = 'B' ");
-			queryBuilder.append("WHERE EMCT.CASE_NUM IS NULL AND R.PROGRAM_CD IN ('FP','MA', 'ME', 'MC', 'HB', 'TF') ");
-			queryBuilder.append("AND R.REVIEW_PACKET_RECEIVED_DT IS NULL AND R.EFF_END_DT IS NULL ");
-			queryBuilder.append("AND (R.PROGRAM_CD = 'TF' OR REDE.CASE_NUM IS NOT NULL) ");
-			queryBuilder.append("AND R.RECERT_REVIEW_DUE_DT BETWEEN ? AND ? ");
-			queryBuilder.append("AND EE.PAYMENT_END_DT IS NULL ");
-			queryBuilder.append("AND EE.CURRENT_ELIG_IND = 'A' AND EE.CG_STATUS_CD = 'AP' AND EE.DELETE_SW = 'N' WITH UR");
-			
-			statement = conn.prepareStatement(queryBuilder.toString(), ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
-			statement.setTimestamp(1, cutOffDt);
-			statement.setString(2, trigCd);
-			Timestamp createDtSubMnths=DateUtility.subMonths(cutOffDt, 2);
-			statement.setTimestamp(3, DateUtility.getStartOfDay(DateUtility.getFirstDayOfMonth(createDtSubMnths)));
-			statement.setTimestamp(4, DateUtility.getEndOfDay(DateUtility.getLastDayOfMonth(createDtSubMnths)));
-			
-			statement.setTimestamp(5, DateUtility.getStartOfDay(DateUtility.getFirstDayOfMonth(cutOffDt)));
-			statement.setTimestamp(6, DateUtility.getEndOfDay(DateUtility.getLastDayOfMonth(cutOffDt)));
-			
+			String sqlQuery = SELECT_SQL;
+
+			sqlQuery = sqlQuery + " WHERE CASE_STATUS_CD IN('AP','PE') AND PHN_TXT_TYP_CD IS NULL AND VAL_PHN_NUM_CD IS NULL " + parallelPartition + " with ur ";
+
+			statement = conn.prepareStatement(sqlQuery);
 			rs = statement.executeQuery();
 
-			int cnt = 0;
-			while ( cnt++ < maxRows && rs.next() ) {
-				DcCasesCargo row = new DcCasesCargo();
-				getCustomRowFromResultSet(row, rs, "findFailureToReturnPacketByCutOffDt");
-				v.add(row);
+			DcCasesCargo colrows[] = null;
+
+			while (rs.next())
+			{
+				if ((rs.getString("OTHER_PH_NUM") != null && !rs.getString("OTHER_PH_NUM").trim().isEmpty())
+						|| (rs.getString("PH_NUM") != null && !rs.getString("PH_NUM").trim().isEmpty())
+						|| (rs.getString("MSG_PHN_NUM") != null && !rs.getString("MSG_PHN_NUM").trim().isEmpty()))
+				{
+					DcCasesCargo row = new DcCasesCargo();
+					getRowFromResultSet(row, rs);
+					v.add(row);
+				}
 			}
+
 			colrows = new DcCasesCargo[v.size()];
 			v.toArray(colrows);
-		}
-		catch (Exception e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null && getClose()) {
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					closeStatement("findFailureToReturnPacketByCutOffDt", statement,maxRows,v.size());
-					Debug.println("called close statement for findFailureToReturnPacketByCutOffDt");
-				}
-			}
-			catch (SQLException e) {
-				Debug.println("exception in close statement for findFailureToReturnPacketByCutOffDt");
-				throw new TIERSRunTimeException(e.getClass().getName() + "findFailureToReturnPacketByCutOffDt " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " findFailureToReturnPacketByCutOffDt" + e.getMessage(), e);
-			}
-		}
-		return colrows;
-	}
-	
-	/**
-	 * ILIES-243285
-	 * Removed the RE001 logic from the SP001 so that all SNAP cases get an SP001 trigger again.
-	 * @param maxRows
-	 * @param cutOffDt
-	 * @return
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findSNAPFailureToReturnPacketByCutOffDt(int maxRows, Timestamp cutOffDt, int minVal, int maxVal)	throws TIERSRunTimeException {
-		Debug.println("findSNAPFailureToReturnPacketByCutOffDt" + " maxRows= " + maxRows);
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		DcCasesCargo[] colrows = null;
-		StringBuffer sqlClause = new StringBuffer();
 
-		try {
-			conn = getConnection();
-			
-			
-			StringBuilder queryBuilder = new StringBuilder("WITH RECERT AS (SELECT ECRD.CASE_NUM,ECRD.EDG_NUM FROM BRG_OWNER.ED_CASE_RECERT_DATES ECRD ");
-					queryBuilder.append(" JOIN BRG_OWNER.DC_CASES DC ON ECRD.CASE_NUM=DC.CASE_NUM AND DC.CASE_STATUS_CD= 'AP' WHERE ");
-					
-					queryBuilder.append(" ECRD.CASE_NUM >= " + minVal );
-					if(maxVal > 0) {
-						queryBuilder.append(" AND ECRD.CASE_NUM <= " + maxVal );
-					}
-					
-					queryBuilder.append(" AND ECRD.RECERT_REVIEW_DUE_DT = ? AND ECRD.PROGRAM_CD = 'FS' ");
-					queryBuilder.append(" AND ECRD.EFF_END_DT IS NULL) ");
-					queryBuilder.append(" SELECT EDCR.CASE_NUM FROM RECERT EDCR JOIN BRG_OWNER.ED_ELIGIBILITY E ON EDCR.CASE_NUM = E.CASE_NUM ");
-					queryBuilder.append(" AND EDCR.EDG_NUM = E.EDG_NUM ");
-					queryBuilder.append(" LEFT OUTER JOIN BRG_OWNER.ED_MASS_CHANGE_TRIGGER EMCT ON EMCT.CASE_NUM = EDCR.CASE_NUM AND EMCT.SCHD_RUN_DT = ? ");
-					queryBuilder.append(" AND TRIGGER_CD = 'SP001' ");
-					queryBuilder.append(" WHERE E.CURRENT_ELIG_IND = 'A' AND E.DELETE_SW = 'N' AND E.CG_STATUS_CD = 'AP' ");
-					queryBuilder.append(" AND E.PROGRAM_CD = 'FS' AND E.PAYMENT_END_DT IS NULL AND E.ESTIMATED_ELIG_END_DT = ? ");
-					queryBuilder.append(" AND E.ELIGIBILITY_END_DT IS NULL AND EMCT.CASE_NUM IS NULL WITH UR ");
-			
-				
-			statement = conn.prepareStatement(queryBuilder.toString(), ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
-			int index = 0;
-			statement.setTimestamp(++index, DateUtility.getLastDayOfDate(cutOffDt));//Due date
-			statement.setTimestamp(++index, cutOffDt); //Run date
-			statement.setTimestamp(++index, DateUtility.getLastDayOfDate(cutOffDt));//elig end date
-
-			rs = statement.executeQuery();
-
-			int cnt = 0;
-			while ( cnt++ < maxRows && rs.next() ) {
-				DcCasesCargo row = new DcCasesCargo();
-				getCustomRowFromResultSet(row, rs, "findSNAPFailureToReturnPacketByCutOffDt");
-				v.add(row);
-			}
-			colrows = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-		}
-		catch (Exception e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally {
-			try {
-				if (rs != null && getClose()) {
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					closeStatement("findSNAPFailureToReturnPacketByCutOffDt", statement,maxRows,v.size());
-					Debug.println("called close statement for findSNAPFailureToReturnPacketByCutOffDt");
-				}
-			}
-			catch (SQLException e) {
-				Debug.println("exception in close statement for findSNAPFailureToReturnPacketByCutOffDt");
-				throw new TIERSRunTimeException(e.getClass().getName() + "findSNAPFailureToReturnPacketByCutOffDt " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " findSNAPFailureToReturnPacketByCutOffDt" + e.getMessage(), e);
-			}
-		}
-		return colrows;
-	}
-	
-	/**
-	 * ILIES-171485
-	 * This method retrieves uncertified cases with medical programs
-	 * that were recieved on appRecvdDt
-	 * @param maxRows
-	 * @param appRecvdDt
-	 * @return
-	 * @throws TIERSRunTimeException
-	 */
-	
-	public DcCasesCargo[] findUncertifiedCasesForTempMed(int maxRows, Timestamp appRecvdDt, Timestamp appRecvd2Dt)	throws TIERSRunTimeException {
-		
-	    /* ILIES-191269 FO- IES - Temp Medical Batch  appRecvd2Dt ADDED */		
-		Debug.println("findUncertifiedCasesForTempMed" + " maxRows= " + maxRows);
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		DcCasesCargo[] colrows = null;
-		try{
-			conn = getConnection();
-			
-			StringBuffer sb = new StringBuffer();
-			/*sb.append("SELECT dc.CASE_NUM, dc.OFFICE_NUM, dc.APP_RECVD_DT FROM DC_CASES dc ");
-			sb.append(" , ");
-			sb.append(" (SELECT CASE_NUM FROM ED_ELIGIBILITY ");
-			sb.append(" WHERE PROGRAM_CD IN ('"+CoConstants.PROGRAM_ME+"','"+CoConstants.PROGRAM_MA+"','"+CoConstants.PROGRAM_MC+"','"+CoConstants.PROGRAM_HB+"') ");
-			sb.append(" AND DELETE_SW = 'N'  AND CURRENT_ELIG_IND IN ('A')");
-			sb.append(" GROUP BY CASE_NUM ) AS ed ");
-			sb.append(" WHERE dc.CASE_NUM NOT IN (ed.CASE_NUM) ");
-			sb.append(" AND TRUNC(dc.APP_RECVD_DT) BETWEEN TRUNC(?) AND TRUNC(?)");
-			sb.append(" UNION ALL");
-			sb.append(" SELECT dc.CASE_NUM, dc.OFFICE_NUM, dc.APP_RECVD_DT FROM brg_owner.DC_CASES dc"); 
-			sb.append(" INNER JOIN BRG_OWNER.DC_CASE_PROGRAM DCP ON DC.CASE_NUM = DCP.CASE_NUM");
-			sb.append(" WHERE DCP.PROG_CD IN ('ME','MA','MC','HB')");
-			sb.append(" AND dc.case_num NOT in (SELECT CASE_NUM FROM brg_owner.ED_ELIGIBILITY WHERE PROGRAM_CD IN ('ME','MA','MC','HB'))");
-			sb.append(" and TRUNC(dc.APP_RECVD_DT) BETWEEN TRUNC(?) AND TRUNC(?)");
-			sb.append(" WITH UR ");*/
-			
-			sb.append("SELECT DISTINCT ");
-			sb.append("  T1.CASE_NUM, T1.APP_RECVD_DT, T1.OFFICE_NUM ");
-			sb.append("FROM ");
-			sb.append("  BRG_OWNER.DC_CASES T1, ");
-			sb.append("  BRG_OWNER.ED_ELIGIBILITY T31 ");
-			sb.append("WHERE ");
-			sb.append("  T1.CASE_STATUS_CD = 'PE' ");
-			sb.append("  AND T1.APP_RECVD_DT < ? ");
-			sb.append("  AND EXISTS (SELECT T2.CASE_NUM ");
-			sb.append("              FROM BRG_OWNER.DC_CASE_PROGRAM T2 ");
-			sb.append("              WHERE T2.CASE_NUM = T1.CASE_NUM AND T2.PROG_CD IN ('MA', 'ME', 'MC', 'HB')) ");
-			sb.append("  AND T31.PROGRAM_CD IN ('MA', 'ME', 'MC', 'HB') ");
-			sb.append("  AND T31.CASE_NUM = T1.CASE_NUM ");
-			sb.append("  AND NOT EXISTS (SELECT T32.CASE_NUM ");
-			sb.append("                  FROM BRG_OWNER.ED_ELIGIBILITY T32 ");
-			sb.append("                  WHERE T32.CASE_NUM = T1.CASE_NUM AND T32.PROGRAM_CD IN ('MA', 'ME', 'MC', 'HB') AND T32.CURRENT_ELIG_IND = 'A' AND T32.DELETE_SW = 'N') ");
-			sb.append("  AND (T1.TEMPORARY_MEDICAL_IND IS NULL OR T1.TEMPORARY_MEDICAL_IND = 'N') ");
-			sb.append("ORDER BY T1.OFFICE_NUM ");
-			sb.append("WITH UR ");
-			
-			statement = conn.prepareStatement(sb.toString());
-			statement.setTimestamp(1, appRecvdDt);
-			//statement.setTimestamp(2, appRecvd2Dt);
-			rs = statement.executeQuery();			
-			int cnt = 0;
-			while(rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				row.setOfficeNum(rs.getLong("OFFICE_NUM"));
-				row.setAppRecvdDt(rs.getTimestamp("APP_RECVD_DT"));
-				v.add(row);
-			}
-			colrows = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
 			return colrows;
-		}catch (Exception e) {
+
+		}
+		catch (SQLException e)
+		{
 			throw new TIERSRunTimeException(e.getMessage(), e);
 		}
-		finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			}
-			catch (SQLException e) {
-				Debug.println("exception in close statement for findUncertifiedCasesForTempMed");
-				throw new TIERSRunTimeException(e.getClass().getName() + "findUncertifiedCasesForTempMed " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			}
-			catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " findUncertifiedCasesForTempMed" + e.getMessage(), e);
-			}
-		}
-	}
-	
-	/**
-	 *This findByIndvActiveCases method is used to find all cases which are associated with given indv id
-	 *
-	 * @param maxRows
-	 * @param individualId
-	 * @return DcCasesCargo[]
-	 * @throws TIERSRunTimeException
-	 *
-	 */
-	public DcCasesCargo[] findByIndvActiveCases(int maxRows,long individualId) throws SQLException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			conn = getConnection();
-			final StringBuffer SQL = new StringBuffer();
-			SQL.append(" SELECT DCA.CASE_NUM FROM DC_CASES DCA WHERE EXISTS ( SELECT 1 ");
-			SQL.append(" FROM DC_CASE_INDIVIDUAL DCI WHERE DCI.CASE_NUM = DCA.CASE_NUM");
-			SQL.append(" AND DCI.EFF_END_DT IS NULL ");
-			SQL.append(" AND DCI.ACTIVE_IN_CASE_SW = 'Y' ");
-			SQL.append(" AND INDV_ID = ? ) WITH UR");
-			
-			statement = conn.prepareStatement(SQL.toString()) ;
-			statement.setLong(1, individualId);
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				v.add(row);
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} finally {
-			if (rs != null) {
-				rs.close();
-			}
-			if (statement != null) {
-				statement.close();
-			}
-			if (conn != null && getClose()) {
-				conn.close();
-			}
-		}
-	}
-	
-	/**
-	 * This method is used to get all applications in Completed status from AR_APPLICATION_FOR_AID table
-	 * @param maxRows maxrows to be returned
-	 * @return ArApplicationForAidCargo[] object
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findByAuthRepCases(int maxRows,DcCasesCargo cargo) throws TIERSRunTimeException {
-		
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		DcCasesCargo[] cargos = null;
-		ArrayList v = new ArrayList();
-		try {
-			conn = getConnection();
-			DcCasesCargo cb = null;
-			String clause =
-				 " AAA"
-		          +" WHERE AAA.AUTHREP_FIRST_NAME IS NOT NULL AND AAA.AUTH_REP_IND = 'Y' AND AAA.CASE_STATUS_CD IN ('PE') WITH UR";
-		       
-			statement = conn.prepareStatement(SELECT_SQL + " " + clause);
-			rs = statement.executeQuery();
-			int cnt = 0;	
-			while (rs.next()) {
-				cb = new DcCasesCargo();
-				getRowFromResultSet(cb, rs);
-				v.add(cb);
-			}
-			cargos = new DcCasesCargo[v.size()];
-			v.toArray(cargos);
-			return cargos;
-		}catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
+
+		finally
+		{
+			try
+			{
 				if (rs != null && getClose())
 					rs.close();
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "+ e.getMessage(), e);
 			}
-			try {
-				if (statement != null) {
-					closeStatement("findByAuthRepCases", statement);
-					Debug.println("called close statement for findByAuthRepCases");
-				}
-			} catch (SQLException e) {
-				Debug.println("exception in close statement for findByAuthRepCases");
-			
-				throw new TIERSRunTimeException(e.getClass().getName()+ "findByAuthRepCases" + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose())
-					conn.close();
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName()+ " findByAuthRepCases" + e.getMessage(), e);
-			}
-		}
-	}
-	
-	/**
-	 * Method to retrieve all cases from database
-	 * @param maxRows
-	 * @param dummy
-	 * @return
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findAllCaseNumbers(int maxRows, Object dummy) throws TIERSRunTimeException{
-		
-		logger.Log(LogLevel.INFO, " Start findAllCaseNumbers");
-		String finder = "findAllCaseNumbers";
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-	    ArrayList<DcCasesCargo> v = new ArrayList<DcCasesCargo>();
-		String sql = "SELECT CASE_NUM FROM DC_CASES ORDER BY CREATE_DT DESC WITH UR";
-	    try{	    	
-	    	conn = getConnection();	    		    		    		 
-	    	int cnt = 0;
-	    	statement = conn.prepareStatement(sql,ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);	    	
-	    	rs = statement.executeQuery();
-
-	    	while(cnt++ < maxRows && rs.next())  {
-	    		DcCasesCargo row = new DcCasesCargo();
-	    		row.setCaseNum(rs.getLong("CASE_NUM"));
-	    		v.add(row);
-	    	}
-	    	DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-	    	v.toArray(colrows);
-	    	
-			logger.Log(LogLevel.INFO, "End findAllCaseNumbers");
-			return colrows;
-			
-	    }catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-		}finally {
-			try {
-				if (rs != null && getClose()) {
-					rs.close();	
-				}
-			} catch (SQLException e) {
+			catch (SQLException e)
+			{
 				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
 			}
-			
-			try {
-				if (statement != null) {
-					closeStatement(finder, statement, maxRows, v.size());
-					logger.Log(LogLevel.INFO,"called close statement for " + finder);
-				}
-			} catch (SQLException e) {
-				logger.Log(LogLevel.INFO,"exception in close statement for "+ finder);
-				throw new TIERSRunTimeException(e.getClass().getName() + finder + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) conn.close();
-			}catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + finder + e.getMessage(), e);
-			}
-		}	    	    
-	}
-	
-	/**
-	 * Method findRecordsByCaseNumbers.
-	 * This method is used to retrieve the records for the given case numbers.
-	 * the input - caseNumbers
-	 *
-	 * @param maxRows int
-	 * @param asOfDate Timestamp
-	 * @return DcCasesCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findRecordsByCaseNumbers(int maxRows, String caseNumbers)
-	throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-
-		try {
-			conn = getConnection();
-			statement = conn.prepareStatement("SELECT CASE_NUM, CASE_STATUS_CD FROM DC_CASES WHERE CASE_NUM IN (" + caseNumbers + ") WITH UR");
-			rs = statement.executeQuery();
-			int cnt = 0;
-
-			while (rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong(1));
-				row.setCaseStatusCd(rs.getString(2));
-				v.add(row);
-			}
-
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	public DcCasesCargo[] findByCaseNumbersList(int maxRows, ArrayList caseNumberList)
-	throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			conn = connection;
-			if (conn == null) {
-				conn = ConnectionManager.getConnection();
-			}
-			String caseNums = ((String) caseNumberList.get(0));
-			String array[]=caseNums.split(",");
-			String clause = "  WHERE CASE_NUM IN (%s) WITH UR";
-			String query=SELECT_SQL + clause;
-			if(array!=null && array.length>0){
-				StringBuffer caseList=new StringBuffer();
-				int counter=0;
-				for(String caseNum:array){
-					if(counter>=1){
-						caseList.append(",");
-					}
-					caseList.append(caseNum);
-					counter++;
-					if(counter%20000==0){
-						statement = SQLQueryUtil.getInstance().prepareQueryString(conn,query, caseList.toString().split(","));
-						rs = statement.executeQuery();
-						while (rs.next()) {
-							DcCasesCargo row = new DcCasesCargo();
-							getRowFromResultSet(row, rs);
-							v.add(row);
-						}
-						caseList=new StringBuffer();
-						counter=0;
-					}
-				}
-				/*
-				 * For the remaining beyond %20K
-				 */
-				if(caseList!=null && caseList.length()>0){
-					statement = SQLQueryUtil.getInstance().prepareQueryString(conn,query, caseList.toString().split(","));
-					rs = statement.executeQuery();
-					while (rs.next()) {
-						DcCasesCargo row = new DcCasesCargo();
-						getRowFromResultSet(row, rs);
-						v.add(row);
-					}
-				}
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-
-	/**
-	 * Thie method fetchs the cases which are not out of state entries in DC_INDV_HH_STATUS table.
-	 * 
-	 * @param maxRows
-	 * @param indvID
-	 * @return
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findAllCaseIndvForAA(int maxRows, long indvID)
-	throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			conn = getConnection();
-			StringBuffer sb = new StringBuffer();
-			sb.append("SELECT DC.CASE_STATUS_CD ,DC.CASE_NUM");
-			sb.append(" FROM DC_CASES DC");
-			sb.append(" JOIN DC_CASE_INDIVIDUAL DCI ON DC.CASE_NUM = DCI.CASE_NUM");
-			sb.append(" WHERE DCI.INDV_ID = ? AND DCI.ACTIVE_IN_CASE_SW = 'Y' AND DCI.EFF_END_DT IS NULL");
-			sb.append(" AND NOT EXISTS (SELECT CASE_NUM FROM DC_INDV_HH_STATUS DIHS WHERE DC.CASE_NUM=DIHS.CASE_NUM AND DIHS.EFF_END_DT IS NULL AND DIHS.IN_HOUSEHOLD_SW = 'N')");
-			sb.append(" WITH UR");
-			statement = conn.prepareStatement(sb.toString());
-			statement.setLong(1, indvID);
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseStatusCd(rs.getString("CASE_STATUS_CD"));
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				v.add(row);
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	/**
-	 * Thie method fetchs the cases which are not out of state entries in DC_INDV_HH_STATUS table.
-	 * 
-	 * @param maxRows
-	 * @param indvID
-	 * @return
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findAllCasesForAA(int maxRows, long indvID,long caseNum)
-	throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			conn = getConnection();
-			StringBuffer sb = new StringBuffer();
-			sb.append("SELECT DC.CASE_STATUS_CD ,DC.CASE_NUM");
-			sb.append(" FROM DC_CASES DC");
-			sb.append(" JOIN DC_CASE_INDIVIDUAL DCI ON DC.CASE_NUM = DCI.CASE_NUM");
-			sb.append(" WHERE DCI.INDV_ID = ? and DCI.CASE_NUM = ? AND DCI.ACTIVE_IN_CASE_SW = 'Y' AND DCI.EFF_END_DT IS NULL");
-			sb.append(" AND NOT EXISTS (SELECT CASE_NUM FROM DC_INDV_HH_STATUS DIHS WHERE DC.CASE_NUM=DIHS.CASE_NUM AND DIHS.EFF_END_DT IS NULL AND DIHS.IN_HOUSEHOLD_SW = 'N')");
-			sb.append(" WITH UR");
-			statement = conn.prepareStatement(sb.toString());
-			statement.setLong(1, indvID);
-			statement.setLong(2, caseNum);
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseStatusCd(rs.getString("CASE_STATUS_CD"));
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				v.add(row);
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	/**
-	 * 
-	 * @param maxRows
-	 * @param indvIdList
-	 * @return
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findOfficeNumbyIndvId(int maxRows, ArrayList<Long> indvIdList)
-	throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			String indvList = StringUtils.join(indvIdList, ',');
-			conn = getConnection();
-			StringBuffer sb = new StringBuffer();
-			sb.append("SELECT CA.OFFICE_NUM, CI.INDV_ID, CA.CASE_NUM FROM DC_CASES CA, DC_CASE_INDIVIDUAL CI WHERE CI.INDV_ID IN ("+indvList+") AND CI.CASE_NUM = CA.CASE_NUM WITH UR");
-			statement = conn.prepareStatement(sb.toString());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setOfficeNum(rs.getLong("OFFICE_NUM"));
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				row.setCompanyId(rs.getLong("INDV_ID"));
-				v.add(row);
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	
-	/**
-	 * Method findRecordsByCaseNumsForDistCaseNumsOfEdmctRecords.
-	 * This method is used to retrieve the records for the given case numbers for distinct case numbers of ED_MASS_CHANGE_TRIGGER records.
-	 * the input - caseNumbers
-	 *
-	 * @param maxRows int
-	 * @param asOfDate Timestamp
-	 * @param trigCd String
-	 * @param isChunk boolean
-	 * @param strtIndex String
-	 * @param endIndex String
-	 * @return DcCasesCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findRecordsByCaseNumsForDistCaseNumsOfEdmctRecords(int maxRows, Timestamp schdRunDt, String trigCd,
-			boolean isChunk,String strtIndex,String endIndex)
-	throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-
-		try {
-			conn = getConnection();
-			
-			StringBuffer sql = new StringBuffer();
-			sql.append("SELECT CASE_NUM, CASE_STATUS_CD FROM DC_CASES WHERE CASE_NUM IN (");
-			sql.append("	SELECT DISTINCT CASE_NUM FROM ED_MASS_CHANGE_TRIGGER ");
-			sql.append(" 	WHERE SCHD_RUN_DT <= ? AND END_DT IS NULL ");
-			if (trigCd == null || trigCd.length() == 0 ) {
-				Debug.println("There is no trigger code from table, so it is CLDBA batch...");
-				sql.append(" AND TRIGGER_CD NOT LIKE 'SP%' AND TRIGGER_CD NOT LIKE 'CV%' AND ");
-				sql.append(" TRIGGER_CD NOT LIKE 'AU%' AND TRIGGER_CD NOT LIKE 'RE%' AND TRIGGER_CD NOT IN ('AL072','AL076','AL077','AT001') ");
-
-			} else {
-				if(isChunk){
-					if((strtIndex!=null && !"".equalsIgnoreCase(strtIndex.trim())) && 
-							(endIndex!=null && !"".equalsIgnoreCase(endIndex.trim()))){
-						long strtCaseNum=Long.valueOf(strtIndex.trim());
-						long endCaseNum=Long.valueOf(endIndex.trim());
-						sql.append(" AND CASE_NUM BETWEEN "+strtCaseNum+" AND "+endCaseNum);
-					}
-					else if((strtIndex!=null && !"".equalsIgnoreCase(strtIndex.trim())) && 
-							(endIndex==null || "".equalsIgnoreCase(endIndex.trim()))){
-						long strtCaseNum=Long.valueOf(strtIndex.trim());
-						sql.append(" AND CASE_NUM >="+strtCaseNum);
-					}					
-				}
-				
-				if(trigCd.startsWith("SP")){
-					sql.append(" AND (TRIGGER_CD LIKE '" + trigCd + "%' OR TRIGGER_CD in ('AL072','AL076','AL077','AT001')) ");
-				}else{
-					sql.append(" AND TRIGGER_CD LIKE '" + trigCd + "%' ");
-				}
-				
-			}
-			sql.append(" ORDER BY CASE_NUM WITH UR");
-			sql.append(") WITH UR");
-			
-			Debug.println("DcCasesDAO:findRecordsByCaseNumsForDistCaseNumsOfEdmctRecords :: Query For fetching Triggers is... "+sql.toString());
-			statement = conn.prepareStatement(sql.toString());
-			statement.setTimestamp(1, schdRunDt);
-
-			rs = statement.executeQuery();
-			int cnt = 0;
-
-			while (rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong(1));
-				row.setCaseStatusCd(rs.getString(2));
-				v.add(row);
-			}
-
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-			
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-  /**
-   * 
-   * This method is used to select the cases based on the filters provided for Mass case trasnfer.
- * @param maxRows
- * @param officeNum
- * @param zipcode
- * @param county
- * @param toas
- * @param currentDate
- * @return
- * @throws TIERSRunTimeException
- */
-public DcCasesCargo[] findByOfficeZipCountyBatch(int maxRows, long officeNum, String zipcode, String county, String toas, Timestamp currentDate) throws TIERSRunTimeException {
-		
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		DcCasesCargo[] colrows = null;
-		try {
-			conn = getConnection();
-			StringBuffer sql = new StringBuffer();
-			sql.append(SELECT_SQL + " A WHERE A.OFFICE_NUM = ? ");
-			
-			if(toas != null && !toas.trim().isEmpty()){
-				sql.append(" AND (EXISTS (SELECT ED.CASE_NUM FROM BRG_OWNER.ED_ELIGIBILITY ED WHERE  A.CASE_NUM = ED.CASE_NUM ");
-				sql.append(" AND ( (ED.CG_STATUS_CD IN ('AP') AND ED.CURRENT_ELIG_IND IN ('A')) OR (ED.CG_STATUS_CD IN ('PE') AND ED.CURRENT_ELIG_IND IN ('A','P'))) ");
-				sql.append(" AND ED.DELETE_SW = 'N' ");
-				sql.append(" AND ED.PAYMENT_BEG_DT<='"+currentDate+"' AND ( ED.PAYMENT_END_DT IS NULL OR ED.PAYMENT_END_DT>='"+currentDate+"' )" );
-				sql.append(" AND ED.TYPE_OF_ASSISTANCE_CD IN ("+toas+") "); 
-				sql.append(" AND NOT EXISTS ");
-				sql.append(" (SELECT ED.CASE_NUM FROM BRG_OWNER.ED_ELIGIBILITY ED WHERE  A.CASE_NUM = ED.CASE_NUM ");
-				sql.append(" AND ( (ED.CG_STATUS_CD IN ('AP') AND ED.CURRENT_ELIG_IND IN ('A')) OR (ED.CG_STATUS_CD IN ('PE') AND ED.CURRENT_ELIG_IND IN ('A','P'))) ");
-				sql.append(" AND ED.DELETE_SW = 'N' ");
-				sql.append(" AND ED.PAYMENT_BEG_DT<='"+currentDate+"' AND ( ED.PAYMENT_END_DT IS NULL OR ED.PAYMENT_END_DT>='"+currentDate+"')   ");
-				sql.append(" AND ED.TYPE_OF_ASSISTANCE_CD NOT IN ("+toas+") ))  ");
-				sql.append(" OR EXISTS ( SELECT ED2.CASE_NUM FROM BRG_OWNER.ED_ELIGIBILITY ED2 WHERE A.CASE_NUM = ED2.CASE_NUM AND ED2.CG_STATUS_CD IN ('TN') AND ");
-				sql.append(" ED2.TYPE_OF_ASSISTANCE_CD  IN ("+toas+") AND ED2.DELETE_SW = 'N' AND ED2.CURRENT_ELIG_IND = 'A' ");
-				sql.append(" AND ED2.PAYMENT_BEG_DT<='"+currentDate+"' AND ( ED2.PAYMENT_END_DT IS NULL OR ED2.PAYMENT_END_DT>='"+currentDate+"') ");
-				sql.append(" AND NOT EXISTS( SELECT ED3.CASE_NUM FROM BRG_OWNER.ED_ELIGIBILITY ED3 WHERE A.CASE_NUM = ED3.CASE_NUM AND ED3.TYPE_OF_ASSISTANCE_CD NOT IN ("+toas+") ");
-				sql.append(" AND ED3.DELETE_SW = 'N' AND ED3.CURRENT_ELIG_IND = 'A' AND ED3.PAYMENT_BEG_DT<='"+currentDate+"' AND ( ED3.PAYMENT_END_DT IS NULL OR ED3.PAYMENT_END_DT>='"+currentDate+"') ) ))");
-			}
-	
-			
-			if(zipcode != null && !zipcode.trim().isEmpty() && county != null && !county.trim().isEmpty()){
-				sql.append(" AND EXISTS (SELECT D.CASE_NUM FROM DC_CASE_ADDRESSES D WHERE D.CASE_NUM = A.CASE_NUM AND D.ADDR_TYPE_CD = 'PA' " +
-						" AND D.HIST_NAV_IND IN ('S','P') AND D.EFF_END_DT IS NULL " +
-						" AND D.ADDR_ZIP5 = '"+ zipcode+"' AND D.ADDR_COUNTY_CD = '"+ county +"') ");
-			}else if(zipcode != null && !zipcode.trim().isEmpty()){
-				sql.append(" AND EXISTS (SELECT D.CASE_NUM FROM DC_CASE_ADDRESSES D WHERE D.CASE_NUM = A.CASE_NUM AND D.ADDR_TYPE_CD = 'PA' " +
-						" AND D.HIST_NAV_IND IN ('S','P') AND D.EFF_END_DT IS NULL " +
-						" AND D.ADDR_ZIP5 = '"+ zipcode+"') ");
-			}else if(county != null && !county.trim().isEmpty()){
-				sql.append(" AND EXISTS (SELECT D.CASE_NUM FROM DC_CASE_ADDRESSES D WHERE D.CASE_NUM = A.CASE_NUM AND D.ADDR_TYPE_CD = 'PA' " +
-						" AND D.HIST_NAV_IND IN ('S','P') AND D.EFF_END_DT IS NULL " +
-						" AND D.ADDR_COUNTY_CD = '"+ county+"') ");
-			}
-			sql.append(" WITH UR");
-			
-			statement = conn.prepareStatement(sql.toString(), ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-			statement.setLong(1, officeNum);
-		
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				getRowFromResultSet(row, rs);
-				v.add(row);
-			}
-			colrows = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null && getClose()) {
-					rs.close();
-				}
-				if (statement != null) {
-					closeStatement("findByOfficeZipCountyBatch", statement, maxRows, v.size());
-				}
-				if (conn != null && getClose()){
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-		return colrows;
-	}
-	
-	/**
-	 * Added by BM team for check the case existence in DC_CASES table
-	 * Method findByCaseNumList, query by Case Num List.
-	 * 
-	 * @param maxRows
-	 * @param caseNumList
-	 * @return DcCasesCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findCaseNumList(int maxRows, String caseNums)
-	throws TIERSRunTimeException {
-
-		ArrayList v = new ArrayList();
-		ResultSet rs = null;
-		PreparedStatement statement = null;
-		Connection conn = null;
-		try {
-			conn = connection;
-			if (conn == null) {
-				conn = ConnectionManager.getConnection();
-			}
-			String array[]=caseNums.split(",");
-			String query="SELECT CASE_NUM FROM DC_CASES  WHERE CASE_NUM IN (%s) WITH UR";
-			if(array!=null && array.length>0){
-				StringBuffer caseList=new StringBuffer();
-				int counter=0;
-				for(String caseNum:array){
-					if(counter>=1){
-						caseList.append(",");
-					}
-					caseList.append(caseNum);
-					counter++;
-					if(counter%20000==0){
-						statement = SQLQueryUtil.getInstance().prepareQueryString(conn,query, caseList.toString().split(","));
-						rs = statement.executeQuery();
-						while (rs.next()) {
-							DcCasesCargo row = new DcCasesCargo();
-							getRowFromResultSet(row, rs);
-							v.add(row);
-						}
-						caseList=new StringBuffer();
-						counter=0;
-					}
-				}
-				/*
-				 * For the remaining beyond %20K
-				 */
-				if(caseList!=null && caseList.length()>0){
-					statement = SQLQueryUtil.getInstance().prepareQueryString(conn,query, caseList.toString().split(","));
-					rs = statement.executeQuery();
-					while (rs.next()) {
-						DcCasesCargo row = new DcCasesCargo();
-						getCustomRowFromResultSet(row, rs,"findCaseNumList");
-						v.add(row);
-					}
-				}
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (Exception e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-		}
-	}
-	
-	/**
-	 * Added by Interfaces team for Denial and 360L batch process
-	 * Method findByCaseNumList, query by Case Num List.
-	 * 
-	 * @param maxRows
-	 * @param caseNumList
-	 * @return DcCasesCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findByCasesList(int maxRows, String caseNumList)
-	throws TIERSRunTimeException {
-
-		ArrayList v = new ArrayList();
-		ResultSet rs = null;
-		PreparedStatement statement = null;
-		Connection conn = null;
-		try {
-			conn = connection;
-			if (conn == null) {
-				conn = ConnectionManager.getConnection();
-			}
-
-			//String caseNums = (caseNu));
-			String array[]=caseNumList.split(",");
-			String query ="SELECT CASE_NUM,OFFICE_NUM,LANGUAGE_CD,SPOKEN_LANGUAGE_TYPE_CD,EBT_ACCT_NUM,AVAIL_DAY FROM BRG_OWNER.DC_CASES WHERE CASE_NUM IN (%s) WITH UR";
-			//statement = conn.prepareStatement(SELECT_SQL + clause);
-			if(array!=null && array.length>0){
-				StringBuffer caseList=new StringBuffer();
-				int counter=0;
-				for(String caseNum:array){
-					if(counter>=1){
-						caseList.append(",");
-					}
-					caseList.append(caseNum);
-					
-					counter++;
-					if(counter%20000==0){
-						statement = SQLQueryUtil.getInstance().prepareQueryString(conn,query, caseList.toString().split(","));
-						rs = statement.executeQuery();
-						while (rs.next()) {
-							DcCasesCargo row = new DcCasesCargo();
-							getCustomRowFromResultSet(row, rs,"findByCasesList");
-							v.add(row);
-						}
-						caseList=new StringBuffer();
-						counter=0;
-					}
-				}
-				/*
-				 * For the remaining beyond %20K
-				 */
-				if(caseList!=null && caseList.length()>0){
-					statement = SQLQueryUtil.getInstance().prepareQueryString(conn,query, caseList.toString().split(","));
-					rs = statement.executeQuery();
-					while (rs.next()) {
-						DcCasesCargo row = new DcCasesCargo();
-						getCustomRowFromResultSet(row, rs,"findByCasesList");
-						v.add(row);
-					}
-				}
-			}
-			
-			/*rs = statement.executeQuery();
-
-			while (rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				getRowFromResultSet(row, rs);
-				v.add(row);
-			}*/
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException se) {
-			throw new TIERSRunTimeException(se.getMessage(), se);
-		}  
-		catch (Exception e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(e.getClass().getName() + " "
-						+ e.getMessage(), e);
-			}
-		}
-	}
-	
-	//ILIES-244907: START: Performance review of the page | Customer Summary
-	/**
-	 *Method findRecordByCaseNum.
-	 * This method is used to retrieve record for a given case number.
-	 * @param maxRows int
-	 * @param cargo DcCasesCargo
-	 * @return DcCasesCargo[]
-	 * @throws TIERSRunTimeException
-	 */
-	public DcCasesCargo[] findRecordExistsByCaseNum(int maxRows, DcCasesCargo cargo) throws TIERSRunTimeException {
-		Debug.println("findRecordExistsByCaseNum " + " maxRows= " + maxRows + " cargo=" + cargo);
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		try {
-			conn = getConnection();
-			statement =	conn.prepareStatement("SELECT CASE_NUM FROM BRG_OWNER.DC_CASES WHERE CASE_NUM = ? WITH UR");
-			statement.setLong(1, cargo.getCaseNum());
-			rs = statement.executeQuery();
-			int cnt = 0;
-			while (cnt++ < maxRows && rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				v.add(row);
-			}
-			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-			return colrows;
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		} finally {
-			try {
-				if (rs != null) {
-					rs.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (statement != null) {
-					statement.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try {
-				if (conn != null && getClose()) {
-					conn.close();
-				}
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	public DcCasesCargo[] findCasesForTempMedJOB(int maxRows, DcCasesCargo cargo) throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		DcCasesCargo colrows[] = null;
-		try {
-			conn = getConnection();
-			String caseCondition ="AND CASES.CASE_NUM  " +
-									"NOT IN (SELECT BI.CASE_NUM FROM brg_owner.BI_TEMP_MEDICAL BI WHERE BI.NOTICE_DT > CASES.APPLICATION_DT AND BI.CASE_NUM = CASES.CASE_NUM WITH UR) AND CASES.CASE_NUM " +
-									"NOT IN (SELECT BI.CASE_NUM FROM brg_owner.BI_TEMP_MEDICAL BI INNER JOIN BRG_OWNER.AR_APPLICATION_FOR_AID AAFA ON BI.CASE_NUM = AAFA.CASE_NUM " +
-									"AND BI.APP_NUM = AAFA.APP_NUM WHERE BI.NOTICE_DT > CASES.APPLICATION_DT AND BI.CASE_NUM = CASES.CASE_NUM WITH UR) "; 
-			
-			String caseConditionAux = " ";
-			if(cargo.getCaseNum() > 0){
-				caseConditionAux = " AND DP.CASE_NUM = ? ";
-				caseCondition = " ";
-			}
-			statement = conn.prepareStatement("WITH CASES AS (SELECT DP.CASE_NUM,	DP.PROG_STATUS_CD,	DP.PROG_CD,	DP.WITHDRAW_DT,	DP.EFF_END_DT,	DP.APPLICATION_DT, CASE WHEN DCI2.INDV_ID IN ( " +
-												"SELECT DM.INDV_ID FROM BRG_OWNER.DC_MEDICARE_CLAIM DM	WHERE	DM.INDV_ID IN 	( SELECT DCI.INDV_ID FROM BRG_OWNER.DC_CASE_INDIVIDUAL DCI WHERE DCI.case_num = DP.CASE_NUM )" +
-												"AND EFF_END_DT IS NULL ) THEN 'Y' WHEN DCI2.INDV_ID IN ( SELECT DB.INDV_ID FROM BRG_OWNER.DC_DISABILITY DB 	WHERE DB.INDV_ID IN (SELECT DCI.INDV_ID FROM BRG_OWNER.DC_CASE_INDIVIDUAL  DCI " +
-												"WHERE DCI.case_num = DP.CASE_NUM ) AND DISABILITY_DETERMINATION_SW = 'Y' AND EFF_END_DT IS NULL ) THEN 'Y' ELSE 'N' END AS AABD_SW " +
-												"FROM BRG_OWNER.DC_CASE_PROGRAM DP " +
-												"INNER JOIN BRG_OWNER.DC_CASE_INDIVIDUAL DCI2 ON DP.case_num = DCI2.CASE_NUM " +
-												"WHERE DP.PROG_STATUS_CD = 'PE' AND DP.PROG_CD IN ('MA', 'ME', 'HB') " +
-												"AND DCI2.INDV_ID " +
-												"NOT IN ( SELECT CPE.INDV_ID FROM BRG_OWNER.AR_CPE_ELIG_DETAIL CPE WHERE CPE.INDV_ID = DCI2.INDV_ID AND CPE.DENIAL_REASON_CD IN ('C1', 'M1', 'A1') WITH UR ) "
-												+ caseConditionAux +
-												"WITH UR ) SELECT DISTINCT CASES.CASE_NUM, AABD_SW FROM CASES  WHERE CASES.WITHDRAW_DT IS NULL AND CASES.EFF_END_DT IS NULL  "
-												+ caseCondition +
-											    "AND( (AABD_SW = 'Y' AND (APPLICATION_DT + 67) < ? ) OR (AABD_SW = 'N' AND (APPLICATION_DT + 52) < ? ) ) WITH UR");
-			int count = 1;
-			if(cargo.getCaseNum() > 0){
-				statement.setLong(count++, cargo.getCaseNum());
-			}
-			
-			Timestamp currendate = new Timestamp(System.currentTimeMillis());
-			statement.setTimestamp(count++, currendate);
-			statement.setTimestamp(count++, currendate);
-			
-			rs = statement.executeQuery();
-			while (rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				row.setVoidSw(rs.getString("AABD_SW").charAt(0));
-				v.add(row);
-			}
-			colrows = new DcCasesCargo[v.size()];
-			v.toArray(colrows);
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "Exception at findByCaseNumberForSNDDG() : ", e);
-		} finally {
-			try {
-				if (rs != null)
-					rs.close();
+			try
+			{
 				if (statement != null)
-					statement.close();
+				{
+					closeStatement(finderName, statement, maxRows, v.size());
+
+				}
+			}
+			catch (SQLException e)
+			{
+				throw new TIERSRunTimeException(e.getClass().getName() + " " + finderName + " " + e.getMessage(), e);
+			}
+			try
+			{
 				if (conn != null && getClose())
 					conn.close();
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(BatchConstants.EDBC_LOGGER_FILE, ILog.FATAL, "Exception at findByCaseNumberActiveAndNot() : ", e);
+			}
+			catch (SQLException e)
+			{
+				throw new TIERSRunTimeException(e.getClass().getName() + " " + finderName + " " + e.getMessage(), e);
 			}
 		}
-		return colrows;
+
 	}
-	public DcCasesExtendedCargo[] findDeniedOrTermEligDetByCaseNum(int maxRows, DcCasesExtendedCargo cargo) throws TIERSRunTimeException {
-		ArrayList v = new ArrayList();
-		Connection conn = null;
-		PreparedStatement statement = null;
-		ResultSet rs = null;
-		DcCasesExtendedCargo colrows[] = null;
-		try {
-			conn = getConnection();
-			
-			statement = conn.prepareStatement("SELECT EE.CASE_NUM,EE.CG_STATUS_CD,DC.CASE_MODE_CD,DC.USER_ACTION_CD,EEN.FAILURE_REASON_CODE," +
-					" ECR.RECERT_REVIEW_DUE_DT,ECR.REVIEW_PACKET_RECEIVED_DT,ECR.FORM_1046_RECEIVED_DT," +
-					" ECR.FORM_1046_DUE_DT,ECR.REVIEW_PENDING_CD, EE.DI_ACTION_DT " +
-					" FROM BRG_OWNER.DC_CASES DC  "+
-					" JOIN BRG_OWNER.ED_ELIGIBILITY EE ON EE.CASE_NUM=DC.CASE_NUM "+
-					" LEFT JOIN BRG_OWNER.ED_CASE_RECERT_DATES ECR  ON EE.CASE_NUM=ECR.CASE_NUM AND EE.EDG_NUM=ECR.EDG_NUM "+
-					" JOIN BRG_OWNER.ED_ELIG_NOTICE_REASONS EEN ON EE.CASE_NUM=EEN.CASE_NUM AND EE.EDG_TRACE_ID=EEN.EDG_TRACE_ID "+
-					" WHERE EE.CASE_NUM IN ( ? ) " +
-					" AND EE.PROGRAM_CD IN ('FS','TF') AND EE.CG_STATUS_CD IN ('TN','DN') " +
-					" AND EE.DELETE_SW='N' AND EE.CURRENT_ELIG_IND ='A' " +
-					" AND EE.PAYMENT_END_DT IS NULL AND ECR.EFF_END_DT IS NULL WITH UR ");
-			if(cargo.getCaseNum() > 0){
-				statement.setLong(1, cargo.getCaseNum());
-			}
-			rs = statement.executeQuery();
-			while (rs.next()) {
-				DcCasesExtendedCargo row = new DcCasesExtendedCargo();
-				row.setCaseNum(rs.getLong("CASE_NUM"));
-				row.setCgStatusCd(rs.getString("CG_STATUS_CD"));
-				row.setCaseModeCd(rs.getString("CASE_MODE_CD"));
-				row.setDiActionDt(rs.getTimestamp("DI_ACTION_DT"));
-				row.setUserActionCd(rs.getString("USER_ACTION_CD"));
-				row.setFailureReasonCd(rs.getString("FAILURE_REASON_CODE"));
-				row.setRecertReviewDueDt(rs.getTimestamp("RECERT_REVIEW_DUE_DT"));
-				row.setReviewPacketReceivedDt(rs.getTimestamp("REVIEW_PACKET_RECEIVED_DT"));
-				row.setForm1046DueDt(rs.getTimestamp("FORM_1046_DUE_DT"));
-				row.setForm1046ReceivedDt(rs.getTimestamp("FORM_1046_RECEIVED_DT"));
-				row.setReveiwPendingCd(rs.getString("REVIEW_PENDING_CD"));
-				
-				v.add(row);
-			}
-			colrows = new DcCasesExtendedCargo[v.size()];
-			v.toArray(colrows);
-		} catch (SQLException e) {
-			throw new TIERSRunTimeException(BatchConstants.IMS_LOGGER_FILE, ILog.FATAL, "Exception at findDeniedOrTermEligDetByCaseNum() : ", e);
-		} finally {
-			try {
-				if (rs != null)
-					rs.close();
-				if (statement != null)
-					statement.close();
-				if (conn != null && getClose())
-					conn.close();
-			} catch (SQLException e) {
-				throw new TIERSRunTimeException(BatchConstants.IMS_LOGGER_FILE, ILog.FATAL, "Exception at findDeniedOrTermEligDetByCaseNum() : ", e);
-			}
-		}
-		return colrows;
-	}
-	
+	//Changes done by UmaRani for ILIES-287940 starts
+	//Vulnarable Switch Logic starts
 	/**
 	 *Method findByCaseNum.
 	 * This method is used to retreive records for a given case number
@@ -1371,7 +87,7 @@ public DcCasesCargo[] findByOfficeZipCountyBatch(int maxRows, long officeNum, St
 	 * @return DcCasesCargo[]
 	 * @throws TIERSRunTimeException
 	 */
-	public DcCasesCargo[] findOfficeByCaseNum(int maxRows, long lCaseNum)
+	public DcCasesCargo[] findVulnerableIndvByCaseNum(int maxRows, long lCaseNum)
 	throws TIERSRunTimeException {
 		ArrayList v = new ArrayList();
 		Connection conn = null;
@@ -1381,13 +97,13 @@ public DcCasesCargo[] findByOfficeZipCountyBatch(int maxRows, long officeNum, St
 			conn = getConnection();
 			statement =
 				conn.prepareStatement(
-						"SELECT OFFICE_NUM FROM DC_CASES Where CASE_NUM = ?  WITH UR ");
+						"SELECT VULNERABLE_SW FROM DC_CASES Where CASE_NUM = ? WITH UR ");
 			statement.setLong(1, lCaseNum);
 			rs = statement.executeQuery();
 			int cnt = 0;
 			while (cnt++ < maxRows && rs.next()) {
-				DcCasesCargo row = new DcCasesCargo();
-				row.setOfficeNum(rs.getLong("OFFICE_NUM"));
+				DcCasesCargo row = new DcCasesCargo(); 
+				row.setVulnerableSw(getCharacterFromResultSet(rs,"VULNERABLE_SW"));
 				v.add(row);
 			}
 			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
@@ -1422,332 +138,142 @@ public DcCasesCargo[] findByOfficeZipCountyBatch(int maxRows, long officeNum, St
 			}
 		}
 	}
+	//ILIES-287940 ends
+	
+	//SOP-1866 START
+	public DcCasesCargo[] findByCaseNumWithCaseStatusCd(int maxRows, ArrayList list) throws TIERSRunTimeException {
+		ArrayList v = new ArrayList();
+		Connection conn = null;
+		PreparedStatement statement = null;
+		
+		ResultSet rs = null;
+		DcCasesCargo colrows[] = null;
+		StringBuffer sbClause = new StringBuffer();
+		try {
+			Debug.println("Inside method findByCaseNumWithCaseStatusCd");
+			conn = getConnection();
+			String clause = "WHERE CASE_NUM IN (";
+			int iCaseSize = list.size();
+			for (int i = 0; i < iCaseSize; i++) {
+				sbClause.append(list.get(i));
+				if (!((i + 1) == list.size()))
+				{
+					sbClause.append(",");
+				}
+			}
+			clause += sbClause.toString()
+			+ ") AND CASE_STATUS_CD = 'AP' WITH UR ";
+			statement = conn.prepareStatement(" SELECT CASE_NUM FROM DC_CASES " + " " + clause);
+			
+			Debug.println("the query is findByCaseNumWithCaseStatusCd" 
+					+ " " + clause);
+			
+			rs = statement.executeQuery();
+			int cnt = 0;
+			while (rs.next() && cnt++ < maxRows) {
+				DcCasesCargo row = new DcCasesCargo();
+				row.setCaseNum(rs.getLong("CASE_NUM"));
+				v.add(row);
+			}
+			
+			colrows = new DcCasesCargo[v.size()];
+			v.toArray(colrows);
+			Debug.println("Exiting method findByCaseNumWithCaseStatusCd");
+		} catch (SQLException e) {
+			throw new TIERSRunTimeException(e.getMessage(), e);
+		} finally {
+			try {
+				if (rs != null) {
+					rs.close();
+				}
+			} catch (SQLException e) {
+				throw new TIERSRunTimeException(e.getClass().getName() + " "
+						+ e.getMessage(), e);
+			}
+			try {
+				if (statement != null) {
+					statement.close();
+				}
+			} catch (SQLException e) {
+				throw new TIERSRunTimeException(e.getClass().getName() + " "
+						+ e.getMessage(), e);
+			}
+			try {
+				if (conn != null && getClose()) {
+					conn.close();
+				}
+			} catch (SQLException e) {
+				throw new TIERSRunTimeException(e.getClass().getName() + " "
+						+ e.getMessage(), e);
+			}
+		}
+		return colrows;
+	}
+	//SOP-1866 END
 	
 	/**
-	 *Method findOfficeNameByCaseNum.
-	 * This method is used to retreive records for a given case number
-	 * @param maxRows int
-	 * @param lCaseNum long
-	 * @return DcCasesCargo[]
+	 * ILIES-291522 - ROHIYADAV - TWN being called for case change
+	 * Method findByCaseNumProgStatusCdEffEndDt. This method is used to retrieve records for records which are not pending and in IR mode 
+	 * given case number and program code
+	 * 
+	 * @param maxRows
+	 *            int - max rows
+	 * @param caseNum
+	 *            Long - caseNum
+	 * @param progCode
+	 *            String - progCode
+	 * @return DcCaseProgramCargo[] - returns cargo
 	 * @throws TIERSRunTimeException
 	 */
-	public DcCasesCargo[] findOfficeNameByCaseNum(int maxRows, DcCasesCargo cargo)
-	throws TIERSRunTimeException {
+	public DcCasesCargo[] findByCaseNumProgStatusCdEffEndDt(int maxRows,
+			String caseNum) throws TIERSRunTimeException {
+		Debug.println(" findByCaseNumProgStatusCdEffEndDt " + " caseNum= " + caseNum);
 		ArrayList v = new ArrayList();
 		Connection conn = null;
 		PreparedStatement statement = null;
 		ResultSet rs = null;
+		final String SELECT_SQL_LOCAL = "SELECT DC.CASE_NUM, DC.CASE_MODE_CD FROM DC_CASES";
 		try {
 			conn = getConnection();
-			statement =
-				conn.prepareStatement(
-						"SELECT A.OFFICE_NUM,B.OFFICE_NAME FROM BRG_OWNER.DC_CASES A JOIN " +
-						"BRG_OWNER.MO_OFFICES B ON A.OFFICE_NUM=B.OFFICE_NUM Where A.CASE_NUM = ? AND B.EFF_END_DT IS NULL WITH UR ");
-			statement.setLong(1, cargo.getCaseNum());
+
+			statement = conn.prepareStatement(SELECT_SQL_LOCAL 
+					+ " DC LEFT JOIN BRG_OWNER.DC_CASE_PROGRAM DP ON DC.CASE_NUM = DP.CASE_NUM AND DP.EFF_END_DT IS NULL AND (DP.PROG_STATUS_CD = 'PE' OR DP.REINSTATE_COMPLIANCE_DT IS NOT NULL) WHERE DC.CASE_MODE_CD = 'IR' AND DC.CASE_NUM = "+caseNum+" AND DP.CASE_NUM IS NULL WITH UR");
 			rs = statement.executeQuery();
 			int cnt = 0;
 			while (cnt++ < maxRows && rs.next()) {
 				DcCasesCargo row = new DcCasesCargo();
-				row.setOfficeNum(rs.getLong("OFFICE_NUM"));
-				row.setAuthrepOrgName(rs.getString("OFFICE_NAME"));
+				row.setCaseNum(rs.getLong("CASE_NUM"));
+				row.setCaseModeCd(rs.getString("CASE_MODE_CD"));
 				v.add(row);
 			}
 			DcCasesCargo colrows[] = new DcCasesCargo[v.size()];
 			v.toArray(colrows);
 			return colrows;
 		} catch (SQLException e) {
-			throw new TIERSRunTimeException(e.getMessage(), e);
+			throw new TIERSRunTimeException(e.getMessage(),e);
 		} finally {
 			try {
-				if (rs != null) {
+				if (rs != null)
 					rs.close();
-				}
 			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
+				throw new TIERSRunTimeException(e.getClass().getName() + " "
+						+ e.getMessage(),e);
 			}
 			try {
-				if (statement != null) {
+				if (statement != null)
 					statement.close();
-				}
 			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
+				throw new TIERSRunTimeException(e.getClass().getName() + " "
+						+ e.getMessage(),e);
 			}
 			try {
-				if (conn != null && getClose()) {
+				if (conn != null && getClose())
 					conn.close();
-				}
 			} catch (SQLException e) {
-				throw new TIERSRunTimeException(
-						e.getClass().getName() + " " + e.getMessage(), e);
+				throw new TIERSRunTimeException(e.getClass().getName() + " "
+						+ e.getMessage(),e);
 			}
 		}
 	}
 	
-	
-	public DcCasesCargo[] getCaseLevelTextMsgInfo(int maxRows, HashSet<String> phnNumSet) throws TIERSRunTimeException
-	{
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		SQLQueryUtil queryUtil = SQLQueryUtil.getInstance();
-		try
-		{
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			DcCasesCargo cb = null;
-
-			if (phnNumSet != null && phnNumSet.size() > 0)
-			{
-				HashSet<String> phnNumberSet = new HashSet<String>();
-				for (String phnNum : phnNumSet)
-				{
-					phnNumberSet.add(phnNum);
-					if (phnNumberSet.size() % 20000 == 0)
-					{
-						String selectQuery = " SELECT CASE_NUM,PH_NUM AS PHONE_NUMBER FROM BRG_OWNER.DC_CASES WHERE PH_NUM IN("
-								+ queryUtil.preparePlaceHolders(phnNumberSet.size()) + ")  WITH UR";
-						statement = conn.prepareStatement(selectQuery);
-						int indexs = 1;
-						indexs = queryUtil.setValues(indexs, statement, phnNumberSet.toArray());
-						rs = statement.executeQuery();
-						while (rs.next())
-						{
-							cb = new DcCasesCargo();
-							cb.setCaseNum(rs.getLong("CASE_NUM"));
-							cb.setPhNum(rs.getString("PHONE_NUMBER"));
-							v.add(cb);
-						}
-						selectQuery = " SELECT CASE_NUM,OTHER_PH_NUM AS PHONE_NUMBER FROM BRG_OWNER.DC_CASES WHERE OTHER_PH_NUM IN("
-								+ queryUtil.preparePlaceHolders(phnNumberSet.size()) + ")  WITH UR";
-						statement = conn.prepareStatement(selectQuery);
-						indexs = 1;
-						indexs = queryUtil.setValues(indexs, statement, phnNumberSet.toArray());
-						rs = statement.executeQuery();
-						while (rs.next())
-						{
-							cb = new DcCasesCargo();
-							cb.setCaseNum(rs.getLong("CASE_NUM"));
-							cb.setOtherPhNum(rs.getString("PHONE_NUMBER"));
-							v.add(cb);
-						}
-						selectQuery = " SELECT CASE_NUM,MSG_PHN_NUM AS PHONE_NUMBER FROM BRG_OWNER.DC_CASES WHERE MSG_PHN_NUM IN("
-								+ queryUtil.preparePlaceHolders(phnNumberSet.size()) + ")  WITH UR";
-						statement = conn.prepareStatement(selectQuery);
-						indexs = 1;
-						indexs = queryUtil.setValues(indexs, statement, phnNumberSet.toArray());
-						rs = statement.executeQuery();
-						while (rs.next())
-						{
-							cb = new DcCasesCargo();
-							cb.setCaseNum(rs.getLong("CASE_NUM"));
-							cb.setMsgPhnNum(rs.getString("PHONE_NUMBER"));
-							v.add(cb);
-						}
-						phnNumberSet.clear();
-					}
-
-				}
-				if (phnNumberSet.size() > 0)
-				{
-					String selectQuery = " SELECT CASE_NUM,PH_NUM AS PHONE_NUMBER FROM BRG_OWNER.DC_CASES WHERE PH_NUM IN("
-							+ queryUtil.preparePlaceHolders(phnNumberSet.size()) + ")  WITH UR";
-					statement = conn.prepareStatement(selectQuery);
-					int indexs = 1;
-					indexs = queryUtil.setValues(indexs, statement, phnNumberSet.toArray());
-					rs = statement.executeQuery();
-					while (rs.next())
-					{
-						cb = new DcCasesCargo();
-						cb.setCaseNum(rs.getLong("CASE_NUM"));
-						cb.setPhNum(rs.getString("PHONE_NUMBER"));
-						v.add(cb);
-					}
-					selectQuery = " SELECT CASE_NUM,OTHER_PH_NUM AS PHONE_NUMBER FROM BRG_OWNER.DC_CASES WHERE OTHER_PH_NUM IN("
-							+ queryUtil.preparePlaceHolders(phnNumberSet.size()) + ")  WITH UR";
-					statement = conn.prepareStatement(selectQuery);
-					indexs = 1;
-					indexs = queryUtil.setValues(indexs, statement, phnNumberSet.toArray());
-					rs = statement.executeQuery();
-					while (rs.next())
-					{
-						cb = new DcCasesCargo();
-						cb.setCaseNum(rs.getLong("CASE_NUM"));
-						cb.setOtherPhNum(rs.getString("PHONE_NUMBER"));
-						v.add(cb);
-					}
-					selectQuery = " SELECT CASE_NUM,MSG_PHN_NUM AS PHONE_NUMBER FROM BRG_OWNER.DC_CASES WHERE MSG_PHN_NUM IN("
-							+ queryUtil.preparePlaceHolders(phnNumberSet.size()) + ")  WITH UR";
-					statement = conn.prepareStatement(selectQuery);
-					indexs = 1;
-					indexs = queryUtil.setValues(indexs, statement, phnNumberSet.toArray());
-					rs = statement.executeQuery();
-					while (rs.next())
-					{
-						cb = new DcCasesCargo();
-						cb.setCaseNum(rs.getLong("CASE_NUM"));
-						cb.setMsgPhnNum(rs.getString("PHONE_NUMBER"));
-						v.add(cb);
-					}
-					phnNumberSet.clear();
-				}
-
-			}
-
-			DcCasesCargo[] cargos = new DcCasesCargo[v.size()];
-			v.toArray(cargos);
-
-			return cargos;
-		}
-		catch (SQLException e)
-		{
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally
-		{
-			try
-			{
-				if (rs != null)
-				{
-					rs.close();
-				}
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try
-			{
-				if (statement != null)
-				{
-					statement.close();
-				}
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try
-			{
-				if (conn != null && getClose())
-				{
-					conn.close();
-				}
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	public DcCasesCargo[] getCaseLevelTextRemInfo(int maxRows, HashSet<Long> caseNumSet) throws TIERSRunTimeException
-	{
-		PreparedStatement statement = null;
-		Connection conn = null;
-		ResultSet rs = null;
-		SQLQueryUtil queryUtil = SQLQueryUtil.getInstance();
-		try
-		{
-			ArrayList v = new ArrayList();
-			conn = getConnection();
-			DcCasesCargo cb = null;
-
-			if (caseNumSet != null && caseNumSet.size() > 0)
-			{
-				HashSet<Long> caseNumberSet = new HashSet<Long>();
-				for (Long caseNum : caseNumSet)
-				{
-					caseNumberSet.add(caseNum);
-					if (caseNumberSet.size() % 20000 == 0)
-					{
-						String selectQuery = SELECT_SQL + " WHERE CASE_NUM IN(" + queryUtil.preparePlaceHolders(caseNumberSet.size()) + ")  WITH UR";
-						statement = conn.prepareStatement(selectQuery);
-						int indexs = 1;
-						indexs = queryUtil.setValues(indexs, statement, caseNumberSet.toArray());
-						rs = statement.executeQuery();
-						while (rs.next())
-						{
-							cb = new DcCasesCargo();
-							getRowFromResultSet(cb, rs);
-							v.add(cb);
-						}
-						caseNumberSet.clear();
-					}
-
-				}
-				if (caseNumberSet.size() > 0)
-				{
-					String selectQuery = SELECT_SQL + " WHERE CASE_NUM IN(" + queryUtil.preparePlaceHolders(caseNumberSet.size()) + ")  WITH UR";
-					statement = conn.prepareStatement(selectQuery);
-					int indexs = 1;
-					indexs = queryUtil.setValues(indexs, statement, caseNumberSet.toArray());
-					rs = statement.executeQuery();
-					while (rs.next())
-					{
-						cb = new DcCasesCargo();
-						getRowFromResultSet(cb, rs);
-						v.add(cb);
-					}
-					caseNumberSet.clear();
-				}
-
-			}
-
-			DcCasesCargo[] cargos = new DcCasesCargo[v.size()];
-			v.toArray(cargos);
-
-			return cargos;
-		}
-		catch (SQLException e)
-		{
-			throw new TIERSRunTimeException(e.getMessage(), e);
-		}
-		finally
-		{
-			try
-			{
-				if (rs != null)
-				{
-					rs.close();
-				}
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try
-			{
-				if (statement != null)
-				{
-					statement.close();
-				}
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-			try
-			{
-				if (conn != null && getClose())
-				{
-					conn.close();
-				}
-			}
-			catch (SQLException e)
-			{
-				throw new TIERSRunTimeException(e.getClass().getName() + " " + e.getMessage(), e);
-			}
-		}
-	}
-	
-	public static String getINTXMDZDLY(String parallelPartition)
-	{
-		String sqlQuery = "SELECT CASE_NUM FROM (SELECT CASE_NUM FROM BRG_OWNER.DC_CASES WHERE CASE_STATUS_CD IN('AP','PE') AND PHN_TXT_TYP_CD IS NULL AND VAL_PHN_NUM_CD IS NULL AND TRIM(PH_NUM) IS NOT NULL "
-				+ " UNION  SELECT CASE_NUM FROM BRG_OWNER.DC_CASES WHERE  CASE_STATUS_CD IN('AP','PE') AND PHN_TXT_TYP_CD IS NULL AND VAL_PHN_NUM_CD IS NULL AND TRIM(OTHER_PH_NUM) IS NOT NULL "
-				+ " UNION  SELECT CASE_NUM FROM BRG_OWNER.DC_CASES WHERE  CASE_STATUS_CD IN('AP','PE') AND PHN_TXT_TYP_CD IS NULL AND VAL_PHN_NUM_CD IS NULL AND TRIM(MSG_PHN_NUM) IS NOT NULL) WITH UR";
-
-		return sqlQuery;
-
-	}
+}
