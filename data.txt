@@ -6,31 +6,26 @@ import gov.illinois.fw.batch.Controller.TIERSBatchController;
 import gov.illinois.framework.management.logging.ILog;
 import gov.illinois.framework.factories.FwServiceFactory;
 import gov.illinois.fw.batch.HelperClasses.BatchConstants;
+import gov.illinois.framework.management.util.FwConstants;
+import gov.illinois.framework.management.util.FwProperty;
 import gov.illinois.fw.business.exceptions.TIERSBatchException;
 import gov.illinois.fw.business.exceptions.TIERSException;
 import gov.illinois.ies.business.rules.al.ALSOPUtil;
-import gov.illinois.ies.business.util.co.COCorrespondence;
-import gov.illinois.ies.business.util.co.COCorrespondenceCollection;
-import gov.illinois.ies.business.rules.co.CORequestHelper;
-import gov.illinois.ies.business.constants.EdBatchConstants;
+import gov.illinois.ies.business.rules.ed.AlMassUpdateManager;
 import gov.illinois.ies.business.entities.dc.DcCasesCargo;
 import gov.illinois.ies.business.entities.dc.DcCasesCollection;
-import gov.illinois.ies.business.util.batch.MAABDCutoffUtil;
 
 import java.sql.Connection;
 import java.sql.Timestamp;
-import java.util.HashSet;
-import java.util.Set;
 
-public class SendMAABDClosureNoticeBatch extends AbstractBatch {
+public class GenerateSP004TriggerForMAABDCasesBatch extends AbstractBatch {
 
-    private static SendMAABDClosureNoticeBatch batchInstance = null;
+    private static GenerateSP004TriggerForMAABDCasesBatch batchInstance = null;
     private static TIERSBatchController tbc = null;
     private static ILog logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
 
     private Connection conn = null;
     private Timestamp beginDate = null;
-    private Timestamp cutoffDate = null;
     private int totalRecordsProcessed = 0;
     private int totalExceptions = 0;
     private DcCasesCollection dcCasesColl = null;
@@ -38,11 +33,9 @@ public class SendMAABDClosureNoticeBatch extends AbstractBatch {
     private Object[] obj = null;
     private static String jobId = null;
 
-    private static final String DOC_ID = EdBatchConstants.CO_DOC_ID_MAABD_CLOSURE;
-
     public static void main(String[] args) {
         try {
-            batchInstance = new SendMAABDClosureNoticeBatch();
+            batchInstance = new GenerateSP004TriggerForMAABDCasesBatch();
             batchInstance.init(args);
         } catch (Exception e) {
             batchInstance.writeExceptionRecord("Fatal Error at main", e.getMessage(), BatchConstants.REPORT_BODY, true);
@@ -64,8 +57,6 @@ public class SendMAABDClosureNoticeBatch extends AbstractBatch {
             tbc.setOverWriteFlag(false);
 
             beginDate = ALSOPUtil.getTSfromString(tbc.getParameters().getAsOfDate());
-            cutoffDate = MAABDCutoffUtil.getCutoffDate(beginDate);
-
             conn = tbc.getConnection();
             start();
 
@@ -77,7 +68,7 @@ public class SendMAABDClosureNoticeBatch extends AbstractBatch {
     protected void preProcess() throws TIERSBatchException {}
 
     protected void process() throws TIERSBatchException {
-        sendClosureNotices();
+        generateSP004TriggerForMAABDCases();
     }
 
     protected void postProcess() throws TIERSBatchException {
@@ -90,38 +81,40 @@ public class SendMAABDClosureNoticeBatch extends AbstractBatch {
 
     protected void stop() throws TIERSBatchException {}
 
-    private void sendClosureNotices() throws TIERSBatchException {
+    private void generateSP004TriggerForMAABDCases() throws TIERSBatchException {
+        int valReturned;
+        long caseNum;
         dcCasesColl = new DcCasesCollection(conn);
         obj = new Object[2];
         obj[0] = "SP004";
-        obj[1] = cutoffDate;
+        obj[1] = beginDate;
 
         try {
             dcCasesRslts = (DcCasesCargo[]) dcCasesColl.select("findMAABDMedicalCasesByCutOffDt", obj);
         } catch (Exception e) {
-            writeExceptionRecord("Case selection failed", e.getMessage(), BatchConstants.REPORT_BODY, true);
+            writeExceptionRecord("Exception during case selection", e.getMessage(), BatchConstants.REPORT_BODY, true);
             throw new TIERSBatchException(e.getMessage());
         }
 
         while (dcCasesRslts != null) {
-            for (DcCasesCargo cargo : dcCasesRslts) {
+            valReturned = dcCasesRslts.length;
+            for (int i = 0; i < valReturned; i++) {
                 try {
-                    tbc.savepoint(conn, "savepointMAABDNotice");
-                    Set<String> caseNumSet = new HashSet<>();
-                    caseNumSet.add(String.valueOf(cargo.getCaseNum()));
-                    CORequestHelper.generateNoticeByCaseNumSet(caseNumSet, null, DOC_ID, conn);
-                    logicalCommit(conn);
+                    tbc.savepoint(conn, "savepointMAABD1");
+                    caseNum = dcCasesRslts[i].getCaseNum();
                     totalRecordsProcessed++;
+                    AlMassUpdateManager.insertMUTrigger(caseNum, "SP004", conn);
+                    logicalCommit(conn);
                 } catch (Exception ex) {
-                    tbc.rollback(conn, "savepointMAABDNotice");
-                    writeExceptionRecord("Failed to send notice for case: " + cargo.getCaseNum(), ex.getMessage(), BatchConstants.REPORT_BODY, true);
+                    tbc.rollback(conn, "savepointMAABD1");
+                    writeExceptionRecord("Insert of SP004 into Mass Update Table Failed for caseNum: " + dcCasesRslts[i].getCaseNum(), ex.getMessage(), BatchConstants.REPORT_BODY, true);
                     totalExceptions++;
                 }
             }
             try {
                 dcCasesRslts = (DcCasesCargo[]) dcCasesColl.next("findMAABDMedicalCasesByCutOffDt");
             } catch (Exception e1) {
-                writeExceptionRecord("Prefetch logic failed", e1.getMessage(), BatchConstants.REPORT_BODY, true);
+                writeExceptionRecord("Prefetch Logic for findMAABDMedicalCasesByCutOffDt failed", e1.getMessage(), BatchConstants.REPORT_BODY, true);
                 throw new TIERSBatchException(e1.getMessage());
             }
         }
