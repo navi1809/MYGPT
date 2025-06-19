@@ -1,122 +1,56 @@
+ public DcCasesCargo[] findMAABDMedicalCasesByCutOffDt(int maxRows, String trigCd, Timestamp cutOffDt) throws TIERSRunTimeException {
+        Debug.println("findMAABDMedicalCasesByCutOffDt" + " maxRows= " + maxRows);
+        ArrayList v = new ArrayList();
+        Connection conn = null;
+        PreparedStatement statement = null;
+        ResultSet rs = null;
+        DcCasesCargo[] colrows = null;
 
-package gov.illinois.ies.business.batch.mu;
-
-import gov.illinois.fw.batch.AbstractBatch;
-import gov.illinois.fw.batch.Controller.TIERSBatchController;
-import gov.illinois.framework.management.logging.ILog;
-import gov.illinois.framework.factories.FwServiceFactory;
-import gov.illinois.fw.batch.HelperClasses.BatchConstants;
-import gov.illinois.framework.management.util.FwConstants;
-import gov.illinois.framework.management.util.FwProperty;
-import gov.illinois.fw.business.exceptions.TIERSBatchException;
-import gov.illinois.fw.business.exceptions.TIERSException;
-import gov.illinois.ies.business.rules.al.ALSOPUtil;
-import gov.illinois.ies.business.rules.ed.AlMassUpdateManager;
-import gov.illinois.ies.business.entities.dc.DcCasesCargo;
-import gov.illinois.ies.business.entities.dc.DcCasesCollection;
-
-import java.sql.Connection;
-import java.sql.Timestamp;
-
-public class GenerateSP004TriggerForMAABDCasesBatch extends AbstractBatch {
-
-    private static GenerateSP004TriggerForMAABDCasesBatch batchInstance = null;
-    private static TIERSBatchController tbc = null;
-    private static ILog logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
-
-    private Connection conn = null;
-    private Timestamp beginDate = null;
-    private int totalRecordsProcessed = 0;
-    private int totalExceptions = 0;
-    private DcCasesCollection dcCasesColl = null;
-    private DcCasesCargo[] dcCasesRslts = null;
-    private Object[] obj = null;
-    private static String jobId = null;
-
-    public static void main(String[] args) {
         try {
-            batchInstance = new GenerateSP004TriggerForMAABDCasesBatch();
-            batchInstance.init(args);
-        } catch (Exception e) {
-            batchInstance.writeExceptionRecord("Fatal Error at main", e.getMessage(), BatchConstants.REPORT_BODY, true);
-            System.exit(BatchConstants.EXIT_FAILURE);
-        }
-    }
+            conn = getConnection();
 
-    private void init(String[] args) throws TIERSBatchException {
-        try {
-            if (args != null && args.length != 0) {
-                jobId = args[0];
-            } else {
-                throw new TIERSException("No job id found for this batch: " + this.getClass().getName());
+            StringBuilder queryBuilder = new StringBuilder("SELECT DISTINCT R.CASE_NUM FROM BRG_OWNER.ED_CASE_RECERT_DATES R ");
+            queryBuilder.append("INNER JOIN BRG_OWNER.DC_CASES DC ON DC.CASE_NUM = R.CASE_NUM AND DC.CASE_STATUS_CD = 'AP' ");
+            queryBuilder.append("INNER JOIN BRG_OWNER.ED_AUTO_REDE_DETERMN REDE ON R.CASE_NUM = REDE.CASE_NUM ");
+            queryBuilder.append("AND REDE.CREATE_DT BETWEEN ? AND ? AND PROCESS_SW IN ('S', 'X') AND FORM_GENERATED_CD = 'B' ");
+            queryBuilder.append("WHERE R.PROGRAM_CD IN ('FP','MA', 'ME', 'MC', 'HB') ");
+            queryBuilder.append("AND R.REVIEW_PACKET_RECEIVED_DT IS NULL AND R.EFF_END_DT IS NULL ");
+            queryBuilder.append("AND R.RECERT_REVIEW_DUE_DT BETWEEN ? AND ? ");
+
+            statement = conn.prepareStatement(queryBuilder.toString(), ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
+            Timestamp createDtSubMnths = DateUtility.subMonths(cutOffDt, 2);
+            statement.setTimestamp(1, DateUtility.getStartOfDay(DateUtility.getFirstDayOfMonth(createDtSubMnths)));
+            statement.setTimestamp(2, DateUtility.getEndOfDay(DateUtility.getLastDayOfMonth(createDtSubMnths)));
+
+            statement.setTimestamp(3, DateUtility.getStartOfDay(DateUtility.getFirstDayOfMonth(cutOffDt)));
+            statement.setTimestamp(4, DateUtility.getEndOfDay(DateUtility.getLastDayOfMonth(cutOffDt)));
+
+            int cnt = 0;
+            rs = statement.executeQuery();
+            while (cnt++ < maxRows && rs.next()) {
+                DcCasesCargo row = new DcCasesCargo();
+                getCustomRowFromResultSet(row, rs, "findMAABDMedicalCasesByCutOffDt");
+                v.add(row);
             }
-
-            tbc = getTIERSBatchController();
-            tbc.setJobId(jobId);
-            tbc.setProgramName(this.getClass().getSimpleName());
-            tbc.setOverWriteFlag(false);
-
-            beginDate = ALSOPUtil.getTSfromString(tbc.getParameters().getAsOfDate());
-            conn = tbc.getConnection();
-            start();
-
+            colrows = new DcCasesCargo[v.size()];
+            v.toArray(colrows);
         } catch (Exception e) {
-            throw new TIERSBatchException("Exception during init: " + e.getMessage(), e);
-        }
-    }
-
-    protected void preProcess() throws TIERSBatchException {}
-
-    protected void process() throws TIERSBatchException {
-        generateSP004TriggerForMAABDCases();
-    }
-
-    protected void postProcess() throws TIERSBatchException {
-        try {
-            tbc.insertSummaryRecord(totalRecordsProcessed, totalRecordsProcessed - totalExceptions, totalExceptions);
-        } catch (Exception e) {
-            throw new TIERSBatchException("Exception during postProcess: " + e.getMessage(), e);
-        }
-    }
-
-    protected void stop() throws TIERSBatchException {}
-
-    private void generateSP004TriggerForMAABDCases() throws TIERSBatchException {
-        int valReturned;
-        long caseNum;
-        dcCasesColl = new DcCasesCollection(conn);
-        obj = new Object[2];
-        obj[0] = "SP004";
-        obj[1] = beginDate;
-
-        try {
-            dcCasesRslts = (DcCasesCargo[]) dcCasesColl.select("findMAABDMedicalCasesByCutOffDt", obj);
-        } catch (Exception e) {
-            writeExceptionRecord("Exception during case selection", e.getMessage(), BatchConstants.REPORT_BODY, true);
-            throw new TIERSBatchException(e.getMessage());
-        }
-
-        while (dcCasesRslts != null) {
-            valReturned = dcCasesRslts.length;
-            for (int i = 0; i < valReturned; i++) {
-                try {
-                    tbc.savepoint(conn, "savepointMAABD1");
-                    caseNum = dcCasesRslts[i].getCaseNum();
-                    totalRecordsProcessed++;
-                    AlMassUpdateManager.insertMUTrigger(caseNum, "SP004", conn);
-                    logicalCommit(conn);
-                } catch (Exception ex) {
-                    tbc.rollback(conn, "savepointMAABD1");
-                    writeExceptionRecord("Insert of SP004 into Mass Update Table Failed for caseNum: " + dcCasesRslts[i].getCaseNum(), ex.getMessage(), BatchConstants.REPORT_BODY, true);
-                    totalExceptions++;
-                }
-            }
+            throw new TIERSRunTimeException(e.getMessage(), e);
+        } finally {
             try {
-                dcCasesRslts = (DcCasesCargo[]) dcCasesColl.next("findMAABDMedicalCasesByCutOffDt");
-            } catch (Exception e1) {
-                writeExceptionRecord("Prefetch Logic for findMAABDMedicalCasesByCutOffDt failed", e1.getMessage(), BatchConstants.REPORT_BODY, true);
-                throw new TIERSBatchException(e1.getMessage());
+                if (rs != null && getClose()) {
+                    rs.close();
+                }
+                if (statement != null) {
+                    closeStatement("findMAABDMedicalCasesByCutOffDt", statement, maxRows, v.size());
+                    Debug.println("called close statement for findMAABDMedicalCasesByCutOffDt");
+                }
+                if (conn != null && getClose()) {
+                    conn.close();
+                }
+            } catch (SQLException e) {
+                throw new TIERSRunTimeException(e.getClass().getName() + " findMAABDMedicalCasesByCutOffDt " + e.getMessage(), e);
             }
         }
+        return colrows;
     }
-}
