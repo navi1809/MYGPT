@@ -1,62 +1,69 @@
-Record SR-AIF51-IN-REC type serialRecord  {
-  fileName = "INPUT"
-  }
-  5 LISA-RECORD char(1000) ; 
-    10 COSSN char(9) ; 
-    10 BENE-HICN char(11) ; 
-    10 BENE-FIRST-NM char(15) ; 
-    10 BENE-MID-NM char(15) ; 
-    10 BENE-LAST-NM char(22) ; 
-    10 BENE-SUFX char(4) ; 
-    10 BENE-DOB num(8) ; 
-    10 BENE-GENDER char(1) ; 
-    10 BENE-FUNERAL-EXP num(4) ; 
-    10 SPOUSE-SSN char(9) ; 
-    10 SPOUSE-HICN char(11) ; 
-    10 SPOUSE-FIRST-NM char(15) ; 
-    10 SPOUSE-MID-NM char(15) ; 
-    10 SPOUSE-LAST-NM char(22) ; 
-    10 SPOUSE-SUFX char(4) ; 
-    10 SPOUSE-DOB num(8) ; 
-    10 SPOUSE-FUNERAL-EXP num(4) ; 
-    10 ADDR-LINE-1 char(22) ; 
-    10 ADDR-LINE-2 char(22) ; 
-    10 ADDR-LINE-3 char(22) ; 
-    10 ADDR-LINE-4 char(22) ; 
-    10 ADDR-CITY char(22) ; 
-    10 ADDR-STATE char(2) ; 
-    10 ADDR-ZIP char(9) ; 
-      15 ADDR-ZIP-5 char(5) ; 
-      15 ADDR-ZIP-4 char(4) ; 
-    10 PHONE char(15) ; 
-    10 SUBSIDY-APPROVE char(1) ; 
-    10 SUBSIDY-APRV-DATE num(8) ; 
-    10 SUBSIDY-EFF-DATE num(8) ; 
-    10 LEVEL-OF-RESOUCES char(17) ; 
-    10 INCM-USED-FOR-DET char(3) ; 
-    10 INCM-USED-AS-FPL char(3) ; 
-    10 PREM-SUBSIDY-PCT num(3) ; 
-    10 DENIAL-DETAILS char(33) [4] ; 
-      15 DENAIL-RSN-CD char(3) ; 
-      15 DENAIL-RSN-DESC char(30) ; 
-    10 APPL-DATE num(8) ; 
-    10 CHECK-YES char(1) ; 
-    10 RSRC decimal(8,2) [4] ; 
-    10 HH-SIZE num(2) ; 
-    10 INCM-NOT-FRM-WORK char(25) ; 
-      15 SSA decimal(8,2) ; 
-      15 RRB decimal(8,2) ; 
-      15 VAB decimal(8,2) ; 
-      15 POA decimal(8,2) ; 
-      15 OIN decimal(8,2) ; 
-    10 WAGE-INCM char(10) ; 
-      15 BENE-WAGE decimal(9,2) ; 
-      15 SPOUSE-WAGE decimal(9,2) ; 
-    10 SELF-INCM char(10) ; 
-      15 BENE-SELF decimal(9,2) ; 
-      15 SPOUSE-SELF decimal(9,2) ; 
-    10 LOSS-INCM char(10) ; 
-      15 BENE-LOSS decimal(9,2) ; 
-      15 SPOUSE-LOSS decimal(9,2) ; 
-    10 FILLER char(426) ; 
-end // end SR-AIF51-IN-REC
+import java.io.*;
+import java.math.BigDecimal;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.List;
+
+public class MainframeReader {
+
+    public static void main(String[] args) throws IOException {
+        List<Record> records = new ArrayList<>();
+
+        try (InputStream is = new FileInputStream("INPUT.DAT")) {
+            byte[] buffer = new byte[1000];
+
+            while (is.read(buffer) == 1000) {
+                Record rec = new Record();
+
+                // Decode ASCII or EBCDIC strings
+                Charset charset = Charset.forName("Cp037"); // Use ASCII if applicable
+
+                rec.cosSn = new String(buffer, 0, 9, charset).trim();
+                rec.beneHicn = new String(buffer, 9, 11, charset).trim();
+                rec.firstName = new String(buffer, 20, 15, charset).trim();
+                rec.midName = new String(buffer, 35, 15, charset).trim();
+                rec.lastName = new String(buffer, 50, 22, charset).trim();
+
+                // Decode RSRC packed decimals (starts after offset 509 in layout)
+                int rsrcOffset = 509;
+                for (int i = 0; i < 4; i++) {
+                    byte[] comp3 = new byte[5];
+                    System.arraycopy(buffer, rsrcOffset + (i * 5), comp3, 0, 5);
+                    rec.rsrc[i] = decodeComp3(comp3, 2); // 2 digits after decimal
+                }
+
+                records.add(rec);
+            }
+        }
+
+        // Print or use the records
+        for (Record rec : records) {
+            System.out.println("SSN: " + rec.cosSn);
+            System.out.println("HICN: " + rec.beneHicn);
+            System.out.println("Name: " + rec.firstName + " " + rec.midName + " " + rec.lastName);
+            for (int i = 0; i < rec.rsrc.length; i++) {
+                System.out.println("RSRC[" + i + "]: " + rec.rsrc[i]);
+            }
+            System.out.println("-----------");
+        }
+    }
+
+    public static BigDecimal decodeComp3(byte[] data, int scale) {
+        StringBuilder digits = new StringBuilder();
+
+        for (int i = 0; i < data.length; i++) {
+            int b = data[i] & 0xFF;
+            if (i < data.length - 1) {
+                digits.append((b >> 4) & 0x0F);
+                digits.append(b & 0x0F);
+            } else {
+                digits.append((b >> 4) & 0x0F);
+                int sign = b & 0x0F;
+                if (sign == 0x0D) digits.insert(0, "-");
+                else if (sign != 0x0C && sign != 0x0F) throw new IllegalArgumentException("Invalid COMP-3 sign");
+            }
+        }
+
+        return new BigDecimal(digits.toString()).movePointLeft(scale);
+    }
+}
