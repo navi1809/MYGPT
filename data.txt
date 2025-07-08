@@ -7,149 +7,66 @@ import java.util.Arrays;
 
 public class SRAIF51Reader {
 
-    // Custom decoder for the specific mainframe format observed
-    public static double unpackCustomDecimal(byte[] data) {
-        if (data == null || data.length != 5) {
-            return 0.0;
-        }
-        
-        // Debug output
-        System.out.print("Custom unpacking bytes: ");
-        for (byte b : data) {
-            System.out.printf("%02X", b & 0xFF);
-        }
-        System.out.println();
-        
-        // Extract all 10 hex digits (5 bytes = 10 nibbles)
-        StringBuilder hexStr = new StringBuilder();
-        for (byte b : data) {
-            hexStr.append(String.format("%02X", b & 0xFF));
-        }
-        
-        // Take the first 9 characters as the numeric value
-        String numericPart = hexStr.substring(0, 9);
-        // Last character is the sign
-        char signChar = hexStr.charAt(9);
-        
-        System.out.printf("Numeric part: %s, Sign: %c%n", numericPart, signChar);
-        
-        // Convert to long
-        long value = Long.parseLong(numericPart);
-        
-        // Apply sign (C = positive, D = negative in EBCDIC)
-        if (signChar == 'D' || signChar == 'B') {
-            value = -value;
-        }
-        
-        // Convert to decimal with 2 places
-        double result = value / 100.0;
-        
-        System.out.printf("Custom result: %.2f%n%n", result);
-        
-        return result;
-    }
-
     public static double getComp3(byte[] record, int offset, int digits, int decimals) {
-        // For COMP-3: length = (total_digits + 1) / 2
-        // The +1 is for the sign nibble
         int packedLen = (digits + 1) / 2;
         byte[] packed = Arrays.copyOfRange(record, offset, offset + packedLen);
         return unpackComp3(packed, digits, decimals);
     }
 
-    // Helper to read EBCDIC string (IBM mainframe encoding)
     public static String getString(byte[] record, int offset, int len) {
         try {
-            // Try IBM EBCDIC encoding first
             return new String(record, offset, len, "IBM1047").trim();
-        } catch (java.io.UnsupportedEncodingException e) {
-            // Fallback to ASCII if EBCDIC not available
+        } catch (Exception e) {
             return new String(record, offset, len, StandardCharsets.US_ASCII).trim();
         }
     }
 
-    // Helper to read EBCDIC number
     public static String getNumString(byte[] record, int offset, int len) {
-        try {
-            // Try IBM EBCDIC encoding first
-            return new String(record, offset, len, "IBM1047").trim();
-        } catch (java.io.UnsupportedEncodingException e) {
-            // Fallback to ASCII if EBCDIC not available
-            return new String(record, offset, len, StandardCharsets.US_ASCII).trim();
-        }
+        return getString(record, offset, len);
     }
 
-    // Traditional COMP-3 unpacker (for compatibility)
     public static double unpackComp3(byte[] packed, int digits, int decimals) {
-        if (packed == null || packed.length == 0) {
-            return 0.0;
-        }
+        if (packed == null || packed.length == 0) return 0.0;
 
         long value = 0;
         int sign = 1;
 
-        // Process each byte
         for (int i = 0; i < packed.length; i++) {
-            byte b = packed[i];
-            
+            int b = packed[i] & 0xFF;
+
             if (i == packed.length - 1) {
-                // Last byte: left nibble is digit, right nibble is sign
-                int leftNibble = (b & 0xF0) >> 4;
-                int rightNibble = b & 0x0F;
-                
-                value = value * 10 + leftNibble;
-                
-                // Sign: C or F = positive, D = negative
-                if (rightNibble == 0xD || rightNibble == 0xB) {
+                int digit = (b >> 4) & 0x0F;
+                int signNibble = b & 0x0F;
+                value = value * 10 + digit;
+
+                if (signNibble == 0xD || signNibble == 0xB) {
                     sign = -1;
                 }
             } else {
-                // Not last byte: both nibbles are digits
-                int leftNibble = (b & 0xF0) >> 4;
-                int rightNibble = b & 0x0F;
-                
-                value = value * 10 + leftNibble;
-                value = value * 10 + rightNibble;
+                int high = (b >> 4) & 0x0F;
+                int low = b & 0x0F;
+                value = value * 10 + high;
+                value = value * 10 + low;
             }
         }
 
-        // Apply sign and decimal places
-        double result = sign * value;
-        for (int i = 0; i < decimals; i++) {
-            result /= 10.0;
-        }
-
-        return result;
+        return sign * value / Math.pow(10, decimals);
     }
 
     public static void main(String[] args) {
-        // Test with a sample file path - adjust this to your actual file
         String filename = "C:\\Users\\namaddireddy\\Downloads\\Nevada\\Modernaization\\Interfaces\\Testing\\AIF51A1.txt";
-        
-        // If file doesn't exist, create some test data
-        java.io.File testFile = new java.io.File(filename);
-        if (!testFile.exists()) {
-            System.out.println("File not found: " + filename);
-            System.out.println("Testing with sample COMP-3 data...");
-            
-            // Test COMP-3 unpacking with known values
-            // 16000.00 in COMP-3 format should be: 01 60 00 0C (for PIC S9(7)V99)
-            byte[] test1 = {0x01, 0x60, 0x00, 0x0C, 0x00}; // This might not be exactly right
-            double result1 = unpackComp3(test1, 9, 2);
-            System.out.printf("Test 1 result: %.2f (expected: 16000.00)%n%n", result1);
-            
-            // 50000.00 in COMP-3 format  
-            byte[] test2 = {0x05, 0x00, 0x00, 0x0C, 0x00}; // This might not be exactly right
-            double result2 = unpackComp3(test2, 9, 2);
-            System.out.printf("Test 2 result: %.2f (expected: 50000.00)%n%n", result2);
-            
+        java.io.File file = new java.io.File(filename);
+
+        if (!file.exists()) {
+            System.err.println("File not found: " + filename);
             return;
         }
-        try (FileInputStream fis = new FileInputStream(filename)) {
+
+        try (FileInputStream fis = new FileInputStream(file)) {
             byte[] record = new byte[1000];
             int bytesRead = fis.read(record);
             if (bytesRead != 1000) {
-                System.out.println("Could not read full record.");
+                System.err.println("Could not read full 1000-byte record.");
                 return;
             }
 
@@ -190,7 +107,6 @@ public class SRAIF51Reader {
             String INCM_USED_AS_FPL = getString(record, off, 3); off += 3;
             String PREM_SUBSIDY_PCT = getNumString(record, off, 3); off += 3;
 
-            // DENIAL-DETAILS (array of 4)
             String[] DENIAL_RSN_CD = new String[4];
             String[] DENIAL_RSN_DESC = new String[4];
             for (int i = 0; i < 4; i++) {
@@ -201,72 +117,39 @@ public class SRAIF51Reader {
             String APPL_DATE = getNumString(record, off, 8); off += 8;
             String CHECK_YES = getString(record, off, 1); off += 1;
 
-            // RSRC (array of 4 decimal(8,2))
-            // Using custom decoder for the observed mainframe format
+            // RSRC array of 4 COMP-3 decimal(8,2) → each is 5 bytes
             double[] RSRC = new double[4];
             for (int i = 0; i < 4; i++) {
-                System.out.printf("=== RSRC[%d] Debug ===\n", i);
-                
-                // Read 5 bytes for this RSRC field
-                byte[] rsrcBytes = new byte[5];
-                System.arraycopy(record, off, rsrcBytes, 0, 5);
-                
-                // Use custom decimal decoder
-                RSRC[i] = unpackCustomDecimal(rsrcBytes);
-                
+                RSRC[i] = getComp3(record, off, 9, 2);  // 9 digits total, 2 after decimal
                 off += 5;
             }
 
             String HH_SIZE = getNumString(record, off, 2); off += 2;
 
-            // INCM-NOT-FRM-WORK is a char(25) field that CONTAINS the decimal fields
-            // So we don't skip the char field - the decimal fields are AT THE SAME OFFSET
-            // String INCM_NOT_FRM_WORK = getString(record, off, 25); // Don't read this
             double SSA = getComp3(record, off, 8, 2); off += 5;
             double RRB = getComp3(record, off, 8, 2); off += 5;
             double VAB = getComp3(record, off, 8, 2); off += 5;
             double POA = getComp3(record, off, 8, 2); off += 5;
             double OIN = getComp3(record, off, 8, 2); off += 5;
-            // Total: 25 bytes for the 5 decimal fields
 
-            // WAGE-INCM is a char(10) field that CONTAINS the decimal fields
-            // String WAGE_INCM = getString(record, off, 10); // Don't read this
             double BENE_WAGE = getComp3(record, off, 9, 2); off += 5;
             double SPOUSE_WAGE = getComp3(record, off, 9, 2); off += 5;
-            // Total: 10 bytes for the 2 decimal fields
 
-            // SELF-INCM is a char(10) field that CONTAINS the decimal fields
-            // String SELF_INCM = getString(record, off, 10); // Don't read this
             double BENE_SELF = getComp3(record, off, 9, 2); off += 5;
             double SPOUSE_SELF = getComp3(record, off, 9, 2); off += 5;
-            // Total: 10 bytes for the 2 decimal fields
 
-            // LOSS-INCM is a char(10) field that CONTAINS the decimal fields
-            // String LOSS_INCM = getString(record, off, 10); // Don't read this
             double BENE_LOSS = getComp3(record, off, 9, 2); off += 5;
             double SPOUSE_LOSS = getComp3(record, off, 9, 2); off += 5;
-            // Total: 10 bytes for the 2 decimal fields
 
-            // FILLER
             String FILLER = getString(record, off, 426); off += 426;
 
-            // Print all RSRC values for debugging
+            // ✅ Output for verification
             System.out.printf("COSSN: %s, BENE-FIRST-NM: %s, BENE-LAST-NM: %s%n",
                     COSSN, BENE_FIRST_NM, BENE_LAST_NM);
             System.out.printf("RSRC values: [%.2f, %.2f, %.2f, %.2f]%n",
                     RSRC[0], RSRC[1], RSRC[2], RSRC[3]);
-            System.out.printf("SSA: %.2f%n", SSA);
-
-            // Debug: Print raw bytes for first RSRC value
-            int rsrcOffset = 9 + 11 + 15 + 15 + 22 + 4 + 8 + 1 + 4 + 9 + 11 + 15 + 15 + 22 + 4 + 8 + 4 + 
-                           22 + 22 + 22 + 22 + 22 + 2 + 9 + 15 + 1 + 8 + 8 + 17 + 3 + 3 + 3 + 
-                           (4 * (3 + 30)) + 8 + 1;
-            byte[] firstRsrc = Arrays.copyOfRange(record, rsrcOffset, rsrcOffset + 5);
-            System.out.print("First RSRC raw bytes: ");
-            for (byte b : firstRsrc) {
-                System.out.printf("%02X ", b & 0xFF);
-            }
-            System.out.println();
+            System.out.printf("SSA: %.2f, RRB: %.2f, VAB: %.2f, POA: %.2f, OIN: %.2f%n",
+                    SSA, RRB, VAB, POA, OIN);
 
         } catch (IOException e) {
             e.printStackTrace();
