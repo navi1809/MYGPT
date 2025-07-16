@@ -1,19 +1,595 @@
-// Fetch rows from FAM_CASE_HSTRY
-Function AIN24P9-FAC-SCAN()
-  /* ************************************************************************/
-  /* This process is to fetch the rows from the tables TWNFAM_CASELD_CASE **/
-  /* and TWNSUP_UNT_POS_HST                                               **/
-  /* ************************************************************************/
+ /*  */
+  AIN24P9-CHKCOM();
+  /* If the person is not known to bendex no processing needs to be done*/
   /*  */
-  /* move name of sql row record to common record*/
+  if (AIN24W.WS-KNOWN-TO-BENDEX == "N")
   /*  */
-  VDBCOMMON.USQLREC = "H2-2-FAC-SPT";
-  VDBCONTROL.UPROC-OBJ = "H2-2-FAC-SPT";
-  VDBCONTROL.UPROC-NM = "AIN24P9-FAC-SCAN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
+  /* Increment the counter for number of records skipped*/
+  /*  */
+    SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP = SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP + 1;
+  /*  */
+  /* Move the upi value to the working storage variable*/
+  /*  */
+    AIN24W.WS-PREV-UPI = SR-QAIN24-INP-REC.B-UPI;
+  /*  */
+  /* exit from the process*/
+  /*  */
+    return;
+  end /* end check for the person known to*/
+                                   /* bendex*/
+  /* Increment the counter for number of records processed*/
+  /*  */
+  SR-QAIN24-CNTL-REC.AININT-CNT-REC-PRO = SR-QAIN24-CNTL-REC.AININT-CNT-REC-PRO + 1;
+  /*  */
+  /* ****************** WI 25803:WNMLS:2005-09-01 START *******************/
+  AIN24P9-CHKCOM-2(); /* WI 28272*/
+  if (AIN24W2.WS-PROCESS-COST-INFC-FG == "Y") /* WI 28272*/
+
+    set AIN24W-COST-ARRAY empty;
+    AIN24W-COST-ARRAY.CWS-ARRAY-IDX = 1;
+
+    set AIN24W-ICI-ARRAY empty;
+    AIN24W-ICI-ARRAY.IWS-ARRAY-IDX = 1;
+
+    set H2-2-CMH-FCH empty;
+    H2-2-CMH-FCH.UPI = SR-QAIN24-INP-REC.B-UPI;
+
+    AIN24W.WS-DUM-MM = BDATEREC.BDATE-PROCESS-DATE-MM;
+    AIN24W.WS-DUM-CC = BDATEREC.BDATE-PROCESS-DATE-CC;
+    AIN24W.WS-DUM-YY = BDATEREC.BDATE-PROCESS-DATE-YY;
+
+    AIN24P9-DATE-PROC();
+    H2-2-CMH-FCH.PRD-END-DT = AIN24W.WS-LAST-DATE;
+    AIN24W2.WS-CMH-FCH-PRD-END-DT = AIN24W.WS-LAST-DATE;
+
+    AIN24Q1-S-CMH-FCH();
+
+    if (sysVar.sqlData.sqlcode == 0)
+      AIN24Q1-SCN-CMHFCH();
+      while (sysVar.sqlData.sqlcode == 0
+       && AIN24W-ICI-ARRAY.IWS-COUNTER < 50) /* WI 28272*/
+
+        AIN24W-ICI-ARRAY.IWS-ICI[IWS-ARRAY-IDX] = H2-2-CMH-FCH.ICI;
+
+        AIN24W-ICI-ARRAY.IWS-ARRAY-IDX = AIN24W-ICI-ARRAY.IWS-ARRAY-IDX + 1;
+        AIN24W-ICI-ARRAY.IWS-ARRAY-SIZE = AIN24W-ICI-ARRAY.IWS-ARRAY-SIZE + 1;
+        AIN24W-ICI-ARRAY.IWS-COUNTER = AIN24W-ICI-ARRAY.IWS-COUNTER + 1;
+
+        AIN24P9-COST-BFORE();
+
+        AIN24Q1-SCN-CMHFCH(); /* Get all ICI's for the UPI*/
+      end /* WHILE EZE = 0*/
+    end /* IF EZE = 0*/
+  end /* IF PROCESS-COST-INFC = Y*/
+  /* ****************** WI 25803:WNMLS:2005-09-01 END *********************/
+
+  if (SR-QAIN24-INP-REC.B-UPI != AIN24W.WS-PREV-UPI)
+  /*  */
+  /* New person is read*/
+  /* If the record read is not the first record*/
+  /*  */
+  /* ** start wi 21582 ***/
+  /* IF AIN24W.WS-FIRST-TIME = 'N';*/
+  /*  */
+  /* When the person changes,generate alert,trigger eligibility*/
+  /* for the previous person*/
+  /*  */
+  /* END;*/
+  /* MOVE 'N' TO AIN24W.WS-FIRST-TIME;*/
+  /* ** end wi 21582 ***/
+  /*  */
+  /* Perform the process to reset the values in the working storage record*/
+  /*  */
+    AIN24P9-MOVINI();
+  /* PTR 5508 IF NEW SSN SAVE IN WS-NEW-SSN --- 11/11/96 --- BEGIN*/
+    if (H2-2-CMH-PER.SSN != SR-QAIN24-INP-REC.B-VALID-BOSSN)
+      AIN24W.WS-NEW-SSN = SR-QAIN24-INP-REC.B-VALID-BOSSN;
+    end
+  /* Based on the dual entitlement indicator determine the number of*/
+  /* claims for the person reported by the bendex interface*/
+    if (SR-QAIN24-INP-REC.B-DUAL-ENTITLE-IND == "D")
+      AIN24W.WS-INFC-MAX = 2;
+    else
+      if (SR-QAIN24-INP-REC.B-DUAL-ENTITLE-IND == "T")
+        AIN24W.WS-INFC-MAX = 3;
+      else
+        AIN24W.WS-INFC-MAX = 1;
+      end
+    end
+  /*  */
+  /* Check if there is any discrepancy in name,sex,doc or payment status*/
+  /*  */
+  /* Perform Demo-Check*/
+  /*  */
+    AIN24P9-DEMOCHK();
+  /*  */
+  /* Read the table TWNUERND_INCM_DTL to get the number of unin records*/
+  /* available for the person*/
+  /*  */
+    set H2-UERND-INCM-DTL empty;
+    AIN24W.WS-UNIN-UPDATED = "N";
+  /*  */
+  /* Set the retreive key values*/
+  /*  */
+    H2-UERND-INCM-DTL.UPI = SR-QAIN24-INP-REC.B-UPI;
+    H2-UERND-INCM-DTL.UERND-INC-TYPE-CD = "40";
+    WS-CHECK-AMT = SR-QAIN24-INP-REC.B-NET-MONTHLY-BENEFIT;
+  /* ** START WI 21582 ***/
+    AIN24W.WS-NON-RECUR-LSUM = "N";
+  /* ** END WI 21582 ***/
+    if (SR-QAIN24-INP-REC.B-MONTHLY-BENEFIT > WS-CHECK-AMT)
+  /*  */
+      AIN24P9-BILD-LSUM();
+    end
+  /*  */
+  /* Perform the Process to fetch the first date of*/
+  /*  */
+    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-REC-PROCESS-MDY;
+    AIN24P9-DATE-PROC();
+  /*  */
+  /* Move the value fetched to the sql row record*/
+  /*  */
+    H2-UERND-INCM-DTL.PRD-BEG-DT = AIN24W.WS-FIRST-DATE;
+  /*  */
+    AIN24W.WS-N-UPD-IND = "N";
+  /*  */
+  /* End key setting process*/
+  /*  */
+  /* Perform the Process to declare the cursor on TWNUERND_INCM_DTL*/
+  /*  */
+    AIN24P9-UID-SETINQ();
+
+  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
+  /* SET AIN24W-UNIN-NEW EMPTY;*/
+  /* SET AIN24W-UNIN-OLD EMPTY;*/
+  /*  */
+  /* IF EZESQCOD = 0;*/
+  /* PERFORM AIN24P9-UNIN-OLD;*/
+  /* END;*/
+  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
+
+    AIN24W.WS-INDEX = 1;
+  /*  */
+  /* For each record selected*/
+    while (sysVar.sqlData.sqlcode == 0 && AIN24W.WS-INDEX < 4)
+  /*  */
+      if (H2-UERND-INCM-DTL.PRD-END-DT < "9999-12-31")
+        AIN24W.WS-N-UPD-IND = "Y";
+      end
+  /* Accumulate the value for uernd-incm-amt for the person in*/
+  /* ws-cumm-amt*/
+      AIN24W.WS-AMT = H2-UERND-INCM-DTL.UERND-INC-AMT -       H2-UERND-INCM-DTL.INVO-MND-DEDN-AMT;
+      if (H2-UERND-INCM-DTL.PRD-END-DT == "9999-12-31")
+        AIN24W.WS-CUMM-AMT = AIN24W.WS-CUMM-AMT + AIN24W.WS-AMT;
+      end
+  /*  */
+  /* Increment the counter for number of unin records retreived*/
+  /*  */
+      AIN24W.WS-UNIN-MAX = AIN24W.WS-UNIN-MAX + 1;
+  /*  */
+  /* Move the values fetched from TWNUERND_INCM_DTL to the working*/
+  /* storage array*/
+  /*  */
+      AIN24W.WS-ARRAY-UPI[WS-INDEX] = H2-UERND-INCM-DTL.UPI;
+      AIN24W.WS-FIRST-DATE = H2-UERND-INCM-DTL.PRD-BEG-DT;
+      AIN24W.WS-BEG-CC = AIN24W.WS-FIRST-CC;
+      AIN24W.WS-BEG-YY = AIN24W.WS-FIRST-YY;
+      AIN24W.WS-BEG-MM = AIN24W.WS-FIRST-MM;
+      AIN24W.WS-BEG-DD = AIN24W.WS-FIRST-DD;
+      AIN24W.WS-ARRAY-PBD[WS-INDEX] = AIN24W.WS-FIRST-DATE;
+      AIN24W.WS-ARRAY-SQ-NMB[WS-INDEX] = H2-UERND-INCM-DTL.INCM-SQ-NMB;
+      AIN24W.WS-ARRAY-CLM-NUM[WS-INDEX] = H2-UERND-INCM-DTL.RSDI-CLM-NUM;
+      AIN24W.WS-ARRAY-PED[WS-INDEX] = H2-UERND-INCM-DTL.PRD-END-DT;
+      AIN24W.WS-ARRAY-INC[WS-INDEX] = H2-UERND-INCM-DTL.UERND-INC-AMT;
+      AIN24W.WS-ARRAY-FS-CNTBL[WS-INDEX] = H2-UERND-INCM-DTL.FS-CNTBL-IND;
+      AIN24W.WS-ARRAY-MA-CNTBL[WS-INDEX] = H2-UERND-INCM-DTL.MA-CNTBL-CD;
+      AIN24W.WS-ARRAY-AFDC-CNTBL[WS-INDEX] = H2-UERND-INCM-DTL.AFDC-CNTBL-IND;
+  /* ** wi 21582 ***/
+      AIN24W.WS-ARRAY-PBLIC-RSDI-STRT-DT[WS-INDEX] = H2-UERND-INCM-DTL.PBLIC-RSDI-STRT-DT;
+      AIN24W.WS-ARRAY-FS-CNTBL-AMT[WS-INDEX] = H2-UERND-INCM-DTL.FS-CNTBL-AMT;
+      AIN24W.WS-ARRAY-SSI-RSDI-RCVD-YR[WS-INDEX] = H2-UERND-INCM-DTL.SSI-RSDI-RCVD-YR;
+      AIN24W.WS-ARRAY-SSI-RSDI-RCVD-MTH[WS-INDEX] = H2-UERND-INCM-DTL.SSI-RSDI-RCVD-MTH;
+      AIN24W.WS-ARRAY-MA-EXCLD-AMT[WS-INDEX] = H2-UERND-INCM-DTL.MA-EXCLD-AMT;
+      AIN24W.WS-ARRAY-PB-LAW-RSDI-CI-AMT[WS-INDEX] = H2-UERND-INCM-DTL.PB-LAW-RSDI-CI-AMT;
+  /* ** wi 21582 ***/
+  /* ****************** WI 28252:WNMLS:2006-01-19 START *******************/
+      AIN24W.WS-ARRAY-UERND-INC-RCVD-DT[WS-INDEX] = H2-UERND-INCM-DTL.UERND-INC-RCVD-DT;
+      AIN24W.WS-ARRAY-PREV-AMT[WS-INDEX] = H2-UERND-INCM-DTL.PREV-AMT;
+      AIN24W.WS-ARRAY-FREQ[WS-INDEX] = H2-UERND-INCM-DTL.UERND-INC-FREQ;
+  /* ****************** WI 28252:WNMLS:2006-01-19 END *********************/
+  /*  */
+  /* Increment the index value*/
+  /*  */
+      AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
+  /*  */
+  /* Get the next record from the table TWNUERND_INCM_DTL*/
+  /*  */
+      AIN24P9-UID-SCAN();
+    end /* End while loop*/
+  /*  */
+  /* Check for fatal errors*/
+  /*  */
+    if (VDBCONTROL.URC >= 104)
+      WCM00P2-TO-CEP01A();
+    end
+  /*  */
+    AIN24W.WS-UPDATE-CNT = H2-UERND-INCM-DTL.INCM-SQ-NMB;
+  end /* IF B-UPI NE PREV-UPI*/
+  /*  */
+  /* Set the flag for alert indicator*/
+  /*  */
+  AIN24W.WS-ALERT-IND = "Y";
+  if (AIN24W.WS-UNIN-MAX == 0)
+    AIN24W.WS-INSERT-PREV-AMT = 000;
+  /* No unin screen is present for that person.Need to insert record*/
+  /* for each claim number to the TWNUERND_INCM_DTL table and*/
+  /* Trigger eligibility*/
+  /*  */
+  /* Increment the insert counter value*/
+  /*  */
+    AIN24W.WS-INSERT-CNT = AIN24W.WS-INSERT-CNT + 1;
+  /*  */
+  /* Set the flags for alerts and to trigger eligiblity*/
+  /*  */
+    AIN24W.WS-ELIG-IND = "Y";
+  /* WI 20??? only insert if in current pay status   09/07/00*/
+  /* Perform the process to insert a record into TWNUERND_INCM_DTL*/
+    if (SR-QAIN24-INP-REC.B-NET-MONTHLY-BENEFIT > 0.00
+     && SR-QAIN24-INP-REC.B-LAF-CODE == "CP")
+      AIN24P9-INSUNIN();
+    end
+
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
+    end
+
+  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
+  /* IF EZESQCOD = 0;*/
+  /* PERFORM AIN24P9-UNIN-NEW;*/
+  /* PERFORM AIN24P9-UNIN-SLOG;*/
+  /* PERFORM AIN24P9-INSUID-FSL;*/
+  /* END;*/
+  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
+
+  else
+  /*  */
+  /* Unin screen present for that person*/
+  /*  */
+  /* ** start wi 21582 ***/
+  /* IF AIN24W.WS-UNIN-MAX NE AIN24W.WS-INFC-MAX;*/
+  /*  */
+  /* Number of unin records do not match with the NBR OF CLAIMS*/
+  /* FROM BENDEX*/
+  /*  */
+  /* MOVE 'NCM' TO AIN24W.WS-ACTION;*/
+  /*  */
+  /* Set the flag to indicate error in claim number*/
+  /*  */
+  /* MOVE 'Y' TO AIN24W.WS-ERR-CLM-NBR;*/
+  /* ELSE;*/
+  /* ** end wi 21582 ***/
+  /*  */
+  /* Number of unin records matched with the number of claims from*/
+  /* bendex. Check if the claim number matches against all the key values*/
+  /* stored in WS-ARRAY*/
+  /*  */
+  /* Initialise the working storage flags*/
+  /*  */
+    AIN24W.WS-INDEX = 0;
+    AIN24W.WS-MATCH-COUNTER = 0;
+    AIN24W.WS-SET-FLAG = "N";
+  /*  */
+  /* For all the records reported from the interface*/
+  /*  */
+  /* ** start wi 21582 ***/
+
+    if (SR-QAIN24-INP-REC.B-CLAIM-NBR
+     in AIN24W.WS-ARRAY-CLM-NUM)
+      AIN24W.WS-INDEX = sysVar.arrayIndex;
+    end
+
+  /* WHILE AIN24W.WS-INDEX <= AIN24W.WS-INFC-MAX;*/
+  /*  */
+  /* If claim nbrs matched*/
+  /*  */
+  /* IF SR-QAIN24-INP-REC.B-CLAIM-NBR =*/
+  /* AIN24W.WS-ARRAY-CLM-NUM(WS-INDEX);*/
+  /*  */
+  /* update the unin record for the claim*/
+    if (AIN24W.WS-INDEX > 0)
+  /*  */
+  /* ****************** WI 28252:WNMLS:2006-01-19 START *******************/
+      if (H2-UERND-INCM-DTL.RSDI-CLM-NUM == 
+      SR-QAIN24-INP-REC.B-CLAIM-NBR)
+        AIN24P9-UNIN-OLD-A();
+      end
+  /* ****************** WI 28252:WNMLS:2006-01-19 END *********************/
+
+      AIN24W.WS-ARRAY-INC-N = AIN24W.WS-ARRAY-INC[WS-INDEX];
+      AIN24W.WS-LAF-CODE = SR-QAIN24-INP-REC.B-LAF-CODE;
+
+
+  /* IF AIN24W.WS-ARRAY-INC(WS-INDEX) ^=*/
+      if (AIN24W.WS-ARRAY-INC-N != 
+       /* ** end wi 21582 ***/
+      SR-QAIN24-INP-REC.B-NET-MONTHLY-BENEFIT || 
+      AIN24W.WS-LAF-CODE-1 == "T")
+  /*  */
+  /* If the benefit in TWNUERN-INCM-DTL does not match with the file,*/
+  /* update the UNIN record for the claim and set the flag to trigger*/
+  /* eligibility.*/
+  /*  */
+        AIN24W.WS-CLM-IDX = AIN24W.WS-INDEX;
+        AIN24W.WS-ACTION = "TRE";
+        AIN24P9-UPUNIN();
+        AIN24W.WS-ELIG-IND = "Y";
+
+        if (VDBCONTROL.URC > 104)
+          WCM00P2-TO-CEP01A();
+        end
+
+  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
+  /* IF EZESQCOD = 0;*/
+  /* PERFORM AIN24P9-UNIN-NEW;*/
+  /* PERFORM AIN24P9-UNIN-SLOG;*/
+  /* PERFORM AIN24P9-INSUID-FSL;*/
+  /* END;*/
+  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
+
+      end
+  /* ** START WI 21582 ****/
+    else
+      AIN24W.WS-CLM-IDX = AIN24W.WS-INDEX;
+      AIN24W.WS-ACTION = "TRE";
+
+      AIN24P9-UNIN-INS();
+      AIN24W.WS-ELIG-IND = "Y";
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
+      end
+
+  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
+  /* IF EZESQCOD = 0;*/
+  /* PERFORM AIN24P9-UNIN-NEW;*/
+  /* PERFORM AIN24P9-UNIN-SLOG;*/
+  /* PERFORM AIN24P9-INSUID-FSL;*/
+  /* END;*/
+  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
+
+    end /* ***   if claim numbers matched*/
+  /* AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;*/
+  /* END;                         /**** end if matches if matched*/
+  /* END;                           /**** end if ws-unin-max ne ws-infc-max*/
+  /* ** end WI 21582 ****/
+  end /* *** end if matches IF WS-UNIN-MAX = 0*/
+  /*  */
+  /* Accumulate the amount for the same person*/
+  AIN24W.WS-TAPE-AMT = AIN24W.WS-TAPE-AMT +   SR-QAIN24-INP-REC.B-MONTHLY-BENEFIT;
+  /* Perform the process to check the medicare records*/
+  /*  */
+  /* ** START WI 21582 ****/
+  AIN24W.WS-MEDICARE-UPDATE = "N";
+  /* ** END WI 21582 ****/
+
+  AIN24P9-MEDI();
+
+  /* If disable-onset-date is given perform the process to check*/
+  /* the disa records*/
+  /* ** START WI 21582 ***/
+  AIN24W.WS-DISA-UPDATED = "N";
+  /* ** END WI 21582 ***/
+
+  if (SR-QAIN24-INP-REC.B-DISABLE-ONSET-DATE not blanks
+   && SR-QAIN24-INP-REC.B-DISABLE-ONSET-DATE != "000000")
+  /*  */
+    AIN24P9-CHKDSA();
+  /*  */
+  end
+  /* Create a record in TWNBNDX_SSI_BNFDTL TABLE for each*/
+  /* claim number. This can be viewed in IBDX screen by the user*/
+  /*  */
+  /* ** START WI 21582 ****/
+  AIN24W.WS-BNDX-SSI-BNFDTL = "N";
+  /* ** END WI 21582 ****/
+
+  AIN24P9-BBNDX();
+  /*  */
+  /* Store the current person's upi,alert-ind,name to be used for*/
+  /* comparison when the next record is read*/
+  /*  */
+  AIN24W.WS-PREV-UPI = SR-QAIN24-INP-REC.B-UPI;
+  AIN24W.WS-PREV-E-MM = SR-QAIN24-INP-REC.B-REC-PROCESS-MO;
+  AIN24W.WS-PREV-E-YY = SR-QAIN24-INP-REC.B-REC-PROCESS-YR;
+  AIN24W.WS-LAST-NAME = SR-QAIN24-INP-REC.B-L-NAME;
+  AIN24W.WS-FIRST-NAME = SR-QAIN24-INP-REC.B-F-NAME;
+  AIN24W.WS-MIDDLE-NAME = SR-QAIN24-INP-REC.B-M-NAME;
+  /*  */
+  AIN24W.WS-REC-CNT = AIN24W.WS-REC-CNT + 1;
+  /* ** start wi 21582 ***/
+  AIN24P9-ALERT-ELIG();
+  /* ** end wi 21582 ***/
+
+  /* ****************** WI 25803:WNMLS:2005-09-01 START *******************/
+  /* Check for existence of BG-TRAN (PE) for each ICI in case for UPI.*/
+  /* Loop thru array to update BG-TRAN info.*/
+  /* Pop array where ICI = ICI.*/
+  /* INSERT array data into INFC table.*/
+  /* **********************************************************************/
+  AIN24P9-CHKCOM-2(); /* WI 28272*/
+  if (AIN24W2.WS-PROCESS-COST-INFC-FG == "Y") /* WI 28272*/
+
+    AIN24W-ICI-ARRAY.IWS-ARRAY-IDX = 1;
+
+    while ((AIN24W-ICI-ARRAY.IWS-ARRAY-IDX <= 
+    AIN24W-ICI-ARRAY.IWS-ARRAY-SIZE))
+
+      AIN24W2.INFC-BG-TRAN-STS = " ";
+      AIN24W2.INFC-BG-TRAN-PRD-FM-DT = " ";
+      AIN24W2.INFC-BG-TRAN-PRD-TO-DT = " ";
+
+      set H2-BG-TRN empty;
+      H2-BG-TRN.ICI = AIN24W-ICI-ARRAY.IWS-ICI[IWS-ARRAY-IDX];
+
+      AIN24Q1-S-BG-EXIST();
+      if (sysVar.sqlData.sqlcode == 0)
+        AIN24Q1-SCAN-BG-TR();
+
+        if (sysVar.sqlData.sqlcode == 0)
+          AIN24W2.INFC-BG-TRAN-STS = H2-BG-TRN.TRAN-STS-CD;
+          AIN24W2.INFC-BG-TRAN-PRD-FM-DT = H2-BG-TRN.TRAN-PRD-FM-DT;
+          AIN24W2.INFC-BG-TRAN-PRD-TO-DT = H2-BG-TRN.TRAN-PRD-TO-DT;
+        else
+          AIN24W2.INFC-BG-TRAN-STS = " ";
+          AIN24W2.INFC-BG-TRAN-PRD-FM-DT = "0001-01-01";
+          AIN24W2.INFC-BG-TRAN-PRD-TO-DT = "9999-12-31";
+        end /* IF BG SCAN EZE = 0*/
+
+        AIN24P9-POP-ARY-BG();
+
+      end /* IF BG EZE = 0*/
+
+      AIN24W-ICI-ARRAY.IWS-ARRAY-IDX = AIN24W-ICI-ARRAY.IWS-ARRAY-IDX + 1;
+    end /* WHILE IWS-ARRAY-IDX*/
+
+    AIN24P9-POPXCD-AF2(); /* LOOPS THRU COST ARRAY & INSERTS*/
+
+  end /* IF PROCESS-COST-INFC = Y*/
+  /* ****************** WI 25803:WNMLS:2005-09-01 END *********************/
+
+
+  /* ****************** WI 23413:WNMLS:2003-05-01 START *******************/
+  if (AIN24W.WS-PERF-AIF25-FG == "Y")
+    AIN24P9-TRIG-MMIS();
+  end
+  AIN24W.WS-PERF-AIF25-FG = "N";
+  /* ****************** WI 23413:WNMLS:2003-05-01 END *********************/
+end // end AIN24P9-PROCESS
+
+
+// READ-PARA
+Function AIN24P9-READ()
+  /* cbsi start*/
+  /*  */
+  /* Perform the process to read the ssa-tran-file*/
+  /*  */
+  AIN24P9-SSA-SCAN();
+  /*  */
+  /* cbsi end*/
+end // end AIN24P9-READ
+
+
+// READ-PARA-PRE-PROCESS
+Function AIN24P9-READ-PRE()
+  /* GET AIN24P9-READ*/
+  /*  */
+  /* Perform the process to read the ssa-tran-file*/
+  /*  */
+  AIN24P9-SSSA-SCAN();
+  if (sysVar.errorCode == "00000000")
+    SR-QAIN24-CNTL-REC.AININT-CNT-NO-RECS = SR-QAIN24-CNTL-REC.AININT-CNT-NO-RECS + 1;
+  else
+    if (SR-QAIN24-CNTL-REC.AININT-CNT-NO-RECS == 0000)
+      VMESSAGE.UMSGCODE = "GEN0274";
+      VDBCONTROL.UPROC-NM = "AIN24P9-SSSA-SCAN";
+      VDBCONTROL.UPROC-OBJ = "SR-QAIN24-SINP-REC";
+      VMESSAGE.UMSGCODE-JCL-ERR = 08;
+      VDBCONTROL.UPROC-OPT = "SCAN";
+      VMESSAGE.UMSGINS[2] = "AIN24A";
+
+      VMESSAGE.WS-ERR-CD = sysVar.errorCode;
+      VMESSAGE.UMSGINS[1] = VMESSAGE.WS-ERR-LAST-FOUR;
+      WCM00P2-TO-CEP01A();
+    end
+  end
+  /*  */
+  /* ISSC end*/
+end // end AIN24P9-READ-PRE
+
+
+// AIN24A S14
+Function AIN24P9-READ-S11()
+  VDBCOMMON.USQLREC = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-OBJ = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-NM = "AIN24P9-READ-S11";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
+  try
+    get H2-UERND-INCM-DTL singleRow
+      with #sql{
+        select MAX(INCM_SQ_NMB)
+        from TWNUERND_INCM_DTL T1
+        WHERE
+            PRD_BEG_DT = :PRD-BEG-DT
+        AND UPI = :UPI
+         --** INSERT ORDER BY CLAUSE HERE **
+      }
+      into INCM-SQ-NMB ;
+  end
+end // end AIN24P9-READ-S11
+
+
+// BUIld TWNRRESP_PRSN_DBTR
+Function AIN24P9-RPD-INQ()
+  /*  */
+  /* Perform standard database application initialisation*/
+  /*  */
+  WDB00PI();
+  /*  */
+  /* Initialise uacctyp and uapplnam*/
+  /*  */
+  VDBCONTROL.UACCTYP = "R";
+  VDBCOMMON.UAPPLNAM = "AIN24A";
+  /*  */
+  /* Set the sql row record for TWNRESP_PRSN_DBTR empty*/
+  /*  */
+  /* SET H2-RESP-PRSN-DBTR EMPTY;*/
+  /*  */
+  /* perform process to retrieve data from TWNRESP_PRSN_DBTR*/
+  /*  */
+  AIN24P9-RPD-P1();
+  /*  */
+  /* set error control flags*/
+  /*  */
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  /*  */
+  /* perform dbm erros processing*/
+  /*  */
+  WDB00PE-SQLERR();
+  /*  */
+end // end AIN24P9-RPD-INQ
+
+
+// Control read on RESP_PRSN_DBTR
+Function AIN24P9-RPD-P1()
+  /* * perform process to retrieve data*/
+  /*  */
+  AIN24P9-RPD-Q1();
+  /*  */
+end // end AIN24P9-RPD-P1
+
+
+// Read TWNRESP_PRSN_DBTR
+Function AIN24P9-RPD-Q1()
+  /* ********************************************************************/
+  /* This process is to fetch data from the table TWNRESP_PRSN_DBTR   **/
+  /* ********************************************************************/
+  /*  */
+  /* Move name of sql row record to common record*/
+  /*  */
+  VDBCOMMON.USQLREC = "H2-RESP-PRSN-DBTR";
+  VDBCONTROL.UPROC-OBJ = "H2-RESP-PRSN-DBTR";
+  VDBCONTROL.UPROC-NM = "AIN24P9-RPD-Q1";
+  VDBCONTROL.UPROC-OPT = "INQUIRY";
   /*  */
   try
-    get next H2-2-FAC-SPT ;
+    get H2-RESP-PRSN-DBTR
+      with #sql{
+        select DSGNT_DBTR_IND
+        from TWNRESP_PRSN_DBTR T1
+        WHERE
+            DBTR_SSN = :DBTR-SSN
+      }
+      into DSGNT-DBTR-IND ;
   end
   /* increment count of rows retrieved*/
   /*  */
@@ -21,236 +597,582 @@ Function AIN24P9-FAC-SCAN()
     VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
   end
   /*  */
-end // end AIN24P9-FAC-SCAN
+end // end AIN24P9-RPD-Q1
 
 
-// Build TWNFAM_CASELD_CASE
-Function AIN24P9-FAC-SETINQ()
-  /* ***********************************************************************/
-  /* This process controls the retreival from TWNFAM_CASELD_CASE         **/
-  /* and TWNSUP_UNT_POS_HST                                              **/
-  /* ***********************************************************************/
+Function AIN24P9-SCAN-CPER()
   /*  */
-  /* Perform standard database application initialisation*/
+  VDBCOMMON.USQLREC = "H2-2-CMH-PER";
+  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-PER";
+  VDBCONTROL.UPROC-NM = "AIN24P9-SCAN-CPER";
+  VDBCONTROL.UPROC-OPT = "SCAN";
   /*  */
-  WDB00PI();
-  /*  */
-  /* Initialise uacctyp and uapplnam*/
-  /*  */
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  /*  */
-  /* perform process to retrieve data*/
-  /*  */
-  AIN24P9-FAC-P1();
-  /*  */
-  /* set error control flags*/
-  /*  */
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* perform dbm erros processing*/
-  /*  */
+  try
+    get next H2-2-CMH-PER ;
+  end
   WDB00PE-SQLERR();
-  /*  */
-end // end AIN24P9-FAC-SETINQ
+end // end AIN24P9-SCAN-CPER
 
 
-Function AIN24P9-GET-BG-DT()
+Function AIN24P9-SCAN-FCHDT()
   /*  */
-  AIN24P9-SETINQ-FCH();
+  VDBCOMMON.USQLREC = "H2-FAM-CASE-HSTRY";
+  VDBCONTROL.UPROC-OBJ = "H2-FAM-CASE-HSTRY";
+  VDBCONTROL.UPROC-NM = "AIN24P9-SCAN-FCHDT";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
   /*  */
-  AIN24P9-SCAN-FCHDT();
-  /*  */
-  if (sysVar.sqlData.sqlcode == 100)
-    H2-FAM-CASE-HSTRY.PRD-BEG-DT = "0001-01-01";
+  try
+    get next H2-FAM-CASE-HSTRY ;
   end
   /*  */
-end // end AIN24P9-GET-BG-DT
+end // end AIN24P9-SCAN-FCHDT
 
 
-// Obtain ICIs FOR UPI
-Function AIN24P9-GET-ICI()
-  /*  */
-  WDB00PI();
+// SCAN AIN24P9-GET-ICI
+Function AIN24P9-SCAN-ICI()
 
   VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  VDBCONTROL.UPROC-NM = "AIN24P9-GET-ICI";
   VDBCONTROL.UPROC-OBJ = "H2-CASE-MEMBER-HST";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCONTROL.UPROC-NM = "AIN24P9-SCAN-ICI";
+  VDBCONTROL.UPROC-OPT = "SCAN"; /* OC-NM;*/
   VDBCOMMON.USQLREC = "H2-CASE-MEMBER-HST";
   try
-    open AIN24P9-GET-ICI_RSI01
-      with #sql{
-        select T1.ICI
-        from TWNCASE_MEMBER_HST T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          T1.UPI = :UPI
-          AND T1.PRD_BEG_DT <= :PRD-BEG-DT
-          AND T1.PRD_END_DT >= :PRD-END-DT
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into ICI
-      for H2-CASE-MEMBER-HST ;
+    get next H2-CASE-MEMBER-HST ;
   end
   /*  */
   REPP9-SQL-CHKERR();
-  /*  */
-end // end AIN24P9-GET-ICI
+end // end AIN24P9-SCAN-ICI
 
 
-// GET NEXT MAX SEQUENCE NMB
-Function AIN24P9-GET-MAX-SQ()
-  /* -----------------------PTR 7967 BEGIN-----------------------*/
-  H2-UERND-INCM-DTL.UPI = SR-QAIN24-INP-REC.B-UPI;
-  /* -----------------------PTR 8557 BEGIN-----------------------*/
-  H2-UERND-INCM-DTL.PRD-END-DT = "9999-12-31";
-  /* PTR 18821 - PRD-BEG-DT IS SET IN OTHER PROCS*/
-  /* MOVE AIN24W.WS-NOMADS-PROCESS-DATE TO H2-UERND-INCM-DTL.PRD-BEG-DT;*/
-  /* -----------------------PTR 8557 END ------------------------*/
-
-  /* get the max exp-sq-nmb of unin dtl for this person and requested month*/
-
-  WDB00PI();
-  AIN24P9-READ-S11();
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
+// Fetch recd from FAM_CASELD_CAS
+Function AIN24P9-SCAN-S09()
+  VDBCOMMON.USQLREC = "H2-2-CMH-FAC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-FAC";
+  VDBCONTROL.UPROC-NM = "AIN24P9-SCAN-S09";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  try
+    get next H2-2-CMH-FAC ;
   end
-  /* WI 13385 USE 05 FOR START NOT 00 -- 07/14/98 -- KEM --*/
-  if (sysVar.sqlData.sqlcode == 100
-   || H2-UERND-INCM-DTL.INCM-SQ-NMB == null)
-    AIN24W.WS-MAX-SQ-NMB = 01;
-  else
-    AIN24W.WS-MAX-SQ-NMB = H2-UERND-INCM-DTL.INCM-SQ-NMB + 1;
-  end
-
-  /* ---------------------------PTR 7967 END-----------------------------*/
-end // end AIN24P9-GET-MAX-SQ
-
-
-// Get office code value
-Function AIN24P9-GET-OFF-CD()
-
-  /* ******** CHANGES DUE TO RELEASE I - SYSTEM TESTING  BEGIN ********/
-  /* *** KEY SETTING*/
-  set H2-2-CMH-FAC empty;
-  H2-2-CMH-FAC.UPI = SR-QAIN24-INP-REC.B-UPI;
-  /* PTR 3141 BEGIN*/
-  H2-2-CMH-FAC.PRD-BEG-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
-  /* PTR 3141 END*/
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  AIN24P9-SETINQ-S09();
   if (sysVar.sqlData.sqlcode == 0)
-    AIN24P9-SCAN-S09();
-  /* ** if an upi is associated with more than one case, then both the*/
-  /* cases*/
-  /* ** would be associated with the same office code. the fam caseld case*/
-  /* ** of any one record is the office code of the upi*/
-    if (sysVar.sqlData.sqlcode == 0)
-      H2-BNDX-SSI-BNFDTL.OFC-CD = H2-2-CMH-FAC.OFC-CD;
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+end // end AIN24P9-SCAN-S09
+
+
+// Set PRD_END_DT value
+Function AIN24P9-SET-END-DT()
+  /* ***** changes due to release I - system testing begin ******/
+  /*  */
+  /* Initialise the flags to indicate whether the parts are terminated*/
+  /*  */
+  AIN24W.WS-PART-A-TERMINATED = "N";
+  AIN24W.WS-PART-B-TERMINATED = "N";
+  /*  */
+  /* If the HOSP-TERM-DATE and HOSP-ENTITLE-DATE is given and the*/
+  /* PART_A_BEG_DT fetched from TWNMEDICARE_INFO is blanks then the*/
+  /* worker has to  be alerted*/
+  /*  */
+  if (SR-QAIN24-INP-REC.B-HOSP-TERM-DATE not blanks
+   && SR-QAIN24-INP-REC.B-HOSP-TERM-DATE != "000000")
+    if (SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE not blanks && 
+    SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE != "000000" && 
+    H2-MEDICARE-INFO.PART-A-BEG-DT is blanks)
+  /*  */
+  /* Transaction is in error*/
+  /*  */
+  /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
+  /*  */
       return;
+  /*  */
+    end
+  /*  */
+  /* Set the working storage flag to indicate that part a is terminated*/
+  /*  */
+    AIN24W.WS-PART-A-TERMINATED = "Y";
+  /*  */
+  end
+  /*  */
+  /* If the SMI-TERM-DATE and SMI-ENTITLE-DATE is given and the*/
+  /* PART_B_BEG_DT fetched from TWNMEDICARE_INFO is blanks then the*/
+  /* worker has to  be alerted*/
+  /*  */
+  if (SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE not blanks
+   && SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE != "000000")
+  /*  */
+    if (SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE not blanks && 
+    SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE != "000000" && 
+    H2-MEDICARE-INFO.PART-B-BEG-DT is blanks)
+  /*  */
+  /* Transaction is in error*/
+  /*  */
+  /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
+  /*  */
+      return;
+    end
+  /*  */
+  /* Set the working storage flag to indicate that part a is terminated*/
+  /*  */
+    AIN24W.WS-PART-B-TERMINATED = "Y";
+  end
+  /*  */
+  /* ** if both part A and B are terminated the max date of the two is moved*/
+  /* ** to prd-end-dt.*/
+  /*  */
+  if (AIN24W.WS-PART-A-TERMINATED == "Y" && 
+  AIN24W.WS-PART-B-TERMINATED == "Y")
+  /*  */
+    if (SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE not blanks
+     && SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE != "000000")
+      AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE;
+      AIN24P9-DATE-PROC();
+      AIN24W1.WS-F-DATE1 = AIN24W.WS-FIRST-DATE;
     else
-      if (sysVar.sqlData.sqlcode == 100)
-        H2-BNDX-SSI-BNFDTL.OFC-CD = " ";
+      AIN24W1.WS-F-DATE1 = "0001-01-01";
+    end
+  /*  */
+    if (SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE not blanks
+     && SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE != "000000")
+      AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE;
+      AIN24P9-DATE-PROC();
+      AIN24W1.WS-F-DATE2 = AIN24W.WS-FIRST-DATE;
+    else
+      AIN24W1.WS-F-DATE2 = "0001-01-01";
+    end
+    if (AIN24W1.WS-F-DATE1 > AIN24W1.WS-F-DATE2)
+  /*  */
+      if (SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE not blanks
+       && SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE != "000000")
+        AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE;
+        AIN24P9-DATE-PROC();
+        H2-MEDICARE-INFO.PRD-END-DT = AIN24W.WS-LAST-DATE;
+      else
+        H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
+      end
+    else
+  /*  */
+      if (SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE not blanks
+       && SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE != "000000")
+        AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE;
+        AIN24P9-DATE-PROC();
+        H2-MEDICARE-INFO.PRD-END-DT = AIN24W.WS-LAST-DATE;
+      else
+        H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
       end
     end
+    return;
   end
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
+  if (AIN24W.WS-PART-B-TERMINATED == "Y")
+    if (H2-MEDICARE-INFO.PART-A-BEG-DT not blanks)
+      H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
+    else
+      if (SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE not blanks
+       && SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE != "000000")
+        AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE;
+        AIN24P9-DATE-PROC();
+        H2-MEDICARE-INFO.PRD-END-DT = AIN24W.WS-LAST-DATE;
+      else
+        H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
+      end
+    end
+    return;
   end
-end // end AIN24P9-GET-OFF-CD
+  if (AIN24W.WS-PART-A-TERMINATED == "Y")
+    if (H2-MEDICARE-INFO.PART-B-BEG-DT not blanks)
+      H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
+    else
+      if (SR-QAIN24-INP-REC.B-HOSP-TERM-DATE not blanks
+       && SR-QAIN24-INP-REC.B-HOSP-TERM-DATE != "000000")
+        AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-TERM-DATE;
+        AIN24P9-DATE-PROC();
+        H2-MEDICARE-INFO.PRD-END-DT = AIN24W.WS-LAST-DATE;
+      else
+        H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
+      end
+    end
+    return;
+  end
+  /* ** if the participant does not fall in any one of the above categories*/
+  /* ** move max date as prd end date*/
+  /*  */
+  H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
+end // end AIN24P9-SET-END-DT
 
 
-// GET-SMI-PAYOR-PROCESS
-Function AIN24P9-GSMIPAY()
+Function AIN24P9-SETINQ-FCH()
+  /*  */
+  VDBCOMMON.USQLREC = "H2-FAM-CASE-HSTRY";
+  VDBCONTROL.UPROC-OBJ = "H2-FAM-CASE-HSTRY";
+  VDBCONTROL.UPROC-NM = "AIN24P9-SETINQ-FCH";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  /*  */
+  try
+    open AIN24P9-SETINQ-FCH_RSI01
+      with #sql{
+        select PRD_BEG_DT
+        from TWNFAM_CASE_HSTRY T1
+        WHERE ICI = :ICI
+           AND CASE_STS IN ( 'P', 'O' )
+        ORDER BY PRD_BEG_DT
+      }      
+      into PRD-BEG-DT
+      for H2-FAM-CASE-HSTRY ;
+  end
+  /*  */
+end // end AIN24P9-SETINQ-FCH
+
+
+// Declare cursor on FAM_CASELD
+Function AIN24P9-SETINQ-S09()
+  VDBCOMMON.USQLREC = "H2-2-CMH-FAC";
+  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-FAC";
+  VDBCONTROL.UPROC-NM = "AIN24P9-SETINQ-S09";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  try
+    open AIN24P9-SETINQ-S09_RSI01
+      with #sql{
+        select T2.OFC_CD
+        from TWNCASE_MEMBER_HST T1,
+             TWNFAM_CASELD_CASE T2
+        WHERE T1.UPI = :UPI AND
+        T1.ICI = T2.ICI AND
+        T1.PRD_BEG_DT <= :PRD-BEG-DT AND
+        T1.PRD_END_DT >= :PRD-BEG-DT
+         --******  CHANGES DUE TO RELEASE I SYSTEM TEST MADE *********/
+      }      
+      into OFC-CD
+      for H2-2-CMH-FAC ;
+  end
+end // end AIN24P9-SETINQ-S09
+
+
+// SCANS THE SSA-TRAN-FILE
+Function AIN24P9-SSA-SCAN()
   /* cbsi start*/
   /*  */
-  /* If the payor code changes alert the worker*/
+  VGVar.handleHardIOErrors = 1;
+  try
+    get next SR-QAIN24-INP-REC ;
+  end
+  if (SR-QAIN24-INP-REC is ioError && 
+  SR-QAIN24-INP-REC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIN24P9-SSA-SCAN";
+    VDBCONTROL.UPROC-OBJ = "SR-QAIN24-INP-REC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    AIN24W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN24W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN24A";
+  /* the following conditions are added to move the corresponding*/
+  /* error message*/
   /*  */
-  AIN24W.WS-SMI-PREMIUM-PAYER = SR-QAIN24-INP-REC.B-SMI-PREMIUM-PAYER;
-  /*  */
-  AIN24W.WS-CHK-PREMIUM-PAYER = AIN24W.WS-SMI-PREMIUM-PAYER;
-  /*  */
-  if (AIN24W.WS-SMI-PREMIUM-PAYER == "SELF ")
-  /*  */
-    if (H2-MEDICARE-INFO.PART-B-PAYOR-CD != "Y")
-  /*  */
-  /* Set the alert indicator*/
-  /*  */
-  /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
-  /*  */
-    end
-  /*  */
-    H2-MEDICARE-INFO.PART-B-PAYOR-CD = "Y";
-  /*  */
-    return;
-  else
-    if (AIN24W.WS-CHK-PREMIUM-PAYER-1 >= "000" && 
-    AIN24W.WS-CHK-PREMIUM-PAYER-1 <= "999")
-      if (AIN24W.WS-SMI-PREMIUM-PAYER-R-3 == 290)
-  /*  */
-  /* IF H2-MEDICARE-INFO.PART-B-PAYOR-CD NE 'N';*/
-  /*  */
-  /*  */
-  /* Set the alert indicator*/
-  /*  */
-  /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
-  /*  */
-  /* END;*/
-  /*  */
-        H2-MEDICARE-INFO.PART-B-PAYOR-CD = "N";
-        return;
-  /*  */
+    if (SR-QAIN24-INP-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-QAIN24-INP-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
       else
+        if (SR-QAIN24-INP-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end
   /*  */
-        if (AIN24W.WS-SMI-PREMIUM-PAYER >= "0" && 
-        AIN24W.WS-SMI-PREMIUM-PAYER <= "99999")
-          if (AIN24W.WS-NUM-CHECK-FLG != "Y")
-            if (H2-MEDICARE-INFO.PART-B-PAYOR-CD != "O")
+end // end AIN24P9-SSA-SCAN
+
+
+// SCAN THE S-INPUT FILE
+Function AIN24P9-SSSA-SCAN()
+  try
+    get next SR-QAIN24-SINP-REC ;
+  end
+  /* GET AIN24P9-SSA-SCAN*/
+  if (SR-QAIN24-SINP-REC is ioError && 
+  SR-QAIN24-SINP-REC not endOfFile)
+    VDBCONTROL.UPROC-NM = "AIN24P9-SSSA-SCAN";
+    VDBCONTROL.UPROC-OBJ = "SR-QAIN24-SINP-REC";
+    VDBCONTROL.UPROC-OPT = "SCAN";
+    AIN24W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN24W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN24A";
+  /* the following conditions are added to move the corresponding*/
+  /* error message*/
   /*  */
-  /* Set the alert indicator*/
+    if (SR-QAIN24-SINP-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-QAIN24-SINP-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-QAIN24-SINP-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end
   /*  */
-  /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
-              PCALINP.PAL-ALERT-CD = 129026;
-              set H2-3-CMH-FCH-PER empty;
-              H2-3-CMH-FCH-PER.UPI = SR-QAIN24-INP-REC.B-UPI;
-              AIN24P9-ALERT-GEN();
-  /*  */
-            end
-  /*  */
-            H2-MEDICARE-INFO.PART-B-PAYOR-CD = "O";
-            return;
-          end
-        end
+end // end AIN24P9-SSSA-SCAN
+
+
+// POPULATE MMIS & CALL AIF25A
+Function AIN24P9-TRIG-MMIS()
+  /* ****************** WI 23413:WNMLS:2003-05-01 *************************/
+  /* POPULATE AIF25W1 WITH DATA FOR MMIS TRIGGER TABLE, TWNMMIS_TRIGGER.*/
+  /* CALL AIF25A TO POPULATE TABLE.*/
+  /* **********************************************************************/
+
+  set H2-CASE-MEMBER-HST empty;
+  H2-CASE-MEMBER-HST.UPI = SR-QAIN24-INP-REC.B-UPI;
+  H2-CASE-MEMBER-HST.PRD-BEG-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-CASE-MEMBER-HST.PRD-END-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+
+  AIN24P9-GET-ICI();
+  if (sysVar.sqlData.sqlcode == 0)
+    AIN24P9-SCAN-ICI();
+
+    while (sysVar.sqlData.sqlcode == 0)
+
+      set AIF25W1 empty;
+
+      AIF25W1.CALLING-PRGM = "AIN24A";
+      AIF25W1.ICI = H2-CASE-MEMBER-HST.ICI;
+      AIF25W1.UPI = SR-QAIN24-INP-REC.B-UPI;
+      AIF25W1.DEMO-FLAG = "Y";
+
+      call "AIF25A" (VDBCONTROL, VMESSAGE, AIF25W1);
+
+      if (VDBCONTROL.URC > 104)
+        WCM00P2-TO-CEP01A();
       end
-    end
-  /* ***** changes due to release I - system testing begin *********/
-  /* *** if the payor code does not fall into any one of the categories*/
-  /* *** move the payor code as received from the interface to the medicare*/
-  /* *** info table.*/
+
+      AIN24P9-SCAN-ICI();
+
+    end /* WHILE*/
+  end /* IF*/
+end // end AIN24P9-TRIG-MMIS
+
+
+// Control insert to uid
+Function AIN24P9-UID-INS-P1()
   /*  */
-  /* MOVE SR-QAIN24-INP-REC.B-SMI-PREMIUM-PAYER TO*/
-  /* * H2-MEDICARE-INFO.PART-B-PAYOR-CD;*/
+  /* perform process to INSERT data*/
+  /* WI 19043 DO NOT INSERT PED < PBD*/
+  if (H2-UERND-INCM-DTL.PRD-END-DT > H2-UERND-INCM-DTL.PRD-BEG-DT)
+    AIN24P9-UID-INS-Q1();
+  end
+  /*  */
+end // end AIN24P9-UID-INS-P1
+
+
+// Insert a record to UID
+Function AIN24P9-UID-INS-Q1()
+  /* ********************************************************************/
+  /* This process is to insert a record into TWNUERND_INCM_DTL        **/
+  /* ********************************************************************/
+  /* move name of sql row record to common record*/
+  VDBCOMMON.USQLREC = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-OBJ = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-NM = "AIN24P9-UID-INS-Q1";
+  VDBCONTROL.UPROC-OPT = "ADD";
+  /*  */
+  /* Common moves for all inserts*/
+  /*  */
+  H2-UERND-INCM-DTL.UPI = SR-QAIN24-INP-REC.B-UPI;
+  H2-UERND-INCM-DTL.UERND-INC-TYPE-CD = "40";
+  H2-UERND-INCM-DTL.UERND-INC-FREQ = "M";
+  /*  */
+  H2-UERND-INCM-DTL.CHNG-ENTRY-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-UERND-INCM-DTL.UNE-INC-VERF-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-UERND-INCM-DTL.UERND-INC-RCVD-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-UERND-INCM-DTL.RCVD-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-UERND-INCM-DTL.RPRTD-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-UERND-INCM-DTL.RCPT-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-UERND-INCM-DTL.PREV-AMT = AIN24W.WS-INSERT-PREV-AMT;
+  /* MOVE AIN24W.WS-HOLD-FCA TO H2-UERND-INCM-DTL.FS-CNTBL-AMT;*/
+  H2-UERND-INCM-DTL.CHNG-ENTRY-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
+  H2-UERND-INCM-DTL.UNE-INC-VERF-CD = "Y";
+  /*  */
+  if (H2-UERND-INCM-DTL.PBLIC-RSDI-STRT-DT == " ")
+    H2-UERND-INCM-DTL.PBLIC-RSDI-STRT-DT = null;
+  end
+  if (H2-UERND-INCM-DTL.SSI-RSDI-RCVD-MTH == 0)
+    H2-UERND-INCM-DTL.SSI-RSDI-RCVD-MTH = 12;
+  end
+  if (H2-UERND-INCM-DTL.SSI-RSDI-RCVD-YR == 0)
+    H2-UERND-INCM-DTL.SSI-RSDI-RCVD-YR = 9999;
+  end
+  try
+    add H2-UERND-INCM-DTL
+      with #sql{
+        insert into TWNUERND_INCM_DTL
+        (UPI, PRD_BEG_DT, UERND_INC_TYPE_CD, INCM_SQ_NMB, RSDI_CLM_NUM,
+            UERND_INC_RCVD_DT,UERND_INC_FREQ,UERND_INC_AMT, AFDC_CNTBL_IND,
+            FS_CNTBL_IND, MA_CNTBL_CD,PRD_END_DT,UNE_INC_VERF_CD,
+            INVO_MND_DEDN_AMT,RECUR_IND, PREV_AMT,CHNG_ENTRY_DT,
+            UNE_INC_VERF_DT,RCVD_DT,RPRTD_DT,RCPT_DT,
+            SSI_RSDI_RCVD_MTH, SSI_RSDI_RCVD_YR,
+            PBLIC_RSDI_CLM_NUM, PBLIC_RSDI_STRT_DT, FS_CNTBL_AMT,
+            UNE_INC_VERF_BY, CHAP_CNTBL_IND)
+        values (:UPI, :PRD-BEG-DT, :UERND-INC-TYPE-CD, :INCM-SQ-NMB,
+            :RSDI-CLM-NUM,:UERND-INC-RCVD-DT,:UERND-INC-FREQ,:UERND-INC-AMT,
+            :AFDC-CNTBL-IND, :FS-CNTBL-IND, :MA-CNTBL-CD, :PRD-END-DT,
+            :UNE-INC-VERF-CD,:INVO-MND-DEDN-AMT,:RECUR-IND,:PREV-AMT,
+            :CHNG-ENTRY-DT, :UNE-INC-VERF-DT, :RCVD-DT, :RPRTD-DT, :RCPT-DT,
+            :SSI-RSDI-RCVD-MTH, :SSI-RSDI-RCVD-YR,
+            :PBLIC-RSDI-CLM-NUM, :PBLIC-RSDI-STRT-DT, :FS-CNTBL-AMT,
+            :UNE-INC-VERF-BY, :CHAP-CNTBL-IND)
+      } ;
+  end
+  /* increment count of rows inserted*/
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
+
+  /* ****************** WI 28252:WNMLS:2006-01-19 START *******************/
+    set AIN24W-UNIN-OLD empty;
+    AIN24P9-UNIN-NEW();
+    AIN24P9-UNIN-SLOG();
+    AIN24P9-INSUID-FSL();
+  /* ****************** WI 28252:WNMLS:2006-01-19 END *********************/
+
+  end
+  /*  */
+end // end AIN24P9-UID-INS-Q1
+
+
+// Build table for insert
+Function AIN24P9-UID-INSERT()
+  /*  */
+  /* Perform standard database application initialisation*/
+  /*  */
+  WDB00PI();
+  /*  */
+  /* Initialise uacctyp and uapplnam*/
+  /*  */
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIN24A";
+  /*  */
+  /* Initialise the sql row record*/
+  /*  */
+  /* SET H2-UERND-INCM-DTL EMPTY;*/
+  /*  */
+  /* perform process to retrieve data*/
+  /*  */
+  AIN24P9-UID-INS-P1();
+  /*  */
+  /* set error control flags*/
+  /*  */
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  /*  */
+  /* perform dbm erros processing*/
+  /*  */
+  WDB00PE-SQLERR();
+  /*  */
+end // end AIN24P9-UID-INSERT
+
+
+// Control read on UERND_INCM_DTL
+Function AIN24P9-UID-P1()
+  /*  */
+  /* perform process to retrieve data from TWNUERND_INCM_DTL*/
+  /*  */
+  AIN24P9-UID-Q1();
+  /*  */
+  /* scan the first record if exists*/
+  /*  */
+  if (sysVar.sqlData.sqlcode == 0)
+  /*  */
+    AIN24P9-UID-SCAN();
   /*  */
   end
-  /* **** changes due to release I - system testing end ***********/
   /*  */
-end // end AIN24P9-GSMIPAY
+end // end AIN24P9-UID-P1
 
 
-// Build TWNINCAP_DSBLTY for read
-Function AIN24P9-IDS-INQ()
+// Declare cursor for UERND_INCM
+Function AIN24P9-UID-Q1()
+  /* ************************************************************************/
+  /* This process is to declare the cursor on the table TWNUERND_INCM_DTL **/
+  /* ************************************************************************/
+  /*  */
+  /* Move name of sql row record to common record*/
+  /*  */
+  VDBCOMMON.USQLREC = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-OBJ = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-NM = "AIN24P9-UID-Q1";
+  VDBCONTROL.UPROC-OPT = "SETINQ";
+  try
+    open AIN24P9-UID-Q1_RSI01
+      with #sql{
+        select UPI, PRD_BEG_DT, UERND_INC_TYPE_CD,
+          INCM_SQ_NMB, SSI_RSDI_RCVD_MTH, RSDI_CLM_NUM,
+          PB_LAW_RSDI_CI_AMT, UERND_INC_RCVD_DT,
+          UERND_INC_FREQ, UERND_INC_AMT, MA_EXCLD_AMT,
+          SSI_RSDI_RCVD_YR, PREV_AMT, BNFTS_APLD_IND,
+          AFDC_CNTBL_IND, FS_CNTBL_IND, MA_CNTBL_CD,
+          PRD_END_DT, CHNG_ENTRY_DT, UNE_INC_VERF_CD,
+          UNE_INC_VERF_BY, UNE_INC_VERF_DT, MAINT_CD,
+          RCVD_DT, RPRTD_DT, RCPT_DT, INVO_MND_DEDN_AMT,
+          RECUR_IND, PBLIC_RSDI_CLM_NUM,
+          PBLIC_RSDI_STRT_DT, FS_CNTBL_AMT,
+          UERND_INCM_CD, IVE_NONIVE_IND, CHAP_CNTBL_IND
+        from TWNUERND_INCM_DTL T1
+         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
+          WHERE
+             UPI = :UPI AND
+             UERND_INC_TYPE_CD = :UERND-INC-TYPE-CD AND
+             :PRD-BEG-DT < PRD_END_DT
+         --   :PRD-BEG-DT BETWEEN PRD_BEG_DT AND PRD_END_DT
+         --**** CHANGES DUE TO RELEASE I SYSTEM TESTING MADE
+         --** INSERT ORDER BY CLAUSE HERE **
+         --** INSERT ORDER BY CLAUSE HERE **
+      }      
+      into UPI, PRD-BEG-DT, UERND-INC-TYPE-CD,
+           INCM-SQ-NMB, SSI-RSDI-RCVD-MTH, RSDI-CLM-NUM,
+           PB-LAW-RSDI-CI-AMT, UERND-INC-RCVD-DT,
+           UERND-INC-FREQ, UERND-INC-AMT, MA-EXCLD-AMT,
+           SSI-RSDI-RCVD-YR, PREV-AMT, BNFTS-APLD-IND,
+           AFDC-CNTBL-IND, FS-CNTBL-IND, MA-CNTBL-CD,
+           PRD-END-DT, CHNG-ENTRY-DT, UNE-INC-VERF-CD,
+           UNE-INC-VERF-BY, UNE-INC-VERF-DT, MAINT-CD,
+           RCVD-DT, RPRTD-DT, RCPT-DT, INVO-MND-DEDN-AMT,
+           RECUR-IND, PBLIC-RSDI-CLM-NUM,
+           PBLIC-RSDI-STRT-DT, FS-CNTBL-AMT,
+           UERND-INCM-CD, IVE-NONIVE-IND, CHAP-CNTBL-IND
+      for H2-UERND-INCM-DTL ;
+  end
+  /*  */
+end // end AIN24P9-UID-Q1
+
+
+// Fetch data from UERND_INCM_DTL
+Function AIN24P9-UID-SCAN()
+  /* *************************************************************/
+  /* Process to fetch records from TWNUERND_INCM_DTL           **/
+  /* *************************************************************/
+  /*  */
+  /* move name of sql row record to common record*/
+  /*  */
+  VDBCOMMON.USQLREC = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-OBJ = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-NM = "AIN24P9-UID-SCAN";
+  VDBCONTROL.UPROC-OPT = "SCAN";
+  /*  */
+  try
+    get next H2-UERND-INCM-DTL ;
+  end
+  /* increment count of rows retrieved*/
+  /*  */
+  if (sysVar.sqlData.sqlcode == 0)
+    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
+  end
+  /*  */
+end // end AIN24P9-UID-SCAN
+
+
+// Buid for TWNUERND_INCM_DTL
+Function AIN24P9-UID-SETINQ()
   /*  */
   /* Perform standard database application initialisation*/
   /*  */
@@ -261,9 +1183,9 @@ Function AIN24P9-IDS-INQ()
   VDBCONTROL.UACCTYP = "R";
   VDBCOMMON.UAPPLNAM = "AIN24A";
   /*  */
-  /* perform process to retrieve data*/
+  /* perform process to retrieve data from the table TWNUERND_INCM_DTL*/
   /*  */
-  AIN24P9-IDS-P1();
+  AIN24P9-UID-P1();
   /*  */
   /* set error control flags*/
   /*  */
@@ -274,513 +1196,101 @@ Function AIN24P9-IDS-INQ()
   /*  */
   WDB00PE-SQLERR();
   /*  */
-end // end AIN24P9-IDS-INQ
+end // end AIN24P9-UID-SETINQ
 
 
-// Control read on INCAP_DSBLTY
-Function AIN24P9-IDS-P1()
+// Control update on UID
+Function AIN24P9-UID-UPD-P1()
   /*  */
-  /* perform process to insert data*/
+  /* perform process to UPDATE data*/
+  /* wi 19776 avoid bad unin screen rows    04/07/00*/
+  if (H2-UERND-INCM-DTL.PRD-BEG-DT < H2-UERND-INCM-DTL.PRD-END-DT)
+    AIN24P9-UID-UPD-Q1();
+  end
   /*  */
-  AIN24P9-IDS-Q1();
-  /*  */
-end // end AIN24P9-IDS-P1
+end // end AIN24P9-UID-UPD-P1
 
 
-// Read the table TWNINCAP_DSBLTY
-Function AIN24P9-IDS-Q1()
-  /* ****************************************************************/
-  /* This process is to fetch rows from TWNINCAP_DSBLTY           **/
-  /* ****************************************************************/
+// Update table TWNUERND_INCM_DTL
+Function AIN24P9-UID-UPD-Q1()
+  /* ***********************************************************/
+  /* This process is to update the table TWNUERND_INCM_DTL   **/
+  /* ***********************************************************/
   /*  */
   /* move name of sql row record to common record*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-INCAP-DSBLTY";
-  VDBCONTROL.UPROC-OBJ = "H2-INCAP-DSBLTY";
-  VDBCONTROL.UPROC-NM = "AIN24P9-IDS-Q1";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCOMMON.USQLREC = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-OBJ = "H2-UERND-INCM-DTL";
+  VDBCONTROL.UPROC-NM = "AIN24P9-UID-UPD-Q1";
+  VDBCONTROL.UPROC-OPT = "UPDATE";
   /*  */
   try
-    open AIN24P9-IDS-Q1_RSI01
-      with #sql{
-        select UPI, PRD_BEG_DT, INJRY_IND, NMO_RFRL_STS_DT,
-          NMO_RFRL_STS_CD, MDCL_PRBLM_SCND1,
-          MDCL_PRBLM_PRMRY, DSBL_END_DT, DSBL_BEG_DT,
-          SSI_RFRL_STS_CD, VOC_REHAB_SIIS_IND,
-          MDCAL_RVW_DT, INCAP_DSBL_RSN_CD, SSI_RFRL_DT,
-          INCAP_DSBL_VERF_CD, MED_PRBLM_SCND2, MAINT_CD,
-          PRD_END_DT, INCAP_DSBL_VERF_BY,
-          INCAP_DSBL_VERF_DT, HIWA_STATUS
-        from TWNINCAP_DSBLTY T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE UPI = :UPI
-          AND :PRD-BEG-DT < PRD_END_DT
-        ORDER BY PRD_BEG_DT
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into UPI, PRD-BEG-DT, INJRY-IND, NMO-RFRL-STS-DT,
-           NMO-RFRL-STS-CD, MDCL-PRBLM-SCND1,
-           MDCL-PRBLM-PRMRY, DSBL-END-DT, DSBL-BEG-DT,
-           SSI-RFRL-STS-CD, VOC-REHAB-SIIS-IND,
-           MDCAL-RVW-DT, INCAP-DSBL-RSN-CD, SSI-RFRL-DT,
-           INCAP-DSBL-VERF-CD, MED-PRBLM-SCND2, MAINT-CD,
-           PRD-END-DT, INCAP-DSBL-VERF-BY,
-           INCAP-DSBL-VERF-DT, HIWA-STATUS
-      for H2-INCAP-DSBLTY ;
-  end
-  /*  */
-  /* Increment the count of rows retreived*/
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /*  */
-end // end AIN24P9-IDS-Q1
-
-
-Function AIN24P9-IDS-SCN()
-  /* ****************************************************************/
-  /* This process is to fetch rows from TWNINCAP_DSBLTY           **/
-  /* ****************************************************************/
-  /*  */
-  /* move name of sql row record to common record*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-INCAP-DSBLTY";
-  VDBCONTROL.UPROC-OBJ = "H2-INCAP-DSBLTY";
-  VDBCONTROL.UPROC-NM = "AIN24P9-IDS-SCN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  try
-    get next H2-INCAP-DSBLTY ;
-  end
-  /*  */
-end // end AIN24P9-IDS-SCN
-
-
-// Process to initialise records
-Function AIN24P9-INIT()
-  /* This process is to set the inital values for the variables used*/
-  /*  */
-  AIN24W.WS-FILLER1 = "-";
-  AIN24W.WS-FILLER2 = "-";
-  AIN24W.WS-PERSON-REC-FIL1 = "-";
-  AIN24W.WS-PERSON-REC-FIL2 = "-";
-  AIN24W.WS-FILLER01 = "-";
-  AIN24W.WS-FILLER02 = "-";
-  AIN24W.WS-FIRST-FILLER1 = "-";
-  AIN24W.WS-FIRST-FILLER2 = "-";
-  AIN24W.WS-LAST-FILLER1 = "-";
-  AIN24W.WS-LAST-FILLER2 = "-";
-  AIN24W.WS-PREV-FILLER1 = "-";
-  AIN24W.WS-PREV-FILLER2 = "-";
-  AIN24W.WS-REC1-FILLER1 = "-";
-  AIN24W.WS-REC1-FILLER2 = "-";
-  AIN24W.WS-TEMP01-F1 = "/";
-  AIN24W.WS-TEMP01-F2 = "/";
-  AIN24W.WS-DOB-FIL1 = "-";
-  AIN24W.WS-DOB-FIL2 = "-";
-  AIN24W.WS-STRT-ELIG-DT = "9999-12-31";
-  AIN24W.WS-PREV-UPI = 0;
-  set SR-QAIN24-OUT-REC empty;
-  set SR-QAIN24-INP-REC empty;
-  AIN24W.WS-PERCENT = 0.00;
-end // end AIN24P9-INIT
-
-
-// INITIALIZE PRE PARAGRAPH
-Function AIN24P9-INIT-PRE()
-  set AIN24W empty;
-  AIN24W.WS-FILLER1 = "-";
-  AIN24W.WS-FILLER2 = "-";
-  AIN24W.WS-PERSON-REC-FIL1 = "-";
-  AIN24W.WS-PERSON-REC-FIL2 = "-";
-  AIN24W.WS-FILLER01 = "-";
-  AIN24W.WS-FILLER02 = "-";
-  AIN24W.WS-FIRST-FILLER1 = "-";
-  AIN24W.WS-FIRST-FILLER2 = "-";
-  AIN24W.WS-LAST-FILLER1 = "-";
-  AIN24W.WS-LAST-FILLER2 = "-";
-  AIN24W.WS-PREV-FILLER1 = "-";
-  AIN24W.WS-PREV-FILLER2 = "-";
-  AIN24W.WS-REC1-FILLER1 = "-";
-  AIN24W.WS-REC1-FILLER2 = "-";
-  AIN24W.WS-TEMP01-F1 = "/";
-  AIN24W.WS-TEMP01-F2 = "/";
-  AIN24W.WS-DOB-FIL1 = "-";
-  AIN24W.WS-DOB-FIL2 = "-";
-  set SR-QAIN24-CNTL-REC empty;
-  set SR-QAIN24-OUT-REC empty;
-  set SR-QAIN24-INP-REC empty;
-  set SR-QAIN24-SINP-REC empty;
-  /* wds;wi#25509;2003-08-12 - create new input file with med-bill#*/
-  set SR-AIN24-SINP-REC2 empty;
-  WCM00P3-FETCHBDTS();
-  AIN24W.WS-NOMADS-PROCESS-CC = BDATEREC.BDATE-PROCESS-DATE-CC;
-  AIN24W.WS-NOMADS-PROCESS-YY = BDATEREC.BDATE-PROCESS-DATE-YY;
-  AIN24W.WS-NOMADS-PROCESS-MM = BDATEREC.BDATE-PROCESS-DATE-MM;
-  AIN24W.WS-NOMADS-PROCESS-DD = BDATEREC.BDATE-PROCESS-DATE-DD;
-  AIN24W.WS-NOMADS-PROCESS-HYPHEN-1 = "-";
-  AIN24W.WS-NOMADS-PROCESS-HYPHEN-2 = "-";
-  AIN24W.WS-SYS-DATE = AIN24W.WS-NOMADS-PROCESS-DATE;
-  AIN24W.WS-M-INDEX = 0;
-
-  /* ****************** WI 25803:WNMLS:2005-09-01 START ********************/
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  AIN24W2.WS-CHECK-BG-SYS-DATE = GDW.DT;
-  /* ****************** WI 25803:WNMLS:2005-09-01 END **********************/
-end // end AIN24P9-INIT-PRE
-
-
-// get next rescrce seq-num
-Function AIN24P9-INQ-S10()
-  /* ** START WI 21582*/
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  VDBCOMMON.USQLREC = "H2-LSUM-RSRCE-DTLS";
-  VDBCONTROL.UPROC-OBJ = "H2-LSUM-RSRCE-DTLS";
-  VDBCONTROL.UPROC-NM = "AIN22P9-INQ-S10";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  try
-    get H2-LSUM-RSRCE-DTLS singleRow
-      with #sql{
-        select MAX(RSRC_SQ_NMB)
-        from TWNLSUM_RSRCE_DTLS T1
-        WHERE  UPI = :UPI
-         --** START WI 21582
-           AND PRD_BEG_DT = :PRD-BEG-DT
-         --** END WI 21582
-         --** INSERT ORDER BY CLAUSE HERE **
+    execute 
+      #sql{
+        UPDATE TWNUERND_INCM_DTL
+        SET UERND_INC_FREQ = :UERND-INC-FREQ,
+            UERND_INC_AMT = :UERND-INC-AMT,
+            INVO_MND_DEDN_AMT = :INVO-MND-DEDN-AMT,
+            PRD_END_DT = :PRD-END-DT,
+            RSDI_CLM_NUM = :RSDI-CLM-NUM,
+            prev_amt     = :PREV-AMT,
+            UNE_INC_VERF_BY = :UNE-INC-VERF-BY
+        WHERE
+            UPI = :UPI AND
+            UERND_INC_TYPE_CD = :UERND-INC-TYPE-CD AND
+            INCM_SQ_NMB = :INCM-SQ-NMB AND
+            PRD_BEG_DT = :PRD-BEG-DT
       }
-      into RSRC-SQ-NMB ;
+      for H2-UERND-INCM-DTL ; // model = none
   end
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-  /* ** END WI 21582*/
-end // end AIN24P9-INQ-S10
-
-
-Function AIN24P9-INQ8()
-
-  H2-3-CMH-FCH-PER.SSN = SR-QAIN24-INP-REC.B-CLAIM-SSN;
-  H2-3-CMH-FCH-PER.PRD-END-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
-  WDB00PI();
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  VDBCOMMON.USQLREC = "H2-3-CMH-FCH-PER";
-  VDBCONTROL.UPROC-OBJ = "H2-3-CMH-FCH-PER";
-  VDBCONTROL.UPROC-NM = "AIN24P9-CASE-OPEN";
-  VDBCONTROL.UPROC-OPT = "INQUIRY";
-  try
-    get H2-3-CMH-FCH-PER
-      with #sql{
-        select T1.ICI
-        from TWNCASE_MEMBER_HST T1,
-             TWNFAM_CASE_HSTRY T2,
-             TWNPERSON T3
-        where T3.SSN = :SSN  AND
-              T3.UPI = T1.UPI AND
-              T1.ICI = T2.ICI AND
-              T1.PRD_BEG_DT <= :PRD-END-DT AND
-              T1.PRD_END_DT >= :PRD-END-DT AND
-              T2.PRD_BEG_DT <= :PRD-END-DT AND
-              T2.PRD_END_DT >= :PRD-END-DT AND
-               --**WI 21582 START
-              T1.HH_LEFT_DT = '9999-12-31'  AND
-               --**WI 21582 END
-              T2.CASE_STS IN ('O','P')  FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }
-      into ICI ;
-  end
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* Perform DBM error processing*/
-  WDB00PE-SQLERR();
-end // end AIN24P9-INQ8
-
-
-// INSERT HIST MEDI ROW
-Function AIN24P9-INS-C-MEDI()
-  /* INSERTS A CLOSED RETRO PERIOD FOR THE MEDICARE_INFO ROW*/
-  AIN24W.WS-FIRST-DATE = H2-MEDICARE-INFO.PRD-BEG-DT;
-  AIN24W.WS-HFRST-DATE = H2-MEDICARE-INFO.PRD-BEG-DT;
-  AIN24W.WS-DUM-CC = AIN24W.WS-FIRST-CC;
-  AIN24W.WS-DUM-YY = AIN24W.WS-FIRST-YY;
-  AIN24W.WS-DUM-MM = AIN24W.WS-FIRST-MM;
-  AIN24P9-DATE-PROC();
-  H2-MEDICARE-INFO.PRD-END-DT = AIN24W.WS-PREV-DATE;
-  /* ** wi 21582 ***/
-  if ((AIN24W.WS-PT-B-BEG-DT != "0001-01-01"
-   && AIN24W.WS-PT-B-BEG-DT != "9999-12-31"
-   && AIN24W.WS-PT-B-BEG-DT != " ")
-   && (AIN24W.WS-PT-A-BEG-DT != "0001-01-01"
-   && AIN24W.WS-PT-A-BEG-DT != "9999-12-31"
-   && AIN24W.WS-PT-A-BEG-DT != " "))
-  /* ** wi 21582 ***/
-    if (AIN24W.WS-PT-B-BEG-DT < AIN24W.WS-PT-A-BEG-DT)
-      H2-MEDICARE-INFO.PRD-BEG-DT = AIN24W.WS-PT-B-BEG-DT;
-    else
-      H2-MEDICARE-INFO.PRD-BEG-DT = AIN24W.WS-PT-A-BEG-DT;
-    end
-  end
-  /*  */
-  AIN24P9-MEDCLM();
-  /*  */
-  H2-MEDICARE-INFO.RRB-NMB = SR-QAIN24-INP-REC.B-RR-CLAIM-NBR;
-
-  /* ****** changes due to release I - system testing end ***********/
-  /* update the table TWNMEDICARE_INFO with the reported amount*/
-  /*  */
-  H2-MEDICARE-INFO.PART-B-PREM-AMT = SR-QAIN24-INP-REC.B-SMI-PREMIUM-AMT;
-  /*  */
-  AIN24P9-GSMIPAY();
-  /*  */
-  /* Move the retreive key value to the sql row record*/
-  /*  */
-  H2-CODE-TBL.CODE-TBL-CD = AIN24W.WS-SMI-PREMIUM-PAYER;
-  H2-CODE-TBL.CODE-TBL-TYP = "SMIPYRCD";
-  /*  */
-  /* Perform the process to read the table TWNCODE_TBL*/
-  /*  */
-  AIN24P9-CDT-INQ();
-  /*  */
-  /* If record found*/
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-  /*  */
-  /* MOve the fetched value to the sql row record of TWNMEDICARE_INFO*/
-  /*  */
-    H2-MEDICARE-INFO.PART-B-PAYOR-ST-CD = H2-CODE-TBL.CODE-DESC;
-    H2-MEDICARE-INFO.PART-A-PREM-AMT = SR-QAIN24-INP-REC.B-HOSP-PREMIUM-AMT;
-  end
-  /* ptr 10469 change the payor-cd to y (not f) ----*/
-  if (SR-QAIN24-INP-REC.B-CLAIM-BIC != "M" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "J3" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "J4" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "K3" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "K4")
-    H2-MEDICARE-INFO.PART-A-PAYOR-CD = "Y";
-  end
-  /*  */
-  /* PERFORM AIN24P9-CHKRCR;*/
-  H2-MEDICARE-INFO.FS-CNTBL-IND = " ";
-  /*  */
-  AIN24P9-MDI-INSERT();
-
-  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
-  /* IF EZESQCOD = 0;*/
-  /* PERFORM AIN24P9-MEDI-NEW;*/
-  /* PERFORM AIN24P9-MEDI-SLOG;*/
-  /* PERFORM AIN24P9-INSMDI-FSL;*/
-  /* END;*/
-  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
-
-  H2-MEDICARE-INFO.PRD-BEG-DT = AIN24W.WS-HFRST-DATE;
-  /*  */
-end // end AIN24P9-INS-C-MEDI
-
-
-// Insert into TWNINCAP_DSBLTY
-Function AIN24P9-INS-DISA()
-  /* *********************************************************************/
-  /* This process builds the sql row reocrd of TWNINCAP_DSBLTY for     **/
-  /* insertion                                                         **/
-  /* *********************************************************************/
-  /*  */
-  /* **** changes due to release I - system testing begin ******/
-  /*  */
-  /* ** the disability onset date as reported by the interface is updated.*/
-  /* ** all other mandatory fields are updated to '?'. an open record is*/
-  /* ** created.*/
-  /*  */
-  H2-INCAP-DSBLTY.UPI = SR-QAIN24-INP-REC.B-UPI;
-  /*  */
-  /* If the disablity onset date is given move the first date of*/
-  /* disability onset date to PRD_BEG_DT of TWNINCAP_DSBLTY. else*/
-  /* move low values*/
-  /*  */
-  if (SR-QAIN24-INP-REC.B-DISABLE-ONSET-DATE not blanks
-   && SR-QAIN24-INP-REC.B-DISABLE-ONSET-DATE != "000000")
-  /* PTR 10553 USE PROCESS DT INSTEAD ------ 03/14/97 ------*/
-  /* MOVE SR-QAIN24-INP-REC.B-DISABLE-ONSET-DATE TO AIN24W.WS-DUMMY-DATE;*/
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-REC-PROCESS-MDY;
-    AIN24P9-DATE-PROC();
-    H2-INCAP-DSBLTY.PRD-BEG-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-INCAP-DSBLTY.PRD-BEG-DT = "0001-01-01";
-  end
-  H2-INCAP-DSBLTY.PRD-END-DT = "9999-12-31";
-  H2-INCAP-DSBLTY.DSBL-END-DT = "9999-12-31";
-  /* PTR 12139 ONSET DATE TO DSBL-BEG-DT -------------- 06/25/97 -------*/
-  AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-DISABLE-ONSET-DATE;
-  AIN24P9-DATE-PROC();
-  H2-INCAP-DSBLTY.DSBL-BEG-DT = AIN24W.WS-FIRST-DATE;
-  H2-INCAP-DSBLTY.INJRY-IND = "?";
-  H2-INCAP-DSBLTY.INCAP-DSBL-RSN-CD = "?";
-  H2-INCAP-DSBLTY.INCAP-DSBL-VERF-CD = "N";
-  H2-INCAP-DSBLTY.INCAP-DSBL-VERF-BY = "BENDEX";
-  /* ptr 3141 begin*/
-  /* CALL DATEAPP GDW,VDBCONTROL,VMESSAGE (NOMAPS;*/
-  /* MOVE GDW.DTLC TO AIN24W.WS-SYS-DATE1;*/
-  /* MOVE AIN24W.WS-SYS-CCYY1 TO AIN24W.WS-SYS-CCYY;*/
-  /* MOVE '-' TO AIN24W.WS-FILLER1;*/
-  /* MOVE AIN24W.WS-SYS-MM1 TO AIN24W.WS-SYS-MM;*/
-  /* MOVE '-' TO AIN24W.WS-FILLER2;*/
-  /* MOVE AIN24W.WS-SYS-DD1 TO AIN24W.WS-SYS-DD;*/
-  H2-INCAP-DSBLTY.INCAP-DSBL-VERF-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
-  /* PTR 3141 END*/
-  /*  */
-  /* Perform standard database app initialisation*/
-  /*  */
-  WDB00PI();
-  /*  */
-  /* Perform the process to insert a record into TWNINCAP_DSBLTY*/
-  /*  */
-  AIN24P9-INS-I05();
-  /*  */
-  /* Set the error flags*/
-  /*  */
-  VDBCOMMON.UNRF = "N";
-  VDBCOMMON.UDUP = "Y";
-  /*  */
-  /* Perform sql error processing*/
-  /*  */
-  WDB00PE-SQLERR();
-  /*  */
-  /* Check for fatal errors*/
-  /*  */
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-
-  /* ****************** WI 23413:WNMLS:2003-05-01 START *******************/
-  if (sysVar.sqlData.sqlcode == 0)
-    AIN24W.WS-PERF-AIF25-FG = "Y";
-  end
-  /* ****************** WI 23413:WNMLS:2003-05-01 END *********************/
-  /* **** changes due to release I - system testing end ******/
-end // end AIN24P9-INS-DISA
-
-
-// Insert into TWNINCAP_DSBLTY
-Function AIN24P9-INS-I05()
-  /* ****************************************************************/
-  /* Process to insert a record into TWNINCAP_DSBLTY              **/
-  /* ****************************************************************/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-INCAP-DSBLTY";
-  VDBCONTROL.UPROC-OBJ = "H2-INCAP-DSBLTY";
-  VDBCONTROL.UPROC-NM = "AIN24P9-INS-I05";
-  VDBCONTROL.UPROC-OPT = "ADD";
-  /* PTR 9589 DON'T USE DATEAPP FOR DEFAULT DATES ---- 02/05/97 ----*/
-  /* CALL DATEAPP GDW,VDBCONTROL,VMESSAGE (NOMAPS;*/
-  H2-INCAP-DSBLTY.NMO-RFRL-STS-DT = "9999-12-31";
-  H2-INCAP-DSBLTY.MDCAL-RVW-DT = "9999-12-31";
-  H2-INCAP-DSBLTY.SSI-RFRL-DT = "9999-12-31";
-  try
-    add H2-INCAP-DSBLTY ;
-  end
-  /*  */
-  /* Increment the counter for number of rows inserted*/
-  /*  */
+  /* increment count of rows updated*/
   if (sysVar.sqlData.sqlcode == 0)
     VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
-  end
-end // end AIN24P9-INS-I05
 
-
-// POP H-TFSL REC & INS 3 TIMES
-Function AIN24P9-INSMDI-FSL()
-  /*  */
-  /* ************************************************************************/
-  /* Add automated Screen-level Case Log for all MEDI fields...*/
-  /* NOTE: 9 total lines of screen data captured (3 per TWNFAM_STAT_LOG*/
-  /* record). The below logic may be easily changed if we wish to change*/
-  /* the order in which data is shown on the popup (by changing the order*/
-  /* in which records are moved to the AIN24W-CLOG-RECD output record)*/
-  /*  */
-  /* Perform a total of 3 inserts, each with different data*/
-
-  set H-TFSLI1 empty;
-
-  H-TFSLI1.UPI = H2-MEDICARE-INFO.UPI;
-  /* MOVE AIN24W-ICI-ARRAY.IWS-ICI(IWS-ARRAY-IDX) TO H-TFSLI1.ICI;*/
-  H-TFSLI1.SCRN-ID = "MEDI";
-  H-TFSLI1.WRKR-ID = "BENDEX";
-  H-TFSLI1.ACTVY-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
-
-  AIN24W-CLOG-RECD.WS-LINE1 = AIN24W14.WS-LINE1;
-  AIN24W-CLOG-RECD.WS-LINE2 = AIN24W12.WS-LINE3;
-  AIN24W-CLOG-RECD.WS-LINE3 = AIN24W14.WS-LINE3;
-
-  H-TFSLI1.STAT-LOG-DESC = AIN24W-CLOG-RECD.WS-AUTO-MSG;
-
-  call "TFSLI1A" (VDBCONTROL, VMESSAGE, H-TFSLI1) {isNoRefresh = yes};
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-
-  AIN24W-CLOG-RECD.WS-LINE1 = AIN24W11.WS-LINE3;
-  AIN24W-CLOG-RECD.WS-LINE2 = AIN24W12.WS-LINE1;
-  AIN24W-CLOG-RECD.WS-LINE3 = AIN24W12.WS-LINE2;
-  H-TFSLI1.STAT-LOG-DESC = AIN24W-CLOG-RECD.WS-AUTO-MSG;
-
-  call "TFSLI1A" (VDBCONTROL, VMESSAGE, H-TFSLI1) {isNoRefresh = yes};
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
+  /* ****************** WI 28252:WNMLS:2006-01-19 START *******************/
+    AIN24P9-UNIN-NEW();
+    AIN24P9-UNIN-SLOG();
+    AIN24P9-INSUID-FSL();
+  /* ****************** WI 28252:WNMLS:2006-01-19 END *********************/
 
   end
-
-  AIN24W-CLOG-RECD.WS-LINE1 = AIN24W11.WS-LINE1;
-  AIN24W-CLOG-RECD.WS-LINE2 = AIN24W14.WS-LINE2;
-  AIN24W-CLOG-RECD.WS-LINE3 = AIN24W11.WS-LINE2;
-  H-TFSLI1.STAT-LOG-DESC = AIN24W-CLOG-RECD.WS-AUTO-MSG;
-
-  call "TFSLI1A" (VDBCONTROL, VMESSAGE, H-TFSLI1) {isNoRefresh = yes};
-  if (VDBCONTROL.URC > 104)
-
-    WCM00P2-TO-CEP01A();
-  end
-
   /*  */
-end // end AIN24P9-INSMDI-FSL
+end // end AIN24P9-UID-UPD-Q1
 
 
-// POP H-TFSL REC & INS
-Function AIN24P9-INSUID-FSL()
+// Build TWNUERND_INCM_DTl
+Function AIN24P9-UID-UPDATE()
   /*  */
-  /* ************************************************************************/
-  /* Add automated Screen-level Case Log for all UNIN fields...*/
-  /* ************************************************************************/
-
-  set H-TFSLI1 empty;
-
-  H-TFSLI1.UPI = H2-UERND-INCM-DTL.UPI;
-  /* MOVE AIN24W-ICI-ARRAY.IWS-ICI(IWS-ARRAY-IDX) TO H-TFSLI1.ICI;*/
-  H-TFSLI1.SCRN-ID = "UNIN";
-  H-TFSLI1.WRKR-ID = "BENDEX";
-  H-TFSLI1.ACTVY-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
-  H-TFSLI1.STAT-LOG-DESC = AIN24W-UNIN-W1.WS-AUTO-MSG;
-
-  call "TFSLI1A" (VDBCONTROL, VMESSAGE, H-TFSLI1) {isNoRefresh = yes};
-  if (VDBCONTROL.URC > 104)
-    WCM00P2-TO-CEP01A();
-  end
-
+  /* Perform standard database application initialisation*/
   /*  */
-end // end AIN24P9-INSUID-FSL
+  WDB00PI();
+  /*  */
+  /* Initialise uacctyp and uapplnam*/
+  /*  */
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIN24A";
+  /*  */
+  /* Initialise the sql row record*/
+  /*  */
+  /* SET H2-UERND-INCM-DTL EMPTY;*/
+  /*  */
+  /* perform process to update the table TWNUERND_INCM_DTL*/
+  /*  */
+  AIN24P9-UID-UPD-P1();
+  /*  */
+  /* set error control flags*/
+  /*  */
+  VDBCOMMON.UNRF = "Y";
+  VDBCOMMON.UDUP = "N";
+  /*  */
+  /* perform dbm erros processing*/
+  /*  */
+  WDB00PE-SQLERR();
+  /*  */
+end // end AIN24P9-UID-UPDATE
 
 
 // INSERT-UNIN-PROCESS
-Function AIN24P9-INSUNIN()
+Function AIN24P9-UNIN-INS()
   /* ********************************************************************/
   /* This process builds the sql row record of TWUERND_INCM_DTL for   **/
   /* insertion                                                        **/
@@ -818,8 +1328,6 @@ Function AIN24P9-INSUNIN()
     H2-UERND-INCM-DTL.MA-CNTBL-CD = "N";
     H2-UERND-INCM-DTL.AFDC-CNTBL-IND = "N";
   end
-  /*  */
-  H2-UERND-INCM-DTL.PRD-END-DT = "9999-12-31";
   AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-REC-PROCESS-MDY;
   /* Perform the process to fetch the first date*/
   AIN24P9-DATE-PROC();
@@ -830,6 +1338,8 @@ Function AIN24P9-INSUNIN()
   H2-UERND-INCM-DTL.RPRTD-DT = AIN24W.WS-FIRST-DATE;
   H2-UERND-INCM-DTL.RCPT-DT = AIN24W.WS-FIRST-DATE;
   /*  */
+  H2-UERND-INCM-DTL.PRD-END-DT = "9999-12-31";
+  /*  */
   AIN24P9-UID-INSERT();
   /*  */
   AIN24W.WS-NOMADS-WAGE-AMOUNT = H2-UERND-INCM-DTL.UERND-INC-AMT;
@@ -839,2146 +1349,605 @@ Function AIN24P9-INSUNIN()
   end
   AIN24W.WS-UNIN-UPDATED = "Y";
   AIN24W.WS-ELIG-IND = "Y";
-  AIN24W.WS-ALERT-IND = "Y";
-  /*  */
-end // end AIN24P9-INSUNIN
-
-
-// Main Process
-Function AIN24P9-MAIN()
-  /* ********************************************************************/
-  /* Main process                                 **/
-  /* ********************************************************************/
-  AIN24P9-INIT-PRE();
-  AIN24P9-READ-PRE();
-  while (sysVar.errorCode == "00000000")
-  /* wds;wi#25509;2003-08-12 - create new input file with med-bill#*/
-    AIN24P9-BUILD-AUX();
-    AIN24P9-PROC-PRE();
-    AIN24P9-READ-PRE();
+  if (AIN24W.WS-FIRST-DATE < AIN24W.WS-STRT-ELIG-DT)
+    AIN24W.WS-STRT-ELIG-DT = AIN24W.WS-FIRST-DATE;
   end
-  if (SR-QAIN24-SINP-REC is endOfFile)
-    AIN24W.WS-PREV-UPI = 0;
-    AIN24P9-PROC-PRE();
-  end
-  AIN24P9-CLOSE-REC2();
-  AIN24P9-CLOSE-SINP();
-  AIN24W.WS-FIRST-TIME = "Y";
-  AIN24P9-INIT();
-  /* Perform the process to read the file from bendex*/
-  AIN24P9-READ();
-  /* While record exists*/
-  while (sysVar.errorCode == "00000000")
-    AIN24P9-VAL-INPUT();
-  /* 19298 only trig elig and alerts on open cases*/
-    AIN24P9-CASE-OPEN();
-  /* Process the data received from bendex*/
-    AIN24P9-PROCESS();
-  /* Fetch the next record from the file*/
-    AIN24P9-READ();
-  end
-  /* Perform the alert process for the last record read*/
-  AIN24P9-CNTL-ADD();
-end // end AIN24P9-MAIN
+end // end AIN24P9-UNIN-INS
 
 
-// Control inserts to MEDCARE_INF
-Function AIN24P9-MDI-INS-P1()
-  /*  */
-  /* perform process to insert data*/
-  /*  */
-  AIN24P9-MDI-INS-Q1();
-  /*  */
-end // end AIN24P9-MDI-INS-P1
-
-
-// Insert into TWNMEDICARE_INFO
-Function AIN24P9-MDI-INS-Q1()
-  /* **********************************************************************/
-  /* This process is to insert a record into the table TWNMEDICARE_INFO **/
-  /* **********************************************************************/
-  /* PTR 5582 (R2 HAS REMOVED THIS COLUMN FROM TABLE) --- START ---*/
-  /* MOVE '9999-12-31' TO H2-MEDICARE-INFO.BUYIN-EFF-DT;*/
-  /*  */
-  /* move name of sql row record to common record*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-OBJ = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-NM = "AIN24P9-MDI-INS-Q1";
-  VDBCONTROL.UPROC-OPT = "ADD";
-  H2-MEDICARE-INFO.HOSP-COVRG-LOST-DT = "9999-12-31";
-  H2-MEDICARE-INFO.CHNG-ENTRY-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
-  H2-MEDICARE-INFO.ME-EXP-VERF-DT = AIN24W.WS-NOMADS-PROCESS-DATE;
-  try
-    add H2-MEDICARE-INFO
-      with #sql{
-        insert into TWNMEDICARE_INFO
-        (UPI, EXP_SQ_NMB, PRD_BEG_DT,
-            FS_CNTBL_IND,
-            PART_B_PAYOR_ST_CD,
-            PART_B_PAYOR_CD,
-            PART_B_END_DT, PART_B_BEG_DT,
-         --  PART_A_PAYOR_ST_CD,
-            PART_A_PAYOR_CD, PART_A_PREM_AMT,
-            PART_A_END_DT, PART_A_BEG_DT, MEDCR_PRSN_SSN,
-            MEDCR_CLAIM_SUFX, PART_B_PREM_AMT,
-            MA_CNTBL_CD,
-            PRD_END_DT,
-            ME_EXP_VERF_BY,
-            ME_EXP_VERF_CD,
-         --  MAINT_CD,
-            RRB_NMB, RECUR_IND,HOSP_COVRG_LOST_DT,CHNG_ENTRY_DT,
-            ME_EXP_VERF_DT)
-        values (:UPI, :EXP-SQ-NMB, :PRD-BEG-DT,
-            :FS-CNTBL-IND,
-            :PART-B-PAYOR-ST-CD,
-            :PART-B-PAYOR-CD,
-            :PART-B-END-DT,
-            :PART-B-BEG-DT,
-         --  :PART-A-PAYOR-ST-CD,
-            :PART-A-PAYOR-CD,
-            :PART-A-PREM-AMT, :PART-A-END-DT, :PART-A-BEG-DT, :MEDCR-PRSN-SSN,
-            :MEDCR-CLAIM-SUFX, :PART-B-PREM-AMT,
-            :MA-CNTBL-CD,
-            :PRD-END-DT,
-            :ME-EXP-VERF-BY,
-            :ME-EXP-VERF-CD,
-         --  :MAINT-CD,
-            :RRB-NMB, :RECUR-IND,
-            :HOSP-COVRG-LOST-DT, :CHNG-ENTRY-DT, :ME-EXP-VERF-DT)
-      } ;
-  end
-  /* increment count of rows retrieved*/
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
-
-  /* ****************** WI 28252:WNMLS:2006-01-19 START *******************/
-    set AIN24W-MEDI-OLD empty;
-    AIN24P9-MEDI-NEW();
-    AIN24P9-MEDI-SLOG();
-    AIN24P9-INSMDI-FSL();
-  /* ****************** WI 28252:WNMLS:2006-01-19 END *********************/
-
-  end
-  /*  */
-end // end AIN24P9-MDI-INS-Q1
-
-
-// Build record for insert
-Function AIN24P9-MDI-INSERT()
-  /*  */
-  /* Perform standard database application initialisation*/
-  /*  */
-  WDB00PI();
-  /*  */
-  /* Initialise uacctyp and uapplnam*/
-  /*  */
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  /*  */
-  /* Initialise the sql row record*/
-  /*  */
-  /* SET H2-MEDICARE-INFO EMPTY;*/
-  /*  */
-  /* perform process to retrieve data*/
-  /*  */
-  AIN24P9-MDI-INS-P1();
-  /*  */
-  /* set error control flags*/
-  /*  */
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "Y";
-  /*  */
-  /* perform dbm erros processing*/
-  /*  */
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN24P9-MDI-INSERT
-
-
-// Control read on MEDICARE_INFO
-Function AIN24P9-MDI-P1()
-  /*  */
-  /* perform process to retrieve data*/
-  /*  */
-  AIN24P9-MDI-Q1();
-  /*  */
-  /* scan the first record if exists*/
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-  /*  */
-    AIN24P9-MDI-SCAN();
-  /*  */
-  end
-  /*  */
-end // end AIN24P9-MDI-P1
-
-
-// Declare cursor on MDICARE_INFO
-Function AIN24P9-MDI-Q1()
-  /* ***********************************************************/
-  /* This process is to declare cursor on TWNMEDICARE_INFO   **/
-  /* ***********************************************************/
-  /*  */
-  /* move name of sql row record to common record*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-OBJ = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-NM = "AIN24P9-MDI-Q1";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  try
-    open AIN24P9-MDI-Q1_RSI01
-      with #sql{
-        select UPI, EXP_SQ_NMB, PRD_BEG_DT,
-          PART_B_PAYOR_ST_CD, PART_B_PAYOR_CD,
-          PART_B_END_DT, PART_B_BEG_DT,
-          PART_A_PAYOR_ST_CD, PART_A_PAYOR_CD,
-          PART_A_PREM_AMT, PART_A_END_DT, PART_A_BEG_DT,
-          MEDCR_PRSN_SSN, HOSP_COVRG_LOST_DT,
-          MEDCR_CLAIM_SUFX, PART_B_PREM_AMT, MA_CNTBL_CD,
-          PRD_END_DT, CHNG_ENTRY_DT, ME_EXP_VERF_BY,
-          ME_EXP_VERF_CD, ME_EXP_VERF_DT, MAINT_CD,
-          RRB_NMB, RECUR_IND, FS_CNTBL_IND
-        from TWNMEDICARE_INFO T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-          WHERE UPI = :UPI AND
-                :PRD-BEG-DT < PRD_END_DT
-         --      :EXP-SQ-NMB = EXP_SQ_NMB AND
-         --      MEDCR_PRSN_SSN = :MEDCR-PRSN-SSN AND
-         --      MEDCR_CLAIM_SUFX = :MEDCR-CLAIM-SUFX
-        ORDER BY PRD_BEG_DT
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into UPI, EXP-SQ-NMB, PRD-BEG-DT,
-           PART-B-PAYOR-ST-CD, PART-B-PAYOR-CD,
-           PART-B-END-DT, PART-B-BEG-DT,
-           PART-A-PAYOR-ST-CD, PART-A-PAYOR-CD,
-           PART-A-PREM-AMT, PART-A-END-DT, PART-A-BEG-DT,
-           MEDCR-PRSN-SSN, HOSP-COVRG-LOST-DT,
-           MEDCR-CLAIM-SUFX, PART-B-PREM-AMT, MA-CNTBL-CD,
-           PRD-END-DT, CHNG-ENTRY-DT, ME-EXP-VERF-BY,
-           ME-EXP-VERF-CD, ME-EXP-VERF-DT, MAINT-CD,
-           RRB-NMB, RECUR-IND, FS-CNTBL-IND
-      for H2-MEDICARE-INFO ;
-  end
-  /*  */
-end // end AIN24P9-MDI-Q1
-
-
-// Fetch records from MDI_INFO
-Function AIN24P9-MDI-SCAN()
-  /* **************************************************************/
-  /* This process is to fetch records from TWNMEDICARE_INFO     **/
-  /* **************************************************************/
-  /*  */
-  /* move name of sql row record to common record*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-OBJ = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-NM = "AIN24P9-MDI-SCAN";
-  VDBCONTROL.UPROC-OPT = "SCAN";
-  /*  */
-  try
-    get next H2-MEDICARE-INFO ;
-  end
-  /* increment count of rows retrieved*/
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-  end
-  /*  */
-end // end AIN24P9-MDI-SCAN
-
-
-// Build table TWNMEDICARE_INFO
-Function AIN24P9-MDI-SETUPD()
-  /*  */
-  /* Perform standard database application initialisation*/
-  /*  */
-  WDB00PI();
-  /*  */
-  /* Initialise uacctyp and uapplnam*/
-  /*  */
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  /*  */
-  /* Initialise the sql row record*/
-  /*  */
-  /* SET H2-MEDICARE-INFO EMPTY;*/
-  /*  */
-  /* perform process to retrieve data*/
-  /*  */
-  AIN24P9-MDI-P1();
-  /*  */
-  /* set error control flags*/
-  /*  */
-  VDBCOMMON.UNRF = "1";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* perform dbm erros processing*/
-  /*  */
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN24P9-MDI-SETUPD
-
-
-// Control update to MDICARE_INFO
-Function AIN24P9-MDI-UPD-P1()
-  /*  */
-  /* perform process to insert data*/
-  /*  */
-  AIN24P9-MDI-UPD-Q1();
-  /*  */
-end // end AIN24P9-MDI-UPD-P1
-
-
-// Update table TWNMEDICARE_INFO
-Function AIN24P9-MDI-UPD-Q1()
-  /* ***************************************************************/
-  /* This process is to update the table TWNMEDICARE_INFO        **/
-  /* ***************************************************************/
-  /*  */
-  /* move name of sql row record to common record*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-OBJ = "H2-MEDICARE-INFO";
-  VDBCONTROL.UPROC-NM = "AIN24P9-MDI-UPD-Q1";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-  /*  */
-  try
-    execute 
-      #sql{
-         --** INSERT SQL STATEMENT HERE **
-           UPDATE   TWNMEDICARE_INFO
-              SET MEDCR_PRSN_SSN = :MEDCR-PRSN-SSN,
-                  MEDCR_CLAIM_SUFX = :MEDCR-CLAIM-SUFX,
-                  PART_B_BEG_DT = :PART-B-BEG-DT,
-                  PART_B_END_DT = :PART-B-END-DT,
-                  PART_B_PREM_AMT = :PART-B-PREM-AMT,
-                  PART_A_BEG_DT = :PART-A-BEG-DT,
-                  PART_A_END_DT = :PART-A-END-DT,
-                  PART_A_PREM_AMT = :PART-A-PREM-AMT,
-                  PRD_END_DT = :PRD-END-DT,
-                  RRB_NMB    = :RRB-NMB,
-                  RECUR_IND  = :RECUR-IND,
-                  PART_B_PAYOR_CD = :PART-B-PAYOR-CD,
-                  ME_EXP_VERF_BY = :ME-EXP-VERF-BY
-        WHERE
-              UPI = :UPI   AND
-              PRD_BEG_DT = :PRD-BEG-DT AND
-              EXP_SQ_NMB = :EXP-SQ-NMB
-      }
-      for H2-MEDICARE-INFO ; // model = none
-  end
-  /* increment count of rows updated*/
-  if (sysVar.sqlData.sqlcode == 0)
-  /*  */
-    VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
-
-  /* ****************** WI 28252:WNMLS:2006-01-19 START *******************/
-    AIN24P9-MEDI-NEW();
-    AIN24P9-MEDI-SLOG();
-    AIN24P9-INSMDI-FSL();
-  /* ****************** WI 28252:WNMLS:2006-01-19 END *********************/
-
-  end
-  /*  */
-end // end AIN24P9-MDI-UPD-Q1
-
-
-// Build record for update
-Function AIN24P9-MDI-UPDATE()
-  /*  */
-  /* Perform standard database application initialisation*/
-  /*  */
-  WDB00PI();
-  /*  */
-  /* Initialise uacctyp and uapplnam*/
-  /*  */
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  /*  */
-  /* Initialise the sql row record*/
-  /*  */
-  /* SET H2-MEDICARE-INFO EMPTY;*/
-  /*  */
-  /* perform process to retrieve data*/
-  /*  */
-  AIN24P9-MDI-UPD-P1();
-  /*  */
-  /* set error control flags*/
-  /*  */
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* perform dbm erros processing*/
-  /*  */
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN24P9-MDI-UPDATE
-
-
-// MEDI-CLAIM-NUMBER PROCESS
-Function AIN24P9-MEDCLM()
-  /*  */
-  if (AIN24W.WS-MEDI-REC-EXISTS == "N")
-  /*  */
-    H2-MEDICARE-INFO.MEDCR-PRSN-SSN = SR-QAIN24-INP-REC.B-CLAIM-SSN;
-    H2-MEDICARE-INFO.MEDCR-CLAIM-SUFX = SR-QAIN24-INP-REC.B-CLAIM-BIC;
-  end
-  /*  */
-end // end AIN24P9-MEDCLM
-
-
-// MEDI PROCESS
-Function AIN24P9-MEDI()
-  /* *****************************************************************/
-  /* This process processes the medicare information received from **/
-  /* the interface and updates the table TWNMEDICARE_INFO if       **/
-  /* the person record already exists.Otherwise it inserts a       **/
-  /* record into TWNMEDICARE_INFO                                  **/
-  /* *****************************************************************/
-  /*  */
-  /* wi 18586 - part a and part b end date processing changed.*/
-  /*  */
-  /* ***** if no begin and dates are given for parts A and B, then no data*/
-  /* ***** associated with medi is sent. so no processing needs to be done*/
-  /*  */
-  if ((SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE is blanks || 
-  SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE == "000000") && 
-  (SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE is blanks || 
-  SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE == "000000") && 
-  (SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE is blanks || 
-  SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE == "000000") && 
-  (SR-QAIN24-INP-REC.B-HOSP-TERM-DATE is blanks || 
-  SR-QAIN24-INP-REC.B-HOSP-TERM-DATE == "000000"))
-  /*  */
-  /* exit from the process*/
-  /*  */
-    return;
-  /*  */
-  end
-  AIN24W.WS-PT-B-BEG-DT = "0001-01-01";
-  AIN24W.WS-PT-B-END-DT = "0001-01-01";
-  AIN24W.WS-PT-A-BEG-DT = "0001-01-01";
-  AIN24W.WS-PT-A-END-DT = "0001-01-01";
-  /*  */
-  /* ******* changes due to release I - system testing end *******/
-  /*  */
-  /* Initialise the flag for medi record found*/
-  /*  */
-  AIN24W.WS-MEDI-REC-EXISTS = "N";
-  /*  */
-  /* Initialise the sql row record*/
+// POP WS WITH NEW UNIN VALS
+Function AIN24P9-UNIN-NEW()
   /*  */
 
-  set H2-MEDICARE-INFO empty;
-  /*  */
-  /* Key setting process*/
-  /*  */
-  /* Move the values to the sql row record of TWNMEDICARE_INFO*/
-  /*  */
-  H2-MEDICARE-INFO.UPI = SR-QAIN24-INP-REC.B-UPI;
-  /*  */
-  /* If the value of current entitlement month is given,*/
-  /* MOVE FIRST DATE(B-process-date)*/
-  /* to PRD_BEG_DT*/
-  if (SR-QAIN24-INP-REC.B-REC-PROCESS-MDY not blanks && 
-  SR-QAIN24-INP-REC.B-REC-PROCESS-MDY != "000000")
-    AIN24W.WS-DUM-MM = SR-QAIN24-INP-REC.B-REC-PROCESS-MO;
-    AIN24W.WS-DUM-YY = SR-QAIN24-INP-REC.B-REC-PROCESS-YR;
+  set AIN24W-UNIN-NEW empty; /* WI 28252*/
 
-  /* perform date retrieve process*/
+  AIN24W-UNIN-NEW.WS-AFDC-CNTBL-IND = H2-UERND-INCM-DTL.AFDC-CNTBL-IND;
+
+  AIN24W-UNIN-NEW.WS-FS-CNTBL-IND = H2-UERND-INCM-DTL.FS-CNTBL-IND;
+
+  AIN24W-UNIN-NEW.WS-MA-CNTBL-CD = H2-UERND-INCM-DTL.MA-CNTBL-CD;
+
+  AIN24W-UNIN-NEW.WS-PREV-AMT = H2-UERND-INCM-DTL.PREV-AMT;
+
+  AIN24W-UNIN-NEW.WS-UERND-INC-TYPE-CD = H2-UERND-INCM-DTL.UERND-INC-TYPE-CD;
+
+  AIN24W-UNIN-NEW.WS-UERND-INC-FREQ = H2-UERND-INCM-DTL.UERND-INC-FREQ;
+
+  AIN24W-UNIN-NEW.WS-UERND-INC-AMT = H2-UERND-INCM-DTL.UERND-INC-AMT;
+
+  AIN24W-UNIN-NEW.WS-UERND-INC-RCVD-DT = H2-UERND-INCM-DTL.UERND-INC-RCVD-DT;
+
+  AIN24W-UNIN-NEW.WS-FS-CNTBL-AMT = H2-UERND-INCM-DTL.FS-CNTBL-AMT;
+
   /*  */
-    AIN24P9-DATE-PROC();
+end // end AIN24P9-UNIN-NEW
+
+
+// POP WS WITH EXIST UNIN VALS
+Function AIN24P9-UNIN-OLD-A()
   /*  */
-    H2-MEDICARE-INFO.PRD-BEG-DT = AIN24W.WS-FIRST-DATE;
-    H3-MEDICARE-INFO.PRD-BEG-DT = AIN24W.WS-FIRST-DATE;
-  end
-  H2-MEDICARE-INFO.EXP-SQ-NMB = 1;
-  /* **** changes due to release I system testing - begin *****/
-  /* If the value of smi entitlement date is given,*/
-  /* move first date(B-SMI-ENTITLMENT-MCY)to PART_B_BEG_DT(medicare_info)*/
+
+  set AIN24W-UNIN-OLD empty; /* WI 28252*/
+
+  AIN24W-UNIN-OLD.WS-AFDC-CNTBL-IND = AIN24W.WS-ARRAY-AFDC-CNTBL[WS-INDEX];
+
+  AIN24W-UNIN-OLD.WS-FS-CNTBL-IND = AIN24W.WS-ARRAY-FS-CNTBL[WS-INDEX];
+
+  AIN24W-UNIN-OLD.WS-MA-CNTBL-CD = AIN24W.WS-ARRAY-MA-CNTBL[WS-INDEX];
+
+  AIN24W-UNIN-OLD.WS-PREV-AMT = AIN24W.WS-ARRAY-PREV-AMT[WS-INDEX];
+
+  AIN24W-UNIN-OLD.WS-UERND-INC-TYPE-CD = "40";
+
+  AIN24W-UNIN-OLD.WS-UERND-INC-FREQ = AIN24W.WS-ARRAY-FREQ[WS-INDEX];
+
+  AIN24W-UNIN-OLD.WS-UERND-INC-AMT = AIN24W.WS-ARRAY-INC[WS-INDEX];
+
+  AIN24W-UNIN-OLD.WS-UERND-INC-RCVD-DT = AIN24W.WS-ARRAY-UERND-INC-RCVD-DT[WS-INDEX];
+
+  AIN24W-UNIN-OLD.WS-FS-CNTBL-AMT = AIN24W.WS-ARRAY-FS-CNTBL-AMT[WS-INDEX];
+
   /*  */
-  if (SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE not blanks && 
-  SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE != "000000")
-  /*  */
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE;
-  /* perform the date retreive routine*/
-  /*  */
-    AIN24P9-DATE-PROC();
-    AIN24W.WS-PT-B-BEG-DT = AIN24W.WS-FIRST-DATE;
-    AIN24W.WS-PT-B-END-DT = "9999-12-31";
-  end
-  /* If the value of SMI-TERMINATION-DATE is given,*/
-  /* move first date(B-SMI-TERMINATION-DATE)to PART_B_END-DT(medicare_info)*/
-  /* else leave low date in PART_B_END_DT*/
-  /*  */
-  if (SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE not blanks && 
-  SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE != "000000")
-  /* wi18586 - do not populate part b end date if part b active*/
-    if (SR-QAIN24-INP-REC.B-SMI-OPTION-CODE == "G"
-     || SR-QAIN24-INP-REC.B-SMI-OPTION-CODE == "Y")
-      ;
-    else
-      AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE;
-  /*  */
-  /* perform date retrieve process*/
-  /*  */
-      AIN24P9-DATE-PROC();
-  /* WI15951 DO NOT ENTER END DATE PRIOR TO BEGIN DATE   03/04/99*/
-      if (AIN24W.WS-LAST-DATE > AIN24W.WS-PT-B-BEG-DT)
-        AIN24W.WS-PT-B-END-DT = AIN24W.WS-LAST-DATE;
-      end
-    end
-  end
-  /* If the value of hosp-entitlement-date is given,*/
-  /* move first date(B-HOSP-ENTITLE-DATE)to PART_A_BEG-DT(medicare_info)*/
-  /*  */
-  if (SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE not blanks && 
-  SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE != "000000")
-  /*  */
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-ENTITLE-DATE;
-  /* perform date retrieve process*/
-    AIN24P9-DATE-PROC();
-    AIN24W.WS-PT-A-BEG-DT = AIN24W.WS-FIRST-DATE;
-    AIN24W.WS-PT-A-END-DT = "9999-12-31";
+end // end AIN24P9-UNIN-OLD-A
+
+
+// POP UNIN FAM-STAT-LOG VALUES
+Function AIN24P9-UNIN-SLOG()
+  /* **/
+
+  /* * BUILING AUTO TEXT CLOG:LINE1*/
+  AIN24W-UNIN-W1.WS-TEXT11 = "CNT AF/FS/MA:OLD-";
+  AIN24W-UNIN-W1.WS-VALU11 = AIN24W-UNIN-OLD.WS-AFDC-CNTBL-IND;
+  AIN24W-UNIN-W1.WS-TEXT12 = "/";
+  AIN24W-UNIN-W1.WS-VALU12 = AIN24W-UNIN-OLD.WS-FS-CNTBL-IND;
+  AIN24W-UNIN-W1.WS-TEXT13 = "/";
+  AIN24W-UNIN-W1.WS-VALU13 = AIN24W-UNIN-OLD.WS-MA-CNTBL-CD;
+  AIN24W-UNIN-W1.WS-FILL13 = " ";
+  AIN24W-UNIN-W1.WS-TEXT14 = "NEW-";
+  AIN24W-UNIN-W1.WS-VALU14 = AIN24W-UNIN-NEW.WS-AFDC-CNTBL-IND;
+  AIN24W-UNIN-W1.WS-TEXT15 = "/";
+  AIN24W-UNIN-W1.WS-VALU15 = AIN24W-UNIN-NEW.WS-FS-CNTBL-IND;
+  AIN24W-UNIN-W1.WS-TEXT16 = "/";
+  AIN24W-UNIN-W1.WS-VALU16 = AIN24W-UNIN-NEW.WS-MA-CNTBL-CD;
+  AIN24W-UNIN-W1.WS-FILL16 = " ";
+  AIN24W-UNIN-W1.WS-TEXT17 = "TP:OLD-";
+  AIN24W-UNIN-W1.WS-VALU17 = AIN24W-UNIN-OLD.WS-UERND-INC-TYPE-CD;
+  AIN24W-UNIN-W1.WS-FILL17 = " ";
+  AIN24W-UNIN-W1.WS-TEXT18 = "NEW-";
+  AIN24W-UNIN-W1.WS-VALU18 = AIN24W-UNIN-NEW.WS-UERND-INC-TYPE-CD;
+  AIN24W-UNIN-W1.WS-FILL18 = " ";
+  AIN24W-UNIN-W1.WS-TEXT19 = "FQ:OLD-";
+  AIN24W-UNIN-W1.WS-VALU19 = AIN24W-UNIN-OLD.WS-UERND-INC-FREQ;
+  AIN24W-UNIN-W1.WS-FILL19 = " ";
+  AIN24W-UNIN-W1.WS-TEXT110 = "NEW-";
+  AIN24W-UNIN-W1.WS-VALU110 = AIN24W-UNIN-NEW.WS-UERND-INC-FREQ;
+
+  /* * BUILING AUTO TEXT CLOG:LINE2*/
+  AIN24W-UNIN-W1.WS-TEXT21 = "RCDT:OLD-";
+  AIN24W-UNIN-W1.WS-VALU21 = AIN24W-UNIN-OLD.WS-UERND-INC-RCVD-DT-MM;
+  AIN24W-UNIN-W1.WS-TEXT22 = "/";
+  AIN24W-UNIN-W1.WS-VALU22 = AIN24W-UNIN-OLD.WS-UERND-INC-RCVD-DT-DD;
+  AIN24W-UNIN-W1.WS-TEXT23 = "/";
+  AIN24W-UNIN-W1.WS-VALU23 = AIN24W-UNIN-OLD.WS-UERND-INC-RCVD-DT-YY;
+  AIN24W-UNIN-W1.WS-FILL23 = " ";
+  AIN24W-UNIN-W1.WS-TEXT24 = "NEW-";
+  AIN24W-UNIN-W1.WS-VALU24 = AIN24W-UNIN-NEW.WS-UERND-INC-RCVD-DT-MM;
+  AIN24W-UNIN-W1.WS-TEXT25 = "/";
+  AIN24W-UNIN-W1.WS-VALU25 = AIN24W-UNIN-NEW.WS-UERND-INC-RCVD-DT-DD;
+  AIN24W-UNIN-W1.WS-TEXT26 = "/";
+  AIN24W-UNIN-W1.WS-VALU26 = AIN24W-UNIN-NEW.WS-UERND-INC-RCVD-DT-YY;
+  AIN24W-UNIN-W1.WS-FILL26 = " ";
+  AIN24W-UNIN-W1.WS-TEXT27 = "PRV-AMT:OLD-";
+
+  if (AIN24W-UNIN-OLD.WS-PREV-AMT == 0)
+    AIN24W-UNIN-W1.WS-VALU27 = " ";
   else
-    if (AIN24W.WS-PT-B-BEG-DT > "0001-01-01")
-      AIN24W.WS-PT-A-BEG-DT = AIN24W.WS-PT-B-BEG-DT;
-      AIN24W.WS-PT-A-END-DT = "9999-12-31";
-    end
+    set FORMATW empty;
+    FORMATW.INPUT-NUMBER = AIN24W-UNIN-OLD.WS-PREV-AMT;
+    FORMATW.LENGTH = 8;
+    FORMATW.DEC-COUNT = 2;
+    FORMATW.FORMAT-FLAG = "Y";
+    FORMATW.DOLLAR-FLAG = "N";
+    REPP9-FORMAT-PROC();
+    AIN24W-UNIN-W1.WS-VALU27 = FORMATW.OUTPUT-CHAR;
   end
-  /*  */
-  /* If the value of B-HOSP-TERM-DATE is given,*/
-  /* move last date(B-HOSP-TERM-DATE)to PART_A_END_DT(medicare_info)*/
-  /* else leave low date in PART_A_END_DT*/
-  /*  */
-  if (SR-QAIN24-INP-REC.B-HOSP-TERM-DATE not blanks && 
-  SR-QAIN24-INP-REC.B-HOSP-TERM-DATE != "000000")
-  /* wi15586 - do not populate part a if part a or part b is active*/
-    if (SR-QAIN24-INP-REC.B-SMI-OPTION-CODE == "G"
-     || SR-QAIN24-INP-REC.B-SMI-OPTION-CODE == "Y"
-     || SR-QAIN24-INP-REC.B-HOSP-ENSURE-OPT-CODE == "E"
-     || SR-QAIN24-INP-REC.B-HOSP-ENSURE-OPT-CODE == "G"
-     || SR-QAIN24-INP-REC.B-HOSP-ENSURE-OPT-CODE == "H"
-     || SR-QAIN24-INP-REC.B-HOSP-ENSURE-OPT-CODE == "T"
-     || SR-QAIN24-INP-REC.B-HOSP-ENSURE-OPT-CODE == "Y")
-      ;
-    else
-  /*  */
-      AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-TERM-DATE;
-  /*  */
-  /* Perform date retreival process*/
-  /*  */
-      AIN24P9-DATE-PROC();
-  /* WI15951 DO NOT ENTER END DATE PRIOR TO BEGIN DATE   03/04/99*/
-      if (AIN24W.WS-LAST-DATE > AIN24W.WS-PT-A-BEG-DT)
-        AIN24W.WS-PT-A-END-DT = AIN24W.WS-LAST-DATE;
-      end
-    end
+
+  AIN24W-UNIN-W1.WS-FILL27 = " ";
+  AIN24W-UNIN-W1.WS-TEXT28 = "NEW-";
+  if (AIN24W-UNIN-NEW.WS-PREV-AMT == 0)
+    AIN24W-UNIN-W1.WS-VALU28 = " ";
+  else
+    set FORMATW empty;
+    FORMATW.INPUT-NUMBER = AIN24W-UNIN-NEW.WS-PREV-AMT;
+    FORMATW.LENGTH = 8;
+    FORMATW.DEC-COUNT = 2;
+    FORMATW.FORMAT-FLAG = "Y";
+    FORMATW.DOLLAR-FLAG = "N";
+    REPP9-FORMAT-PROC();
+    AIN24W-UNIN-W1.WS-VALU28 = FORMATW.OUTPUT-CHAR;
   end
-  /*  */
-  H2-MEDICARE-INFO.MEDCR-PRSN-SSN = SR-QAIN24-INP-REC.B-CLAIM-SSN;
-  H2-MEDICARE-INFO.MEDCR-CLAIM-SUFX = SR-QAIN24-INP-REC.B-CLAIM-BIC;
 
-  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
-  set AIN24W-MEDI-NEW empty;
-  set AIN24W-MEDI-OLD empty;
-  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
+  /* * BUILING AUTO TEXT CLOG:LINE3*/
+  AIN24W-UNIN-W1.WS-TEXT31 = "AMT:OLD-";
+  if (AIN24W-UNIN-OLD.WS-UERND-INC-AMT == 0)
+    AIN24W-UNIN-W1.WS-VALU31 = " ";
+  else
+    set FORMATW empty;
+    FORMATW.INPUT-NUMBER = AIN24W-UNIN-OLD.WS-UERND-INC-AMT;
+    FORMATW.LENGTH = 8;
+    FORMATW.DEC-COUNT = 2;
+    FORMATW.FORMAT-FLAG = "Y";
+    FORMATW.DOLLAR-FLAG = "N";
+    REPP9-FORMAT-PROC();
+    AIN24W-UNIN-W1.WS-VALU31 = FORMATW.OUTPUT-CHAR;
+  end
 
-  /* ***** changes due to release I system testing - end  ******/
+  AIN24W-UNIN-W1.WS-FILL31 = " ";
+  AIN24W-UNIN-W1.WS-TEXT32 = "NEW-";
+  if (AIN24W-UNIN-NEW.WS-UERND-INC-AMT == 0)
+    AIN24W-UNIN-W1.WS-VALU32 = " ";
+  else
+    set FORMATW empty;
+    FORMATW.INPUT-NUMBER = AIN24W-UNIN-NEW.WS-UERND-INC-AMT;
+    FORMATW.LENGTH = 8;
+    FORMATW.DEC-COUNT = 2;
+    FORMATW.FORMAT-FLAG = "Y";
+    FORMATW.DOLLAR-FLAG = "N";
+    REPP9-FORMAT-PROC();
+    AIN24W-UNIN-W1.WS-VALU32 = FORMATW.OUTPUT-CHAR;
+  end
+
+  AIN24W-UNIN-W1.WS-FILL32 = " ";
+  AIN24W-UNIN-W1.WS-TEXT33 = "FS-AMT:OLD-";
+  if (AIN24W-UNIN-OLD.WS-FS-CNTBL-AMT == 0)
+    AIN24W-UNIN-W1.WS-VALU33 = " ";
+  else
+    set FORMATW empty;
+    FORMATW.INPUT-NUMBER = AIN24W-UNIN-OLD.WS-FS-CNTBL-AMT;
+    FORMATW.LENGTH = 8;
+    FORMATW.DEC-COUNT = 2;
+    FORMATW.FORMAT-FLAG = "Y";
+    FORMATW.DOLLAR-FLAG = "N";
+    REPP9-FORMAT-PROC();
+    AIN24W-UNIN-W1.WS-VALU33 = FORMATW.OUTPUT-CHAR;
+  end
+
+  AIN24W-UNIN-W1.WS-FILL33 = " ";
+  AIN24W-UNIN-W1.WS-TEXT34 = "NEW-";
+  if (AIN24W-UNIN-NEW.WS-FS-CNTBL-AMT == 0)
+    AIN24W-UNIN-W1.WS-VALU34 = " ";
+  else
+    set FORMATW empty;
+    FORMATW.INPUT-NUMBER = AIN24W-UNIN-NEW.WS-FS-CNTBL-AMT;
+    FORMATW.LENGTH = 8;
+    FORMATW.DEC-COUNT = 2;
+    FORMATW.FORMAT-FLAG = "Y";
+    FORMATW.DOLLAR-FLAG = "N";
+    REPP9-FORMAT-PROC();
+    AIN24W-UNIN-W1.WS-VALU34 = FORMATW.OUTPUT-CHAR;
+  end
+  /* **/
+end // end AIN24P9-UNIN-SLOG
+
+
+// Build FCH record for update
+Function AIN24P9-UPD-FCH()
+  /* *********************************************************************/
+  /* This process acts as a control process for the update on          **/
+  /* TWNFAM_CASE_HSTRY                                                 **/
+  /* *********************************************************************/
   /*  */
-  /* END KEY SETTING PROCESS*/
+  /* Perform the process for standard database app initialisation*/
   /*  */
-  /* Perform the process to declare the cursor on the table*/
-  /* TWNMEDICARE_INFO*/
+  WDB00PI();
   /*  */
-  AIN24P9-MDI-SETUPD();
+  /* Set the values for access type and application name*/
+  /*  */
+  VDBCONTROL.UACCTYP = "W";
+  VDBCOMMON.UAPPLNAM = "AIN24A";
+  /*  */
+  /* Perform the process to update TWNFAM_CASE_HSTRY*/
+  /*  */
+  AIN24P9-UPD-U05();
+  /*  */
+  /* Perform the process for sql error processing*/
+  /*  */
+  WDB00PE-SQLERR();
   /*  */
   /* Check for fatal errors*/
   /*  */
   if (VDBCONTROL.URC > 104)
     WCM00P2-TO-CEP01A();
   end
-  /*  */
-  /* If record found in TWNMEDICARE_INFO*/
-  /*  */
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-
-    AIN24P9-MEDI-OLD(); /* WI 27488*/
-
-    AIN24W.WS-EXP-SQ-NMB = H2-MEDICARE-INFO.EXP-SQ-NMB;
-  /* ***** changes due to release I -system testing begin *********/
-  /* Set the flag for medi rec exists*/
-  /*  */
-    AIN24W.WS-MEDI-REC-EXISTS = "Y";
-  /*  */
-  /* Perform the process to check the period end date values*/
-  /*  */
-    AIN24P9-CHK-PRD-DT();
-  /*  */
-  /* ****** changes due to release I - system testing end ********/
-  else
-  /*  */
-  /* check for an row which is not open ended exit from the process*/
-  /*  */
-    H3-MEDICARE-INFO.UPI = SR-QAIN24-INP-REC.B-UPI;
-    /* MOVE AIN24W.WS-PT-B-BEG-DT TO H2-MEDICARE-INFO.PRD-BEG-DT;*/
-    AIN24P9-CHK-MEDHST();
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-    if (sysVar.sqlData.sqlcode == 00000000)
-      /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
-      PCALINP.PAL-ALERT-CD = 129020;
-
-      set H2-3-CMH-FCH-PER empty;
-      H2-3-CMH-FCH-PER.UPI = SR-QAIN24-INP-REC.B-UPI;
-
-      AIN24P9-ALERT-GEN();
-      return;
-    end
-  /*  */
-  /*  */
-  /* Increment the value for sequence number*/
-  /*  */
-    AIN24W.WS-EXP-SQ-NMB = 1;
-  end
-  /* The EXP_SQ_NMB has to be populated in the table*/
-  /*  */
-  H2-MEDICARE-INFO.EXP-SQ-NMB = AIN24W.WS-EXP-SQ-NMB;
-  /*  */
-  /* Perform medi claim process*/
-  /*  */
-  AIN24P9-MEDCLM();
-  /*  */
-  H2-MEDICARE-INFO.RRB-NMB = SR-QAIN24-INP-REC.B-RR-CLAIM-NBR;
-  /* MOVE SR-QAIN24-INP-REC.B-RR-CLAIM-NBR TO AIN24W.WS-RR-CLAIM-NUMBER;*/
-  /* MOVE AIN24W.WS-RR-CLAIM-NUMBER-2 TO H2-MEDICARE-INFO.RRB-NMB;*/
-
-  /*  */
-  /* ****** changes due to release I - system testing end ***********/
-  /*  */
-  /* If the premium amount values do not match. set the alert indicator*/
-  /* and update the table TWNMEDICARE_INFO with the reported amount*/
-  /*  */
-  if (H2-MEDICARE-INFO.PART-B-PREM-AMT != 
-  SR-QAIN24-INP-REC.B-SMI-PREMIUM-AMT)
-  /*  */
-  /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
-  /*  */
-    H2-MEDICARE-INFO.PART-B-PREM-AMT = SR-QAIN24-INP-REC.B-SMI-PREMIUM-AMT;
-  end
-  /*  */
-  AIN24P9-GSMIPAY();
-  /*  */
-  if (AIN24W.WS-SMI-PREMIUM-PAYER >= "0" && 
-  AIN24W.WS-SMI-PREMIUM-PAYER <= "99999")
-    if (AIN24W.WS-NUM-CHECK-FLG != "Y")
-  /*  */
-  /* For the WS-SMI-PREMIUM-PAYER-R,get the corresponding alpha*/
-  /* state code FORM THE SMIPYRCD code table*/
-  /*  */
-  /* Set the sql row record empty*/
-  /*  */
-      set H2-CODE-TBL empty;
-  /*  */
-  /* MOve the retreive key value to the sql row record*/
-  /*  */
-      H2-CODE-TBL.CODE-TBL-CD = AIN24W.WS-SMI-PREMIUM-PAYER;
-      H2-CODE-TBL.CODE-TBL-TYP = "SMIPYRCD";
-  /*  */
-  /* Perform the process to read the table TWNCODE_TBL*/
-  /*  */
-      AIN24P9-CDT-INQ();
-  /*  */
-  /* If record found*/
-  /*  */
-      if (sysVar.sqlData.sqlcode == 0)
-  /*  */
-  /* MOve the fetched value to the sql row record of TWNMEDICARE_INFO*/
-  /*  */
-        H2-MEDICARE-INFO.PART-B-PAYOR-ST-CD = H2-CODE-TBL.CODE-DESC;
-      else
-  /*  */
-  /* Check for fatal errors*/
-  /*  */
-        if (VDBCONTROL.URC >= 104)
-          WCM00P2-TO-CEP01A();
-        end
-      end
-    end
-  end
-  /*  */
-  if (H2-MEDICARE-INFO.PART-A-PREM-AMT != 
-  SR-QAIN24-INP-REC.B-HOSP-PREMIUM-AMT)
-    /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
-    H2-MEDICARE-INFO.PART-A-PREM-AMT = SR-QAIN24-INP-REC.B-HOSP-PREMIUM-AMT;
-  end
-  /* ptr 10469 change the payor-cd to y (not f) ------ 03/11/97 ---*/
-  if (SR-QAIN24-INP-REC.B-CLAIM-BIC != "M" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "J3" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "J4" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "K3" && 
-  SR-QAIN24-INP-REC.B-CLAIM-BIC != "K4")
-    H2-MEDICARE-INFO.PART-A-PAYOR-CD = "Y";
-  end
-  /*  */
-  AIN24P9-CHKRCR();
-  /*  */
-  /* ----------CHANGES DUE TO PHASE III REWORK START----------*/
-  /* Need to update when record exists and to create when there is*/
-  /* no record*/
-  /*  */
-
-  /* IF H2-MEDICARE-INFO.PART-B-BEG-DT = ' ' /* WI 23413*/
-  /* AND H2-MEDICARE-INFO.PART-B-BEG-DT = '9999-12-31' /* WI 23413*/
-  if (H2-MEDICARE-INFO.PART-B-BEG-DT == " "          
-   || H2-MEDICARE-INFO.PART-B-BEG-DT == "9999-12-31" /* WI 23413*/
-   && AIN24W.WS-PT-B-BEG-DT != "9999-12-31"          
-   && AIN24W.WS-PT-B-BEG-DT != "0001-01-01"          
-   && AIN24W.WS-PT-B-BEG-DT != " ")                 
-    H2-MEDICARE-INFO.PART-B-BEG-DT = AIN24W.WS-PT-B-BEG-DT;
-  end
-
-  /* IF H2-MEDICARE-INFO.PART-B-END-DT = ' '/* WI 23413*/
-  /* AND H2-MEDICARE-INFO.PART-B-END-DT = '9999-12-31' /* WI 23413*/
-  if (H2-MEDICARE-INFO.PART-B-END-DT == " "          
-   || H2-MEDICARE-INFO.PART-B-END-DT == "9999-12-31" /* WI 23413*/
-   && AIN24W.WS-PT-B-END-DT != "9999-12-31"          
-   && AIN24W.WS-PT-B-END-DT != "0001-01-01"          
-   && AIN24W.WS-PT-B-END-DT != " ")                 
-    H2-MEDICARE-INFO.PART-B-END-DT = AIN24W.WS-PT-B-END-DT;
-  end
-
-  /* IF H2-MEDICARE-INFO.PART-A-BEG-DT = ' '/* WI 23413*/
-  /* AND H2-MEDICARE-INFO.PART-A-BEG-DT = '9999-12-31' /* WI 23413*/
-  if (H2-MEDICARE-INFO.PART-A-BEG-DT == " "          
-   || H2-MEDICARE-INFO.PART-A-BEG-DT == "9999-12-31" /* WI 23413*/
-   && AIN24W.WS-PT-A-BEG-DT != "9999-12-31"          
-   && AIN24W.WS-PT-A-BEG-DT != "0001-01-01"          
-   && AIN24W.WS-PT-A-BEG-DT != " ")                 
-    H2-MEDICARE-INFO.PART-A-BEG-DT = AIN24W.WS-PT-A-BEG-DT;
-  end
-
-  /* IF H2-MEDICARE-INFO.PART-A-END-DT = ' ' /* WI 23413*/
-  /* AND H2-MEDICARE-INFO.PART-A-END-DT = '9999-12-31' /* WI 23413*/
-  if (H2-MEDICARE-INFO.PART-A-END-DT == " "          
-   || H2-MEDICARE-INFO.PART-A-END-DT == "9999-12-31" /* WI 23413*/
-   && AIN24W.WS-PT-A-END-DT != "9999-12-31"          
-   && AIN24W.WS-PT-A-END-DT != "0001-01-01"          
-   && AIN24W.WS-PT-A-END-DT != " ")                 
-    H2-MEDICARE-INFO.PART-A-END-DT = AIN24W.WS-PT-A-END-DT;
-  end
-
-  /*  */
-  if (AIN24W.WS-MEDI-REC-EXISTS == "Y")
-    H2-MEDICARE-INFO.ME-EXP-VERF-BY = "BENDEX"; /* WI 27488*/
-  /*  */
-   /* Perform update operation on TWNMEDICARE_INFO*/
-  /*  */
-    AIN24P9-MDI-UPDATE();
-
-  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
-  /* IF EZESQCOD = 0;*/
-  /* PERFORM AIN24P9-MEDI-NEW;*/
-  /* PERFORM AIN24P9-MEDI-SLOG;*/
-  /* PERFORM AIN24P9-INSMDI-FSL;*/
-  /* END;*/
-  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
-
-  /* ****************** WI 23413:WNMLS:2003-05-01 START *******************/
-    if (sysVar.sqlData.sqlcode == 0)
-      AIN24W.WS-PERF-AIF25-FG = "Y";
-    end
-  /* ****************** WI 23413:WNMLS:2003-05-01 END *********************/
-  /*  */
-  /* Check for fatal errors*/
-  /*  */
-    if (VDBCONTROL.URC > 104)
-      WCM00P2-TO-CEP01A();
-    end
-  /* ** START WI 21582 ****/
-    AIN24W.WS-MEDICARE-UPDATE = "Y";
-    AIN24W.WS-ALERT-IND = "Y";
-  /* ** END WI 21582 ****/
-
-  /*  */
-  else
-  /*  */
-  /* Perform insert operation on TWNMEDICARE_INFO*/
-  /* ptr 9590 add an eligibility check to person --- 02/05/97 ---*/
-  /* ptr 10171 ADD VERF SOURCE&CD&DT TO ROW      --- 02/20/97 ---*/
-  /* WI 16046 DO NOT WRITE A DUPLICATE COVERAGE ROW 05/15/99 ---*/
-    if (AIN24W.WS-MEDI-REC-EXISTS == "N")
-      AIN24W.WS-ELIG-IND = "Y";
-      H2-MEDICARE-INFO.FS-CNTBL-IND = " ";
-      H2-MEDICARE-INFO.ME-EXP-VERF-CD = "Y";
-      H2-MEDICARE-INFO.ME-EXP-VERF-BY = "BENDEX";
-      H2-MEDICARE-INFO.PRD-END-DT = "9999-12-31";
-      AIN24P9-MDI-INSERT();
-
-  /* ****************** WI 27488:WNMLS:2005-09-01 START *******************/
-  /* IF EZESQCOD = 0;*/
-  /* PERFORM AIN24P9-MEDI-NEW;*/
-  /* PERFORM AIN24P9-MEDI-SLOG;*/
-  /* PERFORM AIN24P9-INSMDI-FSL;*/
-  /* END;*/
-  /* ****************** WI 27488:WNMLS:2005-09-01 END *********************/
-
-  /* ** START WI 21582 ****/
-      AIN24W.WS-MEDICARE-UPDATE = "Y";
-      AIN24W.WS-ALERT-IND = "Y";
-  /* ** END WI 21582 ****/
-
-  /* ****************** WI 23413:WNMLS:2003-05-01 START *******************/
-      if (sysVar.sqlData.sqlcode == 0)
-        AIN24W.WS-PERF-AIF25-FG = "Y";
-      end
-  /* ****************** WI 23413:WNMLS:2003-05-01 END *********************/
-  /*  */
-  /* Check for fatal errors*/
-  /*  */
-      if (VDBCONTROL.URC > 104)
-        WCM00P2-TO-CEP01A();
-      end
-    end
-  end
-end // end AIN24P9-MEDI
-
-
-// POP WS WITH NEW MEDI VALS
-Function AIN24P9-MEDI-NEW()
-  /*  */
-
-  AIN24W-MEDI-NEW.WS-MEDCR-PRSN-SSN = H2-MEDICARE-INFO.MEDCR-PRSN-SSN;
-
-  AIN24W-MEDI-NEW.WS-MEDCR-CLAIM-SUFX = H2-MEDICARE-INFO.MEDCR-CLAIM-SUFX;
-
-  AIN24W-MEDI-NEW.WS-PART-A-BEG-DT = H2-MEDICARE-INFO.PART-A-BEG-DT;
-
-  AIN24W-MEDI-NEW.WS-PART-A-END-DT = H2-MEDICARE-INFO.PART-A-END-DT;
-
-  AIN24W-MEDI-NEW.WS-PART-A-PREM-AMT = H2-MEDICARE-INFO.PART-A-PREM-AMT;
-
-  AIN24W-MEDI-NEW.WS-PART-A-PAYOR-CD = H2-MEDICARE-INFO.PART-A-PAYOR-CD;
-
-  AIN24W-MEDI-NEW.WS-PART-A-PAYOR-ST-CD = H2-MEDICARE-INFO.PART-A-PAYOR-ST-CD;
-
-  AIN24W-MEDI-NEW.WS-PART-B-BEG-DT = H2-MEDICARE-INFO.PART-B-BEG-DT;
-
-  AIN24W-MEDI-NEW.WS-PART-B-END-DT = H2-MEDICARE-INFO.PART-B-END-DT;
-
-  AIN24W-MEDI-NEW.WS-PART-B-PREM-AMT = H2-MEDICARE-INFO.PART-B-PREM-AMT;
-
-  AIN24W-MEDI-NEW.WS-PART-B-PAYOR-CD = H2-MEDICARE-INFO.PART-B-PAYOR-CD;
-
-  AIN24W-MEDI-NEW.WS-PART-B-PAYOR-ST-CD = H2-MEDICARE-INFO.PART-B-PAYOR-ST-CD;
-
-  AIN24W-MEDI-NEW.WS-PRD-END-DT = H2-MEDICARE-INFO.PRD-END-DT;
-
-  AIN24W-MEDI-NEW.WS-HOSP-COVRG-LOST-DT = H2-MEDICARE-INFO.HOSP-COVRG-LOST-DT;
-
-  AIN24W-MEDI-NEW.WS-RRB-NMB = H2-MEDICARE-INFO.RRB-NMB;
-
-  AIN24W-MEDI-NEW.WS-RECUR-IND = H2-MEDICARE-INFO.RECUR-IND;
-
-  AIN24W-MEDI-NEW.WS-MA-CNTBL-CD = H2-MEDICARE-INFO.MA-CNTBL-CD;
-
-  AIN24W-MEDI-NEW.WS-FS-CNTBL-IND = H2-MEDICARE-INFO.FS-CNTBL-IND;
-
-  AIN24W-MEDI-NEW.WS-MB-ELIG-IND = H2-MEDICARE-INFO.MB-ELIG-IND;
-
-  /*  */
-end // end AIN24P9-MEDI-NEW
-
-
-// POP WS WITH EXIST MEDI VALS
-Function AIN24P9-MEDI-OLD()
-  /*  */
-
-  AIN24W-MEDI-OLD.WS-MEDCR-PRSN-SSN = H2-MEDICARE-INFO.MEDCR-PRSN-SSN;
-
-  AIN24W-MEDI-OLD.WS-MEDCR-CLAIM-SUFX = H2-MEDICARE-INFO.MEDCR-CLAIM-SUFX;
-
-  AIN24W-MEDI-OLD.WS-PART-A-BEG-DT = H2-MEDICARE-INFO.PART-A-BEG-DT;
-
-  AIN24W-MEDI-OLD.WS-PART-A-END-DT = H2-MEDICARE-INFO.PART-A-END-DT;
-
-  AIN24W-MEDI-OLD.WS-PART-A-PREM-AMT = H2-MEDICARE-INFO.PART-A-PREM-AMT;
-
-  AIN24W-MEDI-OLD.WS-PART-A-PAYOR-CD = H2-MEDICARE-INFO.PART-A-PAYOR-CD;
-
-  AIN24W-MEDI-OLD.WS-PART-A-PAYOR-ST-CD = H2-MEDICARE-INFO.PART-A-PAYOR-ST-CD;
-
-  AIN24W-MEDI-OLD.WS-PART-B-BEG-DT = H2-MEDICARE-INFO.PART-B-BEG-DT;
-
-  AIN24W-MEDI-OLD.WS-PART-B-END-DT = H2-MEDICARE-INFO.PART-B-END-DT;
-
-  AIN24W-MEDI-OLD.WS-PART-B-PREM-AMT = H2-MEDICARE-INFO.PART-B-PREM-AMT;
-
-  AIN24W-MEDI-OLD.WS-PART-B-PAYOR-CD = H2-MEDICARE-INFO.PART-B-PAYOR-CD;
-
-  AIN24W-MEDI-OLD.WS-PART-B-PAYOR-ST-CD = H2-MEDICARE-INFO.PART-B-PAYOR-ST-CD;
-
-  AIN24W-MEDI-OLD.WS-PRD-END-DT = H2-MEDICARE-INFO.PRD-END-DT;
-
-  AIN24W-MEDI-OLD.WS-HOSP-COVRG-LOST-DT = H2-MEDICARE-INFO.HOSP-COVRG-LOST-DT;
-
-  AIN24W-MEDI-OLD.WS-RRB-NMB = H2-MEDICARE-INFO.RRB-NMB;
-
-  AIN24W-MEDI-OLD.WS-RECUR-IND = H2-MEDICARE-INFO.RECUR-IND;
-
-  AIN24W-MEDI-OLD.WS-MA-CNTBL-CD = H2-MEDICARE-INFO.MA-CNTBL-CD;
-
-  AIN24W-MEDI-OLD.WS-FS-CNTBL-IND = H2-MEDICARE-INFO.FS-CNTBL-IND;
-
-  AIN24W-MEDI-OLD.WS-MB-ELIG-IND = H2-MEDICARE-INFO.MB-ELIG-IND;
-
-  /*  */
-end // end AIN24P9-MEDI-OLD
-
-
-// Create Scrn-level CLOG records
-Function AIN24P9-MEDI-SLOG()
-  /* ******************* WI 27488 NEW ***************************************/
-  /*  */
-  /* BUYIN logic addition*/
-
-  /* * BUILDING AUTO TEXT CLOG:LINE1*/
-
-  AIN24W11.WS-TEXT11 = "CNT FS/MA:OLD-";
-  AIN24W11.WS-VALU12 = AIN24W-MEDI-OLD.WS-FS-CNTBL-IND;
-  AIN24W11.WS-TEXT13 = "/";
-  AIN24W11.WS-VALU13 = AIN24W-MEDI-OLD.WS-MA-CNTBL-CD;
-  AIN24W11.WS-FILL13 = " ";
-  AIN24W11.WS-TEXT14 = "NEW-";
-  AIN24W11.WS-VALU15 = AIN24W-MEDI-NEW.WS-FS-CNTBL-IND;
-  AIN24W11.WS-TEXT16 = "/";
-  AIN24W11.WS-VALU16 = AIN24W-MEDI-NEW.WS-MA-CNTBL-CD;
-  AIN24W11.WS-FILL16 = " ";
-
-  AIN24W11.WS-TEXT17 = "CLM#:OLD-";
-
-
-  AIN24W11.WS-MED-CLMCAN1 = AIN24W-MEDI-OLD.WS-MEDCR-PRSN-SSN-1;
-  AIN24W11.WS-MED-CLMCAN2 = AIN24W-MEDI-OLD.WS-MEDCR-PRSN-SSN-2;
-  AIN24W11.WS-MED-CLMCAN3 = AIN24W-MEDI-OLD.WS-MEDCR-PRSN-SSN-3;
-  AIN24W11.WS-MED-CLMBIC = AIN24W-MEDI-OLD.WS-MEDCR-CLAIM-SUFX;
-  AIN24W11.WS-VALU17 = AIN24W11.WS-MED-CLMNMB;
-
-  AIN24W11.WS-FILL17 = " ";
-  AIN24W11.WS-TEXT18 = "NEW-";
-
-  AIN24W11.WS-MED-CLMCAN1 = AIN24W-MEDI-NEW.WS-MEDCR-PRSN-SSN-1;
-  AIN24W11.WS-MED-CLMCAN2 = AIN24W-MEDI-NEW.WS-MEDCR-PRSN-SSN-2;
-  AIN24W11.WS-MED-CLMCAN3 = AIN24W-MEDI-NEW.WS-MEDCR-PRSN-SSN-3;
-  AIN24W11.WS-MED-CLMBIC = AIN24W-MEDI-NEW.WS-MEDCR-CLAIM-SUFX;
-  AIN24W11.WS-VALU18 = AIN24W11.WS-MED-CLMNMB;
-  AIN24W11.WS-FILL18 = " ";
-
-  /* * BUILDING AUTO TEXT CLOG:LINE2*/
-
-  AIN24W11.WS-TEXT21 = "PA BGDT/ENDT:OLD-{";
-  AIN24W11.WS-VALU21 = AIN24W-MEDI-OLD.WS-PART-A-BEG-DT-MM;
-  AIN24W11.WS-TEXT22 = "/";
-  AIN24W11.WS-VALU22 = AIN24W-MEDI-OLD.WS-PART-A-BEG-DT-DD;
-  AIN24W11.WS-TEXT23 = "/";
-  AIN24W11.WS-VALU23 = AIN24W-MEDI-OLD.WS-PART-A-BEG-DT-YY;
-
-  AIN24W11.WS-TEXT24 = "}/{";
-  AIN24W11.WS-VALU24 = AIN24W-MEDI-OLD.WS-PART-A-END-DT-MM;
-  AIN24W11.WS-TEXT25 = "/";
-  AIN24W11.WS-VALU25 = AIN24W-MEDI-OLD.WS-PART-A-END-DT-DD;
-  AIN24W11.WS-TEXT26 = "/";
-  AIN24W11.WS-VALU26 = AIN24W-MEDI-OLD.WS-PART-A-END-DT-YY;
-  AIN24W11.WS-TEXT27 = "}";
-  AIN24W11.WS-FILL26 = " ";
-
-  AIN24W11.WS-TEXT28 = "NEW-{";
-  AIN24W11.WS-VALU28 = AIN24W-MEDI-NEW.WS-PART-A-BEG-DT-MM;
-  AIN24W11.WS-TEXT29 = "/";
-  AIN24W11.WS-VALU29 = AIN24W-MEDI-NEW.WS-PART-A-BEG-DT-DD;
-  AIN24W11.WS-TEXT30 = "/";
-  AIN24W11.WS-VALU30 = AIN24W-MEDI-NEW.WS-PART-A-BEG-DT-YY;
-
-  AIN24W11.WS-TEXT31 = "}/{";
-  AIN24W11.WS-VALU31 = AIN24W-MEDI-NEW.WS-PART-A-END-DT-MM;
-  AIN24W11.WS-TEXT32 = "/";
-  AIN24W11.WS-VALU32 = AIN24W-MEDI-NEW.WS-PART-A-END-DT-DD;
-  AIN24W11.WS-TEXT33 = "/";
-  AIN24W11.WS-VALU33 = AIN24W-MEDI-NEW.WS-PART-A-END-DT-YY;
-  AIN24W11.WS-TEXT34 = "}";
-
-  /* * BUILDING AUTO TEXT CLOG:LINE3*/
-
-  AIN24W11.WS-TEXT35 = "PA AMT/PY/ST:OLD-";
-
-  if (AIN24W-MEDI-OLD.WS-PART-A-PREM-AMT == 0)
-    AIN24W11.WS-VALU35 = " ";
-  else
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN24W-MEDI-OLD.WS-PART-A-PREM-AMT;
-    FORMATW.LENGTH = 8;
-    FORMATW.DEC-COUNT = 2;
-    FORMATW.FORMAT-FLAG = "Y";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN24W11.WS-VALU35 = FORMATW.OUTPUT-CHAR;
-  end
-
-  AIN24W11.WS-TEXT36 = "/";
-  AIN24W11.WS-VALU36 = AIN24W-MEDI-OLD.WS-PART-A-PAYOR-CD;
-  AIN24W11.WS-TEXT37 = "/";
-  AIN24W11.WS-VALU37 = AIN24W-MEDI-OLD.WS-PART-A-PAYOR-ST-CD;
-  AIN24W11.WS-FILL37 = " ";
-
-  AIN24W11.WS-TEXT38 = "NEW-";
-  if (AIN24W-MEDI-NEW.WS-PART-A-PREM-AMT == 0)
-    AIN24W11.WS-VALU38 = " ";
-  else
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN24W-MEDI-NEW.WS-PART-A-PREM-AMT;
-    FORMATW.LENGTH = 8;
-    FORMATW.DEC-COUNT = 2;
-    FORMATW.FORMAT-FLAG = "Y";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN24W11.WS-VALU38 = FORMATW.OUTPUT-CHAR;
-  end
-
-  AIN24W11.WS-TEXT39 = "/";
-  AIN24W11.WS-VALU39 = AIN24W-MEDI-NEW.WS-PART-A-PAYOR-CD;
-  AIN24W11.WS-TEXT40 = "/";
-  AIN24W11.WS-VALU40 = AIN24W-MEDI-NEW.WS-PART-A-PAYOR-ST-CD;
-  AIN24W11.WS-FILL38 = " ";
-
-  /* **********************************************************************/
-  /* Capture data for 3 more lines of TWNFAM_STAT_LOG data*/
-  /* **********************************************************************/
-
-  /* * BUILDING AUTO TEXT CLOG:LINE1*/
-
-  AIN24W12.WS-TEXT21 = "PB BGDT/ENDT:OLD-{";
-  AIN24W12.WS-VALU21 = AIN24W-MEDI-OLD.WS-PART-B-BEG-DT-MM;
-  AIN24W12.WS-TEXT22 = "/";
-  AIN24W12.WS-VALU22 = AIN24W-MEDI-OLD.WS-PART-B-BEG-DT-DD;
-  AIN24W12.WS-TEXT23 = "/";
-  AIN24W12.WS-VALU23 = AIN24W-MEDI-OLD.WS-PART-B-BEG-DT-YY;
-
-  AIN24W12.WS-TEXT24 = "}/{";
-  AIN24W12.WS-VALU24 = AIN24W-MEDI-OLD.WS-PART-B-END-DT-MM;
-  AIN24W12.WS-TEXT25 = "/";
-  AIN24W12.WS-VALU25 = AIN24W-MEDI-OLD.WS-PART-B-END-DT-DD;
-  AIN24W12.WS-TEXT26 = "/";
-  AIN24W12.WS-VALU26 = AIN24W-MEDI-OLD.WS-PART-B-END-DT-YY;
-  AIN24W12.WS-TEXT27 = "}";
-  AIN24W12.WS-FILL26 = " ";
-
-  AIN24W12.WS-TEXT28 = "NEW-{";
-  AIN24W12.WS-VALU28 = AIN24W-MEDI-NEW.WS-PART-B-BEG-DT-MM;
-  AIN24W12.WS-TEXT29 = "/";
-  AIN24W12.WS-VALU29 = AIN24W-MEDI-NEW.WS-PART-B-BEG-DT-DD;
-  AIN24W12.WS-TEXT30 = "/";
-  AIN24W12.WS-VALU30 = AIN24W-MEDI-NEW.WS-PART-B-BEG-DT-YY;
-
-  AIN24W12.WS-TEXT31 = "}/{";
-  AIN24W12.WS-VALU31 = AIN24W-MEDI-NEW.WS-PART-B-END-DT-MM;
-  AIN24W12.WS-TEXT32 = "/";
-  AIN24W12.WS-VALU32 = AIN24W-MEDI-NEW.WS-PART-B-END-DT-DD;
-  AIN24W12.WS-TEXT33 = "/";
-  AIN24W12.WS-VALU33 = AIN24W-MEDI-NEW.WS-PART-B-END-DT-YY;
-  AIN24W12.WS-TEXT34 = "}";
-
-  /* * BUILDING AUTO TEXT CLOG:LINE2*/
-
-  AIN24W12.WS-TEXT35 = "PB AMT/PY/ST:OLD-";
-
-  if (AIN24W-MEDI-OLD.WS-PART-B-PREM-AMT == 0)
-    AIN24W12.WS-VALU35 = " ";
-  else
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN24W-MEDI-OLD.WS-PART-B-PREM-AMT;
-    FORMATW.LENGTH = 8;
-    FORMATW.DEC-COUNT = 2;
-    FORMATW.FORMAT-FLAG = "Y";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN24W12.WS-VALU35 = FORMATW.OUTPUT-CHAR;
-  end
-
-  AIN24W12.WS-TEXT36 = "/";
-  AIN24W12.WS-VALU36 = AIN24W-MEDI-OLD.WS-PART-B-PAYOR-CD;
-  AIN24W12.WS-TEXT37 = "/";
-  AIN24W12.WS-VALU37 = AIN24W-MEDI-OLD.WS-PART-B-PAYOR-ST-CD;
-  AIN24W12.WS-FILL37 = " ";
-
-  AIN24W12.WS-TEXT38 = "NEW-";
-  if (AIN24W-MEDI-NEW.WS-PART-B-PREM-AMT == 0)
-    AIN24W12.WS-VALU38 = " ";
-  else
-    set FORMATW empty;
-    FORMATW.INPUT-NUMBER = AIN24W-MEDI-NEW.WS-PART-B-PREM-AMT;
-    FORMATW.LENGTH = 8;
-    FORMATW.DEC-COUNT = 2;
-    FORMATW.FORMAT-FLAG = "Y";
-    FORMATW.DOLLAR-FLAG = "N";
-    REPP9-FORMAT-PROC();
-    AIN24W12.WS-VALU38 = FORMATW.OUTPUT-CHAR;
-  end
-
-  AIN24W12.WS-TEXT39 = "/";
-  AIN24W12.WS-VALU39 = AIN24W-MEDI-NEW.WS-PART-B-PAYOR-CD;
-  AIN24W12.WS-TEXT40 = "/";
-  AIN24W12.WS-VALU40 = AIN24W-MEDI-NEW.WS-PART-B-PAYOR-ST-CD;
-  AIN24W12.WS-FILL38 = " ";
-
-  /* * BUILDING AUTO TEXT CLOG:LINE3*/
-
-  AIN24W12.WS-TEXT41 = "QMB/QDWI/SLMB:OLD-";
-  /* MOVE ASO37W.WS-QMB TO AIN24W12.WS-VALU41;*/
-  AIN24W12.WS-VALU41 = " ";
-  AIN24W12.WS-TEXT42 = "/";
-  /* MOVE ASO37W.WS-QDWI TO AIN24W12.WS-VALU42;*/
-  AIN24W12.WS-VALU42 = " ";
-  AIN24W12.WS-TEXT43 = "/";
-  /* MOVE ASO37W.WS-SLMB TO AIN24W12.WS-VALU43;*/
-  AIN24W12.WS-VALU43 = " ";
-  AIN24W12.WS-FILL39 = " ";
-
-  AIN24W12.WS-TEXT44 = "NEW-";
-  /* MOVE WCM00MAP.S-QMB TO AIN24W12.WS-VALU44;*/
-  AIN24W12.WS-VALU44 = " ";
-  AIN24W12.WS-TEXT45 = "/";
-  AIN24W12.WS-VALU45 = " ";
-  AIN24W12.WS-TEXT46 = "/";
-  AIN24W12.WS-VALU46 = " ";
-  AIN24W12.WS-FILL40 = " ";
-
-  AIN24W12.WS-TEXT47 = "RECUR:OLD-";
-  AIN24W12.WS-VALU47 = AIN24W-MEDI-OLD.WS-RECUR-IND;
-  AIN24W12.WS-FILL41 = " ";
-  AIN24W12.WS-TEXT48 = "NEW-";
-  AIN24W12.WS-VALU48 = AIN24W-MEDI-NEW.WS-RECUR-IND;
-  AIN24W12.WS-FILL42 = " ";
-
-  /* **********************************************************************/
-  /* Capture data for 3 more lines of TWNFAM_STAT_LOG data*/
-  /* **********************************************************************/
-
-  /* * BUILDING AUTO TEXT CLOG:LINE1*/
-
-  AIN24W14.WS-TEXT49 = "BUYIN:OLD-";
-  AIN24W14.WS-VALU49 = " ";
-  AIN24W14.WS-FILL43 = " ";
-  AIN24W14.WS-TEXT50 = "NEW-";
-  /* MOVE WCM00MAP.S-BUYIN TO AIN24W14.WS-VALU50;*/
-  AIN24W14.WS-VALU50 = " ";
-  AIN24W14.WS-FILL44 = " ";
-
-  AIN24W14.WS-TEXT52 = "EFFDT:OLD-";
-  /* MOVE ASO37W.WS-EFF-DT-MM TO AIN24W14.WS-VALU52;*/
-  AIN24W14.WS-VALU52 = " ";
-  AIN24W14.WS-TEXT53 = "/";
-  AIN24W14.WS-VALU53 = " ";
-  AIN24W14.WS-TEXT54 = "/";
-  /* MOVE ASO37W.WS-EFF-DT-YY TO AIN24W14.WS-CCYY;*/
-  /* MOVE AIN24W14.WS-YY TO AIN24W14.WS-VALU54;*/
-  AIN24W14.WS-VALU54 = " ";
-  AIN24W14.WS-FILL45 = " ";
-
-  AIN24W14.WS-TEXT55 = "NEW-";
-  /* MOVE WCM00MAP.S-EFF-DT-MM TO AIN24W14.WS-VALU55;*/
-  AIN24W14.WS-VALU55 = " ";
-  AIN24W14.WS-TEXT56 = "/";
-  /* MOVE WCM00MAP.S-EFF-DT-DD TO AIN24W14.WS-VALU56;*/
-  AIN24W14.WS-VALU56 = " ";
-  AIN24W14.WS-TEXT57 = "/";
-  /* MOVE WCM00MAP.S-EFF-DT-YY TO AIN24W14.WS-CCYY;*/
-  /* MOVE AIN24W14.WS-YY TO AIN24W14.WS-VALU57;*/
-  AIN24W14.WS-VALU57 = " ";
-  AIN24W14.WS-FILL46 = " ";
-
-  /* * BUILDING AUTO TEXT CLOG:LINE2*/
-
-  AIN24W14.WS-TEXT58 = "RRBN:OLD-";
-  AIN24W14.WS-VALU58 = AIN24W-MEDI-OLD.WS-RRB-NMB;
-  AIN24W14.WS-FILL47 = " ";
-  AIN24W14.WS-TEXT59 = "NEW-";
-  AIN24W14.WS-VALU59 = AIN24W-MEDI-NEW.WS-RRB-NMB;
-  AIN24W14.WS-FILL48 = " ";
-
-  AIN24W14.WS-TEXT60 = "ELIG-MB:OLD-";
-  AIN24W14.WS-VALU60 = AIN24W-MEDI-OLD.WS-MB-ELIG-IND;
-  AIN24W14.WS-FILL49 = " ";
-  AIN24W14.WS-TEXT61 = "NEW-";
-  AIN24W14.WS-VALU61 = AIN24W-MEDI-NEW.WS-MB-ELIG-IND;
-  AIN24W14.WS-FILL50 = " ";
-
-  /* * BUILDING AUTO TEXT CLOG:LINE3*/
-
-  AIN24W14.WS-TEXT62 = "VFY:OLD-";
-  /* MOVE AIN24W-MEDI-OLD.WS-ME-EXP-VERF-CD TO*/
-  /* AIN24W14.WS-VALU62;*/
-  AIN24W14.WS-VALU62 = " ";
-  AIN24W14.WS-FILL51 = " ";
-  AIN24W14.WS-TEXT63 = "NEW-";
-  /* MOVE AIN24W-MEDI-NEW.WS-ME-EXP-VERF-CD TO*/
-  /* AIN24W14.WS-VALU63;*/
-  AIN24W14.WS-VALU63 = " ";
-  AIN24W14.WS-FILL52 = " ";
-
-  AIN24W14.WS-TEXT64 = "HOSP-CVGL:OLD-";
-  AIN24W14.WS-VALU64 = AIN24W-MEDI-OLD.WS-HOSP-COVRG-LOST-DT-MM;
-  AIN24W14.WS-TEXT65 = "/";
-  AIN24W14.WS-VALU65 = AIN24W-MEDI-OLD.WS-HOSP-COVRG-LOST-DT-DD;
-  AIN24W14.WS-TEXT66 = "/";
-  /* MOVE ASO37W.WS-HOS-CVL-DT-YY TO AIN24W14.WS-CCYY;*/
-  AIN24W14.WS-VALU66 = AIN24W-MEDI-OLD.WS-HOSP-COVRG-LOST-DT-YY;
-  AIN24W14.WS-FILL53 = " ";
-
-  AIN24W14.WS-TEXT67 = "NEW-";
-  AIN24W14.WS-VALU67 = AIN24W-MEDI-NEW.WS-HOSP-COVRG-LOST-DT-MM;
-  AIN24W14.WS-TEXT68 = "/";
-  AIN24W14.WS-VALU68 = AIN24W-MEDI-NEW.WS-HOSP-COVRG-LOST-DT-DD;
-  AIN24W14.WS-TEXT69 = "/";
-  AIN24W14.WS-VALU69 = AIN24W-MEDI-NEW.WS-HOSP-COVRG-LOST-DT-YY;
-  AIN24W14.WS-FILL54 = " ";
-
-  /* ******************* WI 27488 NEW END ***********************************/
-end // end AIN24P9-MEDI-SLOG
-
-
-// MOVE NEW SR COLS TO H2-REC
-Function AIN24P9-MOVE-NEW()
-  /*  */
-  H2-BNDX-SSI-BNFDTL.BSN-SUFFIX = SR-QAIN24-INP-REC.B-NAME-SUFX;
-
-  H2-BNDX-SSI-BNFDTL.PAYEE-ADDR-L1 = SR-QAIN24-INP-REC.B-PAYEE-ADDR-LN1;
-
-  H2-BNDX-SSI-BNFDTL.PAYEE-ADDR-L2 = SR-QAIN24-INP-REC.B-PAYEE-ADDR-LN2;
-
-  H2-BNDX-SSI-BNFDTL.PAYEE-ADDR-L3 = SR-QAIN24-INP-REC.B-PAYEE-ADDR-LN3;
-
-  H2-BNDX-SSI-BNFDTL.PAYEE-ADDR-L4 = SR-QAIN24-INP-REC.B-PAYEE-ADDR-LN4;
-
-  H2-BNDX-SSI-BNFDTL.PAYEE-ADDR-L5 = SR-QAIN24-INP-REC.B-PAYEE-ADDR-LN5;
-
-  H2-BNDX-SSI-BNFDTL.PAYEE-ADDR-L6 = SR-QAIN24-INP-REC.B-PAYEE-ADDR-LN6;
-
-  H2-BNDX-SSI-BNFDTL.STATE-COUNTY-CD = SR-QAIN24-INP-REC.B-STATE-COUNTY-CD;
-
-  H2-BNDX-SSI-BNFDTL.DIRECT-DEPOSIT-IND = SR-QAIN24-INP-REC.B-DIRECT-DEPOSIT-IND;
-
-  H2-BNDX-SSI-BNFDTL.AGENCY-CD = SR-QAIN24-INP-REC.B-AGENCY-CODE;
-
-  H2-BNDX-SSI-BNFDTL.DWI-CD = SR-QAIN24-INP-REC.B-DWI-CODE;
-
-  H2-BNDX-SSI-BNFDTL.EARNING-REQ-IND = SR-QAIN24-INP-REC.B-EARNINGS-REQST-IND;
-
-  H2-BNDX-SSI-BNFDTL.IEVS-AGENCY-SUBCD = SR-QAIN24-INP-REC.B-IEVS-AGENCY-SUBCODE;
-
-  H2-BNDX-SSI-BNFDTL.OLD-BIC = SR-QAIN24-INP-REC.B-OLD-BIC;
-
-  H2-BNDX-SSI-BNFDTL.UNVRFD-SSN = SR-QAIN24-INP-REC.B-UNVRFD-SSN;
-
-  if (SR-QAIN24-INP-REC.B-CURRENT-ENTITLEMENT-MCY not blanks
-   && SR-QAIN24-INP-REC.B-CURRENT-ENTITLEMENT-MCY != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-CURRENT-ENTITLEMENT-MCY;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.CUR-SS-STRT-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.CUR-SS-STRT-DT = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-BDOD not blanks
-   && SR-QAIN24-INP-REC.B-BDOD != "00000000")
-    AIN24W.WS-BDOD-MM = SR-QAIN24-INP-REC.B-BDOD-MM;
-    AIN24W.WS-BDOD-CC = SR-QAIN24-INP-REC.B-BDOD-CC;
-    AIN24W.WS-BDOD-YY = SR-QAIN24-INP-REC.B-BDOD-YY;
-    AIN24W.WS-BDOD-DD = SR-QAIN24-INP-REC.B-BDOD-DD;
-    AIN24W.WS-BDOD-FIL1 = "-";
-    AIN24W.WS-BDOD-FIL2 = "-";
-    H2-BNDX-SSI-BNFDTL.BDOD = AIN24W.WS-BDOD;
-  else
-    H2-BNDX-SSI-BNFDTL.BDOD = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.BDOD-PROOF-IND = SR-QAIN24-INP-REC.B-PROOF-BDOD;
-
-  H2-BNDX-SSI-BNFDTL.GRS-AMT = SR-QAIN24-INP-REC.B-GROSS-AMOUNT-PAYABLE;
-
-  H2-BNDX-SSI-BNFDTL.MED-STAT = SR-QAIN24-INP-REC.B-MED-STAT;
-
-  H2-BNDX-SSI-BNFDTL.DUAL-ENTL-CLM-NUM = SR-QAIN24-INP-REC.B-DUAL-ENTITLE-NBR;
-
-  H2-BNDX-SSI-BNFDTL.DUAL-IND = SR-QAIN24-INP-REC.B-DUAL-ENTITLE-IND;
-
-  H2-BNDX-SSI-BNFDTL.TRIPL-ENTL-CLM-NUM = SR-QAIN24-INP-REC.B-TRIPLE-ENTITLE-NBR;
-
-  H2-BNDX-SSI-BNFDTL.XREF-ENTL-CLM-NUM = SR-QAIN24-INP-REC.B-CROSS-REF-NBR;
-
-  if (SR-QAIN24-INP-REC.B-REC-PRCS-DATE not blanks
-   && SR-QAIN24-INP-REC.B-REC-PRCS-DATE != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-REC-PRCS-DATE;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.BNDX-REC-PROC-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.BNDX-REC-PROC-DT = "0001-01-01";
-  end
-
-  H2-BNDX-SSI-BNFDTL.PAY-CYCLE-IND = SR-QAIN24-INP-REC.B-PAY-CYCL-IND;
-
-  H2-BNDX-SSI-BNFDTL.RETRO-AMT = SR-QAIN24-INP-REC.B-RTRO-PAY-AMT;
-
-  if (SR-QAIN24-INP-REC.B-OP-DEDUCTION-END-DT not blanks
-   && SR-QAIN24-INP-REC.B-OP-DEDUCTION-END-DT != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-OP-DEDUCTION-END-DT;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.OVRPMT-END-DT = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.OVRPMT-END-DT = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.RR-CLAIM-NUM = SR-QAIN24-INP-REC.B-RR-CLAIM-NBR;
-
-  if (SR-QAIN24-INP-REC.B-RRB-JURISD-START-DT not blanks
-   && SR-QAIN24-INP-REC.B-RRB-JURISD-START-DT != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-RRB-JURISD-START-DT;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.RRB-JUR-STRT-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.RRB-JUR-STRT-DT = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-RRB-JURISD-STOP-DT not blanks
-   && SR-QAIN24-INP-REC.B-RRB-JURISD-STOP-DT != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-RRB-JURISD-STOP-DT;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.RRB-JUR-STOP-DT = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.RRB-JUR-STOP-DT = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MTH-OVRPMT-DED-AMT = SR-QAIN24-INP-REC.B-MONTHLY-OPT-DEDUCTION;
-
-  H2-BNDX-SSI-BNFDTL.SSI-OVRPMT-AMTWHLD = SR-QAIN24-INP-REC.B-SSI-OVRPMT-AMT-WTHHLD;
-
-  H2-BNDX-SSI-BNFDTL.GARNISH-AMT = SR-QAIN24-INP-REC.B-GARNISH-AMT;
-
-  if (SR-QAIN24-INP-REC.B-HI-CONTU-STRT-DT not blanks
-   && SR-QAIN24-INP-REC.B-HI-CONTU-STRT-DT != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HI-CONTU-STRT-DT;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-CONTU-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-CONTU-DT = "0001-01-01";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-NUM-OCCUR = SR-QAIN24-INP-REC.B-HI-NBR-OCCURNCS;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-BASIS = SR-QAIN24-INP-REC.B-HOSP-BASIS;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-TYP = SR-QAIN24-INP-REC.B-HOSP-TYPE;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-PERIOD = SR-QAIN24-INP-REC.B-HOSP-PERIOD;
-
-  if (SR-QAIN24-INP-REC.B-HOSP-START-DATE-2 not blanks
-   && SR-QAIN24-INP-REC.B-HOSP-START-DATE-2 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-START-DATE-2;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-STRT-DT2 = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-STRT-DT2 = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-HOSP-TERM-DATE-2 not blanks
-   && SR-QAIN24-INP-REC.B-HOSP-TERM-DATE-2 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-TERM-DATE-2;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-END-DT2 = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-END-DT2 = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-BASIS2 = SR-QAIN24-INP-REC.B-HOSP-BASIS-2;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-STS2 = SR-QAIN24-INP-REC.B-HOSP-ENSURE-OPT-CODE-2;
-
-  if (SR-QAIN24-INP-REC.B-HOSP-START-DATE-3 not blanks
-   && SR-QAIN24-INP-REC.B-HOSP-START-DATE-3 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-START-DATE-3;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-STRT-DT3 = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-STRT-DT3 = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-HOSP-TERM-DATE-3 not blanks
-   && SR-QAIN24-INP-REC.B-HOSP-TERM-DATE-3 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HOSP-TERM-DATE-3;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-END-DT3 = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-END-DT3 = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-BASIS3 = SR-QAIN24-INP-REC.B-HOSP-BASIS-3;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-STS3 = SR-QAIN24-INP-REC.B-HOSP-ENSURE-OPT-CODE-3;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-TP-PREM-PR = SR-QAIN24-INP-REC.B-HI-TP-PRM-PYR;
-
-  if (SR-QAIN24-INP-REC.B-HI-TP-ENT-DT not blanks
-   && SR-QAIN24-INP-REC.B-HI-TP-ENT-DT != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-HI-TP-ENT-DT;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-TP-STRT-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-TP-STRT-DT = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-TP-TERM-DATE not blanks
-   && SR-QAIN24-INP-REC.B-TP-TERM-DATE != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-TP-TERM-DATE;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-TP-STOP-DT = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-A-TP-STOP-DT = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-A-TP-CATEGRY = SR-QAIN24-INP-REC.B-HI-TP-CATEGORY;
-
-  if (SR-QAIN24-INP-REC.B-SMI-CONTINU-PRD not blanks
-   && SR-QAIN24-INP-REC.B-SMI-CONTINU-PRD != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-CONTINU-PRD;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-CONTU-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-CONTU-DT = "0001-01-01";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-NUM-OCCUR = SR-QAIN24-INP-REC.B-SMI-NMB-OCCURNCS;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-BASIS = SR-QAIN24-INP-REC.B-SMI-BASIS;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-PERIOD = SR-QAIN24-INP-REC.B-SMI-PRD;
-
-  if (SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE-2 not blanks
-   && SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE-2 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE-2;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-STRT-DT2 = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-STRT-DT2 = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE-2 not blanks
-   && SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE-2 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE-2;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-END-DT2 = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-END-DT2 = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-BASIS2 = SR-QAIN24-INP-REC.B-SMI-BASIS-2;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-STS2 = SR-QAIN24-INP-REC.B-SMI-OPTION-CODE-2;
-
-  if (SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE-3 not blanks
-   && SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE-3 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-ENTITLEMENT-DATE-3;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-STRT-DT3 = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-STRT-DT3 = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE-3 not blanks
-   && SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE-3 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-TERMINATION-DATE-3;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-END-DT3 = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-END-DT3 = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-BASIS3 = SR-QAIN24-INP-REC.B-SMI-BASIS-3;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-STS3 = SR-QAIN24-INP-REC.B-SMI-OPTION-CODE-3;
-
-  if (SR-QAIN24-INP-REC.B-SMI-TP-ENTITLE-MCY not blanks
-   && SR-QAIN24-INP-REC.B-SMI-TP-ENTITLE-MCY != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-TP-ENTITLE-MCY;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-TP-STRT-DT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-TP-STRT-DT = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-SMI-TP-TERM-MCY not blanks
-   && SR-QAIN24-INP-REC.B-SMI-TP-TERM-MCY != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-TP-TERM-MCY;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-TP-STOP-DT = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-TP-STOP-DT = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-TP-CATEGRY = SR-QAIN24-INP-REC.B-SMI-TP-CATEGORY;
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-VAR-PREM = SR-QAIN24-INP-REC.B-SMI-VAR-PREMIUM-AMT;
-
-  if (SR-QAIN24-INP-REC.B-SMI-VAR-ENTITLE-MCY not blanks
-   && SR-QAIN24-INP-REC.B-SMI-VAR-ENTITLE-MCY != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-VAR-ENTITLE-MCY;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-VAR-STRTDT = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-VAR-STRTDT = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-SMI-VAR-TERM-MCY not blanks
-   && SR-QAIN24-INP-REC.B-SMI-VAR-TERM-MCY != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-SMI-VAR-TERM-MCY;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-VAR-TERMDT = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.MEDCR-B-VAR-TERMDT = "9999-12-31";
-  end
-
-  if (SR-QAIN24-INP-REC.B-CTZN-START-DT-1 not blanks
-   && SR-QAIN24-INP-REC.B-CTZN-START-DT-1 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-CTZN-START-DT-1;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.CTZN-STRT-DT1 = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.CTZN-STRT-DT1 = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-CTZN-STOP-DT-1 not blanks
-   && SR-QAIN24-INP-REC.B-CTZN-STOP-DT-1 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-CTZN-STOP-DT-1;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.CTZN-STOP-DT1 = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.CTZN-STOP-DT1 = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.CTZN-COUNTRY1 = SR-QAIN24-INP-REC.B-CTZN-COUNTRY-1;
-
-  H2-BNDX-SSI-BNFDTL.CTZN-US-PROOF1 = SR-QAIN24-INP-REC.B-CTZN-US-PROOF-1;
-
-  if (SR-QAIN24-INP-REC.B-CTZN-START-DT-2 not blanks
-   && SR-QAIN24-INP-REC.B-CTZN-START-DT-2 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-CTZN-START-DT-2;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.CTZN-STRT-DT2 = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.CTZN-STRT-DT2 = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-CTZN-STOP-DT-2 not blanks
-   && SR-QAIN24-INP-REC.B-CTZN-STOP-DT-2 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-CTZN-STOP-DT-2;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.CTZN-STOP-DT2 = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.CTZN-STOP-DT2 = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.CTZN-COUNTRY2 = SR-QAIN24-INP-REC.B-CTZN-COUNTRY-2;
-
-  H2-BNDX-SSI-BNFDTL.CTZN-US-PROOF2 = SR-QAIN24-INP-REC.B-CTZN-US-PROOF-2;
-
-  if (SR-QAIN24-INP-REC.B-CTZN-START-DT-3 not blanks
-   && SR-QAIN24-INP-REC.B-CTZN-START-DT-3 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-CTZN-START-DT-3;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.CTZN-STRT-DT3 = AIN24W.WS-FIRST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.CTZN-STRT-DT3 = "0001-01-01";
-  end
-
-  if (SR-QAIN24-INP-REC.B-CTZN-STOP-DT-3 not blanks
-   && SR-QAIN24-INP-REC.B-CTZN-STOP-DT-3 != "000000")
-    AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-CTZN-STOP-DT-3;
-    AIN24P9-DATE-PROC();
-    H2-BNDX-SSI-BNFDTL.CTZN-STOP-DT3 = AIN24W.WS-LAST-DATE;
-  else
-    H2-BNDX-SSI-BNFDTL.CTZN-STOP-DT3 = "9999-12-31";
-  end
-
-  H2-BNDX-SSI-BNFDTL.CTZN-COUNTRY3 = SR-QAIN24-INP-REC.B-CTZN-COUNTRY-3;
-
-  H2-BNDX-SSI-BNFDTL.CTZN-US-PROOF3 = SR-QAIN24-INP-REC.B-CTZN-US-PROOF-3;
-
-
-  H2-BNDX-SSI-BNFDTL.MEDCR-B-STS = SR-QAIN24-INP-REC.B-SMI-OPTION-CODE;
-
-
-  /*  */
-end // end AIN24P9-MOVE-NEW
-
-
-// MOVE-INIT-PROCESS
-Function AIN24P9-MOVINI()
-  /*  */
-  /* This process resets the counters and other amount fields when*/
-  /* a new person is read*/
-  /*  */
-  AIN24W.WS-ALERT-IND = "N";
-  AIN24W.WS-ELIG-IND = "N";
-  AIN24W.WS-ERR-SEX = "N";
-  AIN24W.WS-ERR-DOB = "N";
-  AIN24W.WS-ERR-CLM-NBR = "N";
-  AIN24W.WS-NEW-SSN = " ";
-  /* INITIALISE THE VARIABLES*/
-  /*  */
-  AIN24W.WS-INSERT-CNT = 0;
-  AIN24W.WS-UPDATE-CNT = 0;
-  AIN24W.WS-AMT = 0;
-  AIN24W.WS-TAPE-AMT = 0;
-  AIN24W.WS-UNIN-MAX = 0;
-  AIN24W.WS-INFC-MAX = 0;
-  AIN24W.WS-EXP-SQ-NMB = 0;
-  AIN24W.WS-CUMM-AMT = 0;
-  /*  */
-end // end AIN24P9-MOVINI
-
-
-// PASS-THRU-RECORDS
-Function AIN24P9-PASS-THRU()
-  /* BEGIN PROCESS*/
-  /* WI 15701 SETS EFFECTIVE MONTH UP BY 1 MONTH 01/07/99*/
-  if (AIN24W.H-REC-PROCESS-MCY[WS-INDEX] == "000000"
-   || AIN24W.H-REC-PROCESS-MCY[WS-INDEX] == " ")
-    AIN24W.WS-DUMMY-DATE = "010001";
-  else
-    AIN24W.WS-DUMMY-DATE = AIN24W.H-REC-PROCESS-MCY[WS-INDEX];
-    AIN24W.WS-DUM-MM = AIN24W.WS-DUM-MM + 1;
-  end
-  AIN24P9-DATE-PROC();
-  AIN24W.H-REC-PROCESS-MO[WS-INDEX] = AIN24W.WS-FIRST-MM;
-  AIN24W.H-REC-PROCESS-CC[WS-INDEX] = AIN24W.WS-FIRST-CC;
-  AIN24W.H-REC-PROCESS-YR[WS-INDEX] = AIN24W.WS-FIRST-YY;
-  if (AIN24W.H-DISABLE-ONSET-DATE[1] > "000000" && WS-INDEX > 1)
-    AIN24W.H-DISABLE-ONSET-DATE[WS-INDEX] = "000000";
-  end
-  /* WI 13302 KEM 12/05/97 END*/
-  SR-QAIN24-INP-REC.B-BENDEX-DATA = AIN24W.H-BENDEX-DATA[WS-INDEX];
-  /*  */
-  AIN24P9-WRT-BINP();
-  /* END PROCESS*/
-end // end AIN24P9-PASS-THRU
-
-
-// Read the table TWNPERSON
-Function AIN24P9-PER-INQ()
-  /*  */
-  /* Perform standard database application initialisation*/
-  /*  */
-  WDB00PI();
-  /*  */
-  /* Initialise uacctyp and uapplnam*/
-  /*  */
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  /*  */
-  /* Set the sql row record empty*/
-  /*  */
-  /* SET h2-2-cmh-per EMPTY;*/
-  /*  */
-  /* perform process to retrieve data from TWNPERSON, TWNCASE_MEMBER_HST*/
-  /*  */
-  AIN24P9-PER-P1();
-  /*  */
-  /* set error control flags*/
-  /*  */
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* perform dbm erros processing*/
-  /*  */
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN24P9-PER-INQ
-
-
-// Control Read on TWNPERSON
-Function AIN24P9-PER-P1()
-  /*  */
-  /* perform process to retrieve data from TWNPERSON*/
-  /*  */
-  AIN24P9-PER-Q1();
-  /*  */
-end // end AIN24P9-PER-P1
+end // end AIN24P9-UPD-FCH
 
 
-// Read  the table TWNPERSON
-Function AIN24P9-PER-Q1()
-  /* *********************************************************************/
-  /* This process is FIND a row in table TWNPERSON with active case*/
-  /* *********************************************************************/
+// Update TWNFAM_CASE_HSTRY
+Function AIN24P9-UPD-U05()
+  /* *******************************************************************/
+  /* This process is to update the table TWNFAM_CASE_HSTRY           **/
+  /* *******************************************************************/
   /*  */
-  /* Move name of sql row record to common record*/
+  /* Move the sql row record value to the common record*/
   /*  */
-  VDBCOMMON.USQLREC = "H2-2-CMH-PER";
-  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-PER";
-  VDBCONTROL.UPROC-NM = "AIN24P9-PER-Q1";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
+  VDBCOMMON.USQLREC = "H2-FAM-CASE-HSTRY";
+  VDBCONTROL.UPROC-OBJ = "H2-FAM-CASE-HSTRY";
+  VDBCONTROL.UPROC-NM = "AIN24P9-UPD-U05";
+  VDBCONTROL.UPROC-OPT = "SQLEXEC";
   /*  */
   try
-    open AIN24P9-PER-Q1_RSI01
-      with #sql{
-        select T2.UPI,
-            T2.SEX_CD,
-            T2.DOB,
-            T2.IVA_CASE_MBR_FG,
-            T2.SSN, T1.FS_ELIG_CD, T1.MA_ELIG_CD, T1.AFDC_ELIG_CD
-        from TWNCASE_MEMBER_HST T1,
-             TWNPERSON T2
-        WHERE
-            T1.UPI = :UPI AND
-            T1.UPI = T2.UPI and
-            T1.PRD_END_DT = '9999-12-31'
-        ORDER BY MA_ELIG_CD
-      }      
-      into UPI,
-           SEX-CD,
-           DOB,
-           IVA-CASE-MBR-FG,
-           SSN, FS-ELIG-CD, MA-ELIG-CD, AFDC-ELIG-CD
-      for H2-2-CMH-PER ;
-  end
-  /* increment count of rows retrieved*/
-  /*  */
-  if (sysVar.sqlData.sqlcode == 0)
-    VDBCONTROL.UROWR = VDBCONTROL.UROWR + 1;
-    AIN24P9-SCAN-CPER();
-  end
-  /*  */
-end // end AIN24P9-PER-Q1
-
-
-// Control update on TWNPERSON
-Function AIN24P9-PERSON-P1()
-  /* perform process to Update the table TWNPERSON for BNDX_OUTPUT_CD*/
-  /*  */
-  AIN24P9-PERSON-Q1();
-  /*  */
-end // end AIN24P9-PERSON-P1
-
-
-// Update table TWNPERSON
-Function AIN24P9-PERSON-Q1()
-  /* ********************************************************************/
-  /* This process is to update the table TWNPERSON for BNDX_OUPUT_CD **/
-  /* ********************************************************************/
-  /*  */
-  /* move name of sql row record to common record*/
-  /*  */
-  VDBCOMMON.USQLREC = "H2-PERSON";
-  VDBCONTROL.UPROC-OBJ = "H2-PERSON";
-  VDBCONTROL.UPROC-NM = "AIN24P9-PERSON-Q1";
-  VDBCONTROL.UPROC-OPT = "UPDATE";
-  /*  */
-  try
-    execute 
+    execute update 
       #sql{
-        UPDATE TWNPERSON
-        SET BNDX_OUTPUT_CD = :BNDX-OUTPUT-CD
-        WHERE UPI = :UPI
+         --
+         --**** changes due to pcf # 560 point 2 ------- 08/08/95 ******/
+         --
+        UPDATE
+          TWNFAM_CASE_HSTRY T1
+        SET
+          AUTO_CLSRE_IND=:AUTO-CLSRE-IND
+        where ici = :ICI and (pRD_BEG_DT <= :PRD-BEG-DT and
+        prd_end_dt >= :PRD-BEG-DT)
       }
-      for H2-PERSON ; // model = none
+      for H2-FAM-CASE-HSTRY ; // model = update
   end
-  /* increment count of rows wrtten*/
+  /*  */
+  /* Increment the counter for number of rows written*/
   /*  */
   if (sysVar.sqlData.sqlcode == 0)
     VDBCONTROL.UROWW = VDBCONTROL.UROWW + 1;
   end
-  /*  */
-end // end AIN24P9-PERSON-Q1
+end // end AIN24P9-UPD-U05
 
 
-// Build TWNPERSON for update
-Function AIN24P9-PERSON-UPD()
-  /* ********************************************************************/
-  /* This process is to control the update on the table TWNPERSON     **/
-  /* ********************************************************************/
+// UPDATE-UNIN-PROCESS
+Function AIN24P9-UPUNIN()
+  /* WI 18821 - rewrote this paragraph.  The process was abending with*/
+  /* Duplicate records in TWNUENRD_INCM-DTLS.  Also, the countable flags*/
+  /* on the UNIN screen will reflect the flags on the previous UNIN entry.*/
   /*  */
-  /* Perform standard database application initialisation*/
+  if (AIN24W.WS-N-UPD-IND == "Y")
+    return;
+  end
   /*  */
-  WDB00PI();
-  /*  */
-  /* Initialise uacctyp and uapplnam*/
-  /*  */
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  /*  */
-  /* Set the sql row record for TWNPERSON empty*/
-  /*  */
-  /* SET H2-PERSON EMPTY;*/
-  /*  */
-  /* perform process to UPDATE data*/
-  /*  */
-  AIN24P9-PERSON-P1();
-  /*  */
-  /* set error control flags*/
-  /*  */
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "N";
-  /*  */
-  /* perform dbm erros processing*/
-  /*  */
-  WDB00PE-SQLERR();
-  /*  */
-end // end AIN24P9-PERSON-UPD
-
-
-// POPULATE THE ARRAY
-Function AIN24P9-POP-ARRAY()
-  /*  */
-  AIN24W-COST-ARRAY.CWS-UPI[CWS-ARRAY-IDX] = SR-QAIN24-INP-REC.B-UPI;
-
-  AIN24W-COST-ARRAY.CWS-ICI[CWS-ARRAY-IDX] = H2-2-CMH-FCH.ICI;
-
-  AIN24W-COST-ARRAY.CWS-PRGM-CASE-TYPE[CWS-ARRAY-IDX] = H2-ELIG-VERSION.PRGM-CASE-TYPE;
-
-  AIN24W-COST-ARRAY.CWS-BNFT-MTH[CWS-ARRAY-IDX] = H2-ELIG-VERSION.BNFT-MTH;
-
-  AIN24W-COST-ARRAY.CWS-BNFT-YR[CWS-ARRAY-IDX] = H2-ELIG-VERSION.BNFT-YR;
-
-  AIN24W-COST-ARRAY.CWS-INFC-BDATE[CWS-ARRAY-IDX] = AIN24W.WS-NOMADS-PROCESS-DATE;
-
-  AIN24W-COST-ARRAY.CWS-INFC-TYPE[CWS-ARRAY-IDX] = "BENDEX  ";
-
-  call "DATEAPP" (GDW, VDBCONTROL, VMESSAGE) {isNoRefresh = yes};
-  AIN24W-COST-ARRAY.CWS-INFC-TS[CWS-ARRAY-IDX] = GDW.TS;
-
-  AIN24W-COST-ARRAY.CWS-PRIOR-VER-NMB[CWS-ARRAY-IDX] = H2-ELIG-VERSION.VER-NMB;
-
-  if (H2-ELIG-VERSION.PRGM-CASE-TYPE == "MA")
-    AIN24W-COST-ARRAY.CWS-PRIOR-ELIG-VER-AMT[CWS-ARRAY-IDX] = H2-ELIG-VERSION.PTNT-LBLTY-AMT;
+  if (AIN24W.WS-CLM-IDX > 000)
+    AIN24W.WS-INDEX = AIN24W.WS-CLM-IDX;
   else
-    AIN24W-COST-ARRAY.CWS-PRIOR-ELIG-VER-AMT[CWS-ARRAY-IDX] = H2-ELIG-VERSION.ENTLM-AMT;
+    AIN24W.WS-INDEX = 001;
   end
-
-  AIN24W-COST-ARRAY.CWS-PRIOR-CASE-RSLT-CD[CWS-ARRAY-IDX] = H2-ELIG-VERSION.CASE-RSLT-CD;
-
-  if (H2-ELIG-VERSION.PRGM-CASE-TYPE == "FS")
-    AIN24W-COST-ARRAY.CWS-PRIOR-AID-CD[CWS-ARRAY-IDX] = H2-2-CMH-FCH.FS-AID-CD;
-    AIN24W-COST-ARRAY.CWS-PRIOR-ELIG-CD[CWS-ARRAY-IDX] = H2-2-CMH-FCH.FS-ELIG-CD;
-  end
-
-  if (H2-ELIG-VERSION.PRGM-CASE-TYPE == "AF")
-    AIN24W-COST-ARRAY.CWS-PRIOR-AID-CD[CWS-ARRAY-IDX] = H2-2-CMH-FCH.AFDC-AID-CD;
-    AIN24W-COST-ARRAY.CWS-PRIOR-ELIG-CD[CWS-ARRAY-IDX] = H2-2-CMH-FCH.AFDC-ELIG-CD;
-  end
-
-  if (H2-ELIG-VERSION.PRGM-CASE-TYPE == "MA")
-    AIN24W-COST-ARRAY.CWS-PRIOR-AID-CD[CWS-ARRAY-IDX] = H2-2-CMH-FCH.MA-AID-CD;
-    AIN24W-COST-ARRAY.CWS-PRIOR-ELIG-CD[CWS-ARRAY-IDX] = H2-2-CMH-FCH.MA-ELIG-CD;
-  end
-
-  AIN24W-COST-ARRAY.CWS-REC-PROCESS-DT[CWS-ARRAY-IDX] = AIN24W2.WS-CMH-FCH-PRD-END-DT;
-
-  AIN24W-COST-ARRAY.CWS-MAINT-DT[CWS-ARRAY-IDX] = "0001-01-01";
-
-  AIN24W-COST-ARRAY.CWS-ARRAY-SIZE = AIN24W-COST-ARRAY.CWS-ARRAY-SIZE + 1;
-
-  AIN24W-COST-ARRAY.CWS-ARRAY-IDX = AIN24W-COST-ARRAY.CWS-ARRAY-IDX + 1;
-
-  AIN24W-COST-ARRAY.CWS-COUNTER = AIN24W-COST-ARRAY.CWS-COUNTER + 1; /* WI 28272*/
-
   /*  */
-end // end AIN24P9-POP-ARRAY
-
-
-// POP ARRAY WITH BGT STS & DATES
-Function AIN24P9-POP-ARY-BG()
+  if (AIN24W.WS-ARRAY-PED[WS-INDEX] != "9999-12-31")
+    /* MOVE 'Y' TO AIN24W.WS-ALERT-IND;*/
+    return;
+  end
+  /* SET UP DUMMY, FIRST OF MONTH AND LAST OF MONTH BASED ON PROCESS*/
+  /* DATE ON FILE*/
+  AIN24W.WS-DUMMY-DATE = SR-QAIN24-INP-REC.B-REC-PROCESS-MDY;
+  AIN24P9-DATE-PROC();
   /*  */
-
-  AIN24W-COST-ARRAY.CWS-ARRAY-IDX = 1;
-
-  while (AIN24W-COST-ARRAY.CWS-ARRAY-IDX <= 
-  AIN24W-COST-ARRAY.CWS-ARRAY-SIZE)
-
-    if (AIN24W-COST-ARRAY.CWS-ICI[CWS-ARRAY-IDX] == 
-    AIN24W-ICI-ARRAY.IWS-ICI[IWS-ARRAY-IDX])
-
-      if (AIN24W2.INFC-BG-TRAN-PRD-FM-DT == " ")
-        AIN24W2.INFC-BG-TRAN-PRD-FM-DT = "0001-01-01";
-      end
-      AIN24W-COST-ARRAY.CWS-TRAN-PRD-FM-DT[CWS-ARRAY-IDX] = AIN24W2.INFC-BG-TRAN-PRD-FM-DT;
-
-      if (AIN24W2.INFC-BG-TRAN-PRD-TO-DT == " ")
-        AIN24W2.INFC-BG-TRAN-PRD-TO-DT = "9999-12-31";
-      end
-      AIN24W-COST-ARRAY.CWS-TRAN-PRD-TO-DT[CWS-ARRAY-IDX] = AIN24W2.INFC-BG-TRAN-PRD-TO-DT;
-
-      AIN24W-COST-ARRAY.CWS-BG-TRAN-STS-CD[CWS-ARRAY-IDX] = AIN24W2.INFC-BG-TRAN-STS;
+  /* Get the month and year portion of prd-beg-dt on UNIN screen*/
+  /*  */
+  AIN24W1.WS-TEMP-DT = AIN24W.WS-ARRAY-PBD[WS-INDEX];
+  AIN24W1.WS-TEMP1-MM = AIN24W1.WS-TEMP-MM;
+  AIN24W1.WS-TEMP1-YR = AIN24W1.WS-TEMP-YR;
+  /*  */
+  if ((AIN24W1.WS-TEMP1-MM >= AIN24W.WS-DUM-MM && 
+  AIN24W1.WS-TEMP1-YR == AIN24W.WS-DUM-YR) || 
+  (AIN24W1.WS-TEMP1-YR > AIN24W.WS-DUM-YR))
+    AIN24W.WS-NOMADS-WAGE-AMOUNT = AIN24W.WS-ARRAY-INC[WS-INDEX];
+  /*  */
+  /* If prd_beg_dt on UNIN entry is after the effective date of the change*/
+  /* on the Bendex record, update the current TWNUERND_INCM_DTL record.*/
+  /*  */
+    H2-UERND-INCM-DTL.INCM-SQ-NMB = AIN24W.WS-ARRAY-SQ-NMB[WS-INDEX];
+    H2-UERND-INCM-DTL.PRD-BEG-DT = AIN24W.WS-ARRAY-PBD[WS-INDEX];
+    H2-UERND-INCM-DTL.UPI = SR-QAIN24-INP-REC.B-UPI;
+    H2-UERND-INCM-DTL.UERND-INC-FREQ = "M";
+    AIN24W.WS-INSERT-PREV-AMT = H2-UERND-INCM-DTL.UERND-INC-AMT;
+    H2-UERND-INCM-DTL.UERND-INC-AMT = SR-QAIN24-INP-REC.B-NET-MONTHLY-BENEFIT;
+    H2-UERND-INCM-DTL.INVO-MND-DEDN-AMT = SR-QAIN24-INP-REC.B-MONTHLY-OPT-DEDUCTION;
+  /* IF SR-QAIN24-INP-REC.B-LAF-CODE = 'CP';*/
+    H2-UERND-INCM-DTL.PRD-END-DT = "9999-12-31";
+  /* ELSE;*/
+  /* MOVE AIN24W.WS-PREV-DATE TO H2-UERND-INCM-DTL.PRD-END-DT;*/
+  /* END;*/
+    H2-UERND-INCM-DTL.RSDI-CLM-NUM = SR-QAIN24-INP-REC.B-CLAIM-NBR;
+    if (AIN24W.WS-LAF-CODE-1 == "T")
+      H2-UERND-INCM-DTL.UERND-INC-AMT = 0.00;
     end
-
-    AIN24W-COST-ARRAY.CWS-ARRAY-IDX = AIN24W-COST-ARRAY.CWS-ARRAY-IDX + 1;
-  end
+    H2-UERND-INCM-DTL.PREV-AMT = AIN24W.WS-INSERT-PREV-AMT;
+    H2-UERND-INCM-DTL.UNE-INC-VERF-BY = "BENDEX"; /* WI 27488*/
+    AIN24P9-UID-UPDATE();
+  /* Check for fatal errors*/
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
+    end
+    AIN24W.WS-UNIN-UPDATED = "Y";
+    AIN24W.WS-ELIG-IND = "Y";
+    AIN24W.WS-ALERT-IND = "Y";
   /*  */
-end // end AIN24P9-POP-ARY-BG
-
-
-// POP-INS TO TBL FROM THE ARRAY
-Function AIN24P9-POPXCD-AF2()
+  /* Set the Start Elig date*/
   /*  */
-
-  AIN24W-COST-ARRAY.CWS-ARRAY-IDX = 1;
-
-  while (AIN24W-COST-ARRAY.CWS-ARRAY-IDX <= 
-  AIN24W-COST-ARRAY.CWS-ARRAY-SIZE)
-
-    set H2-COST-INFC-DTLS empty;
-
-    H2-COST-INFC-DTLS.UPI = AIN24W-COST-ARRAY.CWS-UPI[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.ICI = AIN24W-COST-ARRAY.CWS-ICI[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.PRGM-CASE-TYPE = AIN24W-COST-ARRAY.CWS-PRGM-CASE-TYPE[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.BNFT-MTH = AIN24W-COST-ARRAY.CWS-BNFT-MTH[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.BNFT-YR = AIN24W-COST-ARRAY.CWS-BNFT-YR[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.INFC-BDATE = AIN24W-COST-ARRAY.CWS-INFC-BDATE[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.INFC-TYPE = AIN24W-COST-ARRAY.CWS-INFC-TYPE[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.INFC-TS = AIN24W-COST-ARRAY.CWS-INFC-TS[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.PRIOR-VER-NMB = AIN24W-COST-ARRAY.CWS-PRIOR-VER-NMB[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.PRIOR-ELIG-VER-AMT = AIN24W-COST-ARRAY.CWS-PRIOR-ELIG-VER-AMT[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.PRIOR-CASE-RSLT-CD = AIN24W-COST-ARRAY.CWS-PRIOR-CASE-RSLT-CD[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.PRIOR-AID-CD = AIN24W-COST-ARRAY.CWS-PRIOR-AID-CD[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.PRIOR-ELIG-CD = AIN24W-COST-ARRAY.CWS-PRIOR-ELIG-CD[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.TRAN-PRD-FM-DT = AIN24W-COST-ARRAY.CWS-TRAN-PRD-FM-DT[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.TRAN-PRD-TO-DT = AIN24W-COST-ARRAY.CWS-TRAN-PRD-TO-DT[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.REC-PROCESS-DT = AIN24W-COST-ARRAY.CWS-REC-PROCESS-DT[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.BG-TRAN-STS-CD = AIN24W-COST-ARRAY.CWS-BG-TRAN-STS-CD[CWS-ARRAY-IDX];
-
-    H2-COST-INFC-DTLS.MAINT-DT = AIN24W-COST-ARRAY.CWS-MAINT-DT[CWS-ARRAY-IDX];
-
-    AIN24Q1-I-COST-IFC();
-
-    AIN24W-COST-ARRAY.CWS-ARRAY-IDX = AIN24W-COST-ARRAY.CWS-ARRAY-IDX + 1;
-  end
+    if (AIN24W.WS-ARRAY-PBD[WS-INDEX] < AIN24W.WS-STRT-ELIG-DT)
+      AIN24W.WS-STRT-ELIG-DT = AIN24W.WS-ARRAY-PBD[WS-INDEX];
+    end
   /*  */
-end // end AIN24P9-POPXCD-AF2
-
-
-// PROCESS-PRE-PARA
-Function AIN24P9-PROC-PRE()
-  /* BEGIN*/
-  if ((SR-QAIN24-SINP-REC.S-UPI != AIN24W.WS-PREV-UPI && 
-  SR-QAIN24-CNTL-REC.AININT-CNT-NO-RECS > 1) || 
-  (SR-QAIN24-SINP-REC is endOfFile && 
-  SR-QAIN24-CNTL-REC.AININT-CNT-NO-RECS == 1))
-  /* NEW PERSON BUT NOT FIRST PERSON READ /**/
-    AIN24P9-PROC-PUPI();
-    AIN24W.WS-PREV-UPI = SR-QAIN24-SINP-REC.S-UPI;
-    AIN24W.WS-M-INDEX = 0;
-    move " " to AIN24W.WS-ARRAY-MULTI[1] for all;
-  end
-  AIN24P9-PROC-SUPI();
-  /* END*/
-end // end AIN24P9-PROC-PRE
-
-
-// PROCESS-PREVIOUS-UPI
-Function AIN24P9-PROC-PUPI()
-  /* BEGIN*/
-  /* WHEN THE PERSON CHANGES, VERIFY CORRECTNESS OF RETURNS FOR PREVIOUS*/
-  /* PERSON*/
-  /*  */
-  SR-QAIN24-INP-REC.B-BENDEX-DATA = AIN24W.H-BENDEX-DATA[1];
-  AIN24W.WS-NOT-FOUND = "N";
-  /* CHECK IF PERSON IS KNOWN TO NOMADS*/
-  AIN24P9-CHKDSG();
-  /*  */
-  /* IF A PERSON IS NOT KNOWN TO NOMADS, SKIP ANYMORE PROCESSING*/
-  if (AIN24W.WS-NOT-FOUND == "Y")
-    SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP = SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP + 1;
-    return;
-  end
-  /* ** START WI 21582 ***/
-  /* THIS CODE IS COMMENTED SINCE FLAG WS-NOT-FOUND WILL NOT BE SET TO 'P'*/
-  /* IF AIN24W.WS-NOT-FOUND = 'P';*/
-  /* SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP =*/
-  /* SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP + 1;*/
-  /* MOVE 01 TO AIN24W.WS-INDEX;*/
-  /* PERFORM AIN24P9-DUMP-REC;*/
-  /* SET H2-3-CMH-FCH-PER EMPTY;*/
-  /* Move the retreive key values to  the sql row record*/
-  /* MOVE AIN24W.WS-PREV-UPI TO H2-3-CMH-FCH-PER.UPI;*/
-  /* MOVE SR-QAIN24-INP-REC.B-CURRENT-ENTITLEMENT-MCY TO*/
-  /* AIN24W.WS-DUMMY-DATE;*/
-  /* perform date retrieve process*/
-  /* PERFORM AIN24P9-DATE-PROC;*/
-  /* Move the date value fetched to the PRD_BEG_DT of TWNCASE_MEMBER_HST*/
-  /* MOVE AIN24W.WS-FIRST-DATE TO H2-3-CMH-FCH-PER.PRD-BEG-DT;*/
-  /* Perform the Process to declare a cursor for the join of the tables*/
-  /* twncase_member_hst, twnfam_case_hstry,twnperson*/
-  /* PERFORM AIN24P9-CMH-SETINQ;*/
-  /* While records exist*/
-  /* WHILE EZESQCOD = 0;*/
-  /* Fetch the records*/
-  /* PERFORM AIN24P9-CMH-SCAN;*/
-  /* If a record found*/
-  /* IF EZESQCOD = 0 AND*/
-  /* AIN24W.WS-CASE-OPEN = 'Y';*/
-  /* MOVE H2-3-CMH-FCH-PER.SSN TO PCALINP.PAL-CASE-ID;*/
-  /* MOVE 129014 TO PCALINP.PAL-ALERT-CD;*/
-  /* MOVE 'C' TO PCALINP.PAL-ALERT-ACTION;*/
-  /* MOVE AIN24W.WS-NOMADS-PROCESS-DATE TO*/
-  /* PCALINP.PAL-PROCESS-DT;*/
-  /* CALL CAL11A VDBCONTROL,VMESSAGE,PCALINP (NOMAPS;*/
-  /* IF VDBCONTROL.URC > 104;*/
-  /* PERFORM WCM00P2-TO-CEP01A;*/
-  /* END;*/
-  /* END;                         /* IF*/
-  /* EZERTN;*/
-  /* END;*/
-  /* END;*/
-  /* ** END WI 21582 ***/
-  AIN24W.WS-INDEX = 1; /* LOOP INIT.*/
-  if (AIN24W.H-DUAL-ENTITLE-IND[1] == " ")
-    if (AIN24W.WS-M-INDEX != 1)
-
-      while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-      AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-        AIN24P9-DUMP-REC();
-        AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-      end /* WHILE*/
-    else
-      while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-      AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-        AIN24P9-PASS-THRU();
-        AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-      end /* WHILE*/
-    end /* IF*/
-
   else
-    if (AIN24W.H-DUAL-ENTITLE-IND[1] == "D")
-      if (AIN24W.WS-M-INDEX != 2)
-        while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-        AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-          AIN24P9-DUMP-REC();
-          AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-        end /* WHILE*/
-      else
-  /* PTR 4253 BEGIN*/
-        if (AIN24W.H-REC-PROCESS-MCY[1] != AIN24W.H-REC-PROCESS-MCY[2])
-  /* IF AIN24W.H-ENTITLE-DATE(1) ^= AIN24W.H-ENTITLE-DATE(2);*/
-          while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-          AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-            AIN24P9-DUMP-REC();
-            AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-          end /* WHILE*/
-        else
-  /* PTR 4253 END*/
-          while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-          AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-            AIN24P9-PASS-THRU();
-            AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-          end /* WHILE*/
-        end /* IF*/
-      end /* IF*/
+  /*  */
+  /* If the PRD_BEG_DT on TWNUERND_INCM_DTL is prior to the effective*/
+  /* date on bendex, the record will be split.*/
+  /*  */
+  /* Set the period end date for the current record.*/
+    H2-UERND-INCM-DTL.INCM-SQ-NMB = AIN24W.WS-ARRAY-SQ-NMB[WS-INDEX];
+    H2-UERND-INCM-DTL.PRD-BEG-DT = AIN24W.WS-ARRAY-PBD[WS-INDEX];
+    H2-UERND-INCM-DTL.PRD-END-DT = AIN24W.WS-PREV-DATE;
+    H2-UERND-INCM-DTL.UERND-INC-AMT = AIN24W.WS-ARRAY-INC[WS-INDEX];
+  /* MOVE H2-UERND-INCM-DTL.UERND-INC-AMT TO AIN24W.WS-INSERT-PREV-AMT;*/
+  /* MOVE SR-QAIN24-INP-REC.B-NET-MONTHLY-BENEFIT TO*/
+  /* H2-UERND-INCM-DTL.UERND-INC-AMT;*/
+    H2-UERND-INCM-DTL.RSDI-CLM-NUM = SR-QAIN24-INP-REC.B-CLAIM-NBR;
+    H2-UERND-INCM-DTL.UERND-INC-FREQ = "M";
+    H2-UERND-INCM-DTL.UNE-INC-VERF-BY = "BENDEX"; /* WI 27488*/
+  /* Perform the process to update TWNUERND_INCM_DTL*/
+    AIN24P9-UID-UPDATE();
+  /* Check for fatal errors*/
+    if (VDBCONTROL.URC > 104)
+      WCM00P2-TO-CEP01A();
+    end
+    AIN24W.WS-UNIN-UPDATED = "Y";
+    AIN24W.WS-ELIG-IND = "Y";
+  /* Increment the value for insert count*/
+    AIN24W.WS-INSERT-CNT = AIN24W.WS-INSERT-CNT + 1;
+  /* * the ws-insert-prev-amt is moved to the prev-amt during insertion*/
+    if (AIN24W.WS-ARRAY-CLM-NUM[WS-INDEX] == SR-QAIN24-INP-REC.B-CLAIM-NBR)
+      AIN24W.WS-INSERT-PREV-AMT = AIN24W.WS-ARRAY-INC[WS-INDEX];
     else
-      if (AIN24W.H-DUAL-ENTITLE-IND[1] == "T")
-        if (AIN24W.WS-M-INDEX != 3)
-          while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-          AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-            AIN24P9-DUMP-REC();
-            AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-          end /* WHILE*/
-        else
-  /* PTR 4253 BEGIN*/
-          if (AIN24W.H-REC-PROCESS-MCY[1] != AIN24W.H-REC-PROCESS-MCY[2]
-           || AIN24W.H-REC-PROCESS-MCY[1] != AIN24W.H-REC-PROCESS-MCY[3])
-            while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-            AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-              AIN24P9-DUMP-REC();
-              AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-            end /* WHILE*/
-          else
-  /* PTR 4253 END*/
-            while (AIN24W.WS-INDEX <= AIN24W.WS-M-INDEX && 
-            AIN24W.H-BENDEX-DATA[WS-INDEX] != " ")
-              AIN24P9-PASS-THRU();
-              AIN24W.WS-INDEX = AIN24W.WS-INDEX + 1;
-            end /* WHILE*/
-          end /* IF*/
-        end /* IF*/
-      end /* IF*/
-    end /* IF*/
-  end /* IF*/
-  if (AIN24W.WS-ACTION == "DUMPED")
-    PCALINP.PAL-ALERT-CD = 129018;
-    set H2-3-CMH-FCH-PER empty;
-    H2-3-CMH-FCH-PER.UPI = AIN24W.WS-PREV-UPI;
-    AIN24P9-ALERT-GEN();
+      AIN24W.WS-INSERT-PREV-AMT = 0.00;
+    end
+    if (AIN24W.WS-LAF-CODE-1 == "T")
+      H2-UERND-INCM-DTL.UERND-INC-AMT = 0.00;
+    else
+      H2-UERND-INCM-DTL.UERND-INC-AMT = SR-QAIN24-INP-REC.B-NET-MONTHLY-BENEFIT;
+    end
+    H2-UERND-INCM-DTL.INVO-MND-DEDN-AMT = SR-QAIN24-INP-REC.B-MONTHLY-OPT-DEDUCTION;
+    H2-UERND-INCM-DTL.RSDI-CLM-NUM = SR-QAIN24-INP-REC.B-CLAIM-NBR;
+  /* GET THE MAXIMUM SEQUENCE FOR THIS PERIOD*/
+    H2-UERND-INCM-DTL.PRD-BEG-DT = AIN24W.WS-FIRST-DATE;
+    AIN24P9-GET-MAX-SQ();
+    H2-UERND-INCM-DTL.INCM-SQ-NMB = AIN24W.WS-MAX-SQ-NMB;
+  /* IT MAY NOT BE NECESSARY TO RESET PRD-BEG-DT, BUT JUST TO BE SAFE..*/
+    H2-UERND-INCM-DTL.PRD-BEG-DT = AIN24W.WS-FIRST-DATE;
+    H2-UERND-INCM-DTL.FS-CNTBL-IND = AIN24W.WS-ARRAY-FS-CNTBL[WS-INDEX];
+    H2-UERND-INCM-DTL.AFDC-CNTBL-IND = AIN24W.WS-ARRAY-AFDC-CNTBL[WS-INDEX];
+    H2-UERND-INCM-DTL.MA-CNTBL-CD = AIN24W.WS-ARRAY-MA-CNTBL[WS-INDEX];
+  /* IF SR-QAIN24-INP-REC.B-LAF-CODE = 'CP';*/
+    H2-UERND-INCM-DTL.PRD-END-DT = "9999-12-31";
+  /* ELSE;*/
+  /* MOVE AIN24W.WS-PREV-DATE TO H2-UERND-INCM-DTL.PRD-END-DT;*/
+  /* END;*/
+  /* Perform the process to insert a record into TWNUERD_INCM_DTL*/
+  /* ** wi 21582 ***/
+    if (AIN24W.WS-ARRAY-PBLIC-RSDI-STRT-DT[WS-INDEX] == " ")
+      H2-UERND-INCM-DTL.PBLIC-RSDI-STRT-DT = null;
+    else
+      H2-UERND-INCM-DTL.PBLIC-RSDI-STRT-DT = AIN24W.WS-ARRAY-PBLIC-RSDI-STRT-DT[WS-INDEX];
+    end
+    H2-UERND-INCM-DTL.FS-CNTBL-AMT = AIN24W.WS-ARRAY-FS-CNTBL-AMT[WS-INDEX];
+    H2-UERND-INCM-DTL.SSI-RSDI-RCVD-YR = AIN24W.WS-ARRAY-SSI-RSDI-RCVD-YR[WS-INDEX];
+    H2-UERND-INCM-DTL.SSI-RSDI-RCVD-MTH = AIN24W.WS-ARRAY-SSI-RSDI-RCVD-MTH[WS-INDEX];
+    H2-UERND-INCM-DTL.MA-EXCLD-AMT = AIN24W.WS-ARRAY-MA-EXCLD-AMT[WS-INDEX];
+    H2-UERND-INCM-DTL.PB-LAW-RSDI-CI-AMT = AIN24W.WS-ARRAY-PB-LAW-RSDI-CI-AMT[WS-INDEX];
+    H2-UERND-INCM-DTL.UNE-INC-VERF-BY = "BENDEX"; /* WI 27488*/
+  /* ** wi 21582 ***/
+    AIN24P9-UID-INSERT();
+    AIN24W.WS-UNIN-UPDATED = "Y";
+    AIN24W.WS-ELIG-IND = "Y";
+    AIN24W.WS-ALERT-IND = "Y";
+  /*  */
+  /* Set the Start Elig date, which is used for the start date in*/
+  /* TWNBG_TRN*/
+  /*  */
+    if (AIN24W.WS-FIRST-DATE < AIN24W.WS-STRT-ELIG-DT)
+      AIN24W.WS-STRT-ELIG-DT = AIN24W.WS-FIRST-DATE;
+    end
   end
-  /* END PROCESS PREVIOUS UPI*/
-end // end AIN24P9-PROC-PUPI
+  /*  */
+end // end AIN24P9-UPUNIN
 
 
-// PROCESS-SAME-UPI
-Function AIN24P9-PROC-SUPI()
-  /* BEGIN*/
-  AIN24W.WS-M-INDEX = AIN24W.WS-M-INDEX + 1;
-  AIN24W.WS-PREV-UPI = SR-QAIN24-SINP-REC.S-UPI;
-  AIN24W.H-BENDEX-DATA[WS-M-INDEX] = SR-QAIN24-SINP-REC.S-BENDEX-DATA;
-  /* END*/
-end // end AIN24P9-PROC-SUPI
+// Validate Input File
+Function AIN24P9-VAL-INPUT()
+  /* ------------------------------------------------------*/
+  /* Validate the numeric fields in Bendex Response File */
+  /* ------------------------------------------------------*/
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-STATE-COUNTY-CD-R is blanks)
+    SR-QAIN24-INP-REC.B-STATE-COUNTY-CD = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-AGENCY-CODE-R is blanks)
+    SR-QAIN24-INP-REC.B-AGENCY-CODE = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-DISABLE-ONSET-DATE-R is blanks)
+    SR-QAIN24-INP-REC.B-DISABLE-ONSET-DATE = "000000";
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-CURRENT-ENTITLEMENT-MCY-R is blanks)
+    SR-QAIN24-INP-REC.B-CURRENT-ENTITLEMENT-MCY = "000000";
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-PAY-CYCL-IND-R is blanks)
+    SR-QAIN24-INP-REC.B-PAY-CYCL-IND = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-RTRO-PAY-AMT-R is blanks)
+    SR-QAIN24-INP-REC.B-RTRO-PAY-AMT = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-MONTHLY-OPT-DEDUCTION-R is blanks)
+    SR-QAIN24-INP-REC.B-MONTHLY-OPT-DEDUCTION = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-SSI-OVRPMT-AMT-WTHHLD-R is blanks)
+    SR-QAIN24-INP-REC.B-SSI-OVRPMT-AMT-WTHHLD = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-GARNISH-AMT-R is blanks)
+    SR-QAIN24-INP-REC.B-GARNISH-AMT = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-SMI-NMB-OCCURNCS-R is blanks)
+    SR-QAIN24-INP-REC.B-SMI-NMB-OCCURNCS = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-SMI-PREMIUM-AMT-R is blanks)
+    SR-QAIN24-INP-REC.B-SMI-PREMIUM-AMT = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-HI-NBR-OCCURNCS-R is blanks)
+    SR-QAIN24-INP-REC.B-HI-NBR-OCCURNCS = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-HOSP-PREMIUM-AMT-R is blanks)
+    SR-QAIN24-INP-REC.B-HOSP-PREMIUM-AMT = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-MONTHLY-BENEFIT-R is blanks)
+    SR-QAIN24-INP-REC.B-MONTHLY-BENEFIT = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-GROSS-AMOUNT-PAYABLE-R is blanks)
+    SR-QAIN24-INP-REC.B-GROSS-AMOUNT-PAYABLE = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-NET-MONTHLY-BENEFIT-R is blanks)
+    SR-QAIN24-INP-REC.B-NET-MONTHLY-BENEFIT = 0;
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-SMI-VAR-PREMIUM-AMT-R is blanks)
+    SR-QAIN24-INP-REC.B-SMI-VAR-PREMIUM-AMT = 0;
+  end
+  /*  */
+  if (SR-QAIN24-INP-REC.B-REC-PROCESS-MDY is blanks || 
+  SR-QAIN24-INP-REC.B-REC-PROCESS-MDY == "000000")
+    SR-QAIN24-INP-REC.B-REC-PROCESS-MDY = "010001";
+  end
+  /*  */
+  if (SR-QAIN24-INP-REC.B-DOB-CC is blanks)
+    SR-QAIN24-INP-REC.B-DOB-CC = "19";
+  end
+  /*  */
+  if (SR-QAIN24-I-REC-R.B-UPI-R not numeric || 
+  SR-QAIN24-I-REC-R.B-MONTHLY-BENEFIT-R not numeric || 
+  SR-QAIN24-I-REC-R.B-GROSS-AMOUNT-PAYABLE-R not numeric || 
+  SR-QAIN24-I-REC-R.B-NET-MONTHLY-BENEFIT-R not numeric || 
+  SR-QAIN24-I-REC-R.B-RTRO-PAY-AMT-R not numeric || 
+  SR-QAIN24-I-REC-R.B-MONTHLY-OPT-DEDUCTION-R not numeric || 
+  SR-QAIN24-I-REC-R.B-SSI-OVRPMT-AMT-WTHHLD-R not numeric || 
+  SR-QAIN24-I-REC-R.B-GARNISH-AMT-R not numeric || 
+  SR-QAIN24-I-REC-R.B-SMI-PREMIUM-AMT-R not numeric || 
+  SR-QAIN24-I-REC-R.B-SMI-VAR-PREMIUM-AMT-R not numeric || 
+  SR-QAIN24-I-REC-R.B-HOSP-PREMIUM-AMT-R not numeric)
+  /*  */
+  /* Set the error message and move values for the common record*/
+  /* variables and perform the process for error processing*/
+  /*  */
+    VMESSAGE.UMSGCODE = "AIN5002E";
+    VMESSAGE.UMSGINS[2] = "AIN24A";
+    VDBCONTROL.UPROC-NM = "AIN24P9-VAL-INPUT";
+    VDBCONTROL.UPROC-OPT = "EXECUTE";
+    VDBCONTROL.UPROC-OBJ = "SR-QAIN24-INP-REC";
+  /*  */
+    WCM00P2-TO-CEP01A();
+  /*  */
+  end
+end // end AIN24P9-VAL-INPUT
 
 
-// PROCESS-PARA
-Function AIN24P9-PROCESS()
-  /*  */
+// COPY RECORD TO NEW OUTPUT FILE
+Function AIN24P9-WRITE-AUX()
+  /* wds;wi#25509;2003-08-12 - create new copy file with med-bill#*/
+  VGVar.handleHardIOErrors = 1;
+  try
+    add SR-AIN24-SINP-REC2 ;
+  end
+  if (SR-AIN24-SINP-REC2 is ioError)
+    VDBCONTROL.UPROC-NM = "AIN24P9-WRITE-AUX";
+    VDBCONTROL.UPROC-OBJ = "SR-AIN24-SINP-REC2";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    AIN24W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN24W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN24A";
+    if (SR-AIN24-SINP-REC2 is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-AIN24-SINP-REC2 is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-AIN24-SINP-REC2 is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end
+      end
+    end
+    WCM00P2-TO-CEP01A();
+  end
+end // end AIN24P9-WRITE-AUX
 
-  AIN24W.WS-PERF-AIF25-FG = "N"; /* WI 23413*/
 
-  /* ********************************************************************/
-  /* Perform the process to check if the person is known to nomads*/
+// WRITE BACK TO INPUT RECORD
+Function AIN24P9-WRT-BINP()
+  /* *********************************************************************/
+  /* This process is to write processed input back to input file **/
+  /* *********************************************************************/
   /*  */
-  /* Set the flag for upi found*/
+  VGVar.handleHardIOErrors = 1;
+  try
+    add SR-QAIN24-INP-REC ;
+  end
   /*  */
-  AIN24W.WS-NOT-FOUND = "N";
-  AIN24P9-CHKDSG();
-  /* If the person is not known to nomads*/
-  if (AIN24W.WS-NOT-FOUND == "Y")
+  if (SR-QAIN24-INP-REC is ioError)
+    VDBCONTROL.UPROC-NM = "AIN24P9-WRT-BINP";
+    VDBCONTROL.UPROC-OBJ = "SR-QAIN24-INP-REC";
+    VDBCONTROL.UPROC-OPT = "ADD";
+    AIN24W.WS-ERR-CD = sysVar.errorCode;
+    VMESSAGE.UMSGINS[1] = AIN24W.WS-ERR-LAST-FOUR;
+    VMESSAGE.UMSGINS[2] = "AIN24A";
+  /* the following conditions are added to move the corresponding*/
+  /* error message*/
   /*  */
-  /* Increment the counter for number of records skipped*/
-  /*  */
-    SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP = SR-QAIN24-CNTL-REC.AININT-CNT-REC-SKIP + 1;
-  /*  */
-  /* Move the upi value to the working storage variable*/
-  /*  */
-    AIN24W.WS-PREV-UPI = SR-QAIN24-INP-REC.B-UPI;
-  /*  */
-  /* Exit out of the process*/
-  /*  */
-    return;
-  /*  */
-  end /* end check  for the person not known*/
-                                   /* to nomads*/
-  /* Check for the Communication Codes sent from BENDEX*/
+    if (SR-QAIN24-INP-REC is fileNotAvailable)
+      VDBCONTROL.UEZESQRRM = "FILE IS NOT AVAILABLE";
+    else
+      if (SR-QAIN24-INP-REC is fileNotFound)
+        VDBCONTROL.UEZESQRRM = "FILE NOT FOUND";
+      else
+        if (SR-QAIN24-INP-REC is invalidFormat)
+          VDBCONTROL.UEZESQRRM = "FILE FORMAT MISMATCH";
+        end /* ** end check for format mismatch*/
+
+      end /* ** end check for file not found*/
+    end /* ** end check for file not available*/
+    WCM00P2-TO-CEP01A();
+  end
+  /* cbsi end*/
+end // end AIN24P9-WRT-BINP
