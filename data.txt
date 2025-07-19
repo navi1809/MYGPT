@@ -1,1275 +1,326 @@
+Request:
+
+http
+Copy
+Edit
+GET /admin/users
+Authorization: Bearer <user-token>
+✅ Correct Handling:
+401 Unauthorized – if token is missing or expired.
+
+403 Forbidden – if token is valid but lacks required role (e.g., not admin).
 
 
-// INSERTS INTO TWNCOST_INFC_DTLS
-Function AIN24Q1-I-COST-IFC()
-  WDB00PI();
+ Idempotency in PUT vs. POST
+Q:
 
-  VDBCONTROL.UACCTYP = "W";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  VDBCOMMON.USQLREC = "H2-COST-INFC-DTLS";
-  VDBCONTROL.UPROC-OBJ = "H2-COST-INFC-DTLS";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-I-COST-IFC";
-  VDBCONTROL.UPROC-OPT = "ADD";
-  /*  */
-  try
-    add H2-COST-INFC-DTLS ;
-  end
-  /*  */
-  /* PERFORM REPP9-SQL-CHKERR;*/
-  /*  */
-  /* Set error control flags*/
-  /* UNRF - No record found flag (Y,N,1)*/
-  /* UDUP - Duplicate key flag (Y,N)*/
-  VDBCOMMON.UNRF = "Y";
-  VDBCOMMON.UDUP = "Y";
-  /*  */
-  /* Perform DBM error processing*/
-  VDBCONTROL.URC = 0;
-  WDB00PE-SQLERR();
-  if (VDBCONTROL.URC >= 104)
-    if (sysVar.sqlData.sqlcode == -803)
-  /* do not abend*/
-    else
-  /* return error code to indicate abnormal ending*/
-      sysVar.returnCode = 8;
-      WCM00P2-TO-CEP01A();
-    end
-  end
-end // end AIN24Q1-I-COST-IFC
+"What’s the main reason PUT is considered idempotent, while POST is not? Can you give an example where this matters in practice?"
+
+A:
+
+PUT /users/10 will overwrite the same resource — calling it multiple times doesn’t change the outcome.
+
+POST /users creates a new resource every time — it’s non-idempotent.
+
+Why it matters: Retry logic. If a request is retried due to timeout, PUT is safe to retry, POST may duplicate.
 
 
-// GET CO ROW
-Function AIN24Q1-S-BG-EXIST()
-  WDB00PI();
-  /* Move name of SQL row record used to common record*/
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  VDBCOMMON.USQLREC = "H2-BG-TRN";
-  VDBCONTROL.UPROC-OBJ = "H2-BG-TRN";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-S-BG-EXIST";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  try
-    open AIN24Q1-S-BG-EXIST_RSI01
-      with #sql{
-        select T1.CRN_TS, T1.TRAN_STS_CD, T1.TRAN_PRD_FM_DT, T1.TRAN_PRD_TO_DT
-        from twnbg_trn T1
-         --** INSERT WHERE, GROUP BY AND HAVING CLAUSES HERE **
-        WHERE
-          T1.ICI = :ICI
-          AND T1.TRAN_TYPE = 'XI'
-          AND T1.TRAN_STS_CD IN ('PE', 'CO')
-          AND DATE(T1.CRN_TS) >= :AIN24W.WS-NOMADS-PROCESS-DATE
-        ORDER BY T1.CRN_TS DESC
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into CRN-TS, TRAN-STS-CD, TRAN-PRD-FM-DT, TRAN-PRD-TO-DT
-      for H2-BG-TRN ;
-  end
+5. Handling Concurrency
+Q:
 
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end AIN24Q1-S-BG-EXIST
+"Two users update the same resource at nearly the same time. How do you prevent one user’s changes from overwriting the other’s?"
+
+A:
+
+Use ETag headers or a version field.
+
+On PUT, require client to send:
+
+h
+Copy
+Edit
+If-Match: "etag-value"
+If ETag doesn't match server state, return 409 Conflict.
 
 
-// GET AID/ELIG CDS, ICI FOR UPI
-Function AIN24Q1-S-CMH-FCH()
-  WDB00PI();
-  /* Move name of SQL row record used to common record*/
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  VDBCOMMON.USQLREC = "H2-2-CMH-FCH";
-  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-FCH";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-S-CMH-FCH";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  try
-    open AIN24Q1-S-CMH-FCH_RSI01
-      with #sql{
-        select T1.ICI, T2.CASE_STS, T2.APPL_UPI, T2.HOH_UPI,
-          T1.FS_ASST_IND, T1.FS_AID_CD, T1.FS_ELIG_CD,
-          T1.AFDC_ASST_IND, T1.AFDC_AID_CD, T1.AFDC_ELIG_CD,
-          T1.MA_ASST_IND, T1.MA_AID_CD, T1.MA_ELIG_CD
-        from TWNCASE_MEMBER_HST T1,
-             TWNFAM_CASE_HSTRY T2
-        WHERE
-          T1.UPI = :UPI
-          AND T1.ICI = T2.ICI
-          AND T1.PRD_BEG_DT <= :PRD-END-DT
-          AND T1.PRD_END_DT >= :PRD-END-DT
-          AND T2.PRD_BEG_DT <= :PRD-END-DT
-          AND T2.PRD_END_DT >= :PRD-END-DT
-          AND T1.HH_LEFT_DT = '9999-12-31'
-          AND T1.MAINT_CD <> 'D'
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into ICI, CASE-STS, APPL-UPI, HOH-UPI,
-           FS-ASST-IND, FS-AID-CD, FS-ELIG-CD,
-           AFDC-ASST-IND, AFDC-AID-CD, AFDC-ELIG-CD,
-           MA-ASST-IND, MA-AID-CD, MA-ELIG-CD
-      for H2-2-CMH-FCH ;
-  end
-  if (sysVar.sqlData.sqlcode != 0)
-    REPP9-SQL-CHKERR();
-  end
-end // end AIN24Q1-S-CMH-FCH
+
+@Component
+public class A {
+    public A() {
+        System.out.println("A created");
+    }
+}
+
+@Component
+public class B {
+    private final A a;
+
+    public B(A a) {
+        this.a = a;
+        System.out.println("B created");
+    }
+}
+Question: What will be printed during Spring Boot app startup?
+
+Expected Output:
+
+css
+Copy
+Edit
+A created
+B created
+Explanation:
+Spring uses constructor injection for B. So it creates A first, injects it into B, and then creates B. The output reflects the correct order of dependency resolution.
 
 
-// GET LAST VERSION
-Function AIN24Q1-S-EVR()
-  WDB00PI();
-  /* Move name of SQL row record used to common record*/
-  VDBCONTROL.UACCTYP = "R";
-  VDBCOMMON.UAPPLNAM = "AIN24A";
-  VDBCOMMON.USQLREC = "H2-ELIG-VERSION";
-  VDBCONTROL.UPROC-OBJ = "H2-ELIG-VERSION";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-S-EVR";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  try
-    open AIN24Q1-S-EVR_RSI01
-      with #sql{
-        select T1.CASE_RSLT_CD, T1.POSTD_DT, T1.SCHD_PAY_AMT, T1.PTNT_LBLTY_AMT,
-          T1.VER_NMB, T1.LST_POSTD_VER_IND, T1.ENTLM_AMT
-        from TWNELIG_VERSION T1
-        WHERE
-          T1.ICI = :ICI
-          AND T1.PRGM_CASE_TYPE = :PRGM-CASE-TYPE
-          AND T1.BNFT_YR = :BNFT-YR
-          AND T1.BNFT_MTH = :BNFT-MTH
-          AND T1.BNFT_TYPE IN
-            ('RG', ' ')
-        ORDER BY T1.VER_NMB DESC
-        FOR FETCH ONLY
-         --** INSERT ORDER BY CLAUSE HERE **
-      }      
-      into CASE-RSLT-CD, POSTD-DT, SCHD-PAY-AMT, PTNT-LBLTY-AMT,
-           VER-NMB, LST-POSTD-VER-IND, ENTLM-AMT
-      for H2-ELIG-VERSION ;
-  end
-  if (sysVar.sqlData.sqlcode != 0)
-    REPP9-SQL-CHKERR();
-  end
-end // end AIN24Q1-S-EVR
+ Question 3: Bean Scope - Singleton vs Prototype
+java
+Copy
+Edit
+@Component
+@Scope("prototype")
+public class D {
+    public D() {
+        System.out.println("New D created");
+    }
+}
+
+@RestController
+public class DemoController {
+    @Autowired
+    private ApplicationContext context;
+
+    @GetMapping("/test")
+    public String test() {
+        context.getBean(D.class);
+        context.getBean(D.class);
+        return "Done";
+    }
+}
+Question: What is the output in the console when hitting /test?
+
+Expected Output:
+
+sql
+Copy
+Edit
+New D created
+New D created
+Explanation:
+
+D is a prototype bean, so Spring creates a new instance every time it’s requested from the context.
+
+Therefore, two instances are created when calling /test.
 
 
-// GET PRD-BEG-DT FOR 'O' ICI
-Function AIN24Q1-S-FCH()
-  /*  */
-  VDBCOMMON.USQLREC = "H3-FAM-CASE-HSTRY";
-  VDBCONTROL.UPROC-OBJ = "H3-FAM-CASE-HSTRY";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-S-FCH";
-  VDBCONTROL.UPROC-OPT = "SETINQ";
-  /*  */
-  try
-    open AIN24Q1-S-FCH_RSI01
-      with #sql{
-        select PRD_BEG_DT
-        from TWNFAM_CASE_HSTRY T1
-        WHERE ICI = :ICI
-           AND CASE_STS = 'O'
-        ORDER BY PRD_BEG_DT
-      }      
-      into PRD-BEG-DT
-      for H3-FAM-CASE-HSTRY ;
-  end
+Question 1: Understanding GROUP BY with WHERE and HAVING
+sql
+Copy
+Edit
+CREATE TABLE orders (
+    id INT,
+    customer VARCHAR(50),
+    amount DECIMAL(10, 2)
+);
 
-  REPP9-SQL-CHKERR();
-  /*  */
-end // end AIN24Q1-S-FCH
+INSERT INTO orders VALUES
+(1, 'Alice', 100.00),
+(2, 'Bob', 200.00),
+(3, 'Alice', 150.00),
+(4, 'Bob', 50.00),
+(5, 'Charlie', 300.00);
+Question:
+Write a query to return customers whose total order amount > 200.
 
+Expected Query:
 
-// SCAN AIN24Q1-S-BG-EXIST
-Function AIN24Q1-SCAN-BG-TR()
+sql
+Copy
+Edit
+SELECT customer, SUM(amount) AS total_amount
+FROM orders
+GROUP BY customer
+HAVING SUM(amount) > 200;
+Expected Output:
 
-  VDBCONTROL.UACCTYP = "R";
-  VDBCONTROL.UPROC-OBJ = "H2-BG-TRN";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-SCAN-BG-TR";
-  VDBCONTROL.UPROC-OPT = "SCAN"; /* OC-NM;*/
-  VDBCOMMON.USQLREC = "H2-BG-TRN";
-  try
-    get next H2-BG-TRN ;
-  end
-  /*  */
-  REPP9-SQL-CHKERR();
-end // end AIN24Q1-SCAN-BG-TR
+diff
+Copy
+Edit
+customer | total_amount
+---------|--------------
+Alice    | 250.00
+Charlie  | 300.00
+Explanation:
 
+WHERE filters rows before grouping.
 
-// SCAN AIN24Q1-S-EVR
-Function AIN24Q1-SCAN-EVR()
+HAVING filters groups after aggregation.
 
-  VDBCONTROL.UACCTYP = "R";
-  VDBCONTROL.UPROC-OBJ = "H2-ELIG-VERSION";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-SCAN-EVR";
-  VDBCONTROL.UPROC-OPT = "SCAN"; /* OC-NM;*/
-  VDBCOMMON.USQLREC = "H2-ELIG-VERSION";
-  try
-    get next H2-ELIG-VERSION ;
-  end
-  /*  */
-  REPP9-SQL-CHKERR();
-end // end AIN24Q1-SCAN-EVR
+✅ Question 2: Subquery Filtering
+sql
+Copy
+Edit
+-- Table: employees
+CREATE TABLE employees (
+    id INT,
+    name VARCHAR(50),
+    department_id INT,
+    salary INT
+);
 
+-- Table: departments
+CREATE TABLE departments (
+    id INT,
+    name VARCHAR(50)
+);
 
-// SCAN AIN24Q1-S-FCH
-Function AIN24Q1-SCAN-FCH()
+INSERT INTO departments VALUES (1, 'HR'), (2, 'Engineering');
+INSERT INTO employees VALUES
+(1, 'Alice', 1, 5000),
+(2, 'Bob', 2, 8000),
+(3, 'Carol', 2, 9500);
+Question:
+Write a query to find employees who earn more than the average salary in their own department.
 
-  VDBCONTROL.UACCTYP = "R";
-  VDBCONTROL.UPROC-OBJ = "H3-FAM-CASE-HSTRY";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-SCAN-FCH";
-  VDBCONTROL.UPROC-OPT = "SCAN"; /* OC-NM;*/
-  VDBCOMMON.USQLREC = "H3-FAM-CASE-HSTRY";
-  try
-    get next H3-FAM-CASE-HSTRY ;
-  end
-  /*  */
-  REPP9-SQL-CHKERR();
-end // end AIN24Q1-SCAN-FCH
+Expected Query:
 
+sql
+Copy
+Edit
+SELECT e.name, e.salary, e.department_id
+FROM employees e
+WHERE e.salary > (
+    SELECT AVG(salary)
+    FROM employees
+    WHERE department_id = e.department_id
+);
+Expected Output:
 
-// SCAN AIN24Q1-S-CMH-FCH
-Function AIN24Q1-SCN-CMHFCH()
+pgsql
+Copy
+Edit
+name  | salary | department_id
+------|--------|---------------
+Carol | 9500   | 2
+Explanation:
 
-  VDBCONTROL.UACCTYP = "R";
-  VDBCONTROL.UPROC-OBJ = "H2-2-CMH-FCH";
-  VDBCONTROL.UPROC-NM = "AIN24Q1-SCN-CMHFCH";
-  VDBCONTROL.UPROC-OPT = "SCAN"; /* OC-NM;*/
-  VDBCOMMON.USQLREC = "H2-2-CMH-FCH";
-  try
-    get next H2-2-CMH-FCH ;
-  end
-  /*  */
-  REPP9-SQL-CHKERR();
-end // end AIN24Q1-SCN-CMHFCH
+Correlated subquery compares each employee's salary to the average in their department.
 
+✅ Question 3: NULL Logic Trap
+sql
+Copy
+Edit
+CREATE TABLE accounts (
+    id INT,
+    name VARCHAR(50),
+    email VARCHAR(50)
+);
 
-Record AIN24W type basicRecord
-  10 WS-FIRST-TIME char(1) ; 
-  10 WS-ACTIVE-FG char(1) ; 
-  10 WS-NOMADS-PROCESS-DATE char(10) ; 
-    15 WS-NOMADS-PROCESS-CCYY char(4) ; 
-      20 WS-NOMADS-PROCESS-CC char(2) ; 
-      20 WS-NOMADS-PROCESS-YY char(2) ; 
-    15 WS-NOMADS-PROCESS-HYPHEN-1 char(1) ; 
-    15 WS-NOMADS-PROCESS-MM char(2) ; 
-    15 WS-NOMADS-PROCESS-HYPHEN-2 char(1) ; 
-    15 WS-NOMADS-PROCESS-DD char(2) ; 
-  10 WS-MAX-SQ-NMB num(4) ; 
-  10 WS-NEW-SSN num(9) ; 
-  10 WS-NOT-FOUND char(1) ; 
-  10 WS-ALERT-IND char(1) ; 
-  10 WS-N-UPD-IND char(1) ; 
-  10 WS-ELIG-IND char(1) ; 
-  10 WS-ERR-SEX char(1) ; 
-  10 WS-NON-RECUR-LSUM char(1) ; 
-  10 WS-MEDICARE-UPDATE char(1) ; 
-  10 WS-DISA-UPDATED char(1) ; 
-  10 WS-UNIN-UPDATED char(1) ; 
-  10 WS-BNDX-SSI-BNFDTL char(1) ; 
-  10 WS-SET-FLAG char(1) ; 
-  10 WS-ERR-DOB char(1) ; 
-  10 WS-ERR-AGENCY char(1) ; 
-  10 WS-ERR-CLM-NBR char(1) ; 
-  10 WS-DSGNT-IND char(1) ; 
-  10 WS-MEDI-REC-EXISTS char(1) ; 
-  10 WS-REC-CNT num(7) ; 
-  10 WS-INFC-MAX num(3) ; 
-  10 WS-AMT num(7) ; 
-  10 WS-CUMM-AMT num(7) ; 
-  10 WS-INSERT-CNT num(3) ; 
-  10 WS-UNIN-MAX num(3) ; 
-  10 WS-ACTION char(10) ; 
-  10 WS-TAPE-AMT num(7,2) ; 
-  10 WS-CHECK-AMT num(7,2) ; 
-  10 WS-PREV-UPI int ; 
-  10 WS-HOLD-FCA num(7,2) ; 
-  10 WS-PREV-ENTITLEMENT-MY char(6) ; 
-    15 WS-PREV-E-MM char(2) ; 
-    15 WS-PREV-E-YY char(4) ; 
-  10 WS-TOLERANCE-LIMIT num(7,2) ; 
-  10 WS-PERCENT num(6,2) ; 
-  10 WS-INDEX num(3) ; 
-  10 WS-CLM-IDX num(3) ; 
-  10 WS-KEY char(110) [3] ; 
-    15 WS-ARRAY-UPI int ; 
-    15 WS-ARRAY-PBD char(10) ; 
-    15 WS-ARRAY-SQ-NMB num(3) ; 
-    15 WS-ARRAY-CLM-NUM char(12) ; 
-    15 WS-ARRAY-PED char(10) ; 
-    15 WS-ARRAY-INC decimal(9,2) ; 
-    15 WS-ARRAY-PB-LAW-RSDI-CI-AMT decimal(9,2) ; 
-    15 WS-ARRAY-MA-EXCLD-AMT decimal(9,2) ; 
-    15 WS-ARRAY-PBLIC-RSDI-STRT-DT char(10) ; 
-    15 WS-ARRAY-FS-CNTBL-AMT decimal(9,2) ; 
-    15 WS-ARRAY-UERND-INC-RCVD-DT char(10) ; 
-    15 WS-ARRAY-FCA decimal(7,2) ; 
-    15 WS-ARRAY-FS-CNTBL char(1) ; 
-    15 WS-ARRAY-MA-CNTBL char(1) ; 
-    15 WS-ARRAY-AFDC-CNTBL char(1) ; 
-    15 WS-ARRAY-SSI-RSDI-RCVD-MTH num(9) ; 
-    15 WS-ARRAY-SSI-RSDI-RCVD-YR num(9) ; 
-    15 WS-ARRAY-FREQ char(1) ; 
-    15 WS-ARRAY-PREV-AMT decimal(9,2) ; 
-  10 WS-SMI-PREMIUM-PAYER char(5) ; 
-    15 WS-SMI-PREMIUM-PAYER-R num(5) ; 
-      20 WS-SMI-PREMIUM-PAYER-R-3 num(3) ; 
-      20 WS-SMI-PREMIUM-PAYER-R-2 num(2) ; 
-  10 WS-PREV-NAME char(30) ; 
-    15 WS-LAST-NAME char(19) ; 
-    15 WS-FIRST-NAME char(10) ; 
-    15 WS-MIDDLE-NAME char(1) ; 
-  10 WS-DIFF-PCT num(6,3) ; 
-  10 WS-ARRAY-INC-N num(9,2) ; 
-  10 WS-UPDATE-CNT num(4) ; 
-  10 WS-RR-CLAIM-NUMBER char(11) ; 
-    15 WS-RR-CLAIM-NUMBER-1 char(9) ; 
-    15 WS-RR-CLAIM-NUMBER-2 char(2) ; 
-  10 WS-DUAL-ENTITLE-IND num(1) ; 
-  10 WS-DUMMY-AMT num(14,2) ; 
-  10 WS-SYS-DATE char(10) ; 
-    15 WS-SYS-CCYY num(4) ; 
-      20 WS-SYS-CC num(2) ; 
-      20 WS-SYS-YY num(2) ; 
-    15 WS-FILLER1 char(1) ; 
-    15 WS-SYS-MM num(2) ; 
-    15 WS-FILLER2 char(1) ; 
-    15 WS-SYS-DD num(2) ; 
-  10 WS-SYS-DATE1 char(10) ; 
-    15 WS-SYS-MM1 num(2) ; 
-    15 WS-FILLER01 char(1) ; 
-    15 WS-SYS-DD1 num(2) ; 
-    15 WS-FILLER02 char(1) ; 
-    15 WS-SYS-CCYY1 num(4) ; 
-  10 WS-CL-ACTVY-DESC char(116) ; 
-    20 WS-CL-ACTVY-DESC1 char(29) ; 
-    20 WS-CL-ACTVY-DESC2 char(35) ; 
-    20 WS-CL-ACTVY-DESC3 char(35) ; 
-    20 WS-CL-ACTVY-DESC4 char(17) ; 
-  10 WS-LEAP-YEAR-FLAG char(1) ; 
-  10 WS-IN-RPT-CCYY char(4) ; 
-  10 WS-TEMP char(4) ; 
-  10 WS-IN-RPT-MM char(2) ; 
-  10 WS-LST-DD char(2) ; 
-  10 WS-HFRST-DATE char(10) ; 
-    15 WS-HFRST-YR char(4) ; 
-    15 WS-HFRST-FL1 char(1) ; 
-    15 WS-HFRST-MM char(2) ; 
-    15 WS-HFRST-FL2 char(1) ; 
-    15 WS-HFRST-DD char(2) ; 
-  10 WS-STRT-ELIG-DT char(10) ; 
-  10 WS-DUMMY-DATE char(6) ; 
-    20 WS-DUM-MM num(2) ; 
-    20 WS-DUM-YR num(4) ; 
-      25 WS-DUM-CC num(2) ; 
-      25 WS-DUM-YY num(2) ; 
-  10 WS-FIRST-DATE char(10) ; 
-    20 WS-FIRST-CCYY num(4) ; 
-      25 WS-FIRST-CC num(2) ; 
-      25 WS-FIRST-YY num(2) ; 
-    20 WS-FIRST-FILLER1 char(1) ; 
-    20 WS-FIRST-MM num(2) ; 
-    20 WS-FIRST-FILLER2 char(1) ; 
-    20 WS-FIRST-DD num(2) ; 
-  10 WS-LAST-DATE char(10) ; 
-    20 WS-LAST-CCYY num(4) ; 
-      25 WS-LAST-CC num(2) ; 
-      25 WS-LAST-YY num(2) ; 
-    20 WS-LAST-FILLER1 char(1) ; 
-    20 WS-LAST-MM num(2) ; 
-    20 WS-LAST-FILLER2 char(1) ; 
-    20 WS-LAST-DD num(2) ; 
-  10 WS-PREV-DATE char(10) ; 
-    20 WS-PREV-CCYY num(4) ; 
-      25 WS-PREV-CC num(2) ; 
-      25 WS-PREV-YY num(2) ; 
-    20 WS-PREV-FILLER1 char(1) ; 
-    20 WS-PREV-MM num(2) ; 
-    20 WS-PREV-FILLER2 char(1) ; 
-    20 WS-PREV-DD num(2) ; 
-  10 WS-REM1 num(2) ; 
-  10 WS-REM2 num(2) ; 
-  10 WS-REM3 num(3) ; 
-  10 WS-REC-PROCESS-MDY char(6) ; 
-    20 WS-REC-MM num(2) ; 
-    20 WS-REC-DD num(2) ; 
-    20 WS-REC-YY num(2) ; 
-  10 WS-REC1-PROCESS-MDY char(10) ; 
-    20 WS-REC1-CCYY num(4) ; 
-      25 WS-REC1-CC num(2) ; 
-      25 WS-REC1-YY num(2) ; 
-    20 WS-REC1-FILLER1 char(1) ; 
-    20 WS-REC1-MM num(2) ; 
-    20 WS-REC1-FILLER2 char(1) ; 
-    20 WS-REC1-DD num(2) ; 
-  10 WS-BEG-DATE char(8) ; 
-    15 WS-BEG-CC num(2) ; 
-    15 WS-BEG-YY num(2) ; 
-    15 WS-BEG-MM num(2) ; 
-    15 WS-BEG-DD num(2) ; 
-  10 WS-EXP-SQ-NMB num(3) ; 
-  10 WS-ALPHA-PAYOR char(3) ; 
-  10 WS-CLAIM-BIC char(2) ; 
-    15 WS-CLAIM-BIC1 num(2) ; 
-  10 WS-PROC-DATE num(8) ; 
-    15 WS-PROC-MM num(2) ; 
-    15 WS-PROC-DD num(2) ; 
-    15 WS-PROC-CCYY num(4) ; 
-  10 WS-OFC-CD char(2) ; 
-  10 WS-OFC-CD-FLG char(1) ; 
-  10 WS-TEMP-CASE-ID num(9) ; 
-    15 WS-CASE-ID char(9) ; 
-  10 WS-LOG-ENTRY-DE char(37) ; 
-  10 WS-DOB char(10) ; 
-    15 WS-DOB-YR char(4) ; 
-      20 WS-DOB-CC char(2) ; 
-      20 WS-DOB-YY char(2) ; 
-    15 WS-DOB-FIL1 char(1) ; 
-    15 WS-DOB-MM char(2) ; 
-    15 WS-DOB-FIL2 char(1) ; 
-    15 WS-DOB-DD char(2) ; 
-  10 WS-PERSON-REC-DOB char(10) ; 
-    15 WS-PERSON-REC-CCYY char(4) ; 
-      20 WS-PERSON-REC-CC char(2) ; 
-      20 WS-PERSON-REC-YY char(2) ; 
-    15 WS-PERSON-REC-FIL1 char(1) ; 
-    15 WS-PERSON-REC-MM char(2) ; 
-    15 WS-PERSON-REC-FIL2 char(1) ; 
-    15 WS-PERSON-REC-DD char(2) ; 
-  10 WS-CUR-YR char(4) ; 
-    15 WS-CUR1-YR num(4) ; 
-      20 WS-CUR-CC num(2) ; 
-      20 WS-CUR-YY num(2) ; 
-  10 WS-TEMP-CC1 char(2) ; 
-    15 WS-TEMP1-CC num(2) ; 
-  10 WS-TEMP-MM1 char(2) ; 
-    15 WS-TEMP1-MM num(2) ; 
-  10 WS-TEMP-DD1 char(2) ; 
-    15 WS-TEMP1-DD num(2) ; 
-  10 WS-TEMP-MM num(3) ; 
-  10 WS-TEMP-DATE char(10) ; 
-    15 WS-TEMP01-MM num(2) ; 
-    15 WS-TEMP01-F1 char(1) ; 
-    15 WS-TEMP01-DD num(2) ; 
-    15 WS-TEMP01-F2 char(1) ; 
-    15 WS-TEMP01-CCYY num(4) ; 
-  10 WS-MATCH-COUNTER num(4) ; 
-  10 WS-KNOWN-TO-BENDEX char(1) ; 
-  10 WS-NOMADS-WAGE-AMOUNT num(9,2) ; 
-  10 WS-PT-B-BEG-DT char(10) ; 
-  10 WS-PT-B-END-DT char(10) ; 
-  10 WS-PT-A-BEG-DT char(10) ; 
-  10 WS-PT-A-END-DT char(10) ; 
-  10 WS-PART-A-TERMINATED char(1) ; 
-  10 WS-PART-B-TERMINATED char(1) ; 
-  10 WS-D-AMT num(7,2) ; 
-  10 WS-NUM-CHECK-FLG char(1) ; 
-  10 WS-CHK-PREMIUM-PAYER char(5) ; 
-  10 WS-CHK-PREMIUM-PAYER-1 char(3) ; 
-  10 WS-CHK-PREMIUM-PAYER-2 char(2) ; 
-  10 WS-TEMP-CCYY num(4) ; 
-    15 WS-T-CCYY char(4) ; 
-      20 WS-T-CC char(2) ; 
-      20 WS-T-YY char(2) ; 
-  10 WS-INSERT-PREV-AMT num(9,2) ; 
-  10 WS-ERR-CD char(8) ; 
-    15 WS-ERR-FIRST-FOUR char(4) ; 
-    15 WS-ERR-LAST-FOUR char(4) ; 
-  10 WS-M-INDEX num(3) ; 
-  10 WS-ARRAY-MULTI char(800) [5] ; 
-    20 H-BENDEX-DATA char(800) ; 
-      25 H-CLAIM-NBR char(11) ; 
-        30 H-CLAIM-SSN char(9) ; 
-        30 H-CLAIM-BIC char(2) ; 
-          35 H-CLAIM-BIC-GROUP char(1) ; 
-          35 FILLER char(1) ; 
-      25 H-NAME char(54) ; 
-        30 H-L-NAME char(20) ; 
-        30 H-F-NAME char(15) ; 
-        30 H-M-NAME char(15) ; 
-        30 H-NAME-SUFX char(4) ; 
-      25 H-SEX char(1) ; 
-      25 H-PAYEE-ADDR-LN1 char(22) ; 
-      25 H-PAYEE-ADDR-LN2 char(22) ; 
-      25 H-PAYEE-ADDR-LN3 char(22) ; 
-      25 H-PAYEE-ADDR-LN4 char(22) ; 
-      25 H-PAYEE-ADDR-LN5 char(22) ; 
-      25 H-PAYEE-ADDR-LN6 char(22) ; 
-      25 * char(10) ; 
-      25 H-STATE-COUNTY-CD num(5) ; 
-        30 H-STATE num(2) ; 
-        30 H-COUNTY num(3) ; 
-      25 H-DIRECT-DEPOSIT-IND char(1) ; 
-      25 H-AGENCY-CODE num(3) ; 
-      25 H-RECORD-SOURCE-CODE char(1) ; 
-      25 H-ASSIST-CODE char(1) ; 
-      25 H-DWI-CODE char(1) ; 
-      25 H-EARNINGS-REQST-IND char(1) ; 
-      25 H-CONTROL-DATA char(12) ; 
-        30 H-UPI char(9) ; 
-        30 H-FILLER char(3) ; 
-      25 H-IEVS-AGENCY-SUBCODE char(4) ; 
-      25 H-OLD-BIC char(2) ; 
-      25 H-UNVRFD-SSN char(9) ; 
-      25 H-LAF-CODE char(2) ; 
-      25 H-ENTITLE-DATE char(6) ; 
-        30 H-ENTITLE-MO char(2) ; 
-        30 H-ENTITLE-CC char(2) ; 
-        30 H-ENTITLE-YR char(2) ; 
-      25 H-CURRENT-ENTITLEMENT-MCY char(6) ; 
-      25 H-DISABLE-ONSET-DATE char(6) ; 
-        30 H-DISABLE-ONSET-MO char(2) ; 
-        30 H-DISABLE-ONSET-YR char(4) ; 
-          35 H-DISABLE-ONSET-CC char(2) ; 
-          35 H-DISABLE-ONSET-YY char(2) ; 
-      25 * char(3) ; 
-      25 H-DOB char(8) ; 
-        30 H-DOB-MO char(2) ; 
-        30 H-DOB-DY char(2) ; 
-        30 H-DOB-CC char(2) ; 
-        30 H-DOB-YR char(2) ; 
-      25 H-PROOF-DOB char(1) ; 
-      25 H-BDOD char(8) ; 
-        30 H-BDOD-MM char(2) ; 
-        30 H-BDOD-DD char(2) ; 
-        30 H-BDOD-YR char(4) ; 
-          35 H-BDOD-CC char(2) ; 
-          35 H-BDOD-YY char(2) ; 
-      25 H-PROOF-BDOD char(1) ; 
-      25 H-COMMUNICATION-CODE char(8) ; 
-        30 H-COMMUNICATION-CODE-5 char(5) ; 
-          35 H-COMMUNICATION-CODE-3 char(3) ; 
-          35 H-FIL-COM-2 char(2) ; 
-        30 H-FIL-COM-3 char(3) ; 
-      25 * char(3) ; 
-      25 H-REC-PROCESS-MCY char(6) ; 
-        30 H-REC-PROCESS-MO char(2) ; 
-        30 H-REC-PROCESS-CC char(2) ; 
-        30 H-REC-PROCESS-YR char(2) ; 
-      25 H-MONTHLY-BENEFIT num(5,1) ; 
-      25 H-GROSS-AMOUNT-PAYABLE num(5,1) ; 
-      25 H-NET-MONTHLY-BENEFIT num(5,1) ; 
-      25 * char(3) ; 
-      25 H-VALID-BOSSN char(9) ; 
-      25 H-MED-STAT char(1) ; 
-      25 H-DUAL-ENTITLE-NBR char(11) ; 
-        30 H-DUAL-ENTITLE-SSN char(9) ; 
-        30 H-DUAL-ENTITLE-BIC char(2) ; 
-      25 H-DUAL-ENTITLE-IND char(1) ; 
-      25 H-TRIPLE-ENTITLE-NBR char(11) ; 
-        30 H-TRIPLE-ENTITLE-SSN char(9) ; 
-        30 H-TRIPLE-ENTITLE-BIC char(2) ; 
-      25 H-CROSS-REF-NBR char(11) ; 
-        30 H-CROSS-REF-SSN char(9) ; 
-        30 H-CROSS-REF-BIC char(2) ; 
-      25 H-REC-PRCS-DATE char(6) ; 
-      25 * char(2) ; 
-      25 H-PAY-CYCL-IND char(1) ; 
-      25 H-RTRO-PAY-AMT num(7,2) ; 
-      25 H-OP-DEDUCTION-END-DT char(6) ; 
-        30 H-OP-DEDUCTION-END-MM char(2) ; 
-        30 H-OP-DEDUCTION-END-CC char(2) ; 
-        30 H-OP-DEDUCTION-END-YY char(2) ; 
-      25 * char(3) ; 
-      25 H-SSI-ENT-TERM-MCY char(6) ; 
-      25 H-SSI-STATUS-CODE char(1) ; 
-      25 * char(3) ; 
-      25 H-RR-CLAIM-NBR char(11) ; 
-      25 H-RR-STATUS-CODE char(1) ; 
-      25 H-RRB-JURISD-START-DT char(6) ; 
-        30 H-RRB-JURISD-START-MCY char(6) ; 
-      25 H-RRB-JURISD-STOP-DT char(6) ; 
-        30 H-RRB-JURISD-STOP-MCY char(6) ; 
-      25 * char(3) ; 
-      25 H-MONTHLY-OPT-DEDUCTION num(5,1) ; 
-      25 H-SSI-OVRPMT-AMT-WTHHLD num(5,1) ; 
-      25 H-GARNISH-AMT num(5,1) ; 
-      25 * char(3) ; 
-      25 H-HI-CONTU-STRT-DT char(6) ; 
-        30 H-HI-CONTU-STRT-MM char(2) ; 
-        30 H-HI-CONTU-STRT-CCYY char(4) ; 
-      25 H-HI-NBR-OCCURNCS num(1) ; 
-      25 H-HOSP-PREMIUM-AMT num(5,1) ; 
-      25 * char(3) ; 
-      25 H-HOSP-ENTITLE-DATE char(6) ; 
-        30 H-HOSP-ENTITLE-MO char(2) ; 
-        30 H-HOSP-ENTITLE-CC char(2) ; 
-        30 H-HOSP-ENTITLE-YR char(2) ; 
-      25 H-HOSP-TERM-DATE char(6) ; 
-        30 H-HOSP-TERM-MO char(2) ; 
-        30 H-HOSP-TERM-CC char(2) ; 
-        30 H-HOSP-TERM-YR char(2) ; 
-      25 H-HOSP-BASIS char(1) ; 
-      25 H-HOSP-ENSURE-OPT-CODE char(1) ; 
-      25 H-HOSP-TYPE char(1) ; 
-      25 H-HOSP-PERIOD char(1) ; 
-      25 * char(3) ; 
-      25 H-HOSP-START-DATE-2 char(6) ; 
-        30 H-HOSP-START-MO-2 char(2) ; 
-        30 H-HOSP-START-CC-2 char(2) ; 
-        30 H-HOSP-START-YR-2 char(2) ; 
-      25 H-HOSP-TERM-DATE-2 char(6) ; 
-        30 H-HOSP-TERM-MO-2 char(2) ; 
-        30 H-HOSP-TERM-CC-2 char(2) ; 
-        30 H-HOSP-TERM-YR-2 char(2) ; 
-      25 H-HOSP-BASIS-2 char(1) ; 
-      25 H-HOSP-ENSURE-OPT-CODE-2 char(1) ; 
-      25 * char(3) ; 
-      25 H-HOSP-START-DATE-3 char(6) ; 
-        30 H-HOSP-START-MO-3 char(2) ; 
-        30 H-HOSP-START-CC-3 char(2) ; 
-        30 H-HOSP-START-YR-3 char(2) ; 
-      25 H-HOSP-TERM-DATE-3 char(6) ; 
-        30 H-HOSP-TERM-MO-3 char(2) ; 
-        30 H-HOSP-TERM-CC-3 char(2) ; 
-        30 H-HOSP-TERM-YR-3 char(2) ; 
-      25 H-HOSP-BASIS-3 char(1) ; 
-      25 H-HOSP-ENSURE-OPT-CODE-3 char(1) ; 
-      25 * char(3) ; 
-      25 H-HI-TP-PRM-PYR char(3) ; 
-      25 H-HI-TP-ENT-DT char(6) ; 
-        30 H-HI-TP-ENT-MCY char(6) ; 
-      25 H-TP-TERM-DATE char(6) ; 
-        30 H-TP-TERM-MCY char(6) ; 
-      25 H-HI-TP-CATEGORY char(1) ; 
-      25 * char(3) ; 
-      25 H-SMI-CONTINU-PRD char(6) ; 
-        30 H-SMI-CONTINU-MO char(2) ; 
-        30 H-SMI-CONTINU-CC char(2) ; 
-        30 H-SMI-CONTINU-YR char(2) ; 
-      25 H-SMI-NMB-OCCURNCS num(1) ; 
-      25 H-SMI-PREMIUM-AMT num(5,1) ; 
-      25 * char(3) ; 
-      25 H-SMI-ENTITLEMENT-DATE char(6) ; 
-        30 H-SMI-ENTITLE-MO char(2) ; 
-        30 H-SMI-ENTITLE-CC char(2) ; 
-        30 H-SMI-ENTITLE-YR char(2) ; 
-      25 H-SMI-TERMINATION-DATE char(6) ; 
-        30 H-SMI-TERM-MO char(2) ; 
-        30 H-SMI-TERM-CC char(2) ; 
-        30 H-SMI-TERM-YR char(2) ; 
-      25 H-SMI-BASIS char(1) ; 
-      25 H-SMI-OPTION-CODE char(1) ; 
-      25 H-SMI-PRD char(1) ; 
-      25 * char(3) ; 
-      25 H-SMI-ENTITLEMENT-DATE-2 char(6) ; 
-        30 H-SMI-ENTITLE-MO-2 char(2) ; 
-        30 H-SMI-ENTITLE-CC-2 char(2) ; 
-        30 H-SMI-ENTITLE-YR-2 char(2) ; 
-      25 H-SMI-TERMINATION-DATE-2 char(6) ; 
-        30 H-SMI-TERM-MO-2 char(2) ; 
-        30 H-SMI-TERM-CC-2 char(2) ; 
-        30 H-SMI-TERM-YR-2 char(2) ; 
-      25 H-SMI-BASIS-2 char(1) ; 
-      25 H-SMI-OPTION-CODE-2 char(1) ; 
-      25 * char(3) ; 
-      25 H-SMI-ENTITLEMENT-DATE-3 char(6) ; 
-        30 H-SMI-ENTITLE-MO-3 char(2) ; 
-        30 H-SMI-ENTITLE-CC-3 char(2) ; 
-        30 H-SMI-ENTITLE-YR-3 char(2) ; 
-      25 H-SMI-TERMINATION-DATE-3 char(6) ; 
-        30 H-SMI-TERM-MO-3 char(2) ; 
-        30 H-SMI-TERM-CC-3 char(2) ; 
-        30 H-SMI-TERM-YR-3 char(2) ; 
-      25 H-SMI-BASIS-3 char(1) ; 
-      25 H-SMI-OPTION-CODE-3 char(1) ; 
-      25 * char(3) ; 
-      25 H-SMI-PREMIUM-PAYER char(3) ; 
-      25 H-SMI-TP-ENTITLE-MCY char(6) ; 
-      25 H-SMI-TP-TERM-MCY char(6) ; 
-      25 H-SMI-TP-CATEGORY char(1) ; 
-      25 * char(3) ; 
-      25 H-SMI-VAR-PREMIUM-AMT num(5,1) ; 
-      25 H-SMI-VAR-ENTITLE-MCY char(6) ; 
-      25 H-SMI-VAR-TERM-MCY char(6) ; 
-      25 H-CTZN-START-DT-1 char(6) ; 
-        30 H-CTZN-START-MM-1 char(2) ; 
-        30 H-CTZN-START-DD-1 char(2) ; 
-        30 H-CTZN-START-YY-1 char(2) ; 
-      25 H-CTZN-STOP-DT-1 char(6) ; 
-        30 H-CTZN-STOP-MM-1 char(2) ; 
-        30 H-CTZN-STOP-DD-1 char(2) ; 
-        30 H-CTZN-STOP-YY-1 char(2) ; 
-      25 H-CTZN-COUNTRY-1 char(2) ; 
-      25 H-CTZN-US-PROOF-1 char(1) ; 
-      25 H-CTZN-START-DT-2 char(6) ; 
-        30 H-CTZN-START-MM-2 char(2) ; 
-        30 H-CTZN-START-DD-2 char(2) ; 
-        30 H-CTZN-START-YY-2 char(2) ; 
-      25 H-CTZN-STOP-DT-2 char(6) ; 
-        30 H-CTZN-STOP-MM-2 char(2) ; 
-        30 H-CTZN-STOP-DD-2 char(2) ; 
-        30 H-CTZN-STOP-YY-2 char(2) ; 
-      25 H-CTZN-COUNTRY-2 char(2) ; 
-      25 H-CTZN-US-PROOF-2 char(1) ; 
-      25 H-CTZN-START-DT-3 char(6) ; 
-        30 H-CTZN-START-MM-3 char(2) ; 
-        30 H-CTZN-START-DD3-3 char(2) ; 
-        30 H-CTZN-START-YY-3 char(2) ; 
-      25 H-CTZN-STOP-DT-3 char(6) ; 
-        30 H-CTZN-STOP-MM-3 char(2) ; 
-        30 H-CTZN-STOP-DD-3 char(2) ; 
-        30 H-CTZN-STOP-YY-3 char(2) ; 
-      25 H-CTZN-COUNTRY-3 char(2) ; 
-      25 H-CTZN-US-PROOF-3 char(1) ; 
-      25 * char(117) ; 
-  10 WS-CASE-OPEN char(1) ; 
-  10 WS-LAF-CODE char(2) ; 
-    15 WS-LAF-CODE-1 char(1) ; 
-    15 WS-LAF-CODE-2 char(1) ; 
-  10 WS-BILL-NUM num(11) ; 
-  10 WS-PERF-AIF25-FG char(1) ; 
-  10 WS-BDOD char(10) ; 
-    15 WS-BDOD-YR char(4) ; 
-      20 WS-BDOD-CC char(2) ; 
-      20 WS-BDOD-YY char(2) ; 
-    15 WS-BDOD-FIL1 char(1) ; 
-    15 WS-BDOD-MM char(2) ; 
-    15 WS-BDOD-FIL2 char(1) ; 
-    15 WS-BDOD-DD char(2) ; 
-end // end AIN24W
+INSERT INTO accounts VALUES
+(1, 'Alice', 'alice@example.com'),
+(2, 'Bob', NULL),
+(3, 'Charlie', NULL);
+Question:
+What will this query return?
 
+sql
+Copy
+Edit
+SELECT * FROM accounts
+WHERE email != 'alice@example.com';
+Expected Output:
 
-Record AIN24W-CLOG-RECD type basicRecord
-  10 WS-AUTO-MSG char(192) ; 
-    15 WS-LINE1 char(64) ; 
-    15 WS-LINE2 char(64) ; 
-    15 WS-LINE3 char(64) ; 
-end // end AIN24W-CLOG-RECD
+pgsql
+Copy
+Edit
+(No rows)
+Explanation:
 
+In SQL, NULL != 'value' is not true, it's unknown, so those rows are excluded.
 
-Record AIN24W-COST-ARRAY type basicRecord
-  10 CWS-COUNTER num(3) ; 
-  10 CWS-ARRAY-SIZE smallint ; 
-  10 CWS-ARRAY-IDX smallint ; 
-  10 CWS-ARRAY char(112) [100] ; 
-    15 CWS-UPI int ; 
-    15 CWS-ICI int ; 
-    15 CWS-PRGM-CASE-TYPE char(2) ; 
-    15 CWS-BNFT-MTH smallint ; 
-    15 CWS-BNFT-YR smallint ; 
-    15 CWS-INFC-BDATE char(10) ; 
-    15 CWS-INFC-TYPE char(8) ; 
-    15 CWS-INFC-TS char(26) ; 
-    15 CWS-PRIOR-VER-NMB smallint ; 
-    15 CWS-PRIOR-ELIG-VER-AMT decimal(9,2) ; 
-    15 CWS-PRIOR-CASE-RSLT-CD char(1) ; 
-    15 CWS-PRIOR-AID-CD char(3) ; 
-    15 CWS-PRIOR-ELIG-CD char(1) ; 
-    15 CWS-TRAN-PRD-FM-DT char(10) ; 
-    15 CWS-TRAN-PRD-TO-DT char(10) ; 
-    15 CWS-REC-PROCESS-DT char(10) ; 
-    15 CWS-BG-TRAN-STS-CD char(2) ; 
-    15 CWS-MAINT-DT char(10) ; 
-end // end AIN24W-COST-ARRAY
+Must use IS NOT NULL if you want to include those.
 
+Corrected Query:
 
-Record AIN24W-ICI-ARRAY type basicRecord
-  10 IWS-COUNTER num(3) ; 
-  10 IWS-ARRAY-SIZE smallint ; 
-  10 IWS-ARRAY-IDX smallint ; 
-  10 IWS-ARRAY char(4) [50] ; 
-    15 IWS-ICI int ; 
-end // end AIN24W-ICI-ARRAY
+sql
+Copy
+Edit
+SELECT * FROM accounts
+WHERE email IS NULL OR email != 'alice@example.com';
+✅ Question 4: Window Function – RANK() vs DENSE_RANK()
+sql
+Copy
+Edit
+CREATE TABLE scores (
+    player VARCHAR(50),
+    score INT
+);
 
+INSERT INTO scores VALUES
+('Alice', 100),
+('Bob', 200),
+('Carol', 200),
+('David', 150);
+Question:
+Show the rank of each player ordered by score (highest first). Use both RANK() and DENSE_RANK() and explain the difference.
 
-Record AIN24W-MEDI-NEW type basicRecord
-  10 WS-MEDCR-PRSN-SSN char(9) ; 
-    15 WS-MEDCR-PRSN-SSN-1 char(3) ; 
-    15 WS-MEDCR-PRSN-SSN-2 char(2) ; 
-    15 WS-MEDCR-PRSN-SSN-3 char(4) ; 
-  10 WS-MEDCR-CLAIM-SUFX char(2) ; 
-  10 WS-PART-A-BEG-DT char(10) ; 
-    15 WS-PART-A-BEG-DT-CC char(2) ; 
-    15 WS-PART-A-BEG-DT-YY char(2) ; 
-    15 WS-PART-A-BEG-DT-FILL1 char(1) ; 
-    15 WS-PART-A-BEG-DT-MM char(2) ; 
-    15 WS-PART-A-BEG-DT-FILL2 char(1) ; 
-    15 WS-PART-A-BEG-DT-DD char(2) ; 
-  10 WS-PART-A-END-DT char(10) ; 
-    15 WS-PART-A-END-DT-CC char(2) ; 
-    15 WS-PART-A-END-DT-YY char(2) ; 
-    15 WS-PART-A-END-DT-FILL1 char(1) ; 
-    15 WS-PART-A-END-DT-MM char(2) ; 
-    15 WS-PART-A-END-DT-FILL2 char(1) ; 
-    15 WS-PART-A-END-DT-DD char(2) ; 
-  10 WS-PART-A-PREM-AMT decimal(7,2) ; 
-  10 WS-PART-A-PAYOR-CD char(1) ; 
-  10 WS-PART-A-PAYOR-ST-CD char(3) ; 
-  10 WS-PART-B-BEG-DT char(10) ; 
-    15 WS-PART-B-BEG-DT-CC char(2) ; 
-    15 WS-PART-B-BEG-DT-YY char(2) ; 
-    15 WS-PART-B-BEG-DT-FILL1 char(1) ; 
-    15 WS-PART-B-BEG-DT-MM char(2) ; 
-    15 WS-PART-B-BEG-DT-FILL2 char(1) ; 
-    15 WS-PART-B-BEG-DT-DD char(2) ; 
-  10 WS-PART-B-END-DT char(10) ; 
-    15 WS-PART-B-END-DT-CC char(2) ; 
-    15 WS-PART-B-END-DT-YY char(2) ; 
-    15 WS-PART-B-END-DT-FILL1 char(1) ; 
-    15 WS-PART-B-END-DT-MM char(2) ; 
-    15 WS-PART-B-END-DT-FILL2 char(1) ; 
-    15 WS-PART-B-END-DT-DD char(2) ; 
-  10 WS-PART-B-PREM-AMT decimal(7,2) ; 
-  10 WS-PART-B-PAYOR-CD char(1) ; 
-  10 WS-PART-B-PAYOR-ST-CD char(3) ; 
-  10 WS-PRD-END-DT char(10) ; 
-  10 WS-RRB-NMB char(12) ; 
-  10 WS-RECUR-IND char(1) ; 
-  10 WS-HOSP-COVRG-LOST-DT char(10) ; 
-    15 WS-HOSP-COVRG-LOST-DT-CC char(2) ; 
-    15 WS-HOSP-COVRG-LOST-DT-YY char(2) ; 
-    15 WS-HOSP-COVRG-LOST-DT-FILL1 char(1) ; 
-    15 WS-HOSP-COVRG-LOST-DT-MM char(2) ; 
-    15 WS-HOSP-COVRG-LOST-DT-FILL2 char(1) ; 
-    15 WS-HOSP-COVRG-LOST-DT-DD char(2) ; 
-  10 WS-MA-CNTBL-CD char(1) ; 
-  10 WS-FS-CNTBL-IND char(1) ; 
-  10 WS-MB-ELIG-IND char(1) ; 
-end // end AIN24W-MEDI-NEW
+Expected Query:
 
+sql
+Copy
+Edit
+SELECT player, score,
+       RANK() OVER (ORDER BY score DESC) AS rnk,
+       DENSE_RANK() OVER (ORDER BY score DESC) AS drnk
+FROM scores;
+Expected Output:
 
-Record AIN24W-MEDI-OLD type basicRecord
-  10 WS-MEDCR-PRSN-SSN char(9) ; 
-    15 WS-MEDCR-PRSN-SSN-1 char(3) ; 
-    15 WS-MEDCR-PRSN-SSN-2 char(2) ; 
-    15 WS-MEDCR-PRSN-SSN-3 char(4) ; 
-  10 WS-MEDCR-CLAIM-SUFX char(2) ; 
-  10 WS-PART-A-BEG-DT char(10) ; 
-    15 WS-PART-A-BEG-DT-CC char(2) ; 
-    15 WS-PART-A-BEG-DT-YY char(2) ; 
-    15 WS-PART-A-BEG-DT-FILL1 char(1) ; 
-    15 WS-PART-A-BEG-DT-MM char(2) ; 
-    15 WS-PART-A-BEG-DT-FILL2 char(1) ; 
-    15 WS-PART-A-BEG-DT-DD char(2) ; 
-  10 WS-PART-A-END-DT char(10) ; 
-    15 WS-PART-A-END-DT-CC char(2) ; 
-    15 WS-PART-A-END-DT-YY char(2) ; 
-    15 WS-PART-A-END-DT-FILL1 char(1) ; 
-    15 WS-PART-A-END-DT-MM char(2) ; 
-    15 WS-PART-A-END-DT-FILL2 char(1) ; 
-    15 WS-PART-A-END-DT-DD char(2) ; 
-  10 WS-PART-A-PREM-AMT decimal(7,2) ; 
-  10 WS-PART-A-PAYOR-CD char(1) ; 
-  10 WS-PART-A-PAYOR-ST-CD char(3) ; 
-  10 WS-PART-B-BEG-DT char(10) ; 
-    15 WS-PART-B-BEG-DT-CC char(2) ; 
-    15 WS-PART-B-BEG-DT-YY char(2) ; 
-    15 WS-PART-B-BEG-DT-FILL1 char(1) ; 
-    15 WS-PART-B-BEG-DT-MM char(2) ; 
-    15 WS-PART-B-BEG-DT-FILL2 char(1) ; 
-    15 WS-PART-B-BEG-DT-DD char(2) ; 
-  10 WS-PART-B-END-DT char(10) ; 
-    15 WS-PART-B-END-DT-CC char(2) ; 
-    15 WS-PART-B-END-DT-YY char(2) ; 
-    15 WS-PART-B-END-DT-FILL1 char(1) ; 
-    15 WS-PART-B-END-DT-MM char(2) ; 
-    15 WS-PART-B-END-DT-FILL2 char(1) ; 
-    15 WS-PART-B-END-DT-DD char(2) ; 
-  10 WS-PART-B-PREM-AMT decimal(7,2) ; 
-  10 WS-PART-B-PAYOR-CD char(1) ; 
-  10 WS-PART-B-PAYOR-ST-CD char(3) ; 
-  10 WS-PRD-END-DT char(10) ; 
-  10 WS-RRB-NMB char(12) ; 
-  10 WS-RECUR-IND char(1) ; 
-  10 WS-HOSP-COVRG-LOST-DT char(10) ; 
-    15 WS-HOSP-COVRG-LOST-DT-CC char(2) ; 
-    15 WS-HOSP-COVRG-LOST-DT-YY char(2) ; 
-    15 WS-HOSP-COVRG-LOST-DT-FILL1 char(1) ; 
-    15 WS-HOSP-COVRG-LOST-DT-MM char(2) ; 
-    15 WS-HOSP-COVRG-LOST-DT-FILL2 char(1) ; 
-    15 WS-HOSP-COVRG-LOST-DT-DD char(2) ; 
-  10 WS-MA-CNTBL-CD char(1) ; 
-  10 WS-FS-CNTBL-IND char(1) ; 
-  10 WS-MB-ELIG-IND char(1) ; 
-end // end AIN24W-MEDI-OLD
+diff
+Copy
+Edit
+player | score | rnk | drnk
+-------|-------|-----|-----
+Bob    | 200   | 1   | 1
+Carol  | 200   | 1   | 1
+David  | 150   | 3   | 2
+Alice  | 100   | 4   | 3
+Explanation:
 
+RANK() leaves gaps.
 
-Record AIN24W-UNIN-NEW type basicRecord
-  10 WS-AFDC-CNTBL-IND char(1) ; 
-  10 WS-FS-CNTBL-IND char(1) ; 
-  10 WS-MA-CNTBL-CD char(1) ; 
-  10 WS-PREV-AMT decimal(10,2) ; 
-  10 WS-UERND-INC-TYPE-CD char(2) ; 
-  10 WS-UERND-INC-FREQ char(1) ; 
-  10 WS-UERND-INC-AMT decimal(10,2) ; 
-  10 WS-UERND-INC-RCVD-DT char(10) ; 
-    15 WS-UERND-INC-RCVD-DT-CC char(2) ; 
-    15 WS-UERND-INC-RCVD-DT-YY char(2) ; 
-    15 WS-UERND-INC-RCVD-DT-FILL1 char(1) ; 
-    15 WS-UERND-INC-RCVD-DT-MM char(2) ; 
-    15 WS-UERND-INC-RCVD-DT-FILL2 char(1) ; 
-    15 WS-UERND-INC-RCVD-DT-DD char(2) ; 
-  10 WS-FS-CNTBL-AMT decimal(9,2) ; 
-end // end AIN24W-UNIN-NEW
+DENSE_RANK() does not.
 
+✅ Question 5: DELETE with JOIN
+sql
+Copy
+Edit
+CREATE TABLE users (
+    id INT,
+    name VARCHAR(50)
+);
 
-Record AIN24W-UNIN-OLD type basicRecord
-  10 WS-AFDC-CNTBL-IND char(1) ; 
-  10 WS-FS-CNTBL-IND char(1) ; 
-  10 WS-MA-CNTBL-CD char(1) ; 
-  10 WS-PREV-AMT decimal(10,2) ; 
-  10 WS-UERND-INC-TYPE-CD char(2) ; 
-  10 WS-UERND-INC-FREQ char(1) ; 
-  10 WS-UERND-INC-AMT decimal(10,2) ; 
-  10 WS-UERND-INC-RCVD-DT char(10) ; 
-    15 WS-UERND-INC-RCVD-DT-CC char(2) ; 
-    15 WS-UERND-INC-RCVD-DT-YY char(2) ; 
-    15 WS-UERND-INC-RCVD-DT-FILL1 char(1) ; 
-    15 WS-UERND-INC-RCVD-DT-MM char(2) ; 
-    15 WS-UERND-INC-RCVD-DT-FILL2 char(1) ; 
-    15 WS-UERND-INC-RCVD-DT-DD char(2) ; 
-  10 WS-FS-CNTBL-AMT decimal(9,2) ; 
-end // end AIN24W-UNIN-OLD
+CREATE TABLE user_logs (
+    id INT,
+    user_id INT,
+    log TEXT
+);
 
+INSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');
+INSERT INTO user_logs VALUES
+(1, 1, 'Login'),
+(2, 2, 'Logout'),
+(3, 1, 'Purchase');
+Question:
+Write a query to delete all logs for users that no longer exist.
 
-Record AIN24W-UNIN-W1 type basicRecord
-  10 WS-CLOG-INS char(1) ; 
-  10 WS-AUTO-MSG char(192) ; 
-    15 WS-LINE1 char(64) ; 
-      20 WS-TEXT11 char(17) ; 
-      20 WS-VALU11 char(1) ; 
-      20 WS-TEXT12 char(1) ; 
-      20 WS-VALU12 char(1) ; 
-      20 WS-TEXT13 char(1) ; 
-      20 WS-VALU13 char(1) ; 
-      20 WS-FILL13 char(1) ; 
-      20 WS-TEXT14 char(4) ; 
-      20 WS-VALU14 char(1) ; 
-      20 WS-TEXT15 char(1) ; 
-      20 WS-VALU15 char(1) ; 
-      20 WS-TEXT16 char(1) ; 
-      20 WS-VALU16 char(1) ; 
-      20 WS-FILL16 char(1) ; 
-      20 WS-TEXT17 char(7) ; 
-      20 WS-VALU17 char(2) ; 
-      20 WS-FILL17 char(1) ; 
-      20 WS-TEXT18 char(4) ; 
-      20 WS-VALU18 char(2) ; 
-      20 WS-FILL18 char(1) ; 
-      20 WS-TEXT19 char(7) ; 
-      20 WS-VALU19 char(1) ; 
-      20 WS-FILL19 char(1) ; 
-      20 WS-TEXT110 char(4) ; 
-      20 WS-VALU110 char(1) ; 
-    15 WS-LINE2 char(64) ; 
-      20 WS-TEXT21 char(9) ; 
-      20 WS-VALU21 char(2) ; 
-      20 WS-TEXT22 char(1) ; 
-      20 WS-VALU22 char(2) ; 
-      20 WS-TEXT23 char(1) ; 
-      20 WS-VALU23 char(2) ; 
-      20 WS-FILL23 char(1) ; 
-      20 WS-TEXT24 char(4) ; 
-      20 WS-VALU24 char(2) ; 
-      20 WS-TEXT25 char(1) ; 
-      20 WS-VALU25 char(2) ; 
-      20 WS-TEXT26 char(1) ; 
-      20 WS-VALU26 char(2) ; 
-      20 WS-FILL26 char(1) ; 
-      20 WS-TEXT27 char(12) ; 
-      20 WS-VALU27 char(8) ; 
-      20 WS-FILL27 char(1) ; 
-      20 WS-TEXT28 char(4) ; 
-      20 WS-VALU28 char(8) ; 
-    15 WS-LINE3 char(64) ; 
-      20 WS-TEXT31 char(8) ; 
-      20 WS-VALU31 char(8) ; 
-      20 WS-FILL31 char(1) ; 
-      20 WS-TEXT32 char(4) ; 
-      20 WS-VALU32 char(8) ; 
-      20 WS-FILL32 char(3) ; 
-      20 WS-TEXT33 char(11) ; 
-      20 WS-VALU33 char(8) ; 
-      20 WS-FILL33 char(1) ; 
-      20 WS-TEXT34 char(4) ; 
-      20 WS-VALU34 char(8) ; 
-  10 WS-CCYY char(4) ; 
-    15 WS-CC char(2) ; 
-    15 WS-YY char(2) ; 
-end // end AIN24W-UNIN-W1
+Expected Query (MySQL):
 
-
-Record AIN24W1 type basicRecord
-  10 WS-TEMP-DT char(10) ; 
-    15 WS-TEMP-YR char(4) ; 
-      20 WS-TEMP-CC char(2) ; 
-      20 WS-TEMP-YY char(2) ; 
-    15 WS-TEMP-M1 char(1) ; 
-    15 WS-TEMP-MM char(2) ; 
-    15 WS-TEMP-M2 char(1) ; 
-    15 WS-TEMP-DD char(2) ; 
-  10 WS-TEMP1-DT char(6) ; 
-    15 WS-TEMP1-MM char(2) ; 
-    15 WS-TEMP1-YR char(4) ; 
-      20 WS-TEMP1-CC char(2) ; 
-      20 WS-TEMP1-YY char(2) ; 
-  10 WS-F-DATE1 char(10) ; 
-  10 WS-F-DATE2 char(10) ; 
-  10 WS-TEMP-AMT decimal(9,2) ; 
-end // end AIN24W1
-
-
-Record AIN24W11 type basicRecord
-  10 WS-CLOG-INS char(1) ; 
-  10 WS-AUTO-MSG char(192) ; 
-    15 WS-LINE1 char(64) ; 
-      20 WS-TEXT11 char(14) ; 
-      20 WS-VALU12 char(1) ; 
-      20 WS-TEXT13 char(1) ; 
-      20 WS-VALU13 char(1) ; 
-      20 WS-FILL13 char(1) ; 
-      20 WS-TEXT14 char(4) ; 
-      20 WS-VALU15 char(1) ; 
-      20 WS-TEXT16 char(1) ; 
-      20 WS-VALU16 char(1) ; 
-      20 WS-FILL16 char(1) ; 
-      20 WS-TEXT17 char(9) ; 
-      20 WS-VALU17 char(11) ; 
-      20 WS-FILL17 char(1) ; 
-      20 WS-TEXT18 char(4) ; 
-      20 WS-VALU18 char(11) ; 
-      20 WS-FILL18 char(2) ; 
-    15 WS-LINE2 char(64) ; 
-      20 WS-TEXT21 char(18) ; 
-      20 WS-VALU21 char(2) ; 
-      20 WS-TEXT22 char(1) ; 
-      20 WS-VALU22 char(2) ; 
-      20 WS-TEXT23 char(1) ; 
-      20 WS-VALU23 char(2) ; 
-      20 WS-TEXT24 char(3) ; 
-      20 WS-VALU24 char(2) ; 
-      20 WS-TEXT25 char(1) ; 
-      20 WS-VALU25 char(2) ; 
-      20 WS-TEXT26 char(1) ; 
-      20 WS-VALU26 char(2) ; 
-      20 WS-TEXT27 char(1) ; 
-      20 WS-FILL26 char(1) ; 
-      20 WS-TEXT28 char(5) ; 
-      20 WS-VALU28 char(2) ; 
-      20 WS-TEXT29 char(1) ; 
-      20 WS-VALU29 char(2) ; 
-      20 WS-TEXT30 char(1) ; 
-      20 WS-VALU30 char(2) ; 
-      20 WS-TEXT31 char(3) ; 
-      20 WS-VALU31 char(2) ; 
-      20 WS-TEXT32 char(1) ; 
-      20 WS-VALU32 char(2) ; 
-      20 WS-TEXT33 char(1) ; 
-      20 WS-VALU33 char(2) ; 
-      20 WS-TEXT34 char(1) ; 
-    15 WS-LINE3 char(64) ; 
-      20 WS-TEXT35 char(17) ; 
-      20 WS-VALU35 char(8) ; 
-      20 WS-TEXT36 char(1) ; 
-      20 WS-VALU36 char(1) ; 
-      20 WS-TEXT37 char(1) ; 
-      20 WS-VALU37 char(3) ; 
-      20 WS-FILL37 char(1) ; 
-      20 WS-TEXT38 char(4) ; 
-      20 WS-VALU38 char(8) ; 
-      20 WS-TEXT39 char(1) ; 
-      20 WS-VALU39 char(1) ; 
-      20 WS-TEXT40 char(1) ; 
-      20 WS-VALU40 char(3) ; 
-      20 WS-FILL38 char(14) ; 
-  10 WS-CCYY char(4) ; 
-    15 WS-CC char(2) ; 
-    15 WS-YY char(2) ; 
-  10 WS-MED-CLMNMB char(11) ; 
-    15 WS-MED-CLMCAN1 char(3) ; 
-    15 WS-MED-CLMCAN2 char(2) ; 
-    15 WS-MED-CLMCAN3 char(4) ; 
-    15 WS-MED-CLMBIC char(2) ; 
-end // end AIN24W11
-
-
-Record AIN24W12 type basicRecord
-  10 WS-CLOG-INS char(1) ; 
-  10 WS-AUTO-MSG char(192) ; 
-    15 WS-LINE1 char(64) ; 
-      20 WS-TEXT21 char(18) ; 
-      20 WS-VALU21 char(2) ; 
-      20 WS-TEXT22 char(1) ; 
-      20 WS-VALU22 char(2) ; 
-      20 WS-TEXT23 char(1) ; 
-      20 WS-VALU23 char(2) ; 
-      20 WS-TEXT24 char(3) ; 
-      20 WS-VALU24 char(2) ; 
-      20 WS-TEXT25 char(1) ; 
-      20 WS-VALU25 char(2) ; 
-      20 WS-TEXT26 char(1) ; 
-      20 WS-VALU26 char(2) ; 
-      20 WS-TEXT27 char(1) ; 
-      20 WS-FILL26 char(1) ; 
-      20 WS-TEXT28 char(5) ; 
-      20 WS-VALU28 char(2) ; 
-      20 WS-TEXT29 char(1) ; 
-      20 WS-VALU29 char(2) ; 
-      20 WS-TEXT30 char(1) ; 
-      20 WS-VALU30 char(2) ; 
-      20 WS-TEXT31 char(3) ; 
-      20 WS-VALU31 char(2) ; 
-      20 WS-TEXT32 char(1) ; 
-      20 WS-VALU32 char(2) ; 
-      20 WS-TEXT33 char(1) ; 
-      20 WS-VALU33 char(2) ; 
-      20 WS-TEXT34 char(1) ; 
-    15 WS-LINE2 char(64) ; 
-      20 WS-TEXT35 char(17) ; 
-      20 WS-VALU35 char(8) ; 
-      20 WS-TEXT36 char(1) ; 
-      20 WS-VALU36 char(1) ; 
-      20 WS-TEXT37 char(1) ; 
-      20 WS-VALU37 char(3) ; 
-      20 WS-FILL37 char(1) ; 
-      20 WS-TEXT38 char(4) ; 
-      20 WS-VALU38 char(8) ; 
-      20 WS-TEXT39 char(1) ; 
-      20 WS-VALU39 char(1) ; 
-      20 WS-TEXT40 char(1) ; 
-      20 WS-VALU40 char(3) ; 
-      20 WS-FILL38 char(14) ; 
-    15 WS-LINE3 char(64) ; 
-      20 WS-TEXT41 char(18) ; 
-      20 WS-VALU41 char(1) ; 
-      20 WS-TEXT42 char(1) ; 
-      20 WS-VALU42 char(1) ; 
-      20 WS-TEXT43 char(1) ; 
-      20 WS-VALU43 char(1) ; 
-      20 WS-FILL39 char(1) ; 
-      20 WS-TEXT44 char(4) ; 
-      20 WS-VALU44 char(1) ; 
-      20 WS-TEXT45 char(1) ; 
-      20 WS-VALU45 char(1) ; 
-      20 WS-TEXT46 char(1) ; 
-      20 WS-VALU46 char(1) ; 
-      20 WS-FILL40 char(1) ; 
-      20 WS-TEXT47 char(10) ; 
-      20 WS-VALU47 char(1) ; 
-      20 WS-FILL41 char(1) ; 
-      20 WS-TEXT48 char(4) ; 
-      20 WS-VALU48 char(1) ; 
-      20 WS-FILL42 char(13) ; 
-  10 WS-CCYY char(4) ; 
-    15 WS-CC char(2) ; 
-    15 WS-YY char(2) ; 
-  10 WS-MED-CLMNMB char(11) ; 
-    15 WS-MED-CLMCAN1 char(3) ; 
-    15 WS-MED-CLMCAN2 char(2) ; 
-    15 WS-MED-CLMCAN3 char(4) ; 
-    15 WS-MED-CLMBIC char(2) ; 
-end // end AIN24W12
-
-
-Record AIN24W14 type basicRecord
-  10 WS-CLOG-INS char(1) ; 
-  10 WS-AUTO-MSG char(192) ; 
-    15 WS-LINE1 char(64) ; 
-      20 WS-TEXT49 char(10) ; 
-      20 WS-VALU49 char(1) ; 
-      20 WS-FILL43 char(1) ; 
-      20 WS-TEXT50 char(4) ; 
-      20 WS-VALU50 char(1) ; 
-      20 WS-FILL44 char(1) ; 
-      20 WS-TEXT52 char(10) ; 
-      20 WS-VALU52 char(2) ; 
-      20 WS-TEXT53 char(1) ; 
-      20 WS-VALU53 char(2) ; 
-      20 WS-TEXT54 char(1) ; 
-      20 WS-VALU54 char(2) ; 
-      20 WS-FILL45 char(1) ; 
-      20 WS-TEXT55 char(4) ; 
-      20 WS-VALU55 char(2) ; 
-      20 WS-TEXT56 char(1) ; 
-      20 WS-VALU56 char(2) ; 
-      20 WS-TEXT57 char(1) ; 
-      20 WS-VALU57 char(2) ; 
-      20 WS-FILL46 char(15) ; 
-    15 WS-LINE2 char(64) ; 
-      20 WS-TEXT58 char(9) ; 
-      20 WS-VALU58 char(12) ; 
-      20 WS-FILL47 char(1) ; 
-      20 WS-TEXT59 char(4) ; 
-      20 WS-VALU59 char(12) ; 
-      20 WS-FILL48 char(1) ; 
-      20 WS-TEXT60 char(12) ; 
-      20 WS-VALU60 char(1) ; 
-      20 WS-FILL49 char(1) ; 
-      20 WS-TEXT61 char(4) ; 
-      20 WS-VALU61 char(1) ; 
-      20 WS-FILL50 char(6) ; 
-    15 WS-LINE3 char(64) ; 
-      20 WS-TEXT62 char(8) ; 
-      20 WS-VALU62 char(1) ; 
-      20 WS-FILL51 char(1) ; 
-      20 WS-TEXT63 char(4) ; 
-      20 WS-VALU63 char(1) ; 
-      20 WS-FILL52 char(1) ; 
-      20 WS-TEXT64 char(14) ; 
-      20 WS-VALU64 char(2) ; 
-      20 WS-TEXT65 char(1) ; 
-      20 WS-VALU65 char(2) ; 
-      20 WS-TEXT66 char(1) ; 
-      20 WS-VALU66 char(2) ; 
-      20 WS-FILL53 char(1) ; 
-      20 WS-TEXT67 char(4) ; 
-      20 WS-VALU67 char(2) ; 
-      20 WS-TEXT68 char(1) ; 
-      20 WS-VALU68 char(2) ; 
-      20 WS-TEXT69 char(1) ; 
-      20 WS-VALU69 char(2) ; 
-      20 WS-FILL54 char(13) ; 
-  10 WS-CCYY char(4) ; 
-    15 WS-CC char(2) ; 
-    15 WS-YY char(2) ; 
-  10 WS-MED-CLMNMB char(11) ; 
-    15 WS-MED-CLMCAN1 char(3) ; 
-    15 WS-MED-CLMCAN2 char(2) ; 
-    15 WS-MED-CLMCAN3 char(4) ; 
-    15 WS-MED-CLMBIC char(2) ; 
-end // end AIN24W14
-
-
-Record AIN24W2 type basicRecord
-  10 PRIOR-ELIG-VER-AMT decimal(9,2) ; 
-  10 NEW-ELIG-VER-AMT decimal(9,2) ; 
-  10 AMT-DIFF decimal(9,2) ; 
-  10 INFC-CHGD-ELIG-AMT-FG char(1) ; 
-  10 INFC-BG-TRAN-STS char(2) ; 
-  10 INFC-BG-TRAN-PRD-FM-DT char(10) ; 
-  10 INFC-BG-TRAN-PRD-TO-DT char(10) ; 
-  10 * char(3) ; 
-  10 BFR-BG-TRAN-FR-DT char(10) ; 
-    15 BFR-BG-TRAN-FR-CCYY char(4) ; 
-    15 BFR-BG-TRAN-FR-FILL1 char(1) ; 
-    15 BFR-BG-TRAN-FR-MM char(2) ; 
-    15 BFR-BG-TRAN-FR-FILL2 char(1) ; 
-    15 BFR-BG-TRAN-FR-DD char(2) ; 
-  10 * char(3) ; 
-  10 WORK-BNFT-DT char(10) ; 
-    15 WORK-BNFT-CCYY num(4) ; 
-      20 WORK-BNFT-CC num(2) ; 
-      20 WORK-BNFT-YY num(2) ; 
-    15 WORK-BNFT-FILL1 char(1) ; 
-    15 WORK-BNFT-MM num(2) ; 
-    15 WORK-BNFT-FILL2 char(1) ; 
-    15 WORK-BNFT-DD num(2) ; 
-  10 * char(3) ; 
-  10 BFR-BG-TRAN-TO-DT char(10) ; 
-    15 BFR-BG-TRAN-TO-CCYY char(4) ; 
-    15 BFR-BG-TRAN-TO-FILL1 char(1) ; 
-    15 BFR-BG-TRAN-TO-MM char(2) ; 
-    15 BFR-BG-TRAN-TO-FILL2 char(1) ; 
-    15 BFR-BG-TRAN-TO-DD char(2) ; 
-  10 * char(3) ; 
-  10 WORK-TO-BNFT-DT char(6) ; 
-    15 WORK-TO-BNFT-CCYY char(4) ; 
-    15 WORK-TO-BNFT-MM char(2) ; 
-  10 * char(3) ; 
-  10 BFR-FCH-BEG-DT char(10) ; 
-  10 WS-CHECK-BG-SYS-DATE char(10) ; 
-  10 WS-BG-CRN-TS char(26) ; 
-    15 WS-BG-CRN-DATE char(10) ; 
-    15 WS-BG-CRN-MISC char(16) ; 
-  10 WS-CMH-FCH-PRD-END-DT char(10) ; 
-  10 WS-PROCESS-COST-INFC-FG char(1) ; 
-end // end AIN24W2
+sql
+Copy
+Edit
+DELETE ul
+FROM user_logs ul
+LEFT JOIN users u ON ul.user_id = u.id
+WHERE u.id IS NULL;
+Expected Result:
+Deletes logs where user_id does not match any user in users.
