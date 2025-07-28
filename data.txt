@@ -1,254 +1,92 @@
-WITH INPUT_QUERY AS (
-    SELECT
-        T6.OFC_NM,
-        T5.OFC_CD,
-        T5.CASLD_ID,
-        T2.BNFT_MTH,
-        T2.BNFT_YR,
-        T1.ICI,
-        T1.PRGM_CASE_STS,
-        T1.PRGM_CASE_TYPE,
-        T1.AID_CD,
-        T2.WTHDR_TST_RSLT_CD,
-        T2.APL_DTH_TSTRSL_CD,
-        T2.RSDN_TST_RSLT_CD,
-        T2.AGDDIS_ST_TSTRS_CD,
-        T2.VRF_TST_RSLT_CD,
-        T2.SSN_TEST_RSLT_CD,
-        T2.COOP_TEST_RSLT_CD,
-        T2.MRF_COMP_TSTRSL_CD,
-        T2.VER_NMB,
-        (SELECT HOH_UPI FROM {?SCHEMA}.TWNFAM_CASE_HSTRY 
-         WHERE ICI = T1.ICI AND PRD_BEG_DT <= {?RPT_DT} AND PRD_END_DT >= {?RPT_DT}) AS HOH_UPI,
-        T5.CASLD_EFF_DT
-    FROM
-        {?SCHEMA}.TWNPRGM_CASE_HSTRY T1,
-        {?SCHEMA}.TWNELIG_VERSION T2
-    JOIN {?SCHEMA}.TWNFAM_CASELD_CASE T5 ON
-        T5.ICI = T1.ICI
-    JOIN {?SCHEMA}.TWNOFFICE T6 ON
-        T6.OFC_CD = T5.OFC_CD
-    WHERE
-        T1.PRGM_CASE_TYPE = 'MA'
-        AND T1.PRGM_CASE_STS IN ('D')
-        AND T1.PRD_BEG_DT <= {?RPT_DT}
-        AND T1.PRD_END_DT >= {?RPT_DT}
-        AND T2.PRGM_CASE_TYPE = 'MA'
-        AND T2.LST_POSTD_VER_IND = 'Y'
-        AND T2.ICI = T1.ICI
-        AND T2.BNFT_MTH = VARCHAR_FORMAT({?RPT_DT}, 'MM')
-        AND T2.BNFT_YR = VARCHAR_FORMAT({?RPT_DT}, 'YYYY')
-        AND T5.CASLD_EFF_DT = (
-            SELECT MAX(CASLD_EFF_DT) FROM {?SCHEMA}.twnfam_caseld_case WHERE ICI = T1.ICI )
-),
-LST_BU_CNSD AS (
-    SELECT DISTINCT
-        T7.ICI,
-        T7.UPI,
-        T7.LST_BU_CNSD,
-        T7.PRGM_CASE_TYPE,
-        T7.BNFT_YR,
-        T7.BNFT_MTH,
-        T7.VER_NMB
-    FROM
-        {?SCHEMA}.TWNELG_VER_MBR T7
-    JOIN INPUT_QUERY IQ ON
-        T7.ICI = IQ.ICI
-        AND T7.PRGM_CASE_TYPE = IQ.PRGM_CASE_TYPE
-        AND T7.BNFT_YR = IQ.BNFT_YR
-        AND T7.BNFT_MTH = IQ.BNFT_MTH
-        AND T7.VER_NMB = IQ.VER_NMB
-        AND T7.UPI = IQ.HOH_UPI
-),
-BUDGET_UNIT AS (
-    SELECT
-        LST.ICI,
-        T8.VER_NMB,
-        T8.BU_NMB,
-        T8.GRS_INC_TST_RSLTCD,
-        T8.RSRCS_TST_RSLT_CD
-    FROM
-        LST_BU_CNSD LST
-    LEFT JOIN {?SCHEMA}.TWNELG_BDGT_UNIT T8 ON
-        T8.ICI = LST.ICI
-        AND T8.BNFT_YR = LST.BNFT_YR
-        AND T8.BNFT_MTH = LST.BNFT_MTH
-        AND T8.PRGM_CASE_TYPE = LST.PRGM_CASE_TYPE
-        AND T8.VER_NMB = LST.VER_NMB
-        AND T8.BU_NMB = LST.LST_BU_CNSD
-),
-INPUT_PARAMS AS (
-    SELECT DISTINCT 
-        IQ.BNFT_MTH,
-        IQ.BNFT_YR,
-        IQ.ICI,
-        IQ.PRGM_CASE_STS,
-        IQ.PRGM_CASE_TYPE,
-        IQ.AID_CD,
-        IQ.OFC_CD,
-        IQ.CASLD_ID,
-        IQ.OFC_NM,
-        CASE
-            WHEN WTHDR_TST_RSLT_CD = 'F' THEN 1
-            WHEN APL_DTH_TSTRSL_CD = 'F' THEN 2
-            WHEN RSDN_TST_RSLT_CD = 'F' THEN 3
-            WHEN AGDDIS_ST_TSTRS_CD = 'F' THEN 4
-            WHEN VRF_TST_RSLT_CD = 'F' OR SSN_TEST_RSLT_CD = 'F' OR COOP_TEST_RSLT_CD = 'F' OR MRF_COMP_TSTRSL_CD = 'F' THEN 5
-            WHEN BUNIT.RSRCS_TST_RSLT_CD = 'F' THEN 7
-            WHEN BUNIT.GRS_INC_TST_RSLTCD = 'F' THEN 8
-            ELSE 6
-        END AS RSN_CD,
-        CASE
-            WHEN WTHDR_TST_RSLT_CD = 'F' THEN 'CASE WITHDRAWL'
-            WHEN APL_DTH_TSTRSL_CD = 'F' THEN 'DEATH'
-            WHEN RSDN_TST_RSLT_CD = 'F' THEN 'NOT MEETING RESIDENCE REQ'
-            WHEN AGDDIS_ST_TSTRS_CD = 'F' THEN 'FAILED AGED/DIS REQUIREMENTS'
-            WHEN VRF_TST_RSLT_CD = 'F' OR SSN_TEST_RSLT_CD = 'F' OR COOP_TEST_RSLT_CD = 'F' OR MRF_COMP_TSTRSL_CD = 'F' THEN 'FAILED TO COOPERATE'
-            WHEN BUNIT.RSRCS_TST_RSLT_CD = 'F' AND BUNIT.GRS_INC_TST_RSLTCD = 'F' THEN 'FAILED GROSS INCOME TEST'
-            WHEN BUNIT.RSRCS_TST_RSLT_CD = 'F' AND BUNIT.GRS_INC_TST_RSLTCD != 'F' THEN 'FAILED RESOURCE TEST'
-            WHEN BUNIT.GRS_INC_TST_RSLTCD = 'F' AND BUNIT.RSRCS_TST_RSLT_CD != 'F' THEN 'FAILED GROSS INCOME TEST'
-            ELSE 'FAILED ALL CATEGORIES'
-        END AS RSN,
-        IQ.VER_NMB,
-        IQ.HOH_UPI,
-        IQ.WTHDR_TST_RSLT_CD,
-        IQ.APL_DTH_TSTRSL_CD,
-        IQ.RSDN_TST_RSLT_CD,
-        IQ.AGDDIS_ST_TSTRS_CD,
-        IQ.VRF_TST_RSLT_CD,
-        IQ.SSN_TEST_RSLT_CD,
-        IQ.COOP_TEST_RSLT_CD,
-        IQ.MRF_COMP_TSTRSL_CD,
-        BUNIT.RSRCS_TST_RSLT_CD,
-        BUNIT.GRS_INC_TST_RSLTCD,
-        IQ.CASLD_EFF_DT
-    FROM
-        INPUT_QUERY IQ
-    LEFT JOIN BUDGET_UNIT BUNIT ON
-        BUNIT.ICI = IQ.ICI
-    ORDER BY
-        IQ.PRGM_CASE_STS,
-        IQ.OFC_NM
-),
-MAIN_QUERY AS (
-    SELECT
-        OFFICE_NAME,
-        CASLD_ID,
-        RSN,
-        RSN_CD,
-        HBW_COUNT,
-        QMB_COUNT,
-        SSI_COUNT,
-        STA_INS_COUNT,
-        KB_COUNT,
-        SLMB_COUNT,
-        GCW_COUNT,
-        RETARD_COUNT,
-        QDWI_COUNT,
-        PUB_LAW_COUNT,
-        EME_MED_COUNT,
-        QI1_COUNT,
-        QI2_COUNT,
-        (HBW_COUNT + QMB_COUNT + SSI_COUNT + STA_INS_COUNT + KB_COUNT + SLMB_COUNT + GCW_COUNT + RETARD_COUNT + QDWI_COUNT + PUB_LAW_COUNT + EME_MED_COUNT + QI1_COUNT + QI2_COUNT) AS TOTAL,
-        0 AS STATEWIDE_ORDER,
-        0 AS CASLD_ID_ORDER,
-        0 AS STATEWIDE_FLAG
-    FROM (
-        SELECT
-            IP.OFC_NM AS OFFICE_NAME,
-            IP.RSN,
-            IP.RSN_CD,
-            IP.CASLD_ID,
-            SUM(CASE WHEN IP.AID_CD IN('HC1', 'HD3', 'HD5', 'HD9') THEN 1 ELSE 0 END) AS HBW_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('QM1', 'QM3', 'QM5', 'QM9') THEN 1 ELSE 0 END) AS QMB_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('GC1', 'GC3', 'GC5', 'GC9', 'SS1', 'SS3', 'SS5', 'SS9', 'IN1', 'IN3', 'IN5', 'IN9') THEN 1 ELSE 0 END) AS SSI_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('CM1', 'CM3', 'CM5', 'CM9', 'WB1', 'WB3', 'WB5', 'WB9', 'SI1', 'SI3', 'SI5', 'SI9') THEN 1 ELSE 0 END) AS STA_INS_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('KB3', 'KB5', 'KB9') THEN 1 ELSE 0 END) AS KB_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('SL1', 'SL3', 'SL5', 'SL9') THEN 1 ELSE 0 END) AS SLMB_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('HG1', 'HG3', 'HG5', 'HG9') THEN 1 ELSE 0 END) AS GCW_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('HR5', 'HR9') THEN 1 ELSE 0 END) AS RETARD_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('QD3', 'QD5', 'QD9') THEN 1 ELSE 0 END) AS QDWI_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('AD1', 'AD3', 'AD5', 'AD9', 'SU1', 'SU3', 'SU5', 'SU9', 'WS3', 'WS5', 'WS9', 'WW3', 'WW5', 'WW9', 'PK1', 'PK3', 'PK5', 'PK9', 'NO9') THEN 1 ELSE 0 END) AS PUB_LAW_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('EM1', 'EM3', 'EM9') THEN 1 ELSE 0 END) AS EME_MED_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('QI1', 'QI3', 'QI9') THEN 1 ELSE 0 END) AS QI1_COUNT,
-            SUM(CASE WHEN IP.AID_CD IN('QJ1', 'QJ3', 'QJ9') THEN 1 ELSE 0 END) AS QI2_COUNT
-        FROM
-            INPUT_PARAMS IP
-        WHERE
-            IP.PRGM_CASE_STS = 'D'
-            AND IP.RSN_CD IN (1,2,3,4,5,7,8)
-            AND IP.AID_CD IS NOT NULL AND IP.AID_CD <> ''
-        GROUP BY
-            IP.OFC_NM,
-            IP.CASLD_ID,
-            IP.RSN,
-            IP.RSN_CD
-    ) AS COUNTS
-),
-OFFICE_SUMMARY AS (
-    SELECT
-        OFFICE_NAME,
-        '' AS CASLD_ID,
-        RSN,
-        RSN_CD,
-        SUM(HBW_COUNT) AS HBW_COUNT,
-        SUM(QMB_COUNT) AS QMB_COUNT,
-        SUM(SSI_COUNT) AS SSI_COUNT,
-        SUM(STA_INS_COUNT) AS STA_INS_COUNT,
-        SUM(KB_COUNT) AS KB_COUNT,
-        SUM(SLMB_COUNT) AS SLMB_COUNT,
-        SUM(GCW_COUNT) AS GCW_COUNT,
-        SUM(RETARD_COUNT) AS RETARD_COUNT,
-        SUM(QDWI_COUNT) AS QDWI_COUNT,
-        SUM(PUB_LAW_COUNT) AS PUB_LAW_COUNT,
-        SUM(EME_MED_COUNT) AS EME_MED_COUNT,
-        SUM(QI1_COUNT) AS QI1_COUNT,
-        SUM(QI2_COUNT) AS QI2_COUNT,
-        SUM(TOTAL) AS TOTAL,
-        1 AS STATEWIDE_ORDER,
-        1 AS CASLD_ID_ORDER,
-        0 AS STATEWIDE_FLAG
-    FROM
-        MAIN_QUERY
-    GROUP BY
-        OFFICE_NAME,
-        RSN,
-        RSN_CD
-),
-STATEWIDE_SUMMARY AS (
-    SELECT
-        'STATEWIDE' AS OFFICE_NAME,
-        '' AS CASLD_ID,
-        RSN,
-        RSN_CD,
-        SUM(HBW_COUNT) AS HBW_COUNT,
-        SUM(QMB_COUNT) AS QMB_COUNT,
-        SUM(SSI_COUNT) AS SSI_COUNT,
-        SUM(STA_INS_COUNT) AS STA_INS_COUNT,
-        SUM(KB_COUNT) AS KB_COUNT,
-        SUM(SLMB_COUNT) AS SLMB_COUNT,
-        SUM(GCW_COUNT) AS GCW_COUNT,
-        SUM(RETARD_COUNT) AS RETARD_COUNT,
-        SUM(QDWI_COUNT) AS QDWI_COUNT,
-        SUM(PUB_LAW_COUNT) AS PUB_LAW_COUNT,
-        SUM(EME_MED_COUNT) AS EME_MED_COUNT,
-        SUM(QI1_COUNT) AS QI1_COUNT,
-        SUM(QI2_COUNT) AS QI2_COUNT,
-        SUM(TOTAL) AS TOTAL,
-        2 AS STATEWIDE_ORDER,
-        2 AS CASLD_ID_ORDER,
-        1 AS STATEWIDE_FLAG
-    FROM
-        MAIN_QUERY
-    GROUP BY
-        RSN,
-        RSN_CD
-)
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>gov.nv.dwss</groupId>
+    <artifactId>ampsdis</artifactId>
+    <version>1.0</version>
+  </parent>
+  <artifactId>disweb</artifactId>
+  <packaging>war</packaging>
+  <name>DISWEB</name>
+  <properties>
+	<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+	
+  <build>
+	<sourceDirectory>src/main/java</sourceDirectory>
+	<plugins>
+		<plugin>
+			<artifactId>maven-war-plugin</artifactId>
+			<version>3.0.0</version>
+		</plugin>
+		<plugin>
+			<artifactId>maven-compiler-plugin</artifactId>
+			<version>3.5.1</version>
+			<configuration>
+				<source>1.7</source>
+				<target>1.7</target>
+			</configuration>
+		</plugin>
+	</plugins>
+</build>
 
-SELECT * FROM MAIN_QUERY
-UNION ALL
-SELECT * FROM OFFICE_SUMMARY
-UNION ALL
-SELECT * FROM STATEWIDE_SUMMARY
-ORDER BY
-    STATEWIDE_FLAG, OFFICE_NAME, CASLD_ID_ORDER, CASLD_ID, RSN_CD;
+  <dependencies>
+	<dependency>
+	    <groupId>commons-codec</groupId>
+	    <artifactId>commons-codec</artifactId>
+	    <version>1.3</version>
+	</dependency>
+	<dependency>
+    	<groupId>commons-lang</groupId>
+    	<artifactId>commons-lang</artifactId>
+    	<version>2.3</version>
+	</dependency>
+	<!-- <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>log4j-over-slf4j</artifactId>
+            <version>1.7.10</version>
+       </dependency> -->
+     <dependency>
+    	<groupId>org.apache.logging.log4j</groupId>
+    	<artifactId>log4j-1.2-api</artifactId>
+   		 <version>2.17.0</version>
+  	</dependency>
+  	<dependency>
+   		 <groupId>org.apache.logging.log4j</groupId>
+    	<artifactId>log4j-core</artifactId>
+   		 <version>2.17.0</version>
+  	</dependency>
+  <dependency>
+   		 <groupId>org.apache.logging.log4j</groupId>
+    	<artifactId>log4j-api</artifactId>
+   	 <version>2.17.0</version>
+  </dependency>   
+	<dependency>
+	    <groupId>com.ibm.filenet</groupId>
+	    <artifactId>jace</artifactId>
+	    <version>5.5.4-0-132</version>
+	</dependency>
+		<dependency>
+	    <groupId>com.ibm.filenet</groupId>
+	    <artifactId>ceRest</artifactId>
+	    <version>2.3</version>
+	</dependency>
+	<dependency>
+	    <groupId>javax.servlet</groupId>
+	    <artifactId>servlet-api</artifactId>
+	    <version>2.5</version>
+	</dependency>
+	<dependency>
+		<groupId>com.ibm.websphere.appserver</groupId>
+		<artifactId>was_public</artifactId>
+		<version>8.5.5</version>
+		<scope>compile</scope>
+	</dependency>
+	<dependency>
+		<groupId>com.ibm.websphere.ws</groupId>
+		<artifactId>com.ibm.ws.prereq.jaxrs</artifactId>
+		<version>8.5.5-FixPack-01</version>
+		<scope>compile</scope>
+	</dependency>
+   </dependencies>
+</project>
