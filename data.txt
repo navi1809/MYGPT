@@ -1,51 +1,36 @@
-HMW / HBW bucket
+import java.nio.*;
+import java.nio.charset.Charset;
 
-HC1, HD3, HD5, HD9
+public class EbcdicToShort {
+    // Encode a 2-char string in EBCDIC (CP037) and reinterpret as signed 16-bit big-endian
+    public static short ebcdicAsShort(String twoChars) {
+        if (twoChars.length() != 2) {
+            // match DB2 behavior you're seeing: "1" was likely padded to "1 "
+            twoChars = (twoChars + "  ").substring(0, 2);
+        }
+        byte[] ebcdic = twoChars.getBytes(Charset.forName("Cp037")); // EBCDIC US/Canada
+        return ByteBuffer.wrap(ebcdic).order(ByteOrder.BIG_ENDIAN).getShort();
+    }
 
-QMB bucket
+    // reverse: take that short and recover the 2 EBCDIC chars (useful for debugging)
+    public static String shortAsEbcdicChars(short value) {
+        ByteBuffer bb = ByteBuffer.allocate(2).order(ByteOrder.BIG_ENDIAN);
+        bb.putShort(value);
+        byte[] ebcdic = bb.array();
+        return new String(ebcdic, Charset.forName("Cp037"));
+    }
 
-HC5, HC6, HC7, HC8, HC9
+    public static void main(String[] args) {
+        short v = ebcdicAsShort("1 ");       // yields -3776
+        System.out.println(v);
 
-SSI bucket
+        // Example: persist `v` as SMALLINT in DB using JDBC:
+        // try (PreparedStatement ps = conn.prepareStatement("INSERT INTO t(col) VALUES (?)")) {
+        //     ps.setShort(1, v);
+        //     ps.executeUpdate();
+        // }
 
-HC2, HC3, HC4, HE1, HE2, HE3, HE4, HE5, HE6, HE7
-
-State Institution bucket
-
-HF1, HF2, HF3, HF4, HF5
-
-KB bucket
-
-HG1, HG2, HG3, HG4
-
-GCW bucket
-
-HH1, HH2, HH3
-
-SLMB bucket
-
-HI1, HI2, HI3, HI4
-
-Retardation bucket
-
-HJ1, HJ2, HJ3, HJ4
-
-QDWI bucket
-
-HK1, HK2, HK3
-
-Public Law bucket
-
-HL1, HL2, HL3, HL4
-
-Emergency Medical bucket
-
-HM1, HM2, HM3
-
-QI-1 bucket
-
-HN1, HN2, HN3, HN4
-
-QI-2 bucket
-
-HO1, HO2, HO3
+        // sanity check round-trip:
+        System.out.println(shortAsEbcdicChars(v)); // prints "1 "
+    }
+}
