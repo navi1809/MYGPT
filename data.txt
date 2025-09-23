@@ -1,25 +1,36 @@
+public static final String GET_PROGRAM_HISTORY_BY_ICI =
+    "SELECT PRGM_CASE_STS, PRGM_EFF_DT, RCRT_APL_DT, ICI, PRD_END_DT, REDET_FRQ " +
+    "FROM ##db-schema-name##.TWNPRGM_CASE_HSTRY " +
+    "WHERE ICI = ? FOR FETCH ONLY";
+
+
+public List<BenefitsCaseProgramHistorySorRecord> getProgramHistoryByIci(Integer ici) {
+    String sql = getQueryWithSchemaName(QueryConstants.GET_PROGRAM_HISTORY_BY_ICI);
+    return jdbcTemplate.query(sql, new ProgramCaseHistryRowMapper(), ici);
+}
+
+
 private void populateQ43AndQ45(SnapCharacteristicRecord record) {
     List<CaseActionSorRecord> dnActions = this.dataService.getDnActionTimeStamp(record.getOfficeCode());
-    List<BenefitsCaseProgramHistorySorRecord> programHistory = this.dataService.getProgramHistory(record.getOfficeCode());
-
+    Map<Integer, List<BenefitsCaseProgramHistorySorRecord>> cache = new HashMap<>();
     for (CaseActionSorRecord ca : dnActions) {
-        programHistory.stream()
-            .filter(h -> h.getIci() == ca.getIci())
-            .filter(h -> !h.getProgramEffectiveDate().after(ca.getActionTimeStamp())
-                      && !h.getEffectiveEndDate().before(ca.getActionTimeStamp()))
-            .findFirst()
-            .ifPresent(h -> {
+        Integer ici = ca.getIci();
+        List<BenefitsCaseProgramHistorySorRecord> ph = cache.computeIfAbsent(ici, k -> this.dataService.getProgramHistoryByIci(k));
+        for (BenefitsCaseProgramHistorySorRecord h : ph) {
+            if (!h.getProgramEffectiveDate().after(ca.getActionTimeStamp()) && !h.getEffectiveEndDate().before(ca.getActionTimeStamp())) {
                 Date appl = h.getApplicationReceivedDate();
                 if (appl != null) {
                     LocalDate actionDate = ca.getActionTimeStamp().toLocalDateTime().toLocalDate();
                     LocalDate applDate = convertUtilDateToLocalDate(appl);
-                    int dateDiff = dateDiff(actionDate, applDate);
-                    dateDiff = actionDate.isBefore(applDate) ? 1 : dateDiff + 1;
-                    record.setDiffDDays(record.getDiffDDays() + dateDiff);
-                    record.setDiffDays(record.getDiffDays() + dateDiff);
+                    int d = dateDiff(actionDate, applDate);
+                    d = actionDate.isBefore(applDate) ? 1 : d + 1;
+                    record.setDiffDDays(record.getDiffDDays() + d);
+                    record.setDiffDays(record.getDiffDays() + d);
                     record.setIciDCount(record.getIciDCount() + 1);
                     record.setIciADCount(record.getIciADCount() + 1);
                 }
-            });
+                break;
+            }
+        }
     }
 }
