@@ -1,17 +1,2056 @@
-const allSelects = document.querySelectorAll("select.formNoStyle");
-
-const selects = Array.prototype.filter.call(allSelects, function(sel) {
-    const nm = sel.getAttribute("name") || "";
-    const id = sel.getAttribute("id") || "";
-    return nm.includes("livingArrangement") || id.includes("livingArrangement");
-});
-
-let inHome = 0, outside = 0;
-selects.forEach(function(sel) {
-    const v = (sel.value || "").trim();
-    if (!v || v.toUpperCase() === "SEL") return;
-    if (v === "HO") inHome++;                   
-    else outside++;                             
-});
-
-const personsAdded = selects.length; 
+000010 IDENTIFICATION DIVISION.                                         08/31/00
+000020 PROGRAM-ID.    CAD01A.                                           CAD01A
+000030*AUTHOR.        J. BREHM.                                            LV003
+000040*DATE-WRITTEN.  JANUARY 1994.
+000050******************************************************************
+000060* - - - - - - P R O G R A M   N A R R A T I V E  - - - - - - - - -
+000070*
+000080**   THIS PROGRAM:
+000090**       A) STRIPS COMMAS, QUOTES, SEMICOLONS, ETC.
+000100**       B) CONVERTS STREET TYPES TO ABBREVIATIONS.
+000110**       C) EXPANDS SOME STREET NAMES.
+000120**       D) CONVERTS DIRECTIONS TO N OR S OR E OR W.
+000130**       E) COUNTS NUMBER OF FIELDS, THEN DETERMINES WHERE EACH
+000140**          FIELD GOES. (NUMBER-DIRECTION-STREET-TYPE-APT-OTHER)
+000150**
+000160******************************************************************
+000170* - - - - - - P R O G R A M   C H A N G E   L O G  - - - - - - - -
+000180* - DATE   WORK ORDER #       DESCRIPTION  OF  CHANGES MADE  - - -
+000190******************************************************************
+000200* 07/14/94 NOMADS - E.GRAHAM  UTILIZE ERROR MSG TABLE - WN91ACET
+000210******************************************************************
+000220     EJECT
+000230 ENVIRONMENT DIVISION.
+000240 CONFIGURATION SECTION.
+000250 SPECIAL-NAMES.
+000260     C01 IS TOP-OF-PAGE.
+000270 INPUT-OUTPUT SECTION.
+000280 FILE-CONTROL.
+000290     EJECT
+000300 DATA DIVISION.
+000310 FILE SECTION.
+000320 WORKING-STORAGE SECTION.
+000330 77  HALT-CODE                   PIC S9(3) COMP VALUE +601.
+000340 01  COUNTERS.
+000350     05 T1                       PIC 99.
+000360     05 T2                       PIC 99.
+000370     05 T3                       PIC 99.
+000380     05 T4                       PIC 99.
+000390     05 T5                       PIC 99.
+000400     05 TW                       PIC 99.
+000410     05 TA                       PIC 99.
+000420     05 TR                       PIC 99.
+000430     05 TT                       PIC 99.
+000440     05 TX                       PIC 99.
+000450     05 OX                       PIC 99.
+000460     05 WX                       PIC 99.
+000470     05 W1                       PIC 99.
+000480     05 MX                       PIC 99.
+000490
+000500 01  WRK-DIR1                    PIC X(15).
+000510     88 DIRECT1         VALUES ARE 'W ' 'E '
+000520                                   'N ' 'S '.
+000530
+000540 01  WRK-DIR2                    PIC X(15).
+000550     88 DIRECT2         VALUES ARE 'W ' 'E '
+000560                                   'N ' 'S '.
+000570
+000580 01  WRK-DIR                     PIC X(10).
+000590     88 DIRECTIONS      VALUES ARE 'W ' 'E '
+000600                                   'N ' 'S '
+000610                                   'NW ' 'NE ' 'SW ' 'SE '.
+000620
+000630 01  WRK-TYPES                   PIC X(10).
+000640     88 ST-TYPES        VALUES ARE 'RD ' 'ST ' 'LN ' 'DR ' 'PL '
+000650                            'CIR ' 'WAY ' 'MDWS ' 'HTS ' 'PKY '
+000660                            'CR '  'AVE ' 'PARK ' 'BLVD ' 'CT '.
+000670 01  OUT-APT                     PIC X(05).
+000680 01  FILLER             REDEFINES OUT-APT.
+000690     02  O-APT                   PIC X     OCCURS  5 TIMES.
+000700
+000710 01  OUT-NBR                     PIC X(08).
+000720 01  FILLER             REDEFINES OUT-NBR.
+000730     02  O-NBR                   PIC X     OCCURS  8 TIMES.
+000740
+000750 01  OUT-ST                      PIC X(25).
+000760 01  FILLER             REDEFINES OUT-ST.
+000770     02  O-ST                    PIC X     OCCURS 25 TIMES.
+000780
+000790 01  OUT-TYPE                    PIC X(04).
+000800 01  FILLER             REDEFINES OUT-TYPE.
+000810     02  O-TYPE                  PIC X     OCCURS 04 TIMES.
+000820
+000830 01  OUT-OTHER                   PIC X(25).
+000840 01  FILLER             REDEFINES OUT-OTHER.
+000850     02  O-OTHER                 PIC X     OCCURS 25 TIMES.
+000860
+000870 01  OUT-DIR                     PIC X(06).
+000880 01  FILLER             REDEFINES OUT-DIR.
+000890     02  O-DIR                   PIC X     OCCURS 06 TIMES.
+000900
+000910 01  COMPONENT1                  PIC X(15).
+000920 01  FILLER             REDEFINES COMPONENT1.
+000930     02  COMP1                   PIC X     OCCURS 15 TIMES.
+000940
+000950 01  COMPONENT2                  PIC X(15).
+000960 01  FILLER             REDEFINES COMPONENT2.
+000970     02  COMP2                   PIC X     OCCURS 15 TIMES.
+000980
+000990 01  COMPONENT3                  PIC X(15).
+001000 01  FILLER             REDEFINES COMPONENT3.
+001010     02  COMP3                   PIC X     OCCURS 15 TIMES.
+001020
+001030 01  COMPONENT4                  PIC X(15).
+001040 01  FILLER             REDEFINES COMPONENT4.
+001050     02  COMP4                   PIC X     OCCURS 15 TIMES.
+001060
+001070 01  COMPONENT5                  PIC X(15).
+001080 01  FILLER             REDEFINES COMPONENT5.
+001090     02  COMP5                   PIC X     OCCURS 15 TIMES.
+001100
+001110 01  COMPONENT6                  PIC X(15).
+001120 01  FILLER             REDEFINES COMPONENT6.
+001130     02  COMP6                   PIC X     OCCURS 15 TIMES.
+001140
+001150 01  COMPONENT7                  PIC X(15).
+001160 01  FILLER             REDEFINES COMPONENT7.
+001170     02  COMP7                   PIC X     OCCURS 15 TIMES.
+001180
+001190 01  COMPONENTS.
+001200   02 COMPX                      PIC X(15) OCCURS 7 TIMES.
+001210
+001220 01  WS-REPORT-DATE.
+001230     05 WS-RPT-YR                PIC XX.
+001240     05 WS-RPT-MO                PIC XX.
+001250     05 WS-RPT-DY                PIC XX.
+001260
+001270 01  WORK-FIELDS.
+001280     05 SAVE-ADDRESS1            PIC X(30).
+001290     05 SAVE-ADDRESS2            PIC X(30).
+001300     05 EXT-ADDR1                PIC X(30).
+001310     05 EXT-ADDR2                PIC X(30).
+001320     05 EXT-ADDR3                PIC X(30).
+001330     05 FILLER               REDEFINES EXT-ADDR3.
+001340       08 FILLER                 PIC X(01).
+001350       08 EXT-ADDR3-29           PIC X(29).
+001360     05 FILLER               REDEFINES EXT-ADDR3.
+001370       08 FILLER                 PIC X(02).
+001380       08 EXT-ADDR3-28           PIC X(28).
+001390     05 SAVE-ADDR1               PIC X(24).
+001400     05 SAVE-ADDR2               PIC X(20).
+001410     05 WS-CONT                  PIC X.
+001420     05 MTCH-NUMERIC             PIC X.
+001430     05 MTCH-FOUND               PIC X.
+001440     05 LAST-FIELD               PIC X.
+001450        88 LAST-FIELD-NUMERIC           VALUE 'Y'.
+001460     05  WRK-TYP                 PIC X(20).
+001470     05  WRK-ADDRESS             PIC X(30).
+001480     05  FILLER     REDEFINES WRK-ADDRESS.
+001490         10 W-ADR                PIC X  OCCURS 30 TIMES.
+001500     05  FILLER     REDEFINES WRK-ADDRESS.
+001510         10 FILLER               PIC X.
+001520         10 WRK-ADDRESS1         PIC X(29).
+001530     05  OUT-ADDRESS             PIC X(30).
+001540     05  FILLER     REDEFINES OUT-ADDRESS.
+001550         10 O-ADR                PIC X  OCCURS 30 TIMES.
+001560     05  FILLER     REDEFINES OUT-ADDRESS.
+001570         10 FILLER               PIC X.
+001580         10 OUT-ADDRESS1         PIC X(29).
+001590
+001600 01  WS-ABBREV-TABLE.
+001610  05 FILLER PIC X(23) VALUE ' STREET      08ST    24'.
+001620  05 FILLER PIC X(23) VALUE ' ST          04ST    24'.
+001630  05 FILLER PIC X(23) VALUE ' AVENUE      08AVE   33'.
+001640  05 FILLER PIC X(23) VALUE ' AVE         05AVE   33'.
+001650  05 FILLER PIC X(23) VALUE ' BOULEVARD   11BLVD  45'.
+001660  05 FILLER PIC X(23) VALUE ' BLVD        06BLVD  45'.
+001670  05 FILLER PIC X(23) VALUE ' DRIVE       07DR    23'.
+001680  05 FILLER PIC X(23) VALUE ' DR          04DR    23'.
+001690  05 FILLER PIC X(23) VALUE ' RD          04RD    22'.
+001700  05 FILLER PIC X(23) VALUE ' ROAD        06RD    22'.
+001710  05 FILLER PIC X(23) VALUE ' LN          04LN    22'.
+001720  05 FILLER PIC X(23) VALUE ' LANE        06LN    22'.
+001730  05 FILLER PIC X(23) VALUE ' WAY         05WAY   32'.
+001740  05 FILLER PIC X(23) VALUE ' PLACE       07PL    23'.
+001750  05 FILLER PIC X(23) VALUE ' PL          04PL    23'.
+001760  05 FILLER PIC X(23) VALUE ' PARKWAY     09PKY   34'.
+001770  05 FILLER PIC X(23) VALUE ' PKWY        06PKY   34'.
+001780  05 FILLER PIC X(23) VALUE ' PKY         05PKY   34'.
+001790  05 FILLER PIC X(23) VALUE ' HIGHWAY     09HWY   34'.
+001800  05 FILLER PIC X(23) VALUE ' HWY         05HWY   34'.
+001810  05 FILLER PIC X(23) VALUE ' CYN         05CYN   31'.
+001820  05 FILLER PIC X(23) VALUE ' CNYN        06CYN   31'.
+001830  05 FILLER PIC X(23) VALUE ' CANYON      08CYN   33'.
+001840  05 FILLER PIC X(23) VALUE ' HTS         05HTS   31'.
+001850  05 FILLER PIC X(23) VALUE ' HGTS        06HTS   31'.
+001860  05 FILLER PIC X(23) VALUE ' HGHTS       07HTS   31'.
+001870  05 FILLER PIC X(23) VALUE ' HEIGHTS     09HTS   34'.
+001880  05 FILLER PIC X(23) VALUE ' MDWS        06MDWS  41'.
+001890  05 FILLER PIC X(23) VALUE ' MDOWS       07MDWS  41'.
+001900  05 FILLER PIC X(23) VALUE ' MEADOWS     09MDWS  43'.
+001910  05 FILLER PIC X(23) VALUE ' CIRCLE      08CIR   33'.
+001920  05 FILLER PIC X(23) VALUE ' CIR         05CIR   33'.
+001930  05 FILLER PIC X(23) VALUE ' COURT       07CT    23'.
+001940  05 FILLER PIC X(23) VALUE ' CT          04CT    23'.
+001950  05 FILLER PIC X(23) VALUE ' NO          04N     11'.
+001960  05 FILLER PIC X(23) VALUE ' SO          04S     11'.
+001970  05 FILLER PIC X(23) VALUE ' P O         05PO    21'.
+001980  05 FILLER PIC X(23) VALUE ' BUILDING    10BLDG  44'.
+001990  05 FILLER PIC X(23) VALUE ' RURAL ROUTE 13RR    29'.
+002000  05 FILLER PIC X(23) VALUE ' ROUTE       07RT    23'.
+002010 01  FILLER                   REDEFINES WS-ABBREV-TABLE.
+002020  05  W-ENTRY               OCCURS 40 TIMES.
+002030    10 ST-ADR             PIC X(13).
+002040    10 ST-L               PIC 9(02).
+002050    10 ST-ABRV            PIC X(06).
+002060    10 AB-L               PIC 9.
+002070    10 ST-D               PIC 9.
+002080
+002090 01  WS-EXPAND-TABLE.
+002100  05 FILLER PIC X(35) VALUE ' PK          04PARK              04'.
+002110  05 FILLER PIC X(35) VALUE ' PY          04PKY               03'.
+002120  05 FILLER PIC X(35) VALUE ' WY          04WAY               03'.
+002130  05 FILLER PIC X(35) VALUE ' GRND        06GRAND             05'.
+002140  05 FILLER PIC X(35) VALUE ' SNTA        06SANTA             05'.
+002150  05 FILLER PIC X(35) VALUE ' TWRS        06TOWERS            06'.
+002160  05 FILLER PIC X(35) VALUE ' MRYLND      08MARYLAND          08'.
+002170  05 FILLER PIC X(35) VALUE ' CHRLSTN     09CHARLESTON        10'.
+002180  05 FILLER PIC X(35) VALUE ' MDOWOOD     09MEADOWOOD         09'.
+002190  05 FILLER PIC X(35) VALUE ' WASHNGTN    10WASHINGTON        10'.
+002200  05 FILLER PIC X(35) VALUE ' MRTN L KING 13MARTIN LUTHER KING18'.
+002210 01  FILLER                   REDEFINES WS-EXPAND-TABLE.
+002220  05  W-EXPAND              OCCURS 11 TIMES.
+002230    10 EX-ADR             PIC X(13).
+002240    10 EX-L               PIC 9(02).
+002250    10 EX-EXPND           PIC X(18).
+002260    10 EP-L               PIC 99.
+002270
+002280 01  WS-WHEN-COMPILED            PIC X(25).
+002290
+002300 01  COUNTERS                                    COMP-3.
+002310     05 DUPE-IN-COUNT            PIC S9(9)       VALUE ZERO.
+002320     05 DUPE-ADDED-COUNT         PIC S9(9)       VALUE ZERO.
+002330     05 DUPE-DROPPED-COUNT       PIC S9(9)       VALUE ZERO.
+002340     05 DUPE-OUT-COUNT           PIC S9(9)       VALUE ZERO.
+002350     05 SAMI-IN-AMT              PIC S9(9)V99    VALUE ZERO.
+002360     05 SAMI-OUT-AMT             PIC S9(9)V99    VALUE ZERO.
+002370
+002380 LINKAGE SECTION.
+002390*++INCLUDE WNACCOMM
+002391 01  COMMUNICATIONS-AREA.                                         01/15/99
+002392   03 COMM-ADDRESS-FIELDS.                                        WNACCOMM
+002393     05 COMM-ADDRESS-1           PIC X(35).                          LV001
+002394     05 COMM-ADDRESS-2           PIC X(35).
+002395   03 COMM-RETURN-FIELDS.
+002396     05 COMM-NUMBER              PIC X(08).
+002397     05 COMM-DIRECTION           PIC X(02).
+002398     05 COMM-STREET              PIC X(25).
+002399     05 COMM-TYPE                PIC X(04).
+002400     05 COMM-APT                 PIC X(05).
+002401     05 COMM-OTHER               PIC X(25).
+002402   03 COMM-RETURN-CODE           PIC 9(01).
+002403   03 COMM-ERROR-MESSAGE         PIC X(25).
+002407
+002408 PROCEDURE DIVISION USING COMMUNICATIONS-AREA.
+002410     PERFORM A010-BEGIN.
+002420     PERFORM B010-CONVERT-RECORD.
+002430     GOBACK.
+002440     EJECT
+002450 A010-BEGIN.
+002460     MOVE COMM-ADDRESS-1        TO EXT-ADDR1.
+002470     MOVE COMM-ADDRESS-2        TO EXT-ADDR2.
+002480     MOVE COMM-ADDRESS-1        TO SAVE-ADDRESS1.
+002490     MOVE COMM-ADDRESS-2        TO SAVE-ADDRESS2.
+002500     MOVE SPACES                TO EXT-ADDR3.
+002510     MOVE ZEROS                 TO COMM-RETURN-CODE.
+002520*    MOVE ZEROS                 TO COMM-ERROR-MSG-NR.
+002530 B010-CONVERT-RECORD.
+002540     PERFORM  C100-CHK-PUNCTUATION.
+002550     PERFORM  C250-CHK-APT-TYPES.
+002560     IF COMM-RETURN-CODE   NOT = 1
+002570       PERFORM  C260-CHK-APT-ADDR2
+002580      IF COMM-RETURN-CODE   NOT = 1
+002590       PERFORM  C275-CHK-APT-NUMBERS
+002600       IF COMM-RETURN-CODE   NOT = 1
+002610         PERFORM  C300-CHK-STREET-TYPES
+002620         PERFORM  C400-RIGHT-JUSTIFY
+002630         PERFORM  C350-CHK-STREET-TYPES
+002640         PERFORM  C400-RIGHT-JUSTIFY
+002650         PERFORM  C450-CHK-NBR
+002660         PERFORM  C500-SETUP-APT
+002670         PERFORM  C600-BUILD-COMPONENTS
+002680         PERFORM  C700-CHK-COMPONENTS.
+002690
+002700     MOVE OUT-NBR    TO COMM-NUMBER.
+002710     MOVE OUT-DIR    TO COMM-DIRECTION.
+002720     MOVE OUT-ST     TO COMM-STREET.
+002730     MOVE OUT-TYPE   TO COMM-TYPE.
+002740     MOVE OUT-APT    TO COMM-APT.
+002750     MOVE OUT-OTHER  TO COMM-OTHER.
+002760
+002770*    IF COMM-RETURN-CODE   NOT = ZEROS
+002780       MOVE SAVE-ADDRESS1   TO COMM-ADDRESS-1.
+002790       MOVE SAVE-ADDRESS2   TO COMM-ADDRESS-2.
+002800
+002810 C100-CHK-PUNCTUATION.
+002820     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+002830     MOVE SPACES                 TO OUT-ADDRESS.
+002840     MOVE 1                      TO WX  OX.
+002850
+002860     PERFORM C101-CHECK    VARYING  WX FROM 1 BY 1
+002870       UNTIL  WX    >  29.
+002880
+002890     MOVE 1                      TO WX.
+002900     PERFORM C102-CHECK    VARYING  WX FROM 1 BY 1
+002910       UNTIL  WX    >  29.
+002920
+002930     MOVE  OUT-ADDRESS           TO EXT-ADDR1.
+002940     MOVE  EXT-ADDR2             TO WRK-ADDRESS.
+002950     MOVE SPACES                 TO OUT-ADDRESS.
+002960     MOVE 1                      TO WX  OX.
+002970
+002980     PERFORM C101-CHECK    VARYING  WX FROM 1 BY 1
+002990       UNTIL  WX    >  29.
+003000
+003010     MOVE 1                      TO WX.
+003020     PERFORM C102-CHECK    VARYING  WX FROM 1 BY 1
+003030       UNTIL  WX    >  29.
+003040
+003050     MOVE  OUT-ADDRESS           TO EXT-ADDR2.
+003060
+003070 C101-CHECK.
+003080     IF  W-ADR(WX)        =  '.' OR ',' OR ';' OR '"' OR QUOTE
+003090       MOVE SPACE        TO  W-ADR(WX).
+003100
+003110 C102-CHECK.
+003120       IF W-ADR(WX)       =  SPACE
+003130         COMPUTE TX       =  WX  +  1
+003140         IF  W-ADR(TX)    =  SPACE
+003150           NEXT SENTENCE
+003160          ELSE
+003170           MOVE W-ADR(WX)    TO O-ADR(OX)
+003180           ADD +1            TO OX
+003190        ELSE
+003200         MOVE W-ADR(WX)      TO O-ADR(OX)
+003210         ADD +1              TO OX.
+003220 C250-CHK-APT-TYPES.
+003230******************************************************************
+003240**** THIS CODE IS USED TO PEND CLAIMS ****************************
+003250******************************************************************
+003260     MOVE SPACES                 TO OUT-NBR OUT-DIR OUT-TYPE
+003270                                    OUT-ST OUT-APT OUT-OTHER.
+003280     MOVE EXT-ADDR1              TO WRK-ADDRESS.
+003290     MOVE SPACES                 TO OUT-ADDRESS.
+003300     MOVE  1                     TO WX  OX.
+003310     MOVE SPACE                  TO MTCH-FOUND.
+003320     PERFORM  C254-CHECK
+003330       UNTIL  WX                  > 24.
+003340
+003350     IF  MTCH-FOUND               = 'X'
+003360       MOVE  OUT-ADDRESS         TO EXT-ADDR3
+003370       MOVE  WRK-ADDRESS         TO EXT-ADDR1
+003380      ELSE
+003390       IF COMM-RETURN-CODE        = 1
+003400         NEXT SENTENCE
+003410      ELSE
+003420       MOVE  1              TO WX  OX
+003430       PERFORM  C253-CHECK
+003440         UNTIL  WX                > 25
+003450       IF  MTCH-FOUND               = 'X'
+003460         MOVE  OUT-ADDRESS         TO EXT-ADDR3
+003470         MOVE  WRK-ADDRESS         TO EXT-ADDR1
+003480        ELSE
+003490       IF COMM-RETURN-CODE        = 1
+003500         NEXT SENTENCE
+003510      ELSE
+003520         MOVE  1              TO WX  OX
+003530         PERFORM  C252-CHECK
+003540           UNTIL  WX                > 26
+003550         IF  MTCH-FOUND               = 'X'
+003560           MOVE  OUT-ADDRESS         TO EXT-ADDR3
+003570           MOVE  WRK-ADDRESS         TO EXT-ADDR1
+003580          ELSE
+003590       IF COMM-RETURN-CODE        = 1
+003600         NEXT SENTENCE
+003610      ELSE
+003620           MOVE  1              TO WX  OX
+003630           PERFORM  C251-CHECK
+003640             UNTIL  WX                > 27
+003650           IF  MTCH-FOUND               = 'X'
+003660             MOVE  OUT-ADDRESS         TO EXT-ADDR3
+003670             MOVE  WRK-ADDRESS         TO EXT-ADDR1.
+003680
+003690 C251-CHECK.
+003700     IF  WRK-ADDRESS(WX:4) = ' SP ' OR ' SP#' OR ' AP ' OR ' RM '
+003710       MOVE 'X'                  TO MTCH-FOUND
+003720       IF  EXT-ADDR3              >  SPACES
+003730         MOVE 1                  TO COMM-RETURN-CODE
+003740         MOVE 30                 TO WX
+003750*        MOVE 06                 TO COMM-ERROR-MSG-NR
+003760        ELSE
+003770         MOVE '#'                TO O-ADR(OX)
+003780         MOVE SPACES             TO WRK-ADDRESS(WX:4)
+003790         ADD 4                   TO WX
+003800         ADD 1                   TO OX
+003810         PERFORM  C254A-MOVE
+003820           UNTIL  WX              > 29
+003830      ELSE
+003840       ADD +1                    TO WX.
+003850
+003860 C252-CHECK.
+003870     IF  WRK-ADDRESS(WX:5)        = ' SP #' OR ' APT '
+003880                                 OR ' APT#' OR ' STE ' OR ' STE#'
+003890       MOVE 'X'                  TO MTCH-FOUND
+003900       IF  EXT-ADDR3              >  SPACES
+003910         MOVE 1                  TO COMM-RETURN-CODE
+003920         MOVE 30                 TO WX
+003930*        MOVE 06                 TO COMM-ERROR-MSG-NR
+003940        ELSE
+003950         MOVE '#'                TO O-ADR(OX)
+003960         MOVE SPACES             TO WRK-ADDRESS(WX:5)
+003970         ADD 5                   TO WX
+003980         ADD 1                   TO OX
+003990         PERFORM  C254A-MOVE
+004000           UNTIL  WX              > 29
+004010      ELSE
+004020       ADD +1                    TO WX.
+004030
+004040 C253-CHECK.
+004050     IF  WRK-ADDRESS(WX:6)        = ' APT #' OR ' STE #'
+004060                                 OR ' TRLR ' OR ' TRLR#'
+004070                                 OR ' #APT ' OR ' ROOM '
+004080                                 OR ' BLDG '
+004090       MOVE 'X'                  TO MTCH-FOUND
+004100       IF  EXT-ADDR3              >  SPACES
+004110         MOVE 1                  TO COMM-RETURN-CODE
+004120         MOVE 30                 TO WX
+004130*        MOVE 06                 TO COMM-ERROR-MSG-NR
+004140        ELSE
+004150         MOVE '#'                TO O-ADR(OX)
+004160         MOVE SPACES             TO WRK-ADDRESS(WX:6)
+004170         ADD 6                   TO WX
+004180         ADD 1                   TO OX
+004190         PERFORM  C254A-MOVE
+004200           UNTIL  WX              > 29
+004210      ELSE
+004220       ADD +1                    TO WX.
+004230
+004240 C254-CHECK.
+004250     IF  WRK-ADDRESS(WX:7)        = ' TRLR #' OR ' SPACE#'
+004260                                 OR 'SPACE #' OR ' BLDG #'
+004270                                 OR ' BLDG# '
+004280       MOVE 'X'                  TO MTCH-FOUND
+004290       IF  EXT-ADDR3              >  SPACES
+004300         MOVE 1                  TO COMM-RETURN-CODE
+004310         MOVE 30                 TO WX
+004320*        MOVE 06                 TO COMM-ERROR-MSG-NR
+004330        ELSE
+004340         MOVE '#'                TO O-ADR(OX)
+004350         MOVE SPACES             TO WRK-ADDRESS(WX:7)
+004360         ADD 7                   TO WX
+004370         ADD 1                   TO OX
+004380         PERFORM  C254A-MOVE
+004390           UNTIL  WX              > 29
+004400      ELSE
+004410       ADD +1                    TO WX.
+004420
+004430 C254A-MOVE.
+004440     MOVE  W-ADR(WX)             TO O-ADR(OX).
+004450     MOVE  SPACE                 TO W-ADR(WX).
+004460     ADD +1                      TO WX  OX.
+004470
+004480 C260-CHK-APT-ADDR2.
+004490******************************************************************
+004500**** THIS CODE IS USED TO PEND CLAIMS ****************************
+004510******************************************************************
+004520     MOVE EXT-ADDR2              TO WRK-ADDRESS.
+004530     MOVE SPACES                 TO OUT-ADDRESS.
+004540     MOVE  1                     TO WX  OX.
+004550     MOVE SPACE                  TO MTCH-FOUND.
+004560     PERFORM  C264-CHECK
+004570       UNTIL  WX                  > 24.
+004580
+004590     IF  MTCH-FOUND               = 'X'
+004600       MOVE  OUT-ADDRESS         TO EXT-ADDR3
+004610       MOVE  WRK-ADDRESS         TO EXT-ADDR2
+004620      ELSE
+004630       MOVE  1              TO WX  OX
+004640       PERFORM  C263-CHECK
+004650         UNTIL  WX                > 25
+004660       IF  MTCH-FOUND               = 'X'
+004670         MOVE  OUT-ADDRESS         TO EXT-ADDR3
+004680         MOVE  WRK-ADDRESS         TO EXT-ADDR2
+004690        ELSE
+004700         MOVE  1              TO WX  OX
+004710         PERFORM  C262-CHECK
+004720           UNTIL  WX                > 26
+004730         IF  MTCH-FOUND               = 'X'
+004740           MOVE  OUT-ADDRESS         TO EXT-ADDR3
+004750           MOVE  WRK-ADDRESS         TO EXT-ADDR2
+004760          ELSE
+004770           MOVE  1              TO WX  OX
+004780           PERFORM  C261-CHECK
+004790             UNTIL  WX                > 27
+004800           IF  MTCH-FOUND               = 'X'
+004810             MOVE  OUT-ADDRESS         TO EXT-ADDR3
+004820             MOVE  WRK-ADDRESS         TO EXT-ADDR2
+004830          ELSE
+004840           MOVE  1              TO WX  OX
+004850           PERFORM  C260-CHECK
+004860             UNTIL  WX                > 28
+004870           IF  MTCH-FOUND               = 'X'
+004880             MOVE  OUT-ADDRESS         TO EXT-ADDR3
+004890             MOVE  WRK-ADDRESS         TO EXT-ADDR2.
+004900
+004910 C260-CHECK.
+004920     IF  WRK-ADDRESS(1:3)         = 'SP ' OR 'SP#'
+004930      IF EXT-ADDR3                > SPACES
+004940         MOVE 1                  TO COMM-RETURN-CODE
+004950         MOVE 30                 TO WX
+004960*        MOVE 06                 TO COMM-ERROR-MSG-NR
+004970      ELSE
+004980       MOVE 'X'                  TO MTCH-FOUND
+004990       MOVE SPACES               TO WRK-ADDRESS(WX:3)
+005000         ADD 3                   TO WX
+005010         MOVE '#'                TO O-ADR(OX)
+005020         ADD 1                   TO OX
+005030         PERFORM   C254A-MOVE
+005040          UNTIL  WX               > 29
+005050      ELSE
+005060       MOVE 30                   TO WX.
+005070
+005080 C261-CHECK.
+005090     IF  WRK-ADDRESS(1:4)         = 'SP #' OR 'APT ' OR 'APT#'
+005100                                 OR 'STE ' OR 'STE#'
+005110      OR WRK-ADDRESS(WX:4)        = ' SP ' OR ' SP#'
+005120      IF EXT-ADDR3                > SPACES
+005130         MOVE 1                  TO COMM-RETURN-CODE
+005140         MOVE 30                 TO WX
+005150*        MOVE 06                 TO COMM-ERROR-MSG-NR
+005160      ELSE
+005170       MOVE 'X'                  TO MTCH-FOUND
+005180       MOVE SPACES               TO WRK-ADDRESS(WX:4)
+005190         ADD 4                   TO WX
+005200         MOVE '#'                TO O-ADR(OX)
+005210         ADD 1                   TO OX
+005220         PERFORM   C254A-MOVE
+005230          UNTIL  WX               > 29
+005240      ELSE
+005250       MOVE W-ADR(WX)            TO O-ADR(OX)
+005260       ADD +1                    TO WX OX.
+005270
+005280 C262-CHECK.
+005290     IF  WRK-ADDRESS(1:5)         = 'APT #' OR 'STE #'
+005300                                 OR 'TRLR ' OR 'TRLR#'
+005310      OR WRK-ADDRESS(WX:5)        = ' SP #' OR ' APT '
+005320                              OR ' APT#' OR ' STE ' OR ' STE#'
+005330      IF EXT-ADDR3                > SPACES
+005340         MOVE 1                  TO COMM-RETURN-CODE
+005350         MOVE 30                 TO WX
+005360*        MOVE 06                 TO COMM-ERROR-MSG-NR
+005370      ELSE
+005380       MOVE 'X'                  TO MTCH-FOUND
+005390       MOVE SPACES               TO WRK-ADDRESS(WX:5)
+005400         ADD 5                   TO WX
+005410         MOVE '#'                TO O-ADR(OX)
+005420         ADD 1                   TO OX
+005430         PERFORM   C254A-MOVE
+005440          UNTIL  WX               > 29
+005450      ELSE
+005460       MOVE W-ADR(WX)            TO O-ADR(OX)
+005470       ADD +1                    TO WX OX.
+005480
+005490 C263-CHECK.
+005500     IF  WRK-ADDRESS(1:6)    = 'TRLR #' OR 'SPACE#' OR 'SUITE#'
+005510      OR WRK-ADDRESS(WX:6)        = ' APT #' OR ' STE #'
+005520                                 OR ' TRLR ' OR ' TRLR#'
+005530      IF EXT-ADDR3                > SPACES
+005540         MOVE 1                  TO COMM-RETURN-CODE
+005550         MOVE 30                 TO WX
+005560*        MOVE 06                 TO COMM-ERROR-MSG-NR
+005570      ELSE
+005580       MOVE 'X'                  TO MTCH-FOUND
+005590       MOVE SPACES             TO WRK-ADDRESS(WX:6)
+005600       ADD 6                   TO WX
+005610       MOVE '#'                TO O-ADR(OX)
+005620       ADD 1                   TO OX
+005630       PERFORM   C254A-MOVE
+005640        UNTIL  WX               > 29
+005650      ELSE
+005660       MOVE W-ADR(WX)            TO O-ADR(OX)
+005670       ADD +1                    TO WX OX.
+005680
+005690 C264-CHECK.
+005700     IF  WRK-ADDRESS(1:7)        = 'SPACE #' OR 'SUITE #'
+005710      OR WRK-ADDRESS(WX:7)        = ' TRLR #'
+005720      IF EXT-ADDR3                > SPACES
+005730         MOVE 1                  TO COMM-RETURN-CODE
+005740         MOVE 30                 TO WX
+005750*        MOVE 06                 TO COMM-ERROR-MSG-NR
+005760      ELSE
+005770       MOVE 'X'                  TO MTCH-FOUND
+005780       MOVE SPACES             TO WRK-ADDRESS(WX:7)
+005790       ADD 7                   TO WX
+005800       MOVE '#'                TO O-ADR(OX)
+005810       ADD 1                   TO OX
+005820       PERFORM   C254A-MOVE
+005830        UNTIL  WX               > 29
+005840      ELSE
+005850       MOVE W-ADR(WX)            TO O-ADR(OX)
+005860       ADD +1                    TO WX OX.
+005870
+005880 C275-CHK-APT-NUMBERS.
+005890******************************************************************
+005900**** THIS CODE IS USED TO PEND CLAIMS ****************************
+005910******************************************************************
+005920     MOVE EXT-ADDR1              TO WRK-ADDRESS.
+005930     IF W-ADR(1)                  = '#'
+005940       MOVE WRK-ADDRESS1         TO WRK-ADDRESS
+005950       MOVE WRK-ADDRESS          TO EXT-ADDR1.
+005960
+005970     MOVE SPACE                  TO MTCH-FOUND.
+005980     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+005990     MOVE SPACES                 TO OUT-ADDRESS.
+006000     IF  WRK-ADDRESS(1:5)         = 'HCR #'
+006010       MOVE 'HCR '               TO OUT-ADDRESS
+006020       MOVE 'Y'                  TO MTCH-FOUND
+006030       MOVE  6                   TO WX
+006040       MOVE  5                   TO OX
+006050       PERFORM C254A-MOVE
+006060        UNTIL  WX                 = 30
+006070       IF  MTCH-FOUND               = 'Y'
+006080         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+006090
+006100     MOVE SPACE                  TO MTCH-FOUND.
+006110     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+006120     MOVE SPACES                 TO OUT-ADDRESS.
+006130     IF  WRK-ADDRESS(1:4)         = 'RT #'
+006140       MOVE 'RT '                TO OUT-ADDRESS
+006150       MOVE 'Y'                  TO MTCH-FOUND
+006160       MOVE  5                   TO WX
+006170       MOVE  4                   TO OX
+006180       PERFORM C254A-MOVE
+006190        UNTIL  WX                 = 30
+006200       IF  MTCH-FOUND               = 'Y'
+006210         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+006220
+006230     MOVE EXT-ADDR1              TO WRK-ADDRESS.
+006240     MOVE SPACE                  TO MTCH-FOUND.
+006250     PERFORM  C275C-CHK-NBR-SIGN
+006260      VARYING WX  FROM  1 BY  1
+006270       UNTIL  WX                  > 29.
+006280
+006290     IF  COMM-RETURN-CODE     NOT = 1
+006300       MOVE EXT-ADDR1              TO WRK-ADDRESS
+006310       MOVE SPACES                 TO OUT-ADDRESS
+006320       MOVE  1                     TO WX  OX
+006330       MOVE SPACE                  TO MTCH-FOUND
+006340       PERFORM  C276-CHECK
+006350         UNTIL  WX                  > 29
+006360       IF  MTCH-FOUND               = 'X'
+006370         MOVE  OUT-ADDRESS         TO EXT-ADDR3
+006380         MOVE  WRK-ADDRESS         TO EXT-ADDR1.
+006390
+006400
+006410 C275C-CHK-NBR-SIGN.
+006420     IF  W-ADR(WX)                = '#'
+006430       IF  MTCH-FOUND         NOT = SPACE
+006440         MOVE 1                  TO COMM-RETURN-CODE
+006450         MOVE 31                 TO WX
+006460*        MOVE 08                 TO COMM-ERROR-MSG-NR
+006470        ELSE
+006480         MOVE 'Y'                TO MTCH-FOUND.
+006490
+006500 C276-CHECK.
+006510     IF  W-ADR(WX)                = '#'
+006520      MOVE 'X'                  TO MTCH-FOUND
+006530       IF  EXT-ADDR3              >  SPACES
+006540         MOVE 1                  TO COMM-RETURN-CODE
+006550         MOVE 31                 TO WX
+006560*        MOVE 06                 TO COMM-ERROR-MSG-NR
+006570        ELSE
+006580         MOVE '#'                TO O-ADR(OX)
+006590         MOVE SPACE              TO W-ADR(WX)
+006600         ADD 1                   TO WX
+006610         ADD 1                   TO OX
+006620         PERFORM  C276A-MOVE
+006630           UNTIL  WX              > 30
+006640      ELSE
+006650       ADD +1                    TO WX.
+006660
+006670 C276A-MOVE.
+006680     MOVE  W-ADR(WX)             TO O-ADR(OX).
+006690     MOVE  SPACE                 TO W-ADR(WX).
+006700     ADD +1                      TO WX  OX.
+006710
+006720 C300-CHK-STREET-TYPES.
+006730     MOVE SPACE                  TO MTCH-FOUND.
+006740     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+006750     MOVE SPACES                 TO OUT-ADDRESS.
+006760     IF  WRK-ADDRESS(1:11)        = 'STAR ROUTE '
+006770       MOVE 'ST RT '             TO OUT-ADDRESS
+006780       MOVE 'Y'                  TO MTCH-FOUND
+006790       MOVE  12                  TO WX
+006800       MOVE  7                   TO OX
+006810       PERFORM C254A-MOVE
+006820        UNTIL  WX                 = 30
+006830       IF  MTCH-FOUND               = 'Y'
+006840         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+006850
+006860     MOVE SPACE                  TO MTCH-FOUND.
+006870     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+006880     MOVE SPACES                 TO OUT-ADDRESS.
+006890     IF  WRK-ADDRESS(1:4)         = 'C/O ' OR 'C/0 ' OR 'C\O '
+006900       MOVE '% '                TO OUT-ADDRESS
+006910       MOVE 'Y'                  TO MTCH-FOUND
+006920       MOVE  5                   TO WX
+006930       MOVE  3                   TO OX
+006940       PERFORM C254A-MOVE
+006950        UNTIL  WX                 = 30
+006960       IF  MTCH-FOUND               = 'Y'
+006970         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+006980
+006990     MOVE SPACE                  TO MTCH-FOUND.
+007000     MOVE  1                     TO TW.
+007010     MOVE  34                    TO TT.
+007020     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007030     MOVE SPACES                 TO OUT-ADDRESS.
+007040     MOVE ST-L(TW)               TO W1.
+007050     PERFORM C301-CHK-ST-TYPES
+007060       UNTIL  TW                  > TT.
+007070     IF  MTCH-FOUND               = 'Y'
+007080       MOVE  OUT-ADDRESS         TO EXT-ADDR1.
+007090
+007100     MOVE SPACE                  TO MTCH-FOUND.
+007110     MOVE  35                    TO TW.
+007120     MOVE  40                    TO TT.
+007130     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007140     MOVE SPACES                 TO OUT-ADDRESS.
+007150     MOVE ST-L(TW)               TO W1.
+007160     PERFORM C301-CHK-ST-TYPES
+007170       UNTIL  TW                  > TT.
+007180     IF  MTCH-FOUND               = 'Y'
+007190       MOVE  OUT-ADDRESS         TO EXT-ADDR1.
+007200
+007210     MOVE SPACE                  TO MTCH-FOUND.
+007220     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007230     MOVE SPACES                 TO OUT-ADDRESS.
+007240     IF  WRK-ADDRESS(1:5)         = 'P O B'
+007250       MOVE 'PO '                TO OUT-ADDRESS
+007260       MOVE 'Y'                  TO MTCH-FOUND
+007270       MOVE  5                   TO WX
+007280       MOVE  4                   TO OX
+007290       PERFORM C254A-MOVE
+007300        UNTIL  WX                 = 30
+007310       IF  MTCH-FOUND               = 'Y'
+007320         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+007330
+007340     MOVE SPACE                  TO MTCH-FOUND.
+007350     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007360     MOVE SPACES                 TO OUT-ADDRESS.
+007370     IF  WRK-ADDRESS(1:4)         = 'P O '
+007380       MOVE 'PO BOX '            TO OUT-ADDRESS
+007390       MOVE 'Y'                  TO MTCH-FOUND
+007400       MOVE  5                   TO WX
+007410       MOVE  8                   TO OX
+007420       PERFORM C254A-MOVE
+007430        UNTIL  WX                 = 27
+007440       IF  MTCH-FOUND               = 'Y'
+007450         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+007460
+007470     MOVE SPACE                  TO MTCH-FOUND.
+007480     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007490     MOVE SPACES                 TO OUT-ADDRESS.
+007500     IF  WRK-ADDRESS(1:4)         = 'H C R '
+007510       MOVE 'HCR '               TO OUT-ADDRESS
+007520       MOVE 'Y'                  TO MTCH-FOUND
+007530       MOVE  7                   TO WX
+007540       MOVE  5                   TO OX
+007550       PERFORM C254A-MOVE
+007560        UNTIL  WX                 = 30
+007570       IF  MTCH-FOUND               = 'Y'
+007580         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+007590
+007600     MOVE SPACE                  TO MTCH-FOUND.
+007610     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007620     MOVE SPACES                 TO OUT-ADDRESS.
+007630     IF  WRK-ADDRESS(1:4)         = 'H C '
+007640       MOVE 'HC '                TO OUT-ADDRESS
+007650       MOVE 'Y'                  TO MTCH-FOUND
+007660       MOVE  5                   TO WX
+007670       MOVE  4                   TO OX
+007680       PERFORM C254A-MOVE
+007690        UNTIL  WX                 = 30
+007700       IF  MTCH-FOUND               = 'Y'
+007710         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+007720
+007730     MOVE SPACE                  TO MTCH-FOUND.
+007740     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007750     MOVE SPACES                 TO OUT-ADDRESS.
+007760     IF  WRK-ADDRESS(1:4)         = 'P/O ' OR 'PPO '
+007770       MOVE 'PO '                TO OUT-ADDRESS
+007780       MOVE 'Y'                  TO MTCH-FOUND
+007790       MOVE  5                   TO WX
+007800       MOVE  4                   TO OX
+007810       PERFORM C254A-MOVE
+007820        UNTIL  WX                 = 30
+007830       IF  MTCH-FOUND               = 'Y'
+007840         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+007850
+007860     MOVE SPACE                  TO MTCH-FOUND.
+007870     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+007880     MOVE SPACES                 TO OUT-ADDRESS.
+007890     IF  WRK-ADDRESS(1:5)         = 'BOPX '
+007900       MOVE 'BOX '               TO OUT-ADDRESS
+007910       MOVE 'Y'                  TO MTCH-FOUND
+007920       MOVE  6                   TO WX
+007930       MOVE  5                   TO OX
+007940       PERFORM C254A-MOVE
+007950        UNTIL  WX                 = 30
+007960       IF  MTCH-FOUND               = 'Y'
+007970         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+007980
+007990     MOVE SPACE                  TO MTCH-FOUND.
+008000     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+008010     MOVE SPACES                 TO OUT-ADDRESS.
+008020     IF  WRK-ADDRESS(1:9)         = 'RURAL RT '
+008030       MOVE 'RR '                TO OUT-ADDRESS
+008040       MOVE 'Y'                  TO MTCH-FOUND
+008050       MOVE  10                  TO WX
+008060       MOVE  4                   TO OX
+008070       PERFORM C254A-MOVE
+008080        UNTIL  WX                 = 30
+008090       IF  MTCH-FOUND               = 'Y'
+008100         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+008110
+008120     MOVE SPACE                  TO MTCH-FOUND.
+008130     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+008140     MOVE SPACES                 TO OUT-ADDRESS.
+008150     IF  WRK-ADDRESS(1:4)         = 'RTE '
+008160       MOVE 'RT '                TO OUT-ADDRESS
+008170       MOVE 'Y'                  TO MTCH-FOUND
+008180       MOVE  5                   TO WX
+008190       MOVE  4                   TO OX
+008200       PERFORM C254A-MOVE
+008210        UNTIL  WX                 = 30
+008220       IF  MTCH-FOUND               = 'Y'
+008230         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+008240
+008250     MOVE SPACE                  TO MTCH-FOUND.
+008260     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+008270     MOVE SPACES                 TO OUT-ADDRESS.
+008280     IF  WRK-ADDRESS(1:4)         = 'RRO ' OR 'R R '
+008290       MOVE 'RR '                TO OUT-ADDRESS
+008300       MOVE 'Y'                  TO MTCH-FOUND
+008310       MOVE  5                   TO WX
+008320       MOVE  4                   TO OX
+008330       PERFORM C254A-MOVE
+008340        UNTIL  WX                 = 30
+008350       IF  MTCH-FOUND               = 'Y'
+008360         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+008370
+008380     MOVE SPACE                  TO MTCH-FOUND.
+008390     MOVE SPACE                  TO MTCH-FOUND.
+008400     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+008410     MOVE SPACES                 TO OUT-ADDRESS.
+008420     IF  WRK-ADDRESS(1:4)         = 'HRC '
+008430       MOVE 'HCR '               TO OUT-ADDRESS
+008440       MOVE 'Y'                  TO MTCH-FOUND
+008450       MOVE  5                   TO WX
+008460       MOVE  5                   TO OX
+008470       PERFORM C254A-MOVE
+008480        UNTIL  WX                 = 30
+008490       IF  MTCH-FOUND               = 'Y'
+008500         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+008510
+008520     MOVE SPACE                  TO MTCH-FOUND.
+008530     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+008540     MOVE SPACES                 TO OUT-ADDRESS.
+008550     IF  WRK-ADDRESS(1:9)        = 'STAR RTE '
+008560       MOVE 'ST RT '             TO OUT-ADDRESS
+008570       MOVE 'Y'                  TO MTCH-FOUND
+008580       MOVE  10                  TO WX
+008590       MOVE  7                   TO OX
+008600       PERFORM C254A-MOVE
+008610        UNTIL  WX                 = 30
+008620       IF  MTCH-FOUND               = 'Y'
+008630         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+008640
+008650     MOVE SPACE                  TO MTCH-FOUND.
+008660     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+008670     MOVE SPACES                 TO OUT-ADDRESS.
+008680     IF  WRK-ADDRESS(1:8)        = 'STAR RT '
+008690       MOVE 'ST RT '             TO OUT-ADDRESS
+008700       MOVE 'Y'                  TO MTCH-FOUND
+008710       MOVE  9                   TO WX
+008720       MOVE  7                   TO OX
+008730       PERFORM C254A-MOVE
+008740        UNTIL  WX                 = 30
+008750       IF  MTCH-FOUND               = 'Y'
+008760         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+008770
+008780     MOVE SPACE                  TO MTCH-FOUND.
+008790     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+008800     MOVE SPACES                 TO OUT-ADDRESS.
+008810     MOVE SPACES                 TO OUT-ADDRESS.
+008820     IF  WRK-ADDRESS(1:8)         = 'GEN DEL '
+008830       MOVE 'GENERAL DELIVERY'   TO OUT-ADDRESS
+008840       MOVE 'Y'                  TO MTCH-FOUND
+008850       MOVE  8                   TO WX
+008860       MOVE  17                  TO OX
+008870       PERFORM C254A-MOVE
+008880        UNTIL  WX                 = 21
+008890       IF  MTCH-FOUND               = 'Y'
+008900         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+008910
+008920     MOVE SPACES                 TO OUT-ADDRESS.
+008930     IF  WRK-ADDRESS(1:12)  = 'GEN DELIVERY' OR 'GEN DELVIERY'
+008940       MOVE 'GENERAL DELIVERY'   TO OUT-ADDRESS
+008950       MOVE 'Y'                  TO MTCH-FOUND
+008960       MOVE  13                  TO WX
+008970       MOVE  17                  TO OX
+008980       PERFORM C254A-MOVE
+008990        UNTIL  WX                 = 26
+009000       IF  MTCH-FOUND               = 'Y'
+009010         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009020
+009030     MOVE SPACES                 TO OUT-ADDRESS.
+009040     IF  WRK-ADDRESS(1:13)        = ' GEN DELIVERY'
+009050       MOVE 'GENERAL DELIVERY'   TO OUT-ADDRESS
+009060       MOVE 'Y'                  TO MTCH-FOUND
+009070       MOVE  14                  TO WX
+009080       MOVE  17                  TO OX
+009090       PERFORM C254A-MOVE
+009100        UNTIL  WX                 = 27
+009110       IF  MTCH-FOUND               = 'Y'
+009120         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009130
+009140     MOVE SPACES                 TO OUT-ADDRESS.
+009150     IF  WRK-ADDRESS(1:15)        = 'GENERAL DELVERY'
+009160                                 OR 'GENERAL DELIVEY'
+009170                                 OR 'GENERAL DELIERY'
+009180                                 OR 'GENERAL DEIVERY'
+009190                                 OR 'GENRAL DELIVERY'
+009200                                 OR 'GENEAL DELIVERY'
+009210       MOVE 'GENERAL DELIVERY'   TO OUT-ADDRESS
+009220       MOVE 'Y'                  TO MTCH-FOUND
+009230       MOVE  16                  TO WX
+009240       MOVE  17                  TO OX
+009250       PERFORM C254A-MOVE
+009260        UNTIL  WX                 = 29
+009270       IF  MTCH-FOUND               = 'Y'
+009280         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009290
+009300     MOVE SPACES                 TO OUT-ADDRESS.
+009310     IF  WRK-ADDRESS(1:16)        = 'GENERAL DELIVELY'
+009320                                 OR 'GENERAL DELIVEYR'
+009330                                 OR 'GENERAL DELEVERY'
+009340                                 OR 'GENERAL DEILVERY'
+009350                                 OR 'GENERAL DELVIERY'
+009360                                 OR 'GENERAL DILIVERY'
+009370                                 OR 'GEMERAL DELIVERY'
+009380                                 OR 'GENERLA DELIVERY'
+009390                                 OR 'GENERSL DELIVERY'
+009400       MOVE 'GENERAL DELIVERY'   TO OUT-ADDRESS
+009410       MOVE 'Y'                  TO MTCH-FOUND
+009420       MOVE  17                  TO WX
+009430       MOVE  17                  TO OX
+009440       PERFORM C254A-MOVE
+009450        UNTIL  WX                 = 30
+009460       IF  MTCH-FOUND               = 'Y'
+009470         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009480
+009490     MOVE SPACES                 TO OUT-ADDRESS.
+009500     IF  WRK-ADDRESS(1:17)        = 'GENERAL DELILVERY'
+009510                                 OR 'GENERAL DELIVELRY'
+009520                                 OR 'GENERAL DELIVLERY'
+009530       MOVE 'GENERAL DELIVERY'   TO OUT-ADDRESS
+009540       MOVE 'Y'                  TO MTCH-FOUND
+009550       MOVE  18                  TO WX
+009560       MOVE  17                  TO OX
+009570       PERFORM C254A-MOVE
+009580        UNTIL  WX                 = 30
+009590       IF  MTCH-FOUND               = 'Y'
+009600         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009610
+009620     IF  WRK-ADDRESS(1:10)        = 'GENERL DEL'
+009630       MOVE 'GENERAL DEL'        TO OUT-ADDRESS
+009640       MOVE 'Y'                  TO MTCH-FOUND
+009650       MOVE  11                  TO WX
+009660       MOVE  12                  TO OX
+009670       PERFORM C254A-MOVE
+009680        UNTIL  WX                 = 29
+009690       IF  MTCH-FOUND               = 'Y'
+009700         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009710
+009720     MOVE SPACE                  TO MTCH-FOUND.
+009730     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+009740     MOVE SPACES                 TO OUT-ADDRESS.
+009750     IF  WRK-ADDRESS(1:12)        = 'RURAL ROUTE '
+009760       MOVE 'RR '                TO OUT-ADDRESS
+009770       MOVE 'Y'                  TO MTCH-FOUND
+009780       MOVE  13                  TO WX
+009790       MOVE  4                   TO OX
+009800       PERFORM C254A-MOVE
+009810        UNTIL  WX                 = 30
+009820       IF  MTCH-FOUND               = 'Y'
+009830         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009840
+009850     MOVE SPACE                  TO MTCH-FOUND.
+009860     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+009870     MOVE SPACES                 TO OUT-ADDRESS.
+009880     IF  WRK-ADDRESS(1:6)         = 'ROUTE '
+009890       MOVE 'RT '                TO OUT-ADDRESS
+009900       MOVE 'Y'                  TO MTCH-FOUND
+009910       MOVE  7                   TO WX
+009920       MOVE  4                   TO OX
+009930       PERFORM C254A-MOVE
+009940        UNTIL  WX                 = 30
+009950       IF  MTCH-FOUND               = 'Y'
+009960         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+009970
+009980     MOVE SPACE                  TO MTCH-FOUND.
+009990     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+010000     MOVE SPACES                 TO OUT-ADDRESS.
+010010     IF  WRK-ADDRESS(1:17)        = 'GEN***** DEL**** '
+010020       MOVE 'GENERAL DELIVERY '  TO OUT-ADDRESS
+010030       MOVE 'Y'                  TO MTCH-FOUND
+010040       IF  MTCH-FOUND               = 'Y'
+010050         MOVE  OUT-ADDRESS       TO EXT-ADDR1.
+010060
+010070     MOVE SPACE                  TO MTCH-FOUND.
+010080     MOVE  EXT-ADDR2             TO WRK-ADDRESS.
+010090     MOVE SPACES                 TO OUT-ADDRESS.
+010100     IF  WRK-ADDRESS(1:4)         = 'C/O ' OR 'C/0 ' OR 'C\O '
+010110       MOVE '% '                TO OUT-ADDRESS
+010120       MOVE 'Y'                  TO MTCH-FOUND
+010130       MOVE  5                   TO WX
+010140       MOVE  3                   TO OX
+010150       PERFORM C254A-MOVE
+010160        UNTIL  WX                 = 30
+010170       IF  MTCH-FOUND               = 'Y'
+010180         MOVE  OUT-ADDRESS       TO EXT-ADDR2.
+010190
+010200     MOVE SPACE                  TO MTCH-FOUND.
+010210     MOVE  1                     TO TW.
+010220     MOVE  19                    TO TT.
+010230     MOVE  EXT-ADDR2             TO WRK-ADDRESS.
+010240     MOVE SPACES                 TO OUT-ADDRESS.
+010250     MOVE ST-L(TW)               TO W1.
+010260     PERFORM C301-CHK-ST-TYPES
+010270       UNTIL  TW                  > TT.
+010280     IF  MTCH-FOUND               = 'Y'
+010290       MOVE  OUT-ADDRESS         TO EXT-ADDR2.
+010300
+010310     MOVE SPACE                  TO MTCH-FOUND.
+010320     MOVE  20                    TO TW.
+010330     MOVE  25                    TO TT.
+010340     MOVE  EXT-ADDR2             TO WRK-ADDRESS.
+010350     MOVE SPACES                 TO OUT-ADDRESS.
+010360     MOVE ST-L(TW)               TO W1.
+010370     PERFORM C301-CHK-ST-TYPES
+010380       UNTIL  TW                  > TT.
+010390     IF  MTCH-FOUND               = 'Y'
+010400       MOVE  OUT-ADDRESS         TO EXT-ADDR2.
+010410
+010420 C301-CHK-ST-TYPES.
+010430     MOVE  30                    TO  T4  T5.
+010440     COMPUTE  T3                  =  30  -  W1  +  1.
+010450     PERFORM  C302-CONTINUE
+010460       UNTIL  T3                  =  0.
+010470     IF  MTCH-FOUND               =  'Y'
+010480       MOVE 99                   TO  TW
+010490      ELSE
+010500       ADD  1                    TO  TW
+010510       IF  TW                 NOT >  TT
+010520         MOVE  SPACES            TO  OUT-ADDRESS
+010530         MOVE  ST-L(TW)          TO  W1.
+010540
+010550 C302-CONTINUE.
+010560     MOVE  ST-ADR(TW)            TO  WRK-TYP.
+010570     IF  WRK-ADDRESS(T3:W1)       =  WRK-TYP(1:W1)
+010580       PERFORM  C303-CONTINUE
+010590      ELSE
+010600       MOVE W-ADR(T4)            TO  O-ADR(T5)
+010610       SUBTRACT  1             FROM  T4  T5.
+010620
+010630     SUBTRACT  1               FROM  T3.
+010640
+010650 C303-CONTINUE.
+010660     MOVE  W-ADR(T4)             TO  O-ADR(T5).
+010670     SUBTRACT  1               FROM  T5.
+010680     SUBTRACT  1               FROM  W1.
+010690     COMPUTE  T5                  =  T5  -  AB-L(TW)  +  1.
+010700     MOVE  AB-L(TW)              TO  TA.
+010710     MOVE  ST-ABRV(TW)           TO  OUT-ADDRESS(T5:TA).
+010720     SUBTRACT  1               FROM  T5.
+010730     COMPUTE  T4                  =  T4  -  ST-L(TW).
+010740     MOVE  SPACE                 TO  O-ADR(T5).
+010750     SUBTRACT  1               FROM  T5.
+010760     MOVE  'Y'                   TO  MTCH-FOUND.
+010770     PERFORM  C304-REMAINDER
+010780       UNTIL  T4                  =  0.
+010790     MOVE  1                     TO  T3.
+010800
+010810 C304-REMAINDER.
+010820     MOVE W-ADR(T4)              TO  O-ADR(T5).
+010830     SUBTRACT  1               FROM  T4  T5.
+010840
+010850 C350-CHK-STREET-TYPES.
+010860     MOVE SPACE                  TO MTCH-FOUND.
+010870     MOVE  1                     TO TW.
+010880     MOVE  11                    TO TT.
+010890     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+010900     MOVE SPACES                 TO OUT-ADDRESS.
+010910     MOVE EX-L(TW)               TO W1.
+010920     PERFORM C351-CHK-ST-TYPES
+010930       UNTIL  TW                  > TT.
+010940     IF  MTCH-FOUND               = 'Y'
+010950       MOVE  OUT-ADDRESS         TO EXT-ADDR1.
+010960
+010970     MOVE SPACE                  TO MTCH-FOUND.
+010980     MOVE  1                     TO TW.
+010990     MOVE  11                    TO TT.
+011000     MOVE  EXT-ADDR2             TO WRK-ADDRESS.
+011010     MOVE SPACES                 TO OUT-ADDRESS.
+011020     MOVE EX-L(TW)               TO W1.
+011030     PERFORM C351-CHK-ST-TYPES
+011040       UNTIL  TW                  > TT.
+011050     IF  MTCH-FOUND               = 'Y'
+011060       MOVE  OUT-ADDRESS         TO EXT-ADDR2.
+011070
+011080 C351-CHK-ST-TYPES.
+011090     MOVE  01                    TO  T4  T5  T3.
+011100     PERFORM  C352-CONTINUE
+011110       UNTIL  T3                  >  29.
+011120     IF  MTCH-FOUND               =  'Y'
+011130       MOVE 99                   TO  TW
+011140      ELSE
+011150       ADD  1                    TO  TW
+011160       IF  TW                 NOT >  TT
+011170         MOVE  EX-L(TW)          TO  W1.
+011180
+011190 C352-CONTINUE.
+011200     MOVE  EX-ADR(TW)            TO  WRK-TYP.
+011210     IF  WRK-ADDRESS(T3:W1)       =  WRK-TYP(1:W1)
+011220       PERFORM  C353-CONTINUE
+011230      ELSE
+011240       MOVE W-ADR(T4)            TO  O-ADR(T5)
+011250       ADD  1                    TO  T4  T5.
+011260
+011270     ADD  1                      TO  T3.
+011280
+011290 C353-CONTINUE.
+011300     MOVE  W-ADR(T4)             TO  O-ADR(T5).
+011310     ADD  1                      TO  T5.
+011320     SUBTRACT  1               FROM  W1.
+011330     MOVE  EP-L(TW)              TO  TA.
+011340     MOVE  EX-EXPND(TW)          TO  WRK-TYP.
+011350     MOVE  WRK-TYP(1:TA)         TO  OUT-ADDRESS(T5:TA).
+011360     ADD  TA                     TO  T5.
+011370     MOVE  'Y'                   TO  MTCH-FOUND.
+011380     MOVE  30                    TO  T3.
+011390     ADD  W1                     TO  T4.
+011400     PERFORM C354-CONTINUE
+011410       UNTIL  T5                  >  29.
+011420     PERFORM C355-CONTINUE
+011430       UNTIL  T4                  >  29.
+011440
+011450 C354-CONTINUE.
+011460     MOVE W-ADR(T4)              TO  O-ADR(T5).
+011470     ADD  1                      TO  T4  T5.
+011480
+011490 C355-CONTINUE.
+011500     IF  W-ADR(T4)                >  SPACE
+011510       MOVE  30                  TO  T4
+011520      ELSE
+011530       ADD  1                    TO  T4.
+011540
+011550 C400-RIGHT-JUSTIFY.
+011560     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+011570     MOVE SPACES                 TO OUT-ADDRESS.
+011580     MOVE 1                      TO WX  OX.
+011590
+011600     PERFORM C401-CHECK    VARYING  WX FROM 1 BY 1
+011610       UNTIL  WX    >  29.
+011620
+011630     IF  O-ADR(1)                 = SPACE
+011640       MOVE  OUT-ADDRESS1        TO EXT-ADDR1
+011650      ELSE
+011660       MOVE  OUT-ADDRESS         TO EXT-ADDR1.
+011670
+011680     MOVE  EXT-ADDR2             TO WRK-ADDRESS.
+011690     MOVE SPACES                 TO OUT-ADDRESS.
+011700     MOVE 1                      TO WX  OX.
+011710
+011720     PERFORM C401-CHECK    VARYING  WX FROM 1 BY 1
+011730       UNTIL  WX    >  29.
+011740
+011750     IF  O-ADR(1)                 = SPACE
+011760       MOVE  OUT-ADDRESS1        TO EXT-ADDR2
+011770      ELSE
+011780       MOVE  OUT-ADDRESS         TO EXT-ADDR2.
+011790
+011800 C401-CHECK.
+011810       IF W-ADR(WX)       =  SPACE
+011820         COMPUTE TX       =  WX  +  1
+011830         IF  W-ADR(TX)    =  SPACE
+011840           NEXT SENTENCE
+011850          ELSE
+011860           MOVE W-ADR(WX)    TO O-ADR(OX)
+011870           ADD +1            TO OX
+011880        ELSE
+011890         MOVE W-ADR(WX)      TO O-ADR(OX)
+011900         ADD +1              TO OX.
+011910
+011920 C450-CHK-NBR.
+011930     MOVE  EXT-ADDR1             TO WRK-ADDRESS.
+011940     IF  W-ADR(1)                 = '#'
+011950       MOVE  WRK-ADDRESS1        TO EXT-ADDR1.
+011960
+011970 C500-SETUP-APT.
+011980     MOVE SPACES                 TO OUT-NBR OUT-DIR OUT-TYPE
+011990                                    OUT-ST OUT-APT OUT-OTHER.
+012000     MOVE  EXT-ADDR2             TO WRK-ADDRESS.
+012010     IF  EXT-ADDR3(1:2)           = '# '
+012020      AND EXT-ADDR3(8:10)         = SPACES
+012030       MOVE  EXT-ADDR3-28        TO OUT-APT
+012040       MOVE  WRK-ADDRESS         TO OUT-OTHER
+012050      ELSE
+012060     IF  EXT-ADDR3(1:1)           = '#'
+012070      AND EXT-ADDR3(7:10)         = SPACES
+012080       MOVE  EXT-ADDR3-29        TO OUT-APT
+012090       MOVE  WRK-ADDRESS         TO OUT-OTHER
+012100      ELSE
+012110       IF  W-ADR(1)               > SPACE
+012120         MOVE 1                  TO WX OX
+012130         PERFORM C501-MOVE-OTHER
+012140          UNTIL WX                = 25
+012150           OR W-ADR(WX)           = '#'
+012160         IF  W-ADR(WX)            = '#'
+012170           ADD 1                 TO WX
+012180           PERFORM C501A-CHECK-SPACE
+012190           MOVE 1                TO OX
+012200           PERFORM C502-MOVE-APT
+012210            UNTIL OX                = 5
+012220             OR W-ADR(WX)           = SPACE
+012230           ADD 1                 TO WX
+012240           IF W-ADR(WX)           > SPACE
+012250            MOVE 2                  TO COMM-RETURN-CODE.
+012260*           MOVE 04                 TO COMM-ERROR-MSG-NR.
+012270*      IF OUT-ADDRESS(7:10)         > SPACES
+012280*       MOVE 04                   TO COMM-ERROR-MSG-NR
+012290*       MOVE 1                    TO COMM-RETURN-CODE.
+012300
+012310
+012320 C501-MOVE-OTHER.
+012330     MOVE W-ADR(WX)              TO O-OTHER(OX).
+012340     ADD 1                       TO WX  OX.
+012350
+012360 C501A-CHECK-SPACE.
+012370     IF   W-ADR(WX)               = SPACE
+012380       ADD 1                     TO WX.
+012390
+012400 C502-MOVE-APT.
+012410     MOVE W-ADR(WX)              TO O-APT(OX).
+012420     ADD 1                       TO WX  OX.
+012430
+012440 C600-BUILD-COMPONENTS.
+012450     MOVE SPACE                  TO WS-CONT.
+012460     MOVE SPACES                 TO COMPONENT1 COMPONENT2
+012470                                    COMPONENT3 COMPONENT4
+012480                                    COMPONENT5 COMPONENT6.
+012490     MOVE EXT-ADDR1              TO WRK-ADDRESS.
+012500     IF  WRK-ADDRESS(1:7)         = 'PO BOX '
+012510      OR WRK-ADDRESS(1:4)         = 'BOX ' OR 'HCR '
+012520      OR WRK-ADDRESS(1:17) = 'GENERAL DELIVERY '
+012530      OR WRK-ADDRESS(1:17) = 'CENTRAL DELIVERY '
+012540      OR WRK-ADDRESS(1:2) = 'HC' OR '% '
+012550      OR WRK-ADDRESS(1:3) = 'RT ' OR 'SR ' OR 'HC ' OR 'RR '
+012560      OR WRK-ADDRESS(1:3) = 'HC-'
+012570      OR WRK-ADDRESS(1:5) = 'ST RT'
+012580       IF EXT-ADDR2                > SPACES
+012590         MOVE EXT-ADDR2           TO EXT-ADDR1
+012600         MOVE WRK-ADDRESS         TO EXT-ADDR2
+012610         MOVE EXT-ADDR1           TO WRK-ADDRESS
+012620         MOVE EXT-ADDR2           TO OUT-OTHER
+012630         IF W-ADR(1)               = '#'
+012640           MOVE WRK-ADDRESS1      TO EXT-ADDR1
+012650           MOVE EXT-ADDR1         TO WRK-ADDRESS
+012660        ELSE
+012670          NEXT SENTENCE
+012680        ELSE
+012690       MOVE WRK-ADDRESS          TO OUT-OTHER
+012700       MOVE 'X'                  TO WS-CONT
+012710       MOVE 3                    TO MX.
+012720     IF WS-CONT                   = SPACE
+012730       MOVE SPACES               TO OUT-ADDRESS
+012740       MOVE 1                    TO WX OX
+012750       PERFORM C601-MOVE
+012760        UNTIL WX                  = 30
+012770         OR W-ADR(WX)             = SPACE
+012780        IF  WX                NOT = 30
+012790         MOVE OUT-ADDRESS       TO COMPONENT1
+012800         MOVE SPACES               TO OUT-ADDRESS
+012810         MOVE 1                    TO MX OX
+012820         ADD 1                     TO WX
+012830         PERFORM C601-MOVE
+012840          UNTIL WX                  = 30
+012850           OR W-ADR(WX)             = SPACE
+012860          IF  OUT-ADDRESS           > SPACES
+012870           MOVE OUT-ADDRESS       TO COMPONENT2
+012880           MOVE SPACES               TO OUT-ADDRESS
+012890           MOVE 1                    TO OX
+012900           MOVE 2                    TO MX
+012910           ADD 1                     TO WX
+012920           PERFORM C601-MOVE
+012930            UNTIL WX                  = 30
+012940             OR W-ADR(WX)             = SPACE
+012950          IF  OUT-ADDRESS           > SPACES
+012960           MOVE OUT-ADDRESS       TO COMPONENT3
+012970           MOVE SPACES               TO OUT-ADDRESS
+012980           MOVE 1                    TO OX
+012990           MOVE 3                    TO MX
+013000           ADD 1                     TO WX
+013010           PERFORM C601-MOVE
+013020            UNTIL WX                  = 30
+013030             OR W-ADR(WX)             = SPACE
+013040          IF  OUT-ADDRESS           > SPACES
+013050           MOVE OUT-ADDRESS       TO COMPONENT4
+013060           MOVE SPACES               TO OUT-ADDRESS
+013070           MOVE 1                    TO OX
+013080           MOVE 4                    TO MX
+013090           ADD 1                     TO WX
+013100           PERFORM C601-MOVE
+013110            UNTIL WX                  = 30
+013120             OR W-ADR(WX)             = SPACE
+013130          IF  OUT-ADDRESS           > SPACES
+013140           MOVE OUT-ADDRESS       TO COMPONENT5
+013150           MOVE SPACES               TO OUT-ADDRESS
+013160           MOVE 1                    TO OX
+013170           MOVE 5                    TO MX
+013180           ADD 1                     TO WX
+013190           PERFORM C601-MOVE
+013200            UNTIL WX                  = 30
+013210             OR W-ADR(WX)             = SPACE
+013220          IF  OUT-ADDRESS           > SPACES
+013230           MOVE OUT-ADDRESS       TO COMPONENT6
+013240           MOVE SPACES               TO OUT-ADDRESS
+013250           MOVE 1                    TO OX
+013260           MOVE 6                    TO MX
+013270           ADD 1                     TO WX
+013280           PERFORM C601-MOVE
+013290            UNTIL WX                  = 30
+013300             OR W-ADR(WX)             = SPACE
+013310          IF  OUT-ADDRESS           > SPACES
+013320           MOVE OUT-ADDRESS       TO COMPONENT7
+013330           MOVE SPACES               TO OUT-ADDRESS
+013340           MOVE 7                    TO MX
+013350           ADD 1                     TO WX
+013360           IF W-ADR(WX)               > SPACE
+013370            MOVE 2                  TO COMM-RETURN-CODE.
+013380*           MOVE 05                 TO COMM-ERROR-MSG-NR.
+013390
+013400 C601-MOVE.
+013410     MOVE W-ADR(WX)               TO O-ADR(OX).
+013420     ADD 1                        TO WX  OX.
+013430
+013440 C655-CONVERT.
+013450     IF WRK-DIR                    = 'NORTH'
+013460       MOVE 'N'                   TO WRK-DIR
+013470      ELSE
+013480     IF WRK-DIR                    = 'SOUTH'
+013490       MOVE 'S'                   TO WRK-DIR
+013500      ELSE
+013510     IF WRK-DIR                    = 'EAST'
+013520       MOVE 'E'                   TO WRK-DIR
+013530      ELSE
+013540     IF WRK-DIR                    = 'WEST'
+013550       MOVE 'W'                   TO WRK-DIR
+013560      ELSE
+013570     IF WRK-DIR                    = 'NORTHWEST'
+013580       MOVE 'NW'                  TO WRK-DIR
+013590      ELSE
+013600     IF WRK-DIR                    = 'NORTHEAST'
+013610       MOVE 'NE'                  TO WRK-DIR
+013620      ELSE
+013630     IF WRK-DIR                    = 'SOUTHWEST'
+013640       MOVE 'SW'                  TO WRK-DIR
+013650      ELSE
+013660     IF WRK-DIR                    = 'SOUTHEAST'
+013670       MOVE 'SE'                  TO WRK-DIR.
+013680
+013690 C700-CHK-COMPONENTS.
+013700     MOVE SPACE                  TO MTCH-NUMERIC.
+013710     MOVE 1                      TO WX.
+013720     PERFORM C701-EXAMINE
+013730      UNTIL  WX                   = 15
+013740      OR COMP1(WX)                = SPACE.
+013750
+013760     IF  MTCH-NUMERIC             = 'N'
+013770       MOVE 3                  TO COMM-RETURN-CODE
+013780*      MOVE 07                 TO COMM-ERROR-MSG-NR
+013790      ELSE
+013800       PERFORM C750-CONTINUE.
+013810
+013820 C701-EXAMINE.
+013830*    IF COMP1(WX)                NOT NUMERIC
+013840*      MOVE 'N'                   TO MTCH-NUMERIC.
+013850*    ADD 1                        TO WX.
+013860
+013870     IF COMP1(WX)                NOT NUMERIC
+013880      IF COMP1(WX)                 = '-' OR '/'
+013890       NEXT SENTENCE
+013900      ELSE
+013910       IF COMP1(WX)                  ALPHABETIC
+013920        ADD 1                     TO WX
+013930        IF COMP1(WX)           NOT = SPACE
+013940         MOVE 'N'                 TO MTCH-NUMERIC
+013950        ELSE
+013960         NEXT SENTENCE
+013970       ELSE
+013980        MOVE 'N'                  TO MTCH-NUMERIC.
+013990
+014000     ADD 1                        TO WX.
+014010 C750-CONTINUE.
+014020     MOVE SPACE                  TO MTCH-NUMERIC.
+014030     MOVE 1                      TO WX.
+014040     PERFORM C702-EXAMINE
+014050      UNTIL  WX                   = 15
+014060      OR COMP2(WX)                = SPACE.
+014070
+014080     IF  MTCH-NUMERIC             = 'N'
+014090       PERFORM C751-CONTINUE
+014100      ELSE
+014110       IF COMPONENT3      = 'TH '
+014120       STRING COMPONENT2 DELIMITED BY SPACE
+014130              COMPONENT3 DELIMITED BY SPACE
+014140          INTO OUT-ST
+014150       MOVE OUT-ST           TO COMPONENT2
+014160       MOVE COMPONENT4       TO COMPONENT3
+014170       MOVE COMPONENT5       TO COMPONENT4
+014180       MOVE COMPONENT6       TO COMPONENT5
+014190       MOVE COMPONENT7       TO COMPONENT6
+014200       MOVE SPACES           TO COMPONENT7
+014210       SUBTRACT 1          FROM MX
+014220       PERFORM C751-CONTINUE
+014230      ELSE
+014240       STRING COMPONENT1 DELIMITED BY SPACE
+014250              COMPONENT2 DELIMITED BY SPACE
+014260          INTO OUT-NBR
+014270       MOVE OUT-NBR          TO COMPONENT1
+014280       MOVE COMPONENT3       TO COMPONENT2
+014290       MOVE COMPONENT4       TO COMPONENT3
+014300       MOVE COMPONENT5       TO COMPONENT4
+014310       MOVE COMPONENT6       TO COMPONENT5
+014320       MOVE COMPONENT7       TO COMPONENT6
+014330       MOVE SPACES           TO COMPONENT7
+014340       SUBTRACT 1          FROM MX
+014350       PERFORM C751-CONTINUE.
+014360
+014370 C702-EXAMINE.
+014380     IF COMP2(WX)                NOT NUMERIC
+014390       MOVE 'N'                   TO MTCH-NUMERIC.
+014400     ADD 1                        TO WX.
+014410
+014420 C751-CONTINUE.
+014430*       DISPLAY 'MAX=  ' MX.
+014440     PERFORM C751A-CHECK-AGAIN.
+014450     PERFORM C752-CHK-LAST-COMP.
+014460
+014470        IF  MX                    = 2
+014480         MOVE COMPONENT1        TO OUT-NBR
+014490         MOVE COMPONENT2        TO OUT-ST
+014500        ELSE
+014510         IF MX                      = 3
+014520          MOVE COMPONENT3          TO WRK-TYPES
+014530          IF ST-TYPES
+014540           OR COMPONENT3            = 'HWY'
+014550           MOVE COMPONENT1         TO OUT-NBR
+014560           MOVE COMPONENT2         TO OUT-ST
+014570           MOVE COMPONENT3         TO OUT-TYPE
+014580          ELSE
+014590           MOVE COMPONENT2         TO WRK-DIR
+014600           PERFORM                    C655-CONVERT
+014610           IF DIRECTIONS
+014620            MOVE COMPONENT1        TO OUT-NBR
+014630            MOVE WRK-DIR           TO OUT-DIR
+014640            MOVE COMPONENT3        TO OUT-ST
+014650           ELSE
+014660            MOVE COMPONENT2          TO WRK-TYPES
+014670            IF COMPONENT2    = 'HWY ' OR 'RD '
+014680             AND LAST-FIELD-NUMERIC
+014690             MOVE COMPONENT1         TO OUT-NBR
+014700             STRING COMPONENT2   DELIMITED BY SPACE
+014710                    ' '          DELIMITED BY SIZE
+014720                    COMPONENT3   DELIMITED BY SPACE
+014730               INTO OUT-ST
+014740           ELSE
+014750            IF ST-TYPES
+014760             AND WRK-TYPES    NOT = 'ST '
+014770             MOVE COMPONENT1         TO OUT-NBR
+014780             MOVE COMPONENT2         TO OUT-TYPE
+014790             MOVE COMPONENT3         TO OUT-ST
+014800           ELSE
+014810            IF COMP2(1)                 NUMERIC
+014820             AND COMP2(2)             = '/' OR '\'
+014830             AND COMP2(3)               NUMERIC
+014840              MOVE '/'               TO COMP2(2)
+014850              STRING COMPONENT1 DELIMITED BY SPACE
+014860                     ' '        DELIMITED BY SIZE
+014870                     COMPONENT2 DELIMITED BY SPACE
+014880                     INTO OUT-NBR
+014890              MOVE COMPONENT3        TO OUT-ST
+014900           ELSE
+014910            MOVE COMPONENT1          TO OUT-NBR
+014920            STRING COMPONENT2  DELIMITED BY SPACE
+014930                     ' '        DELIMITED BY SIZE
+014940                   COMPONENT3  DELIMITED BY SPACE
+014950                   INTO OUT-ST
+014960      ELSE
+014970        IF  MX             = 4
+014980          PERFORM C754-CONTINUE
+014990         ELSE
+015000        IF  MX             = 5
+015010          PERFORM C755-CONTINUE
+015020         ELSE
+015030        IF  MX             = 6
+015040          PERFORM C756-CONTINUE
+015050         ELSE
+015060        IF  MX             = 7
+015070          PERFORM C757-CONTINUE
+015080         ELSE
+015090          PERFORM                    SECOND-CHANCE.
+015100*         MOVE 4                  TO COMM-RETURN-CODE
+015110*         MOVE 05                 TO COMM-ERROR-MSG-NR.
+015120 C751A-CHECK-AGAIN.
+015130     MOVE COMPONENT1          TO COMPX(1).
+015140     MOVE COMPONENT2          TO COMPX(2).
+015150     MOVE COMPONENT3          TO COMPX(3).
+015160     MOVE COMPONENT4          TO COMPX(4).
+015170     MOVE COMPONENT5          TO COMPX(5).
+015180     MOVE COMPONENT6          TO COMPX(6).
+015190     MOVE COMPONENT7          TO COMPX(7).
+015200     SUBTRACT 1 FROM MX   GIVING OX.
+015210     SUBTRACT 2 FROM MX   GIVING TX.
+015220
+015230     IF COMPX(TX)              = 'RV'
+015240      AND COMPX(OX)            = 'SPACE'
+015250      AND OUT-APT              = SPACES
+015260       MOVE COMPX(MX)         TO OUT-APT
+015270       SUBTRACT 3           FROM MX
+015280      ELSE
+015290       SUBTRACT 1 FROM MX GIVING OX
+015300       IF COMPX(OX) = 'SPACE' OR 'LOT' OR 'SUITE'
+015310                   OR 'BLDG' OR 'UNIT' OR 'BOX'
+015320        AND OUT-APT            = SPACES
+015330        MOVE COMPX(MX)        TO OUT-APT
+015340        SUBTRACT 2          FROM MX.
+015350
+015360 C752-CHK-LAST-COMP.
+015370     MOVE SPACE           TO MTCH-NUMERIC LAST-FIELD.
+015380     MOVE 1               TO WX.
+015390     IF MX                 = 3
+015400      MOVE COMPONENT3     TO WRK-ADDRESS
+015410      MOVE COMPONENT2     TO OUT-ADDRESS
+015420     ELSE
+015430     IF MX                 = 4
+015440      MOVE COMPONENT4     TO WRK-ADDRESS
+015450      MOVE COMPONENT3     TO OUT-ADDRESS
+015460     ELSE
+015470     IF MX                 = 5
+015480      MOVE COMPONENT5     TO WRK-ADDRESS
+015490      MOVE COMPONENT4     TO OUT-ADDRESS
+015500     ELSE
+015510     IF MX                 = 6
+015520      MOVE COMPONENT6     TO WRK-ADDRESS
+015530      MOVE COMPONENT5     TO OUT-ADDRESS
+015540     ELSE
+015550     IF MX                 = 7
+015560      MOVE COMPONENT7     TO WRK-ADDRESS
+015570      MOVE COMPONENT6     TO OUT-ADDRESS.
+015580     IF MX > 2 AND MX < 8
+015590      PERFORM C753-CHK
+015600       UNTIL WX            > 14
+015610       OR W-ADR(WX)        = SPACE
+015620      IF MTCH-NUMERIC      = 'N'
+015630       IF W-ADR(1)         = '#'
+015640        SUBTRACT 1      FROM MX
+015650       ELSE
+015660        NEXT SENTENCE
+015670      ELSE
+015680       IF OUT-ADDRESS      = 'HWY'  OR 'RD '
+015690         MOVE 'Y'         TO LAST-FIELD
+015700      ELSE
+015710       MOVE WRK-ADDRESS   TO OUT-OTHER
+015720       SUBTRACT 1       FROM MX.
+015730
+015740 C753-CHK.
+015750     IF W-ADR(WX)        NOT NUMERIC
+015760      IF W-ADR(WX)         = '-'
+015770       NEXT SENTENCE
+015780      ELSE
+015790       IF W-ADR(WX)          ALPHABETIC
+015800        AND WX         NOT = 1
+015810        ADD 1             TO WX
+015820        IF W-ADR(WX)   NOT = SPACE
+015830         MOVE 'N'         TO MTCH-NUMERIC
+015840        ELSE
+015850         NEXT SENTENCE
+015860       ELSE
+015870        MOVE 'N'          TO MTCH-NUMERIC.
+015880     ADD 1                TO WX.
+015890 C754-CONTINUE.
+015900     MOVE COMPONENT2      TO WRK-DIR.
+015910     PERFORM                 C655-CONVERT.
+015920     MOVE COMPONENT4      TO WRK-TYPES.
+015930     IF ST-TYPES AND DIRECTIONS
+015940       MOVE COMPONENT1    TO OUT-NBR
+015950       MOVE WRK-DIR       TO OUT-DIR
+015960       MOVE COMPONENT3    TO OUT-ST
+015970       MOVE COMPONENT4    TO OUT-TYPE
+015980      ELSE
+015990     IF WRK-TYPES = 'HWY' AND DIRECTIONS
+016000       MOVE COMPONENT1    TO OUT-NBR
+016010       MOVE WRK-DIR       TO OUT-DIR
+016020       MOVE COMPONENT3    TO OUT-ST
+016030       MOVE COMPONENT4    TO OUT-TYPE
+016040      ELSE
+016050       IF COMP2(1)           NUMERIC
+016060        AND COMP2(2)       = '/' OR '\'
+016070        AND COMP2(3)         NUMERIC
+016080         MOVE '/'         TO COMP2(2)
+016090         STRING COMPONENT1  DELIMITED BY SPACE
+016100                ' '         DELIMITED BY SIZE
+016110                COMPONENT2  DELIMITED BY SPACE
+016120           INTO OUT-NBR
+016130         PERFORM C754A-CONTINUE
+016140        ELSE
+016150         IF DIRECTIONS
+016160           MOVE COMPONENT1 TO OUT-NBR
+016170           MOVE WRK-DIR    TO OUT-DIR
+016180           STRING COMPONENT3  DELIMITED BY SPACE
+016190                  ' '         DELIMITED BY SIZE
+016200                  COMPONENT4  DELIMITED BY SPACE
+016210             INTO OUT-ST
+016220        ELSE
+016230         IF ST-TYPES OR WRK-TYPES = 'HWY'
+016240           MOVE COMPONENT1 TO OUT-NBR
+016250           STRING COMPONENT2  DELIMITED BY SPACE
+016260                  ' '         DELIMITED BY SIZE
+016270                  COMPONENT3  DELIMITED BY SPACE
+016280             INTO OUT-ST
+016290           MOVE COMPONENT4 TO OUT-TYPE
+016300        ELSE
+016310           MOVE COMPONENT3    TO WRK-TYPES
+016320           MOVE COMPONENT4 TO WRK-DIR
+016330           PERFORM            C655-CONVERT
+016340           IF ST-TYPES AND DIRECTIONS
+016350             MOVE COMPONENT1  TO OUT-NBR
+016360             MOVE COMPONENT2  TO OUT-ST
+016370             MOVE COMPONENT3  TO OUT-TYPE
+016380             MOVE WRK-DIR     TO OUT-DIR
+016390        ELSE
+016400           IF COMPONENT3  = 'HWY ' OR 'RD '
+016410            AND LAST-FIELD-NUMERIC
+016420             MOVE COMPONENT1  TO OUT-NBR
+016430           STRING COMPONENT2  DELIMITED BY SPACE
+016440                  ' '         DELIMITED BY SIZE
+016450                  COMPONENT3  DELIMITED BY SPACE
+016460                  ' '         DELIMITED BY SIZE
+016470                  COMPONENT4  DELIMITED BY SPACE
+016480             INTO OUT-ST
+016490        ELSE
+016500           IF ST-TYPES
+016510            IF OUT-OTHER       > SPACES
+016520               MOVE 4         TO COMM-RETURN-CODE
+016530*              MOVE 06        TO COMM-ERROR-MSG-NR
+016540              ELSE
+016550               MOVE COMPONENT1  TO OUT-NBR
+016560               MOVE COMPONENT2  TO OUT-ST
+016570               MOVE COMPONENT3  TO OUT-TYPE
+016580               MOVE COMPONENT4  TO OUT-OTHER
+016590        ELSE
+016600           MOVE COMPONENT3 TO WRK-DIR1
+016610           MOVE COMPONENT4 TO WRK-DIR2
+016620           IF DIRECT1 AND DIRECT2
+016630            MOVE COMPONENT1 TO OUT-NBR
+016640            MOVE COMPONENT2 TO OUT-ST
+016650           STRING COMPONENT3  DELIMITED BY SPACE
+016660                  COMPONENT4  DELIMITED BY SPACE
+016670             INTO OUT-DIR
+016680        ELSE
+016690           MOVE COMPONENT1 TO OUT-NBR
+016700           STRING COMPONENT2  DELIMITED BY SPACE
+016710                  ' '         DELIMITED BY SIZE
+016720                  COMPONENT3  DELIMITED BY SPACE
+016730                  ' '         DELIMITED BY SIZE
+016740                  COMPONENT4  DELIMITED BY SPACE
+016750             INTO OUT-ST.
+016760
+016770 C754A-CONTINUE.
+016780     MOVE COMPONENT3      TO WRK-DIR.
+016790     MOVE COMPONENT4      TO WRK-TYPES.
+016800     IF ST-TYPES AND DIRECTIONS
+016810       MOVE COMPONENT3    TO OUT-DIR
+016820       MOVE COMPONENT4    TO OUT-TYPE
+016830      ELSE
+016840         IF DIRECTIONS
+016850           MOVE COMPONENT3 TO OUT-DIR
+016860           MOVE COMPONENT4 TO OUT-ST
+016870        ELSE
+016880         IF ST-TYPES
+016890           MOVE COMPONENT3 TO OUT-ST
+016900           MOVE COMPONENT4 TO OUT-TYPE
+016910        ELSE
+016920           STRING COMPONENT3  DELIMITED BY SPACE
+016930                  ' '         DELIMITED BY SIZE
+016940                  COMPONENT4  DELIMITED BY SPACE
+016950             INTO OUT-ST.
+016960
+016970 C755-CONTINUE.
+016980     MOVE COMPONENT2      TO WRK-DIR.
+016990     PERFORM                 C655-CONVERT.
+017000     MOVE COMPONENT5      TO WRK-TYPES.
+017010     IF DIRECTIONS
+017020      IF ST-TYPES
+017030       MOVE COMPONENT1    TO OUT-NBR
+017040       MOVE WRK-DIR       TO OUT-DIR
+017050       MOVE COMPONENT5    TO OUT-TYPE
+017060         STRING COMPONENT3  DELIMITED BY SPACE
+017070                ' '         DELIMITED BY SIZE
+017080                COMPONENT4  DELIMITED BY SPACE
+017090           INTO OUT-ST
+017100      ELSE
+017110       MOVE COMPONENT4      TO WRK-TYPES
+017120       IF COMPONENT4         = 'HWY ' OR 'RD '
+017130        AND LAST-FIELD-NUMERIC
+017140       MOVE COMPONENT1    TO OUT-NBR
+017150       MOVE WRK-DIR       TO OUT-DIR
+017160         STRING COMPONENT3  DELIMITED BY SPACE
+017170                ' '         DELIMITED BY SIZE
+017180                COMPONENT4  DELIMITED BY SPACE
+017190                ' '         DELIMITED BY SIZE
+017200                COMPONENT5  DELIMITED BY SPACE
+017210           INTO OUT-ST
+017220      ELSE
+017230       IF ST-TYPES
+017240        IF OUT-OTHER         > SPACES
+017250           MOVE 4         TO COMM-RETURN-CODE
+017260*          MOVE 06        TO COMM-ERROR-MSG-NR
+017270          ELSE
+017280        MOVE COMPONENT1    TO OUT-NBR
+017290        MOVE WRK-DIR       TO OUT-DIR
+017300        MOVE COMPONENT3    TO OUT-ST
+017310        MOVE COMPONENT4    TO OUT-TYPE
+017320        MOVE COMPONENT5    TO OUT-OTHER
+017330      ELSE
+017340        MOVE COMPONENT1    TO OUT-NBR
+017350        MOVE WRK-DIR       TO OUT-DIR
+017360         STRING COMPONENT3  DELIMITED BY SPACE
+017370                ' '         DELIMITED BY SIZE
+017380                COMPONENT4  DELIMITED BY SPACE
+017390                ' '         DELIMITED BY SIZE
+017400                COMPONENT5  DELIMITED BY SPACE
+017410           INTO OUT-ST
+017420      ELSE
+017430       IF COMP2(1)           NUMERIC
+017440        AND COMP2(2)       = '/' OR '\'
+017450        AND COMP2(3)         NUMERIC
+017460         MOVE '/'         TO COMP2(2)
+017470         STRING COMPONENT1  DELIMITED BY SPACE
+017480                ' '         DELIMITED BY SIZE
+017490                COMPONENT2  DELIMITED BY SPACE
+017500           INTO OUT-NBR
+017510         PERFORM C755A-CONTINUE
+017520        ELSE
+017530         IF ST-TYPES
+017540           MOVE COMPONENT1 TO OUT-NBR
+017550           MOVE COMPONENT5 TO OUT-TYPE
+017560           STRING COMPONENT2  DELIMITED BY SPACE
+017570                  ' '         DELIMITED BY SIZE
+017580                  COMPONENT3  DELIMITED BY SPACE
+017590                  ' '         DELIMITED BY SIZE
+017600                  COMPONENT4  DELIMITED BY SPACE
+017610             INTO OUT-ST
+017620      ELSE
+017630        MOVE COMPONENT4    TO WRK-TYPES
+017640        MOVE COMPONENT5   TO WRK-DIR
+017650        PERFORM               C655-CONVERT
+017660        IF ST-TYPES
+017670         IF DIRECTIONS
+017680          MOVE COMPONENT1  TO OUT-NBR
+017690         STRING COMPONENT2  DELIMITED BY SPACE
+017700                ' '         DELIMITED BY SIZE
+017710                COMPONENT3  DELIMITED BY SPACE
+017720           INTO OUT-ST
+017730         MOVE COMPONENT4    TO OUT-TYPE
+017740         MOVE WRK-DIR       TO OUT-DIR
+017750        ELSE
+017760         IF OUT-OTHER        > SPACES
+017770           MOVE 4         TO COMM-RETURN-CODE
+017780*          MOVE 06        TO COMM-ERROR-MSG-NR
+017790        ELSE
+017800           MOVE COMPONENT1 TO OUT-NBR
+017810           MOVE COMPONENT5 TO OUT-TYPE
+017820           STRING COMPONENT2  DELIMITED BY SPACE
+017830                  ' '         DELIMITED BY SIZE
+017840                  COMPONENT3  DELIMITED BY SPACE
+017850             INTO OUT-ST
+017860           MOVE COMPONENT4 TO OUT-TYPE
+017870           MOVE COMPONENT5 TO OUT-OTHER
+017880      ELSE
+017890       MOVE COMPONENT4        TO WRK-DIR1
+017900       MOVE COMPONENT5        TO WRK-DIR2
+017910       MOVE COMPONENT3        TO WRK-TYPES
+017920       IF DIRECT1 AND DIRECT2
+017930        IF ST-TYPES
+017940         MOVE COMPONENT1      TO OUT-NBR
+017950         MOVE COMPONENT2      TO OUT-ST
+017960         MOVE COMPONENT3      TO OUT-TYPE
+017970         STRING COMPONENT4  DELIMITED BY SPACE
+017980                COMPONENT5  DELIMITED BY SPACE
+017990           INTO OUT-DIR
+018000        ELSE
+018010         MOVE COMPONENT1      TO OUT-NBR
+018020         STRING COMPONENT2  DELIMITED BY SPACE
+018030                ' '         DELIMITED BY SIZE
+018040                COMPONENT3  DELIMITED BY SPACE
+018050           INTO OUT-ST
+018060         STRING COMPONENT4  DELIMITED BY SPACE
+018070                COMPONENT5  DELIMITED BY SPACE
+018080           INTO OUT-DIR
+018090        ELSE
+018100          MOVE 5                  TO COMM-RETURN-CODE.
+018110*         MOVE 05                 TO COMM-ERROR-MSG-NR.
+018120
+018130 C755A-CONTINUE.
+018140     MOVE COMPONENT3      TO WRK-DIR.
+018150     PERFORM                 C655-CONVERT.
+018160     MOVE COMPONENT5      TO WRK-TYPES.
+018170     IF DIRECTIONS
+018180      IF ST-TYPES
+018190       MOVE WRK-DIR       TO OUT-DIR
+018200       MOVE COMPONENT4    TO OUT-ST
+018210       MOVE COMPONENT5    TO OUT-TYPE
+018220      ELSE
+018230         MOVE WRK-DIR    TO OUT-DIR
+018240         STRING COMPONENT4  DELIMITED BY SPACE
+018250                ' '         DELIMITED BY SIZE
+018260                COMPONENT5  DELIMITED BY SPACE
+018270           INTO OUT-ST
+018280        ELSE
+018290         IF ST-TYPES
+018300           STRING COMPONENT3  DELIMITED BY SPACE
+018310                  ' '         DELIMITED BY SIZE
+018320                  COMPONENT4  DELIMITED BY SPACE
+018330             INTO OUT-ST
+018340           MOVE COMPONENT5 TO OUT-TYPE
+018350        ELSE
+018360         MOVE COMPONENT4   TO WRK-TYPES
+018370         MOVE COMPONENT5   TO WRK-DIR
+018380         PERFORM              C655-CONVERT
+018390         IF ST-TYPES
+018400          IF DIRECTIONS
+018410            MOVE COMPONENT3   TO OUT-ST
+018420            MOVE COMPONENT4   TO OUT-TYPE
+018430            MOVE WRK-DIR      TO OUT-DIR
+018440          ELSE
+018450           IF OUT-OTHER        > SPACES
+018460            MOVE 4         TO COMM-RETURN-CODE
+018470*           MOVE 06        TO COMM-ERROR-MSG-NR
+018480           ELSE
+018490            MOVE COMPONENT3   TO OUT-ST
+018500            MOVE COMPONENT4   TO OUT-TYPE
+018510            MOVE COMPONENT5   TO OUT-OTHER
+018520        ELSE
+018530           STRING COMPONENT3  DELIMITED BY SPACE
+018540                  ' '         DELIMITED BY SIZE
+018550                  COMPONENT4  DELIMITED BY SPACE
+018560                  ' '         DELIMITED BY SIZE
+018570                  COMPONENT5  DELIMITED BY SPACE
+018580             INTO OUT-ST.
+018590
+018600 C756-CONTINUE.
+018610     MOVE COMPONENT2      TO WRK-DIR.
+018620     PERFORM                 C655-CONVERT.
+018630     MOVE COMPONENT6      TO WRK-TYPES.
+018640     IF DIRECTIONS AND ST-TYPES
+018650       MOVE COMPONENT1    TO OUT-NBR
+018660       MOVE WRK-DIR       TO OUT-DIR
+018670       MOVE COMPONENT6    TO OUT-TYPE
+018680         STRING COMPONENT3  DELIMITED BY SPACE
+018690                ' '         DELIMITED BY SIZE
+018700                COMPONENT4  DELIMITED BY SPACE
+018710                ' '         DELIMITED BY SIZE
+018720                COMPONENT5  DELIMITED BY SPACE
+018730           INTO OUT-ST
+018740      ELSE
+018750       IF COMP2(1)           NUMERIC
+018760        AND COMP2(2)       = '/' OR '\'
+018770        AND COMP2(3)         NUMERIC
+018780         MOVE '/'         TO COMP2(2)
+018790         STRING COMPONENT1  DELIMITED BY SPACE
+018800                ' '         DELIMITED BY SIZE
+018810                COMPONENT2  DELIMITED BY SPACE
+018820           INTO OUT-NBR
+018830         PERFORM C756A-CONTINUE
+018840      ELSE
+018850        MOVE COMPONENT5    TO WRK-TYPES
+018860        MOVE COMPONENT6   TO WRK-DIR
+018870        PERFORM               C655-CONVERT
+018880        IF ST-TYPES
+018890         IF DIRECTIONS
+018900          MOVE COMPONENT1  TO OUT-NBR
+018910         STRING COMPONENT2  DELIMITED BY SPACE
+018920                ' '         DELIMITED BY SIZE
+018930                COMPONENT3  DELIMITED BY SPACE
+018940                ' '         DELIMITED BY SIZE
+018950                COMPONENT4  DELIMITED BY SPACE
+018960           INTO OUT-ST
+018970         MOVE COMPONENT5    TO OUT-TYPE
+018980         MOVE WRK-DIR       TO OUT-DIR
+018990        ELSE
+019000         IF OUT-OTHER        > SPACES
+019010           MOVE 4         TO COMM-RETURN-CODE
+019020*          MOVE 06        TO COMM-ERROR-MSG-NR
+019030        ELSE
+019040           MOVE COMPONENT1 TO OUT-NBR
+019050           MOVE COMPONENT5 TO OUT-TYPE
+019060           STRING COMPONENT2  DELIMITED BY SPACE
+019070                  ' '         DELIMITED BY SIZE
+019080                  COMPONENT3  DELIMITED BY SPACE
+019090                  ' '         DELIMITED BY SIZE
+019100                  COMPONENT4  DELIMITED BY SPACE
+019110             INTO OUT-ST
+019120           MOVE COMPONENT5 TO OUT-TYPE
+019130           MOVE COMPONENT6 TO OUT-OTHER
+019140      ELSE
+019150       MOVE COMPONENT5        TO WRK-DIR1
+019160       MOVE COMPONENT6        TO WRK-DIR2
+019170       MOVE COMPONENT4        TO WRK-TYPES
+019180       IF DIRECT1 AND DIRECT2
+019190        IF ST-TYPES
+019200         MOVE COMPONENT1      TO OUT-NBR
+019210         STRING COMPONENT2  DELIMITED BY SPACE
+019220                ' '         DELIMITED BY SIZE
+019230                COMPONENT3  DELIMITED BY SPACE
+019240           INTO OUT-ST
+019250         MOVE COMPONENT4      TO OUT-TYPE
+019260         STRING COMPONENT5  DELIMITED BY SPACE
+019270                COMPONENT6  DELIMITED BY SPACE
+019280           INTO OUT-DIR
+019290        ELSE
+019300         MOVE COMPONENT1      TO OUT-NBR
+019310         STRING COMPONENT2  DELIMITED BY SPACE
+019320                ' '         DELIMITED BY SIZE
+019330                COMPONENT3  DELIMITED BY SPACE
+019340                ' '         DELIMITED BY SIZE
+019350                COMPONENT4  DELIMITED BY SPACE
+019360           INTO OUT-ST
+019370         STRING COMPONENT5  DELIMITED BY SPACE
+019380                COMPONENT6  DELIMITED BY SPACE
+019390           INTO OUT-DIR
+019400        ELSE
+019410         IF COMPONENT2       = 'DAT'
+019420          AND COMPONENT3     = 'S'
+019430          AND COMPONENT4     = 'LA'
+019440          AND COMPONENT5     = 'LEE'
+019450          AND COMPONENT6     = 'WAY'
+019460           MOVE COMPONENT1  TO OUT-NBR
+019470           MOVE COMPONENT6  TO OUT-TYPE
+019480           STRING COMPONENT2   DELIMITED BY SPACE
+019490                  ' '          DELIMITED BY SIZE
+019500                  'SO'         DELIMITED BY SIZE
+019510                  ' '          DELIMITED BY SIZE
+019520                  COMPONENT4   DELIMITED BY SPACE
+019530                  ' '          DELIMITED BY SIZE
+019540                  COMPONENT5   DELIMITED BY SPACE
+019550              INTO             OUT-ST
+019560        ELSE
+019570          MOVE 6                  TO COMM-RETURN-CODE.
+019580*         MOVE 05                 TO COMM-ERROR-MSG-NR.
+019590
+019600 C756A-CONTINUE.
+019610     MOVE COMPONENT3      TO WRK-DIR.
+019620     PERFORM                 C655-CONVERT.
+019630     MOVE COMPONENT6      TO WRK-TYPES.
+019640     IF DIRECTIONS
+019650      IF ST-TYPES
+019660       MOVE WRK-DIR       TO OUT-DIR
+019670       MOVE COMPONENT6    TO OUT-TYPE
+019680       STRING COMPONENT4  DELIMITED BY SPACE
+019690              ' '         DELIMITED BY SIZE
+019700              COMPONENT5  DELIMITED BY SPACE
+019710         INTO OUT-ST
+019720      ELSE
+019730         MOVE WRK-DIR    TO OUT-DIR
+019740         STRING COMPONENT4  DELIMITED BY SPACE
+019750                ' '         DELIMITED BY SIZE
+019760                COMPONENT5  DELIMITED BY SPACE
+019770                ' '         DELIMITED BY SIZE
+019780                COMPONENT6  DELIMITED BY SPACE
+019790           INTO OUT-ST
+019800        ELSE
+019810         IF ST-TYPES
+019820           STRING COMPONENT3  DELIMITED BY SPACE
+019830                  ' '         DELIMITED BY SIZE
+019840                  COMPONENT4  DELIMITED BY SPACE
+019850                  ' '         DELIMITED BY SIZE
+019860                  COMPONENT5  DELIMITED BY SPACE
+019870             INTO OUT-ST
+019880           MOVE COMPONENT6 TO OUT-TYPE
+019890        ELSE
+019900         MOVE COMPONENT5   TO WRK-TYPES
+019910         MOVE COMPONENT6   TO WRK-DIR
+019920         PERFORM              C655-CONVERT
+019930         IF ST-TYPES
+019940          IF DIRECTIONS
+019950           STRING COMPONENT3  DELIMITED BY SPACE
+019960                  ' '         DELIMITED BY SIZE
+019970                  COMPONENT4  DELIMITED BY SPACE
+019980             INTO OUT-ST
+019990            MOVE COMPONENT5   TO OUT-TYPE
+020000            MOVE WRK-DIR      TO OUT-DIR
+020010          ELSE
+020020           IF OUT-OTHER        > SPACES
+020030            MOVE 4         TO COMM-RETURN-CODE
+020040*           MOVE 06        TO COMM-ERROR-MSG-NR
+020050           ELSE
+020060           STRING COMPONENT3  DELIMITED BY SPACE
+020070                  ' '         DELIMITED BY SIZE
+020080                  COMPONENT4  DELIMITED BY SPACE
+020090             INTO OUT-ST
+020100            MOVE COMPONENT5   TO OUT-TYPE
+020110            MOVE COMPONENT6   TO OUT-OTHER
+020120         ELSE
+020130          MOVE 6                  TO COMM-RETURN-CODE.
+020140*         MOVE 05                 TO COMM-ERROR-MSG-NR.
+020150 C757-CONTINUE.
+020160     MOVE 6                       TO COMM-RETURN-CODE.
+020170*    MOVE 05                      TO COMM-ERROR-MSG-NR.
+020180 SECOND-CHANCE.
+020190     IF OUT-NBR                    > SPACES
+020200       AND OUT-APT                 = SPACES
+020210       AND OUT-OTHER(1:7)          = 'PO BOX '
+020220       AND OUT-TYPE                = SPACES
+020230       AND OUT-ST                  = SPACES
+020240       AND OUT-DIR                 = SPACES
+020250        MOVE OUT-NBR              TO OUT-APT
+020260        MOVE SPACES               TO OUT-NBR
+020270      ELSE
+020280     IF OUT-NBR                    > SPACES
+020290       AND OUT-APT                 = OUT-NBR
+020300       AND OUT-OTHER(1:7)          = 'PO BOX '
+020310       AND OUT-TYPE                = SPACES
+020320       AND OUT-ST                  = SPACES
+020330       AND OUT-DIR                 = SPACES
+020340        MOVE OUT-NBR              TO OUT-APT
+020350        MOVE SPACES               TO OUT-NBR
+020360      ELSE
+020370       MOVE 4                     TO COMM-RETURN-CODE.
+020380*      MOVE 05                    TO COMM-ERROR-MSG-NR.
+020390     EJECT
+020400 ZZZ-EOP SECTION.
+020410
+
