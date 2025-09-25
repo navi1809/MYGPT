@@ -1,5 +1,797 @@
-OTH_ADDR	APT_NMB	STR_TYPE	STR_NM	STR_DIR	HOUSE_NMB
- 	62	DR	RIVERSIDE               	 	1077
-PO BOX 248               	 	RD	AIRPORT                 	 	1
-HOMELESS                 	 	 	 	 	 
- 
+/*
+ * CAD01A.java
+ *
+ * Java 8–compatible port of the COBOL utility CAD01A.
+ * Fixes:
+ *   - Replaced String.isBlank() with trim().isEmpty()
+ *   - Replaced " ".repeat(n) with a helper spaces(n)
+ *   - Added missing c350_chk_street_types() wrapper (expansion pass)
+ *   - Implemented proper error propagation via setPend()/errorCode
+ *
+ * Public API:
+ *   CAD01A.CommArea comm = new CAD01A.CommArea();
+ *   comm.address1 = "...";
+ *   comm.address2 = "...";
+ *   CAD01A.process(comm);
+ */
+
+import java.util.*;
+import java.util.regex.*;
+
+public final class CAD01A {
+
+    /** Communication area ported from the COBOL LINKAGE SECTION. */
+    public static final class CommArea {
+        // Inputs
+        public String address1 = ""; // COMM-ADDRESS-1  PIC X(35)
+        public String address2 = ""; // COMM-ADDRESS-2  PIC X(35)
+
+        // Outputs (PIC lengths from COBOL)
+        public String number    = ""; // X(08)
+        public String direction = ""; // X(02)
+        public String street    = ""; // X(25)
+        public String type      = ""; // X(04)
+        public String apt       = ""; // X(05)
+        public String other     = ""; // X(25)
+
+        // Return code + message
+        public int    returnCode = 0;   // 0=OK
+        public String errorMessage = "";
+
+        @Override public String toString() {
+            return "CommArea{" +
+                    "number='" + number + '\'' +
+                    ", direction='" + direction + '\'' +
+                    ", street='" + street + '\'' +
+                    ", type='" + type + '\'' +
+                    ", apt='" + apt + '\'' +
+                    ", other='" + other + '\'' +
+                    ", returnCode=" + returnCode +
+                    (errorMessage==null||errorMessage.isEmpty()?"":" , errorMessage='"+errorMessage+"'") +
+                    '}';
+        }
+    }
+
+    // === Internal working fields =======================================================
+
+    private static final int FIELD_LEN = 30; // emulate COBOL 30-char fields
+    private String saveAddress1, saveAddress2;
+    private String extAddr1, extAddr2, extAddr3;
+    private String outNbr, outDir, outType, outSt, outApt, outOther;
+
+    // tokenized components (up to 7)
+    private final String[] components = new String[7];
+
+    // flags
+    private char  mtchFound = ' ';     // 'X'/'Y' flags
+    private char  lastField = ' ';
+    private char  mtchNumeric = ' ';
+    private char  wsCont = ' ';
+
+    // Temporary working strings
+    private String wrkAddress;
+    private String outAddress;
+
+    // Error handling
+    private int errorCode = 0;
+    private String errMsg = "";
+
+    // Direction detectors
+    private static final Set<String> DIRECTIONS = new HashSet<>(Arrays.asList(
+            "N","S","E","W","NW","NE","SW","SE"
+    ));
+    private static final Set<String> DIRECT1 = new HashSet<>(Arrays.asList("W","E","N","S"));
+    private static final Set<String> DIRECT2 = new HashSet<>(Arrays.asList("W","E","N","S"));
+
+    // Street types
+    private static final Set<String> ST_TYPES = new HashSet<>(Arrays.asList(
+            "RD","ST","LN","DR","PL","CIR","WAY","MDWS","HTS","PKY","CR","AVE","PARK","BLVD","CT","HWY"
+    ));
+
+    // Abbreviation table (subset shown here; ported 1:1 from COBOL)
+    private static final class Abbrev {
+        final String stAdr; final int stLen; final String abrv; final int abLen; final int stD;
+        Abbrev(String stAdr, int stLen, String abrv, int abLen, int stD) {
+            this.stAdr = stAdr; this.stLen = stLen; this.abrv = abrv; this.abLen = abLen; this.stD = stD;
+        }
+    }
+    private static final Abbrev[] ABBREV = new Abbrev[]{
+        new Abbrev("STREET",       8, "ST",   2, 4),
+        new Abbrev("ST",           4, "ST",   2, 4),
+        new Abbrev("AVENUE",       8, "AVE",  3, 3),
+        new Abbrev("AVE",          5, "AVE",  3, 3),
+        new Abbrev("BOULEVARD",   11, "BLVD", 4, 5),
+        new Abbrev("BLVD",         6, "BLVD", 4, 5),
+        new Abbrev("DRIVE",        7, "DR",   2, 3),
+        new Abbrev("DR",           4, "DR",   2, 3),
+        new Abbrev("RD",           4, "RD",   2, 2),
+        new Abbrev("ROAD",         6, "RD",   2, 2),
+        new Abbrev("LN",           4, "LN",   2, 2),
+        new Abbrev("LANE",         6, "LN",   2, 2),
+        new Abbrev("WAY",          5, "WAY",  3, 2),
+        new Abbrev("PLACE",        7, "PL",   2, 3),
+        new Abbrev("PL",           4, "PL",   2, 3),
+        new Abbrev("PARKWAY",      9, "PKY",  3, 4),
+        new Abbrev("PKWY",         6, "PKY",  3, 4),
+        new Abbrev("PKY",          5, "PKY",  3, 4),
+        new Abbrev("HIGHWAY",      9, "HWY",  3, 4),
+        new Abbrev("HWY",          5, "HWY",  3, 4),
+        new Abbrev("CYN",          5, "CYN",  3, 1),
+        new Abbrev("CNYN",         6, "CYN",  3, 1),
+        new Abbrev("CANYON",       8, "CYN",  3, 3),
+        new Abbrev("HTS",          5, "HTS",  3, 1),
+        new Abbrev("HGTS",         6, "HTS",  3, 1),
+        new Abbrev("HGHTS",        7, "HTS",  3, 1),
+        new Abbrev("HEIGHTS",      9, "HTS",  3, 4),
+        new Abbrev("MDWS",         6, "MDWS", 4, 1),
+        new Abbrev("MDOWS",        7, "MDWS", 4, 1),
+        new Abbrev("MEADOWS",      9, "MDWS", 4, 3),
+        new Abbrev("CIRCLE",       8, "CIR",  3, 3),
+        new Abbrev("CIR",          5, "CIR",  3, 3),
+        new Abbrev("COURT",        7, "CT",   2, 3),
+        new Abbrev("CT",           4, "CT",   2, 3),
+        new Abbrev("NO",           4, "N",    1, 1),
+        new Abbrev("SO",           4, "S",    1, 1),
+        new Abbrev("P O",          5, "PO",   2, 1),
+        new Abbrev("BUILDING",    10, "BLDG", 4, 4),
+        new Abbrev("RURAL ROUTE", 13, "RR",   2, 9),
+        new Abbrev("ROUTE",        7, "RT",   2, 3),
+    };
+
+    // Expansion table
+    private static final class Expand {
+        final String exAdr; final int exLen; final String expansion; final int epLen;
+        Expand(String exAdr, int exLen, String expansion, int epLen) {
+            this.exAdr = exAdr; this.exLen = exLen; this.expansion = expansion; this.epLen = epLen;
+        }
+    }
+    private static final Expand[] EXPAND = new Expand[]{
+        new Expand("PK",    4, "PARK",               4),
+        new Expand("PY",    4, "PKY",                3),
+        new Expand("WY",    4, "WAY",                3),
+        new Expand("GRND",  6, "GRAND",              5),
+        new Expand("SNTA",  6, "SANTA",              5),
+        new Expand("TWRS",  6, "TOWERS",             6),
+        new Expand("MRYLND",8, "MARYLAND",           8),
+        new Expand("CHRLSTN",9,"CHARLESTON",        10),
+        new Expand("MDOWOOD",9,"MEADOWOOD",          9),
+        new Expand("WASHNGTN",10,"WASHINGTON",      10),
+        new Expand("MRTN L KING",13,"MARTIN LUTHER KING",18),
+    };
+
+    // ==== Public entry point ============================================================
+
+    public static void process(CommArea comm) {
+        CAD01A m = new CAD01A();
+        m.run(comm);
+    }
+
+    private CAD01A() {}
+
+    // ====== Helpers for COBOL-like fixed-field behavior =================================
+
+    private static String pad30(String s) {
+        if (s == null) s = "";
+        s = s.toUpperCase(Locale.ROOT);
+        if (s.length() > FIELD_LEN) s = s.substring(0, FIELD_LEN);
+        return String.format("%-" + FIELD_LEN + "s", s);
+    }
+    private static String padN(String s, int n) {
+        if (s == null) s = "";
+        s = s.toUpperCase(Locale.ROOT);
+        if (s.length() > n) s = s.substring(0, n);
+        return String.format("%-" + n + "s", s);
+    }
+    private static boolean isSpace(char c){ return c==' '; }
+    private static boolean isAlpha(char c){ return (c>='A' && c<='Z'); }
+    private static boolean isDigit(char c){ return (c>='0' && c<='9'); }
+    private static boolean isAlnum(char c){ return isAlpha(c) || isDigit(c); }
+
+    private static String spaces(int n) {
+        if (n <= 0) return "";
+        char[] a = new char[n];
+        Arrays.fill(a, ' ');
+        return new String(a);
+    }
+
+    private static String squeezeSpaces(String s) {
+        char[] a = pad30(s).toCharArray();
+        StringBuilder out = new StringBuilder(FIELD_LEN);
+        char prev = 0;
+        for (char c: a) {
+            if (c==' ' && prev==' ') { /* skip */ }
+            else out.append(c);
+            prev = c;
+        }
+        String out30 = out.toString();
+        if (out30.length() < FIELD_LEN) {
+            out30 = String.format("%-" + FIELD_LEN + "s", out30);
+        } else if (out30.length() > FIELD_LEN) {
+            out30 = out30.substring(0, FIELD_LEN);
+        }
+        return out30;
+    }
+
+    private static String stripPunct(String s) {
+        String t = pad30(s).replace('.', ' ').replace(',', ' ').replace(';',' ')
+                .replace('"',' ').replace('\'',' ');
+        return squeezeSpaces(t);
+    }
+
+    private static String dropLeadingHash(String s30) {
+        String s = pad30(s30);
+        if (s.charAt(0) == '#') {
+            return s.substring(1) + " ";
+        }
+        return s;
+    }
+
+    // substring by COBOL 1-based start:length
+    private static String sub(String s, int start1Based, int length) {
+        s = pad30(s);
+        int start = Math.max(1, start1Based) - 1;
+        int end = Math.min(FIELD_LEN, start + length);
+        return s.substring(start, end);
+    }
+    private static boolean eqAt(String s, int start1, String lit) {
+        return sub(s, start1, lit.length()).equals(lit);
+    }
+
+    private void run(CommArea comm) {
+        // A010-BEGIN
+        extAddr1 = pad30(comm.address1);
+        extAddr2 = pad30(comm.address2);
+        saveAddress1 = extAddr1;
+        saveAddress2 = extAddr2;
+        extAddr3 = pad30("");
+
+        // B010-CONVERT-RECORD
+        c100_chk_punctuation();
+        c250_chk_apt_types();
+        if (errorCode == 0) {
+            c260_chk_apt_addr2();
+            if (errorCode == 0) {
+                c275_chk_apt_numbers(comm);
+                if (errorCode == 0) {
+                    c300_chk_street_types();
+                    c400_right_justify();
+                    c350_chk_street_types(); // expansion pass
+                    c400_right_justify();
+                    c450_chk_nbr();
+                    c500_setup_apt(comm);
+                    c600_build_components(comm);
+                    c700_chk_components(comm);
+                }
+            }
+        }
+
+        comm.number    = padN(outNbr  == null ? "" : outNbr, 8).trim();
+        comm.direction = padN(outDir  == null ? "" : outDir, 2).trim();
+        comm.street    = padN(outSt   == null ? "" : outSt, 25).trim();
+        comm.type      = padN(outType == null ? "" : outType, 4).trim();
+        comm.apt       = padN(outApt  == null ? "" : outApt, 5).trim();
+        comm.other     = padN(outOther== null ? "" : outOther, 25).trim();
+
+        // copy error status
+        comm.returnCode = errorCode;
+        comm.errorMessage = errMsg;
+    }
+
+    // === C100-CHK-PUNCTUATION ==========================================================
+    private void c100_chk_punctuation() {
+        extAddr1 = stripPunct(extAddr1);
+        extAddr2 = stripPunct(extAddr2);
+    }
+
+    // === C250-CHK-APT-TYPES ============================================================
+    private void c250_chk_apt_types() {  // keep existing outputs; do not reset here
+        String moved = scanAptMarkers(extAddr1);
+        if (moved != null) {
+            extAddr3 = moved;
+        }
+    }
+
+    private String scanAptMarkers(String addr) {
+        String s = pad30(addr);
+        String[] p4 = {" SP ", " SP#", " AP ", " RM "};
+        String[] p5 = {" SP #", " APT ", " APT#", " STE ", " STE#"};
+        String[] p6 = {" APT #", " STE #", " TRLR ", " TRLR#", " #APT ", " ROOM ", " BLDG "};
+        String[] p7 = {" TRLR #", " SPACE#", "SPACE ", " SPACE#", " BLDG #", " BLDG# "};
+
+        for (int len = 4; len <= 7; len++) {
+            String[] arr = (len==4?p4: len==5?p5: len==6?p6: p7);
+            for (int i = 0; i <= FIELD_LEN - len; i++) {
+                String sub = s.substring(i, i+len);
+                for (String pat: arr) {
+                    if (sub.equals(pat)) {
+                        if (!extAddr3.trim().isEmpty()) {
+                            setPend(1, "Multiple APT markers");
+                            return null;
+                        }
+                        String after = s.substring(i+len);
+                        String moved = "#" + after;
+                        s = (s.substring(0, i) + spaces(len) + spaces(after.length()));
+                        mtchFound = 'X';
+                        extAddr1 = s;
+                        return pad30(moved);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private void c260_chk_apt_addr2() {
+        String moved = scanAptMarkersAtHead(extAddr2);
+        if (moved != null) {
+            extAddr3 = moved;
+            extAddr2 = this.wrkAddress;
+            return;
+        }
+        moved = scanAptMarkers(extAddr2);
+        if (moved != null) {
+            extAddr3 = moved;
+        }
+    }
+
+    private String scanAptMarkersAtHead(String addr) {
+        String s = pad30(addr);
+        String moved = null;
+        String[][] heads = new String[][]{
+                {"SP ","SP#"},
+                {"SP #","APT ","APT#","STE ","STE#"},
+                {"APT #","STE #","TRLR ","TRLR#","SPACE#","SUITE#"},
+                {"SPACE #","SUITE #","TRLR #"}
+        };
+        for (int idx=0; idx<heads.length; idx++) {
+            for (String h: heads[idx]) {
+                if (sub(s,1,h.length()).equals(h)) {
+                    if (!extAddr3.trim().isEmpty()) { setPend(1,"Multiple APT markers"); return null; }
+                    String after = s.substring(h.length());
+                    moved = "#" + after;
+                    s = spaces(h.length()) + spaces(after.length());
+                    this.wrkAddress = s;
+                    return pad30(moved);
+                }
+            }
+        }
+        return null;
+    }
+
+    // === C275-CHK-APT-NUMBERS ==========================================================
+    private void c275_chk_apt_numbers(CommArea comm) {
+        extAddr1 = dropLeadingHash(extAddr1);
+        extAddr1 = normalizePrefix(extAddr1, "HCR #", "HCR ");
+        extAddr1 = normalizePrefix(extAddr1, "RT #",  "RT ");
+
+        int countHashes = countChar(extAddr1, '#');
+        if (countHashes > 1) { setPend(1, "Multiple # in address1"); }
+
+        if (errorCode == 0 && countHashes == 1) {
+            if (!extAddr3.trim().isEmpty()) { setPend(1,"Duplicate APT from #"); return; }
+            int pos = extAddr1.indexOf('#');
+            extAddr3 = pad30("#" + extAddr1.substring(pos+1));
+            extAddr1 = pad30(extAddr1.substring(0, pos) + " ");
+        }
+    }
+
+    private static int countChar(String s, char c){
+        int n=0; for(char ch: pad30(s).toCharArray()) if (ch==c) n++; return n;
+    }
+    private static String normalizePrefix(String s, String find, String rep) {
+        if (eqAt(s,1,find)) {
+            String after = s.substring(find.length());
+            return pad30(rep + after);
+        }
+        return s;
+    }
+
+    // === C300-CHK-STREET-TYPES (abbrev & rewrites) =====================================
+    private void c300_chk_street_types() {
+        extAddr1 = headRewrite(extAddr1, "STAR ROUTE ", "ST RT ");
+        extAddr1 = headRewriteCofO(extAddr1);
+        extAddr1 = abbrevReplace(extAddr1, 1, ABBREV.length);
+
+        extAddr1 = headRewrite(extAddr1, "P O B", "PO ");
+        extAddr1 = headRewrite(extAddr1, "P O ", "PO BOX ");
+        extAddr1 = headRewrite(extAddr1, "H C R ", "HCR ");
+        extAddr1 = headRewrite(extAddr1, "H C ", "HC ");
+        extAddr1 = headRewrite(extAddr1, "P/O ", "PO ");
+        extAddr1 = headRewrite(extAddr1, "PPO ", "PO ");
+        extAddr1 = headRewrite(extAddr1, "BOPX ", "BOX ");
+        extAddr1 = headRewrite(extAddr1, "RURAL RT ", "RR ");
+        extAddr1 = headRewrite(extAddr1, "RTE ", "RT ");
+        extAddr1 = headRewrite(extAddr1, "RRO ", "RR ");
+        extAddr1 = headRewrite(extAddr1, "R R ", "RR ");
+        extAddr1 = headRewrite(extAddr1, "HRC ", "HCR ");
+        extAddr1 = headRewrite(extAddr1, "STAR RTE ", "ST RT ");
+        extAddr1 = headRewrite(extAddr1, "STAR RT ", "ST RT ");
+
+        extAddr1 = generalDeliveryNormalize(extAddr1);
+
+        extAddr2 = headRewriteCofO(extAddr2);
+        extAddr2 = abbrevReplace(extAddr2, 1, ABBREV.length);
+
+        // Note: expansion pass is intentionally performed in c350 as well
+        extAddr1 = expandReplace(extAddr1);
+        extAddr2 = expandReplace(extAddr2);
+    }
+
+    // === C350-CHK-STREET-TYPES (expansion pass wrapper) ================================
+    private void c350_chk_street_types() {
+        extAddr1 = expandReplace(extAddr1);
+        extAddr2 = expandReplace(extAddr2);
+    }
+
+    private String headRewrite(String s, String head, String rep) {
+        if (eqAt(s,1,head)) {
+            String after = s.substring(head.length());
+            String tmp = rep + after;
+            return pad30(tmp);
+        }
+        return s;
+    }
+    private String headRewriteCofO(String s) {
+        if (eqAt(s,1,"C/O ") || eqAt(s,1,"C/0 ") || eqAt(s,1,"C\\O ")) {
+            String after = s.substring(4);
+            return pad30("% " + after);
+        }
+        return s;
+    }
+
+    private String generalDeliveryNormalize(String s) {
+        if (eqAt(s,1,"GENERAL DELIVEYR") || eqAt(s,1,"GENERAL DELEVERY") ||
+            eqAt(s,1,"GENERAL DEILVERY") || eqAt(s,1,"GENERAL DELVIERY") ||
+            eqAt(s,1,"GENERAL DILIVERY") || eqAt(s,1,"GEMERAL DELIVERY") ||
+            eqAt(s,1,"GENERLA DELIVERY") || eqAt(s,1,"GENERSL DELIVERY")) {
+            return pad30("GENERAL DELIVERY" + s.substring(16));
+        }
+        if (eqAt(s,1,"GENERAL DELVERY") || eqAt(s,1,"GENERAL DELIVEY") ||
+            eqAt(s,1,"GENERAL DELIERY") || eqAt(s,1,"GENERAL DEIVERY") ||
+            eqAt(s,1,"GENRAL DELIVERY") || eqAt(s,1,"GENEAL DELIVERY")) {
+            return pad30("GENERAL DELIVERY" + s.substring(15));
+        }
+        if (eqAt(s,1," GEN DELIVERY")) {
+            return pad30("GENERAL DELIVERY" + s.substring(13));
+        }
+        if (eqAt(s,1,"GEN DELIVERY") || eqAt(s,1,"GEN DELVIERY")) {
+            return pad30("GENERAL DELIVERY" + s.substring(12));
+        }
+        if (eqAt(s,1,"GEN DEL ")) {
+            return pad30("GENERAL DELIVERY " + s.substring(8));
+        }
+        if (eqAt(s,1,"GEN DELVIERY")) {
+            return pad30("GENERAL DELIVERY" + s.substring(12));
+        }
+        if (eqAt(s,1,"GEN DELIV")) {
+            return pad30("GENERAL DELIVERY" + s.substring(10));
+        }
+        return s;
+    }
+
+    private String abbrevReplace(String s, int from, int to) {
+        String t = pad30(s);
+        for (int tw = from; tw <= to; tw++) {
+            Abbrev a = ABBREV[tw-1];
+            String find = a.stAdr;
+            int L = a.stLen;
+            if (L <= 0) continue;
+            for (int pos = FIELD_LEN - L; pos >= 0; pos--) {
+                if (t.regionMatches(pos, find, 0, L)) {
+                    String before = t.substring(0, pos);
+                    String after  = t.substring(pos+L);
+                    t = before + a.abrv + after;
+                    t = pad30(t);
+                    mtchFound = 'Y';
+                }
+            }
+        }
+        return t;
+    }
+
+    private String expandReplace(String s) {
+        String t = pad30(s);
+        for (Expand e: EXPAND) {
+            for (int pos=0; pos <= FIELD_LEN - e.exLen; pos++) {
+                if (t.regionMatches(pos, e.exAdr, 0, e.exLen)) {
+                    String before = t.substring(0,pos);
+                    String after  = t.substring(pos + e.exLen);
+                    String repl   = e.expansion.substring(0, Math.min(e.epLen, e.expansion.length()));
+                    t = before + repl + after;
+                    t = pad30(t);
+                    mtchFound = 'Y';
+                }
+            }
+        }
+        return t;
+    }
+
+    // === C400 RIGHT-JUSTIFY ============================================================
+    private void c400_right_justify() {
+        extAddr1 = squeezeSpaces(extAddr1);
+        extAddr2 = squeezeSpaces(extAddr2);
+    }
+
+    // === C450 CHK NBR ===================================================================
+    private void c450_chk_nbr() {
+        extAddr1 = dropLeadingHash(extAddr1);
+    }
+
+    // === C500 SETUP APT ================================================================
+    private void c500_setup_apt(CommArea comm) {  // do not reset outputs here
+        String wrk = extAddr2;
+        if (eqAt(extAddr3,1,"# ") && sub(extAddr3,8,10).trim().isEmpty()) {
+            outApt   = padN(sub(extAddr3,3,28),5).trim();
+            outOther = padN(wrk.trim(),25);
+            return;
+        } else if (sub(extAddr3,1,1).equals("#") && sub(extAddr3,7,10).trim().isEmpty()) {
+            outApt   = padN(sub(extAddr3,2,29),5).trim();
+            outOther = padN(wrk.trim(),25);
+            return;
+        }
+
+        String s = extAddr1;
+        int hash = s.indexOf('#');
+        if (hash >= 0) {
+            int i = hash+1;
+            if (i < s.length() && s.charAt(i)==' ') i++;
+            String apt = "";
+            while (i < s.length() && apt.length() < 5) {
+                char c = s.charAt(i);
+                if (c==' ') break;
+                apt += c;
+                i++;
+            }
+            outApt = padN(apt,5).trim();
+            String other = (s.substring(0, hash) + " " + s.substring(i)).trim();
+            outOther = padN(other,25);
+            if (i < s.length() && s.charAt(i) != ' ') {
+                setPend(2, "Unexpected trailing data after apt");
+            }
+        }
+    }
+
+    // === C600 BUILD COMPONENTS =========================================================
+    private void c600_build_components(CommArea comm) {
+        wsCont = ' ';
+        Arrays.fill(components, "");
+        String s = extAddr1;
+        if (eqAt(s,1,"PO BOX ") || eqAt(s,1,"BOX ") || eqAt(s,1,"HCR ") ||
+            eqAt(s,1,"GENERAL DELIVERY ") || eqAt(s,1,"CENTRAL DELIVERY ") ||
+            eqAt(s,1,"% ") || eqAt(s,1,"HC") || eqAt(s,1,"HC ") ||
+            eqAt(s,1,"RT ") || eqAt(s,1,"SR ") || eqAt(s,1,"RR ") ||
+            eqAt(s,1,"HC-") || eqAt(s,1,"ST RT")) {
+            if (!extAddr2.trim().isEmpty()) {
+                String tmp = s;
+                extAddr1 = extAddr2;
+                extAddr2 = tmp;
+                s = extAddr1;
+                outOther = padN(extAddr2.trim(), 25);
+                if (extAddr1.charAt(0) == '#') {
+                    extAddr1 = dropLeadingHash(extAddr1);
+                    s = extAddr1;
+                }
+            } else {
+                outOther = padN(s.trim(), 25);
+                wsCont = 'X';
+            }
+        }
+        if (wsCont == ' ') {
+            String squeezed = squeezeSpaces(extAddr1).trim();
+            if (squeezed.isEmpty()) return;
+            String[] toks = squeezed.split("\\s+");
+            int mx = Math.min(7, toks.length);
+            for (int i=0;i<mx;i++) {
+                components[i] = toks[i];
+            }
+            if (toks.length > 7) {
+                setPend(2, "Too many tokens (>7)");
+            }
+        }
+    }
+
+    // === C655 CONVERT DIRECTIONS =======================================================
+    private static String convertDirWord(String d) {
+        if ("NORTH".equals(d)) return "N";
+        if ("SOUTH".equals(d)) return "S";
+        if ("EAST".equals(d))  return "E";
+        if ("WEST".equals(d))  return "W";
+        if ("NORTHWEST".equals(d)) return "NW";
+        if ("NORTHEAST".equals(d)) return "NE";
+        if ("SOUTHWEST".equals(d)) return "SW";
+        if ("SOUTHEAST".equals(d)) return "SE";
+        return d;
+    }
+
+    // === C700+ CHK COMPONENTS ==========================================================
+    private void c700_chk_components(CommArea comm) {
+        int mx = 0; for (int i=0;i<7;i++) if (!components[i].trim().isEmpty()) mx=i+1;
+        if (mx==0) { return; }
+
+        if (!isNumericAllowing(components[0])) {
+            setPend(3, "First field not numeric");
+            return;
+        }
+
+        if (mx == 2) {
+            outNbr = components[0];
+            outSt  = components[1];
+            return;
+        }
+
+        if (mx == 3) {
+            String c2 = components[1];
+            String c3 = components[2];
+            if ("TH".equals(c3)) {
+                outSt = (c2 + " " + c3).trim();
+                components[1] = outSt;
+                components[2] = "";
+                mx--;
+            }
+            if (ST_TYPES.contains(c3) || "HWY".equals(c3)) {
+                outNbr = components[0];
+                outSt  = c2;
+                outType= c3;
+                return;
+            } else {
+                String maybeDir = convertDirWord(c2);
+                if (DIRECTIONS.contains(maybeDir)) {
+                    outNbr = components[0];
+                    outDir = maybeDir;
+                    outSt  = c3;
+                    return;
+                } else if (("HWY".equals(c2) || "RD".equals(c2)) && isLastFieldNumeric(mx)) {
+                    outNbr = components[0];
+                    outSt  = c2 + " " + c3;
+                    return;
+                } else if (ST_TYPES.contains(c2) && !"ST".equals(c2)) {
+                    outNbr  = components[0];
+                    outType = c2;
+                    outSt   = c3;
+                    return;
+                } else if (isFraction(c2)) {
+                    outNbr = components[0] + " " + normalizeSlash(c2);
+                    outSt  = c3;
+                    return;
+                } else {
+                    outNbr = components[0];
+                    outSt  = c2 + " " + c3;
+                    return;
+                }
+            }
+        }
+
+        if (mx >= 4) {
+            String c2 = components[1];
+            String c3 = components[2];
+            String c4 = components[3];
+            String dir2 = convertDirWord(c2);
+            if (ST_TYPES.contains(c4) && DIRECTIONS.contains(dir2)) {
+                outNbr = components[0];
+                outDir = dir2;
+                outSt  = c3;
+                outType= c4;
+                return;
+            }
+            if ("HWY".equals(c4) && DIRECTIONS.contains(dir2)) {
+                outNbr = components[0];
+                outDir = dir2;
+                outSt  = c3;
+                outType= c4;
+                return;
+            }
+            if (isFraction(c2)) {
+                outNbr = components[0] + " " + normalizeSlash(c2);
+            }
+            if (DIRECTIONS.contains(dir2)) {
+                outNbr = components[0];
+                outDir = dir2;
+                outSt  = c3 + " " + c4;
+                if (mx >= 5 && ST_TYPES.contains(components[4])) {
+                    outType = components[4];
+                }
+                return;
+            }
+            if (ST_TYPES.contains(c2) || "HWY".equals(c2)) {
+                outNbr = components[0];
+                outSt  = c3 + (mx>=4? " "+c4:"");
+                outType= c2;
+                return;
+            }
+            String dir4 = convertDirWord(c4);
+            if (ST_TYPES.contains(c3) && DIRECTIONS.contains(dir4)) {
+                outNbr  = components[0];
+                outSt   = c2;
+                outType = c3;
+                outDir  = dir4;
+                return;
+            }
+            if (("HWY".equals(c3) || "RD".equals(c3)) && isLastFieldNumeric(mx)) {
+                outNbr = components[0];
+                outSt  = c2 + " " + c3 + (mx>=4? " "+c4:"");
+                return;
+            }
+            if (mx>=4 && DIRECT1.contains(c3) && DIRECT2.contains(c4)) {
+                outNbr = components[0];
+                outSt  = c2;
+                outDir = (c3 + " " + c4).trim();
+                return;
+            }
+            outNbr = components[0];
+            if (ST_TYPES.contains(components[mx-1])) {
+                outType = components[mx-1];
+                StringBuilder sb = new StringBuilder();
+                for (int i=1;i<mx-1;i++) {
+                    if (!components[i].trim().isEmpty()) {
+                        if (sb.length()>0) sb.append(' ');
+                        sb.append(components[i]);
+                    }
+                }
+                outSt = sb.toString().trim();
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (int i=1;i<mx;i++) {
+                    if (!components[i].trim().isEmpty()) {
+                        if (sb.length()>0) sb.append(' ');
+                        sb.append(components[i]);
+                    }
+                }
+                outSt = sb.toString().trim();
+            }
+        }
+    }
+
+    private boolean isLastFieldNumeric(int mx) {
+        String last = components[mx-1];
+        for (int i=0;i<last.length();i++) {
+            char ch = last.charAt(i);
+            if (!(ch>='0' && ch<='9')) return false;
+        }
+        return !last.isEmpty();
+    }
+    private boolean isFraction(String s) {
+        if (s.length()!=3) return false;
+        return isDigit(s.charAt(0)) && (s.charAt(1)=='/'||s.charAt(1)=='\\') && isDigit(s.charAt(2));
+    }
+    private String normalizeSlash(String s) { return s.replace('\\','/'); }
+    private boolean isNumericAllowing(String s) {
+        if (s.trim().isEmpty()) return false;
+        boolean anyDigit=false;
+        for (int i=0;i<s.length();i++) {
+            char c = s.charAt(i);
+            if (isDigit(c)) anyDigit=true;
+            else if (c=='-'||c=='/'||c=='\\') {
+                if (i==0 || i==s.length()-1) return false;
+            } else return false;
+        }
+        return anyDigit;
+    }
+
+    private void setPend(int code, String msg) {
+        if (code <= 0) return;
+        if (this.errorCode == 0 || code < this.errorCode) {
+            this.errorCode = code;
+            this.errMsg = (msg==null?"":msg);
+        }
+    }
+
+    // ===== Convenience: CLI runner =====================================================
+    public static void main(String[] args) {
+        CommArea c = new CommArea();
+        if (args.length==0) {
+            c.address1 = "1077 RIVERSIDE DRIVE";
+            c.address2 = "APT 62";
+        } else {
+            c.address1 = args[0];
+            if (args.length>1) c.address2 = args[1];
+        }
+        process(c);
+        System.out.println("HOUSE_NMB: " + c.number);
+        System.out.println("STR_DIR:   " + c.direction);
+        System.out.println("STR_NM:    " + c.street);
+        System.out.println("STR_TYPE:  " + c.type);
+        System.out.println("APT_NMB:   " + c.apt);
+        System.out.println("OTH_ADDR:  " + c.other);
+        System.out.println("returnCode:" + c.returnCode + (c.errorMessage.isEmpty()?"":" ("+c.errorMessage+")"));
+    }
+}
