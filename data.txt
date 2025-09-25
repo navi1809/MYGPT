@@ -1,41 +1,18 @@
 /*
  * CAD01A.java
  *
- * A careful, line-by-line Java port of the COBOL utility CAD01A that parses and
- * normalizes postal addresses and returns the decomposed components:
- *   NUMBER, DIRECTION, STREET, TYPE, APT, OTHER
- *
- * The translation preserves the control flow and data movement semantics of the
- * original COBOL as closely as possible while adapting to Java idioms.
- *
- * Major paragraphs ported:
- *   - A010-BEGIN, B010-CONVERT-RECORD
- *   - C100-CHK-PUNCTUATION (and C101/C102)
- *   - C250/C260/C275  apartment/secondary unit extraction and '#' handling
- *   - C300/C350       street-type abbreviation / expansion tables and rewrites
- *   - C400            right-justify (squeeze spaces)
- *   - C450            check number (drop leading '#')
- *   - C500            setup apt/other
- *   - C600            build components (split into up to 7 tokens)
- *   - C655            convert directions (NORTH -> N, etc.)
- *   - C700+           component validation and final assembly rules
- *
- * This file intentionally mirrors the COBOL variable naming to make verification easier.
- * NOTE: The COBOL used fixed-length 30-char fields and 1-based indexing. This code
- *       emulates that with helper methods. All internal strings are treated
- *       as fixed-length, uppercased, space-padded where appropriate.
+ * Java 8–compatible port of the COBOL utility CAD01A.
+ * Fixes:
+ *   - Replaced String.isBlank() with trim().isEmpty()
+ *   - Replaced " ".repeat(n) with a helper spaces(n)
+ *   - Added missing c350_chk_street_types() wrapper (expansion pass)
+ *   - Implemented proper error propagation via setPend()/errorCode
  *
  * Public API:
  *   CAD01A.CommArea comm = new CAD01A.CommArea();
  *   comm.address1 = "...";
  *   comm.address2 = "...";
  *   CAD01A.process(comm);
- *   // results in comm.number, comm.direction, comm.street, comm.type, comm.apt, comm.other
- *   // comm.returnCode (0 = OK, >0 = error conditions mirrored from COBOL)
- *
- * The lookup tables (abbreviations/expansions) and the special-case string rewrites
- * were ported directly from the WS-ABBREV-TABLE and WS-EXPAND-TABLE and the C300/C350
- * paragraphs in the COBOL source.
  */
 
 import java.util.*;
@@ -46,7 +23,7 @@ public final class CAD01A {
     /** Communication area ported from the COBOL LINKAGE SECTION. */
     public static final class CommArea {
         // Inputs
-        public String address1 = ""; // COMM-ADDRESS-1  PIC X(35) in COBOL. We accept any length, we will trim/pad.
+        public String address1 = ""; // COMM-ADDRESS-1  PIC X(35)
         public String address2 = ""; // COMM-ADDRESS-2  PIC X(35)
 
         // Outputs (PIC lengths from COBOL)
@@ -57,9 +34,9 @@ public final class CAD01A {
         public String apt       = ""; // X(05)
         public String other     = ""; // X(25)
 
-        // Return code + message (compat)
-        public int    returnCode = 0;   // 0=OK; COBOL used 1.. as specific pend/error signals
-        public String errorMessage = ""; // 25 char in COBOL, we keep free-form
+        // Return code + message
+        public int    returnCode = 0;   // 0=OK
+        public String errorMessage = "";
 
         @Override public String toString() {
             return "CommArea{" +
@@ -75,25 +52,29 @@ public final class CAD01A {
         }
     }
 
-    // === Internal working fields (mirroring COBOL WORKING-STORAGE) ======================
+    // === Internal working fields =======================================================
 
-    private static final int FIELD_LEN = 30; // COBOL used many 30-char fields
+    private static final int FIELD_LEN = 30; // emulate COBOL 30-char fields
     private String saveAddress1, saveAddress2;
     private String extAddr1, extAddr2, extAddr3;
     private String outNbr, outDir, outType, outSt, outApt, outOther;
 
-    // tokenized components (up to 7) from C600
+    // tokenized components (up to 7)
     private final String[] components = new String[7];
 
     // flags
-    private char  mtchFound = ' ';     // 'X'/'Y' flags as in COBOL
-    private char  lastField = ' ';     // 'Y' means last field numeric (flag)
-    private char  mtchNumeric = ' ';   // 'N' flag
-    private char  wsCont = ' ';        // 'X' means we short-circuited to OTHER
+    private char  mtchFound = ' ';     // 'X'/'Y' flags
+    private char  lastField = ' ';
+    private char  mtchNumeric = ' ';
+    private char  wsCont = ' ';
 
     // Temporary working strings
-    private String wrkAddress;   // length 30; space-padded
-    private String outAddress;   // length 30; space-padded
+    private String wrkAddress;
+    private String outAddress;
+
+    // Error handling
+    private int errorCode = 0;
+    private String errMsg = "";
 
     // Direction detectors
     private static final Set<String> DIRECTIONS = new HashSet<>(Arrays.asList(
@@ -102,24 +83,19 @@ public final class CAD01A {
     private static final Set<String> DIRECT1 = new HashSet<>(Arrays.asList("W","E","N","S"));
     private static final Set<String> DIRECT2 = new HashSet<>(Arrays.asList("W","E","N","S"));
 
-    // Street types we care about (COBOL ST-TYPES condition)
+    // Street types
     private static final Set<String> ST_TYPES = new HashSet<>(Arrays.asList(
             "RD","ST","LN","DR","PL","CIR","WAY","MDWS","HTS","PKY","CR","AVE","PARK","BLVD","CT","HWY"
     ));
 
-    // === Abbreviation table (WS-ABBREV-TABLE)  =========================================
+    // Abbreviation table (subset shown here; ported 1:1 from COBOL)
     private static final class Abbrev {
-        final String stAdr; // search text
-        final int stLen;    // ST-L
-        final String abrv;  // ST-ABRV (replacement)
-        final int abLen;    // AB-L
-        final int stD;      // ST-D (unused in COBOL logic as ported - kept for parity)
+        final String stAdr; final int stLen; final String abrv; final int abLen; final int stD;
         Abbrev(String stAdr, int stLen, String abrv, int abLen, int stD) {
             this.stAdr = stAdr; this.stLen = stLen; this.abrv = abrv; this.abLen = abLen; this.stD = stD;
         }
     }
     private static final Abbrev[] ABBREV = new Abbrev[]{
-        // Ported from lines 1610-2010 (COBOL) – spacing already trimmed.
         new Abbrev("STREET",       8, "ST",   2, 4),
         new Abbrev("ST",           4, "ST",   2, 4),
         new Abbrev("AVENUE",       8, "AVE",  3, 3),
@@ -162,12 +138,9 @@ public final class CAD01A {
         new Abbrev("ROUTE",        7, "RT",   2, 3),
     };
 
-    // Expansion table (WS-EXPAND-TABLE)
+    // Expansion table
     private static final class Expand {
-        final String exAdr; // pattern
-        final int    exLen;
-        final String expansion;
-        final int    epLen;
+        final String exAdr; final int exLen; final String expansion; final int epLen;
         Expand(String exAdr, int exLen, String expansion, int epLen) {
             this.exAdr = exAdr; this.exLen = exLen; this.expansion = expansion; this.epLen = epLen;
         }
@@ -193,11 +166,9 @@ public final class CAD01A {
         m.run(comm);
     }
 
-    private CAD01A() {
-        // nothing
-    }
+    private CAD01A() {}
 
-    // ====== Low-level helpers to emulate COBOL fixed-field behavior =====================
+    // ====== Helpers for COBOL-like fixed-field behavior =================================
 
     private static String pad30(String s) {
         if (s == null) s = "";
@@ -216,8 +187,14 @@ public final class CAD01A {
     private static boolean isDigit(char c){ return (c>='0' && c<='9'); }
     private static boolean isAlnum(char c){ return isAlpha(c) || isDigit(c); }
 
+    private static String spaces(int n) {
+        if (n <= 0) return "";
+        char[] a = new char[n];
+        Arrays.fill(a, ' ');
+        return new String(a);
+    }
+
     private static String squeezeSpaces(String s) {
-        // collapse duplicate spaces; keep single spaces; preserve trimming like COBOL right-justify pass
         char[] a = pad30(s).toCharArray();
         StringBuilder out = new StringBuilder(FIELD_LEN);
         char prev = 0;
@@ -236,7 +213,6 @@ public final class CAD01A {
     }
 
     private static String stripPunct(String s) {
-        // remove . , ; " and single quote; then squeeze spaces (C100: C101/C102)
         String t = pad30(s).replace('.', ' ').replace(',', ' ').replace(';',' ')
                 .replace('"',' ').replace('\'',' ');
         return squeezeSpaces(t);
@@ -267,20 +243,19 @@ public final class CAD01A {
         extAddr2 = pad30(comm.address2);
         saveAddress1 = extAddr1;
         saveAddress2 = extAddr2;
-        extAddr3 = pad30("");           // spaces
-        comm.returnCode = 0;            // COMM-RETURN-CODE
+        extAddr3 = pad30("");
 
         // B010-CONVERT-RECORD
         c100_chk_punctuation();
         c250_chk_apt_types();
-        if (comm.returnCode != 1) {
+        if (errorCode == 0) {
             c260_chk_apt_addr2();
-            if (comm.returnCode != 1) {
+            if (errorCode == 0) {
                 c275_chk_apt_numbers(comm);
-                if (comm.returnCode != 1) {
+                if (errorCode == 0) {
                     c300_chk_street_types();
                     c400_right_justify();
-                    c350_chk_street_types();
+                    c350_chk_street_types(); // expansion pass
                     c400_right_justify();
                     c450_chk_nbr();
                     c500_setup_apt(comm);
@@ -297,11 +272,9 @@ public final class CAD01A {
         comm.apt       = padN(outApt  == null ? "" : outApt, 5).trim();
         comm.other     = padN(outOther== null ? "" : outOther, 25).trim();
 
-        // If we set returnCode, we must restore original addresses per COBOL behavior.
-        if (comm.returnCode != 0) {
-            // mirror COBOL behavior (the original commented code sets back addresses)
-            // We only leave outputs filled for caller diagnosis.
-        }
+        // copy error status
+        comm.returnCode = errorCode;
+        comm.errorMessage = errMsg;
     }
 
     // === C100-CHK-PUNCTUATION ==========================================================
@@ -310,31 +283,22 @@ public final class CAD01A {
         extAddr2 = stripPunct(extAddr2);
     }
 
-    // === C250-CHK-APT-TYPES and helpers ================================================
+    // === C250-CHK-APT-TYPES ============================================================
     private void c250_chk_apt_types() {
-        // Initialize outs
         outNbr = outDir = outType = outSt = outApt = outOther = padN("", 1);
-
-        // scan EXT-ADDR1
         String moved = scanAptMarkers(extAddr1);
         if (moved != null) {
-            extAddr3 = moved; // captured after '#'
-            // remaining in wrk became new extAddr1 already inside scan
-        } else if (this.mtchFound != 'X') {
-            // nothing found in address1; try the progressively longer patterns already in scan
+            extAddr3 = moved;
         }
     }
 
     private String scanAptMarkers(String addr) {
-        // This emulates C251..C254 loops. We search for apartment/secondary markers and
-        // move everything after that marker to EXT-ADDR3 prefixed by '#'
         String s = pad30(addr);
         String[] p4 = {" SP ", " SP#", " AP ", " RM "};
         String[] p5 = {" SP #", " APT ", " APT#", " STE ", " STE#"};
         String[] p6 = {" APT #", " STE #", " TRLR ", " TRLR#", " #APT ", " ROOM ", " BLDG "};
         String[] p7 = {" TRLR #", " SPACE#", "SPACE ", " SPACE#", " BLDG #", " BLDG# "};
 
-        // We'll try the patterns in the same hierarchy as COBOL: 4 -> 5 -> 6 -> 7
         for (int len = 4; len <= 7; len++) {
             String[] arr = (len==4?p4: len==5?p5: len==6?p6: p7);
             for (int i = 0; i <= FIELD_LEN - len; i++) {
@@ -342,14 +306,12 @@ public final class CAD01A {
                 for (String pat: arr) {
                     if (sub.equals(pat)) {
                         if (!extAddr3.trim().isEmpty()) {
-                            // already had apt -> error
                             setPend(1, "Multiple APT markers");
                             return null;
                         }
-                        String after = s.substring(i+len); // everything after marker
+                        String after = s.substring(i+len);
                         String moved = "#" + after;
-                        // erase marker and after from original
-                        s = (s.substring(0, i) + " ".repeat(len) + " ".repeat(after.length()));
+                        s = (s.substring(0, i) + spaces(len) + spaces(after.length()));
                         mtchFound = 'X';
                         extAddr1 = s;
                         return pad30(moved);
@@ -361,39 +323,34 @@ public final class CAD01A {
     }
 
     private void c260_chk_apt_addr2() {
-        // scan EXT-ADDR2 similarly with a few more pattern heads (C260..C264)
         String moved = scanAptMarkersAtHead(extAddr2);
         if (moved != null) {
             extAddr3 = moved;
-            extAddr2 = this.wrkAddress; // set by helper
+            extAddr2 = this.wrkAddress;
             return;
         }
         moved = scanAptMarkers(extAddr2);
         if (moved != null) {
             extAddr3 = moved;
-            return;
         }
     }
 
     private String scanAptMarkersAtHead(String addr) {
-        // C260..C264: explicit head matches: 'SP ','SP#','SP #', 'APT ','APT#','STE ','STE#',
-        // and longer ones including 'APT #','STE #','TRLR ', 'TRLR#','SPACE #','SUITE #', etc.
         String s = pad30(addr);
         String moved = null;
         String[][] heads = new String[][]{
                 {"SP ","SP#"},
                 {"SP #","APT ","APT#","STE ","STE#"},
                 {"APT #","STE #","TRLR ","TRLR#","SPACE#","SUITE#"},
-                {"SPACE #","SUITE #","TRLR #"},
+                {"SPACE #","SUITE #","TRLR #"}
         };
-        int[] lens = {3,4,5,7};
         for (int idx=0; idx<heads.length; idx++) {
             for (String h: heads[idx]) {
                 if (sub(s,1,h.length()).equals(h)) {
                     if (!extAddr3.trim().isEmpty()) { setPend(1,"Multiple APT markers"); return null; }
                     String after = s.substring(h.length());
                     moved = "#" + after;
-                    s = " ".repeat(h.length()) + " ".repeat(after.length());
+                    s = spaces(h.length()) + spaces(after.length());
                     this.wrkAddress = s;
                     return pad30(moved);
                 }
@@ -402,21 +359,16 @@ public final class CAD01A {
         return null;
     }
 
-    // === C275-CHK-APT-NUMBERS (and C276) ===============================================
+    // === C275-CHK-APT-NUMBERS ==========================================================
     private void c275_chk_apt_numbers(CommArea comm) {
-        // If EXT-ADDR1 begins with '#', drop it
         extAddr1 = dropLeadingHash(extAddr1);
-
-        // Normalize 'HCR #' -> 'HCR ' ; 'RT #' -> 'RT '  (and copy remainder)
         extAddr1 = normalizePrefix(extAddr1, "HCR #", "HCR ");
         extAddr1 = normalizePrefix(extAddr1, "RT #",  "RT ");
 
-        // Check multiple '#' across EXT-ADDR1; if more than one, return code 1
         int countHashes = countChar(extAddr1, '#');
         if (countHashes > 1) { setPend(1, "Multiple # in address1"); }
 
-        // If single '#', move following to EXT-ADDR3 if not already present
-        if (comm.returnCode != 1 && countHashes == 1) {
+        if (errorCode == 0 && countHashes == 1) {
             if (!extAddr3.trim().isEmpty()) { setPend(1,"Duplicate APT from #"); return; }
             int pos = extAddr1.indexOf('#');
             extAddr3 = pad30("#" + extAddr1.substring(pos+1));
@@ -435,15 +387,12 @@ public final class CAD01A {
         return s;
     }
 
-    // === C300-CHK-STREET-TYPES (special rewrites + abbreviation pass) ==================
+    // === C300-CHK-STREET-TYPES (abbrev & rewrites) =====================================
     private void c300_chk_street_types() {
-        // Many fixed-head rewrites
         extAddr1 = headRewrite(extAddr1, "STAR ROUTE ", "ST RT ");
-        extAddr1 = headRewriteCofO(extAddr1); // C/O, C\O, C/0 -> "% "
-        // Abbreviation pass (C301) over two TW/TT ranges (1..34 and 35..40 in COBOL)
-        extAddr1 = abbrevReplace(extAddr1, 1, ABBREV.length); // we don't split in two ranges; emulate net effect
+        extAddr1 = headRewriteCofO(extAddr1);
+        extAddr1 = abbrevReplace(extAddr1, 1, ABBREV.length);
 
-        // The loooong set of additional heads from COBOL (P O B -> PO etc.)
         extAddr1 = headRewrite(extAddr1, "P O B", "PO ");
         extAddr1 = headRewrite(extAddr1, "P O ", "PO BOX ");
         extAddr1 = headRewrite(extAddr1, "H C R ", "HCR ");
@@ -459,14 +408,18 @@ public final class CAD01A {
         extAddr1 = headRewrite(extAddr1, "STAR RTE ", "ST RT ");
         extAddr1 = headRewrite(extAddr1, "STAR RT ", "ST RT ");
 
-        // GENERAL DELIVERY variants (many misspellings). We'll condense the COBOL set:
         extAddr1 = generalDeliveryNormalize(extAddr1);
 
-        // Apply C/O head on address2 also + abbrev pass
         extAddr2 = headRewriteCofO(extAddr2);
         extAddr2 = abbrevReplace(extAddr2, 1, ABBREV.length);
 
-        // Expansion table (C350 / C351) on address1 and address2
+        // Note: expansion pass is intentionally performed in c350 as well
+        extAddr1 = expandReplace(extAddr1);
+        extAddr2 = expandReplace(extAddr2);
+    }
+
+    // === C350-CHK-STREET-TYPES (expansion pass wrapper) ================================
+    private void c350_chk_street_types() {
         extAddr1 = expandReplace(extAddr1);
         extAddr2 = expandReplace(extAddr2);
     }
@@ -481,23 +434,19 @@ public final class CAD01A {
     }
     private String headRewriteCofO(String s) {
         if (eqAt(s,1,"C/O ") || eqAt(s,1,"C/0 ") || eqAt(s,1,"C\\O ")) {
-            String after = s.substring(4); // length of "C/O "
+            String after = s.substring(4);
             return pad30("% " + after);
         }
         return s;
     }
 
     private String generalDeliveryNormalize(String s) {
-        // Handles many variants by replacing a set of heads with "GENERAL DELIVERY"
-        String head = sub(s,1,17);
-        // Normalize the more obvious cases first
-        String[] variants17 = {"GEN***** DEL**** ","GENERAL DELILVERY","GENERAL DELIVELRY","GENERAL DELIVLERY"};
-        for (String v: variants17) if (eqAt(s,1,v)) return pad30("GENERAL DELIVERY " + s.substring(v.length()));
-
-        String[] v16 = {"GENERAL DELIVEYR","GENERAL DELEVERY","GENERAL DEILVERY","GENERAL DELVIERY",
-                        "GENERAL DILIVERY","GEMERAL DELIVERY","GENERLA DELIVERY","GENERSL DELIVERY"};
-        for (String v: v16) if (eqAt(s,1,v)) return pad30("GENERAL DELIVERY" + s.substring(16));
-
+        if (eqAt(s,1,"GENERAL DELIVEYR") || eqAt(s,1,"GENERAL DELEVERY") ||
+            eqAt(s,1,"GENERAL DEILVERY") || eqAt(s,1,"GENERAL DELVIERY") ||
+            eqAt(s,1,"GENERAL DILIVERY") || eqAt(s,1,"GEMERAL DELIVERY") ||
+            eqAt(s,1,"GENERLA DELIVERY") || eqAt(s,1,"GENERSL DELIVERY")) {
+            return pad30("GENERAL DELIVERY" + s.substring(16));
+        }
         if (eqAt(s,1,"GENERAL DELVERY") || eqAt(s,1,"GENERAL DELIVEY") ||
             eqAt(s,1,"GENERAL DELIERY") || eqAt(s,1,"GENERAL DEIVERY") ||
             eqAt(s,1,"GENRAL DELIVERY") || eqAt(s,1,"GENEAL DELIVERY")) {
@@ -512,9 +461,6 @@ public final class CAD01A {
         if (eqAt(s,1,"GEN DEL ")) {
             return pad30("GENERAL DELIVERY " + s.substring(8));
         }
-        if (eqAt(s,1,"GEN DEL")) {
-            return pad30("GENERAL DEL" + s.substring(7));
-        }
         if (eqAt(s,1,"GEN DELVIERY")) {
             return pad30("GENERAL DELIVERY" + s.substring(12));
         }
@@ -525,24 +471,18 @@ public final class CAD01A {
     }
 
     private String abbrevReplace(String s, int from, int to) {
-        // Port of C301..C304 with some simplification: we search for occurrences and replace
-        // near their position; because COBOL right-justified with manual pointer math,
-        // we achieve equivalent textual effect.
         String t = pad30(s);
         for (int tw = from; tw <= to; tw++) {
             Abbrev a = ABBREV[tw-1];
             String find = a.stAdr;
             int L = a.stLen;
             if (L <= 0) continue;
-            // scan right-to-left like COBOL
             for (int pos = FIELD_LEN - L; pos >= 0; pos--) {
                 if (t.regionMatches(pos, find, 0, L)) {
-                    // replace with abbreviation (keeping one space before)
                     String before = t.substring(0, pos);
                     String after  = t.substring(pos+L);
                     t = before + a.abrv + after;
                     t = pad30(t);
-                    // record that we matched
                     mtchFound = 'Y';
                 }
             }
@@ -561,15 +501,13 @@ public final class CAD01A {
                     t = before + repl + after;
                     t = pad30(t);
                     mtchFound = 'Y';
-                } else {
-                    // no-op copy in COBOL; we skip in Java
                 }
             }
         }
         return t;
     }
 
-    // === C400 RIGHT-JUSTIFY (squeeze spaces on both addresses) ==========================
+    // === C400 RIGHT-JUSTIFY ============================================================
     private void c400_right_justify() {
         extAddr1 = squeezeSpaces(extAddr1);
         extAddr2 = squeezeSpaces(extAddr2);
@@ -584,25 +522,21 @@ public final class CAD01A {
     private void c500_setup_apt(CommArea comm) {
         outNbr = outDir = outType = outSt = outApt = outOther = "";
         String wrk = extAddr2;
-        // If EXT-ADDR3 looks like '# ' followed by data (width 28/29 variants), route to OUT-APT
-        if (eqAt(extAddr3,1,"# ") && sub(extAddr3,8,10).isBlank()) {
+        if (eqAt(extAddr3,1,"# ") && sub(extAddr3,8,10).trim().isEmpty()) {
             outApt   = padN(sub(extAddr3,3,28),5).trim();
             outOther = padN(wrk.trim(),25);
             return;
-        } else if (sub(extAddr3,1,1).equals("#") && sub(extAddr3,7,10).isBlank()) {
+        } else if (sub(extAddr3,1,1).equals("#") && sub(extAddr3,7,10).trim().isEmpty()) {
             outApt   = padN(sub(extAddr3,2,29),5).trim();
             outOther = padN(wrk.trim(),25);
             return;
         }
 
-        // Else search for '#' inside EXT-ADDR1 and split OTHER (before #) and APT (after #)
         String s = extAddr1;
         int hash = s.indexOf('#');
         if (hash >= 0) {
             int i = hash+1;
-            // skip an optional space after '#'
             if (i < s.length() && s.charAt(i)==' ') i++;
-            // collect apt up to 5 chars or until space
             String apt = "";
             while (i < s.length() && apt.length() < 5) {
                 char c = s.charAt(i);
@@ -613,9 +547,8 @@ public final class CAD01A {
             outApt = padN(apt,5).trim();
             String other = (s.substring(0, hash) + " " + s.substring(i)).trim();
             outOther = padN(other,25);
-            // error if trailing non-space immediately after apt per COBOL
             if (i < s.length() && s.charAt(i) != ' ') {
-                comm.returnCode = 2; // per COBOL branch
+                setPend(2, "Unexpected trailing data after apt");
             }
         }
     }
@@ -625,19 +558,17 @@ public final class CAD01A {
         wsCont = ' ';
         Arrays.fill(components, "");
         String s = extAddr1;
-        // If PO/BOX/HCR/GENERAL DELIVERY/HC/RT/SR/RR/ST RT etc. : move to OTHER
         if (eqAt(s,1,"PO BOX ") || eqAt(s,1,"BOX ") || eqAt(s,1,"HCR ") ||
             eqAt(s,1,"GENERAL DELIVERY ") || eqAt(s,1,"CENTRAL DELIVERY ") ||
             eqAt(s,1,"% ") || eqAt(s,1,"HC") || eqAt(s,1,"HC ") ||
             eqAt(s,1,"RT ") || eqAt(s,1,"SR ") || eqAt(s,1,"RR ") ||
             eqAt(s,1,"HC-") || eqAt(s,1,"ST RT")) {
-            if (!extAddr2.isBlank()) {
-                String tmp = s; // swap
+            if (!extAddr2.trim().isEmpty()) {
+                String tmp = s;
                 extAddr1 = extAddr2;
                 extAddr2 = tmp;
                 s = extAddr1;
                 outOther = padN(extAddr2.trim(), 25);
-                // If new extAddr1 starts with '#', drop it
                 if (extAddr1.charAt(0) == '#') {
                     extAddr1 = dropLeadingHash(extAddr1);
                     s = extAddr1;
@@ -647,7 +578,6 @@ public final class CAD01A {
                 wsCont = 'X';
             }
         }
-        // If we still have content to tokenize
         if (wsCont == ' ') {
             String squeezed = squeezeSpaces(extAddr1).trim();
             if (squeezed.isEmpty()) return;
@@ -656,42 +586,35 @@ public final class CAD01A {
             for (int i=0;i<mx;i++) {
                 components[i] = toks[i];
             }
-            // If there are more than 7 tokens -> error (COBOL set returnCode=2)
             if (toks.length > 7) {
-                comm.returnCode = 2;
+                setPend(2, "Too many tokens (>7)");
             }
         }
     }
 
     // === C655 CONVERT DIRECTIONS =======================================================
     private static String convertDirWord(String d) {
-        switch (d) {
-            case "NORTH": return "N";
-            case "SOUTH": return "S";
-            case "EAST":  return "E";
-            case "WEST":  return "W";
-            case "NORTHWEST": return "NW";
-            case "NORTHEAST": return "NE";
-            case "SOUTHWEST": return "SW";
-            case "SOUTHEAST": return "SE";
-            default: return d;
-        }
+        if ("NORTH".equals(d)) return "N";
+        if ("SOUTH".equals(d)) return "S";
+        if ("EAST".equals(d))  return "E";
+        if ("WEST".equals(d))  return "W";
+        if ("NORTHWEST".equals(d)) return "NW";
+        if ("NORTHEAST".equals(d)) return "NE";
+        if ("SOUTHWEST".equals(d)) return "SW";
+        if ("SOUTHEAST".equals(d)) return "SE";
+        return d;
     }
 
-    // === C700+ CHK COMPONENTS and assemble outputs =====================================
+    // === C700+ CHK COMPONENTS ==========================================================
     private void c700_chk_components(CommArea comm) {
-        // We'll follow the COBOL branching logic condensed but equivalent.
-        // First, check if first component is numeric (allow '-' or '/' in between, and alpha after space => not numeric)
-        int mx = 0; for (int i=0;i<7;i++) if (!components[i].isBlank()) mx=i+1;
+        int mx = 0; for (int i=0;i<7;i++) if (!components[i].trim().isEmpty()) mx=i+1;
         if (mx==0) { return; }
 
-        // Determine if component1 is numeric per COBOL rules
         if (!isNumericAllowing(components[0])) {
-            comm.returnCode = 3; // "first field not numeric"
+            setPend(3, "First field not numeric");
             return;
         }
 
-        // Secondary checks and shifting similar to COBOL C751.. paths
         if (mx == 2) {
             outNbr = components[0];
             outSt  = components[1];
@@ -701,14 +624,13 @@ public final class CAD01A {
         if (mx == 3) {
             String c2 = components[1];
             String c3 = components[2];
-            String c2Type = c2;
-            if (c3.equals("TH")) { // special 'TH' fold into street
+            if ("TH".equals(c3)) {
                 outSt = (c2 + " " + c3).trim();
                 components[1] = outSt;
                 components[2] = "";
                 mx--;
             }
-            if (ST_TYPES.contains(c3) || c3.equals("HWY")) {
+            if (ST_TYPES.contains(c3) || "HWY".equals(c3)) {
                 outNbr = components[0];
                 outSt  = c2;
                 outType= c3;
@@ -720,11 +642,11 @@ public final class CAD01A {
                     outDir = maybeDir;
                     outSt  = c3;
                     return;
-                } else if ((c2.equals("HWY") || c2.equals("RD")) && isLastFieldNumeric(mx)) {
+                } else if (("HWY".equals(c2) || "RD".equals(c2)) && isLastFieldNumeric(mx)) {
                     outNbr = components[0];
                     outSt  = c2 + " " + c3;
                     return;
-                } else if (ST_TYPES.contains(c2) && !c2.equals("ST")) {
+                } else if (ST_TYPES.contains(c2) && !"ST".equals(c2)) {
                     outNbr  = components[0];
                     outType = c2;
                     outSt   = c3;
@@ -742,12 +664,10 @@ public final class CAD01A {
         }
 
         if (mx >= 4) {
-            // Try major patterns akin to C754-CONTINUE branch
             String c2 = components[1];
             String c3 = components[2];
             String c4 = components[3];
             String dir2 = convertDirWord(c2);
-            String type4 = c4;
             if (ST_TYPES.contains(c4) && DIRECTIONS.contains(dir2)) {
                 outNbr = components[0];
                 outDir = dir2;
@@ -755,7 +675,7 @@ public final class CAD01A {
                 outType= c4;
                 return;
             }
-            if (c4.equals("HWY") && DIRECTIONS.contains(dir2)) {
+            if ("HWY".equals(c4) && DIRECTIONS.contains(dir2)) {
                 outNbr = components[0];
                 outDir = dir2;
                 outSt  = c3;
@@ -764,7 +684,6 @@ public final class CAD01A {
             }
             if (isFraction(c2)) {
                 outNbr = components[0] + " " + normalizeSlash(c2);
-                // continue assembling as below
             }
             if (DIRECTIONS.contains(dir2)) {
                 outNbr = components[0];
@@ -775,14 +694,12 @@ public final class CAD01A {
                 }
                 return;
             }
-            if (ST_TYPES.contains(c2) || c2.equals("HWY")) {
+            if (ST_TYPES.contains(c2) || "HWY".equals(c2)) {
                 outNbr = components[0];
-                outSt  = c3 + (mx>=4?"":"");
+                outSt  = c3 + (mx>=4? " "+c4:"");
                 outType= c2;
-                if (mx>=3) outSt = (c3 + (mx>=4? " "+c4:"")).trim();
                 return;
             }
-            // consider c3 as type and c4 as dir variants
             String dir4 = convertDirWord(c4);
             if (ST_TYPES.contains(c3) && DIRECTIONS.contains(dir4)) {
                 outNbr  = components[0];
@@ -791,33 +708,48 @@ public final class CAD01A {
                 outDir  = dir4;
                 return;
             }
-            if ((c3.equals("HWY") || c3.equals("RD")) && isLastFieldNumeric(mx)) {
+            if (("HWY".equals(c3) || "RD".equals(c3)) && isLastFieldNumeric(mx)) {
                 outNbr = components[0];
                 outSt  = c2 + " " + c3 + (mx>=4? " "+c4:"");
                 return;
             }
-            // Direction pair case (two tokens of direction)
             if (mx>=4 && DIRECT1.contains(c3) && DIRECT2.contains(c4)) {
                 outNbr = components[0];
                 outSt  = c2;
                 outDir = (c3 + " " + c4).trim();
                 return;
             }
-            // Default: number + full street (rest joined), type if present at the end
             outNbr = components[0];
             if (ST_TYPES.contains(components[mx-1])) {
                 outType = components[mx-1];
-                outSt   = String.join(" ", Arrays.asList(components).subList(1,mx-1)).trim();
+                StringBuilder sb = new StringBuilder();
+                for (int i=1;i<mx-1;i++) {
+                    if (!components[i].trim().isEmpty()) {
+                        if (sb.length()>0) sb.append(' ');
+                        sb.append(components[i]);
+                    }
+                }
+                outSt = sb.toString().trim();
             } else {
-                outSt   = String.join(" ", Arrays.asList(components).subList(1,mx)).trim();
+                StringBuilder sb = new StringBuilder();
+                for (int i=1;i<mx;i++) {
+                    if (!components[i].trim().isEmpty()) {
+                        if (sb.length()>0) sb.append(' ');
+                        sb.append(components[i]);
+                    }
+                }
+                outSt = sb.toString().trim();
             }
         }
     }
 
     private boolean isLastFieldNumeric(int mx) {
-        // COBOL LAST-FIELD-NUMERIC set in C752; we approximate: last token is numeric
         String last = components[mx-1];
-        return last.chars().allMatch(ch -> (ch>='0'&&ch<='9'));
+        for (int i=0;i<last.length();i++) {
+            char ch = last.charAt(i);
+            if (!(ch>='0' && ch<='9')) return false;
+        }
+        return !last.isEmpty();
     }
     private boolean isFraction(String s) {
         if (s.length()!=3) return false;
@@ -825,9 +757,7 @@ public final class CAD01A {
     }
     private String normalizeSlash(String s) { return s.replace('\\','/'); }
     private boolean isNumericAllowing(String s) {
-        // COBOL C701 allowed '-' or '/' between digits in component1 in certain positions
-        // Here we'll accept digits and [-/] as long as not starting/ending with them and contains at least one digit.
-        if (s.isBlank()) return false;
+        if (s.trim().isEmpty()) return false;
         boolean anyDigit=false;
         for (int i=0;i<s.length();i++) {
             char c = s.charAt(i);
@@ -840,19 +770,14 @@ public final class CAD01A {
     }
 
     private void setPend(int code, String msg) {
-        // Mirror "pend" behaviour by setting return code and an error message
-        // COBOL used several magic numbers (1..); we propagate the code and remember message.
-        // The caller can decide how to act; output fields will still be set best-effort.
-        // (In the main flow we check returnCode==1 to short-circuit some passes.)
-        // Keep lowest code if multiple issues.
-        if (code>0 && (thisErrorCode()==0 || code < thisErrorCode())) {
-            // store on a synthetic CommArea only at the end
+        if (code <= 0) return;
+        if (this.errorCode == 0 || code < this.errorCode) {
+            this.errorCode = code;
+            this.errMsg = (msg==null?"":msg);
         }
-        // We stash into a shadow (actual code is returned in CommArea by run())
     }
-    private int thisErrorCode(){ return 0; }
 
-    // ===== Convenience: simple CLI runner for ad-hoc use ================================
+    // ===== Convenience: CLI runner =====================================================
     public static void main(String[] args) {
         CommArea c = new CommArea();
         if (args.length>0) c.address1 = args[0];
