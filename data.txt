@@ -1,639 +1,552 @@
-package gov.nv.dwss.crystalreports.statistics.programhistory.partitioner;
+package gov.nv.dwss.crystalreports.statistics.programhistory.tasklet;
 
-import java.util.Arrays;
-import java.util.HashMap;
+import java.sql.Connection;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+
+import javax.sql.DataSource;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.batch.core.partition.support.Partitioner;
-import org.springframework.batch.item.ExecutionContext;
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Component;
 
+import gov.nv.dwss.crystalreports.statistics.common.model.CommonData;
+import gov.nv.dwss.crystalreports.statistics.common.model.PceRecord;
+import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
 import gov.nv.dwss.crystalreports.statistics.programhistory.dao.ProgramHistoryExtractDao;
+import gov.nv.dwss.domain.dao.sor.ReportMonthlyCaseHistorySorDao;
+import gov.nv.dwss.domain.record.SorRecord;
+import gov.nv.dwss.domain.record.sor.ReportMonthlyCaseHistorySorRecord;
+import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
 import gov.nv.dwss.fw.batch.constants.FWConstants;
 import gov.nv.dwss.fw.batch.context.SystemInfoParam;
+import gov.nv.dwss.fw.batch.enums.BatchExceptionType;
+import gov.nv.dwss.fw.batch.model.SkippedRecord;
+import gov.nv.dwss.fw.batch.util.ExceptionUtil;
 import gov.nv.dwss.fw.batch.util.ObjectUtils;
+import gov.nv.dwss.switcher.DatabaseSwitcher;
+
+import static gov.nv.dwss.fw.batch.constants.FWConstants.BLANK;
+import static gov.nv.dwss.fw.batch.constants.FWConstants.N;
 
 @Component
-public class ProgramHistoryPartitioner implements Partitioner {
+public class ProgramHistoryInsertTasklet extends AbstractBatchStepComponent implements Tasklet {
+
+	private static final Logger LOG = LogManager.getLogger(ProgramHistoryInsertTasklet.class);
+
+	@Autowired
+	private DataSource sorDataSource;
 	
-	private static final Logger LOG = LogManager.getLogger(ProgramHistoryPartitioner.class);
+	@Autowired
+	DatabaseSwitcher databaseSwitch;
+
+	@Value("${db.nswd.schema}")
+    private String nswdSchemaName;
 	
 	@Autowired
 	ProgramHistoryExtractDao monthlyProgramCaseHistoryExtractDao;
 	
-	@Value("${ofc-list}")
-	String ofcList;
-	
-	@Override
-	public Map<String, ExecutionContext> partition(int gridSize) {
-
-		Map<String, ExecutionContext> result = new HashMap<>();
-		int lines = 0;
-
-		List<String> offices;
-		LOG.info("Before - ofcList: {}", ofcList);
-		if (!ObjectUtils.isNullOrEmptyOrBlank(ofcList)) {
-			String ofcCds = Arrays.stream(ofcList.split(",")).map(e -> "'" + e + "'").collect(Collectors.joining(","));
-			offices = monthlyProgramCaseHistoryExtractDao.getOfficeDetails(ofcCds);
-		} else {
-			offices = this.monthlyProgramCaseHistoryExtractDao.getOfficeDetails();
-		}
-		String ofcCds = offices.stream().map(e -> "'" + e + "'").collect(Collectors.joining(","));
-
-		Integer programCaseHistoryDetails =
-				monthlyProgramCaseHistoryExtractDao.getProgramCaseHistoryDetailsForAllOfcCdCounts(ofcCds, SystemInfoParam.getAsOfDate());
-		LOG.info("Fetched ProgramCaseHistoryDetails counts for officeCodes :: {} and size: {}", ofcCds, programCaseHistoryDetails);
-
-		if (programCaseHistoryDetails != null) {
-			lines = programCaseHistoryDetails;
-		}
-
-		if (lines == 0) {
-			return result;
-		}
-
-		if (gridSize <= 0 || lines < gridSize) {
-			gridSize = FWConstants.ONE;
-		}
-
-		int range = lines / gridSize;
-		int remains = lines % gridSize;
-		int fromLine = 0;
-		int toLine = range;
-		for (int i = 1; i <= gridSize; i++) {
-			if (i == gridSize) {
-				toLine += remains;
-			}
-			ExecutionContext value = new ExecutionContext();
-			value.putInt("minValue", fromLine);
-			value.putInt("maxValue", toLine);
-			value.putInt("totalLines", lines);
-			fromLine = toLine;
-			toLine += range;
-			result.put("partition" + i, value);
-		}
-		return result;
-	}
-
-}
-
--------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.processor;
-
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
-import org.springframework.batch.item.ItemProcessor;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
-import gov.nv.dwss.crystalreports.statistics.common.model.PceRecord;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.ProgramCaseHistoryDetails;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.WorkingStorage;
-import gov.nv.dwss.crystalreports.statistics.programhistory.service.ProgramHistoryService;
-import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
-
-@Component
-public class ProgramHistoryProcessor extends AbstractBatchStepComponent implements ItemProcessor<ProgramCaseHistoryDetails, List<PceRecord>>{
-
 	@Autowired
-	ProgramHistoryService service;
-	
-	Set<PceRecord> programCaseSet = ConcurrentHashMap.newKeySet();
+	ReportMonthlyCaseHistorySorDao reportMonthlyCaseHistorySorDao;
 	
 	@Override
-	public List<PceRecord> process(ProgramCaseHistoryDetails item) throws Exception {
-		WorkingStorage workingStorage = new WorkingStorage();
-		PceRecord pceRecord = this.service.buildPceRecord(item,workingStorage);
-		return this.service.getFamActionDetails(item,pceRecord,workingStorage,programCaseSet);
-	}
-
-}
---------------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.reader;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.NonTransientResourceException;
-import org.springframework.batch.item.ParseException;
-import org.springframework.batch.item.UnexpectedInputException;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-
-import gov.nv.dwss.crystalreports.statistics.programhistory.dao.ProgramHistoryExtractDao;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.ProgramCaseHistoryDetails;
-import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
-import gov.nv.dwss.fw.batch.context.SystemInfoParam;
-import gov.nv.dwss.fw.batch.util.ObjectUtils;
-
-public class ProgramHistoryReader extends AbstractBatchStepComponent implements ItemReader<ProgramCaseHistoryDetails> {
-
-	private static final Logger LOG = LogManager.getLogger(ProgramHistoryReader.class);
-
-	@Autowired
-	ProgramHistoryExtractDao monthlyProgramCaseHistoryExtractDao;
-
-	@Value("${ofc-list}")
-	String ofcList;
-	
-	Iterator<ProgramCaseHistoryDetails> iterator;
-	
-	private Map<String, Object> map = new HashMap<>();
-
-	public ProgramHistoryReader(Long partition, Long minValue, Long maxValue) {
-		map.put("partition", partition);
-		map.put("maxValue", maxValue);
-		map.put("minValue", minValue);
-	}
-
-	@Override
-	public ProgramCaseHistoryDetails read()
-			throws Exception, UnexpectedInputException, ParseException, NonTransientResourceException {
-		if(iterator == null) {
-			List<String> offices = new ArrayList<>();
-			LOG.info("Before - ofcList: {}", ofcList);
-			if (!ObjectUtils.isNullOrEmptyOrBlank(ofcList)) {
-				String ofcCds = Arrays.stream(ofcList.split(",")).map(e -> "'" + e + "'").collect(Collectors.joining(","));
-				offices = this.monthlyProgramCaseHistoryExtractDao.getOfficeDetails(ofcCds);
-			} else {
-				offices = this.monthlyProgramCaseHistoryExtractDao.getOfficeDetails();
-			}
-
-			String ofcCds = offices.stream().map(e -> "'" + e + "'").collect(Collectors.joining(","));
-
-			Long minVal = (Long) map.get("minValue");
-			Long maxVal = (Long) map.get("maxValue");
-			
-			if(minVal==null || maxVal == null){
-				return null;
-			}
-			
-			List<ProgramCaseHistoryDetails> programCaseHistoryDetails = this.monthlyProgramCaseHistoryExtractDao
-					.getProgramCaseHistoryDetailsForAllOfcCds(ofcCds, SystemInfoParam.getAsOfDate(), minVal + 1, maxVal);
-			LOG.info("Fetching ProgramCaseHistoryDetails for officeCodes size: {} and Range minVal:{}, maxVal:{}",
-					programCaseHistoryDetails.size(), minVal + 1, maxVal);
-			
-			iterator = programCaseHistoryDetails.iterator();
-		}
+	public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+		LOG.info("calling ProgramHistoryInsertTasklet for pceRecord count :: {}", CommonData.getProgramCaseList().size());
 		
-		if (iterator.hasNext()) {
-			return iterator.next();
-		} else {
-			iterator = null; // reset iterator for next job
-			return null;
-		}
+		List<PceRecord> list = CommonData.getProgramCaseList();
+		List<SorRecord> recordList = createSorRecords(list);
+		performDatabaseOperations(recordList);
+		LOG.info("calling ProgramHistoryInsertTasklet for final record count :: {}", recordList.size());
+		return RepeatStatus.FINISHED;
 	}
 
+	private List<SorRecord> createSorRecords(List<PceRecord> pceRecords) {
+		List<SorRecord> recordList = new ArrayList<>();
+		int sequenceNumber = 1;
+		for (PceRecord pceRecord : pceRecords) {
+			recordList.add(createSorRecord(pceRecord, sequenceNumber++));
+		}
+		return recordList;
+	}
+
+	private SorRecord createSorRecord(PceRecord pceRecord, int sequenceNumber) {
+		ReportMonthlyCaseHistorySorRecord sorRecord = new ReportMonthlyCaseHistorySorRecord();
+		sorRecord.setRunDate(ObjectUtils.convertToDate(SystemInfoParam.getAsOfDate()));
+		sorRecord.setReportSequenceNumber(sequenceNumber);
+		sorRecord.setAidCode(pceRecord.getPceAidCd());
+		sorRecord.setApplicationDate(pceRecord.getPceApplDt());
+		sorRecord.setApprovalIndicator(pceRecord.getPceAprvlInd());
+		sorRecord.setBenefitAmount(getOrDefault(pceRecord.getPceBnftAmt(), FWConstants.DEFAULT_DECIMAL));
+		sorRecord.setBenefitMonth(pceRecord.getPceBnftMnth());
+		sorRecord.setBenefitReductionAmount(getOrDefault(pceRecord.getPceBnftRdctnAmt(), FWConstants.DEFAULT_DECIMAL));
+		sorRecord.setBenefitYear(pceRecord.getPceBnftYr());
+		sorRecord.setCaseLoadId(pceRecord.getPceCasldId());
+		sorRecord.setCaseStatus(pceRecord.getPceCaseSts());
+		sorRecord.setClosureReasonCode(pceRecord.getPceClsreRsnCd());
+		sorRecord.setConfirseIndicator(pceRecord.getPceConfrsInd());
+		sorRecord.setEligCode(pceRecord.getPceEligCd());
+		sorRecord.setEntitlementAmount(getOrDefault(pceRecord.getPceEntlmAmt(), FWConstants.DEFAULT_DECIMAL));
+		sorRecord.setExpeditedSnapReasonCode(pceRecord.getPceExpdFsRsnCd());
+		sorRecord.setHohUpi(pceRecord.getPceHohUpi());
+		sorRecord.setHomelessIndicator(pceRecord.getPceHmlsInd());
+		sorRecord.setIci(pceRecord.getPceIci());
+		sorRecord.setInitialApprovalDate(pceRecord.getPceInitAprvlDt());
+		sorRecord.setLastRecordForMonth(pceRecord.getPceLastRecForMnth());
+		sorRecord.setMonthlyReportingIndicator(pceRecord.getPceMthlyRptrInd());
+		sorRecord.setMultipleClosureReasonIndicator(getOrDefault(pceRecord.getPceMultClsreInd(), BLANK));
+		sorRecord.setNextRedeterminationDate(pceRecord.getPceNextRedetDt());
+		sorRecord.setNomadsUserId(getOrDefault(pceRecord.getPceWrkrId(), BLANK));
+		sorRecord.setNoOfChildRecipient(pceRecord.getPceNoOfChldRcpnt());
+		sorRecord.setNoOfRecipient(pceRecord.getPceNoOfRcpnt());
+		sorRecord.setOfficeCode(pceRecord.getPceOfcCd());
+		sorRecord.setSupervisoryUnit(pceRecord.getPceSprvsUnit());
+		sorRecord.setFunctionalAreaCode(pceRecord.getPceFuncAreaCd());
+		sorRecord.setWorkerType(pceRecord.getPceWrkrType());
+		sorRecord.setPositionNumber(Integer.valueOf(pceRecord.getPcePsnNmb()));
+		sorRecord.setProgramCaseStatus(pceRecord.getPcePrgmCaseSts());
+		sorRecord.setProgramCaseType(pceRecord.getPcePrgmCaseType());
+		sorRecord.setReappCount(FWConstants.ZERO);
+		sorRecord.setReappIndicator(pceRecord.getPceReappInd());
+		sorRecord.setRedeterminationCompleteMonth(pceRecord.getPceRedetCmplThisMnth());
+		sorRecord.setRedeterminationIndicator(pceRecord.getPceRedetInd());
+		sorRecord.setReinstateDate(pceRecord.getPceReisntDt());
+		sorRecord.setReinstateIndicator(pceRecord.getPceReinstInd());
+		sorRecord.setReopenedIndicator(pceRecord.getPceReopnInd());
+		sorRecord.setSnapSuffix(pceRecord.getPceAssistCd());
+		sorRecord.setStatusEffectiveDate(pceRecord.getPcePrgmStsEffDt());
+		sorRecord.setWorkerName(getOrDefault(pceRecord.getPceWrkrNm(), BLANK));
+		sorRecord.setActionType(getOrDefault(pceRecord.getActnType(), BLANK));
+		if (pceRecord.getPceActApplDt() != null) {
+			sorRecord.setActionTimestamp(getActionTimestamp(pceRecord.getPceActApplDt().atStartOfDay()));
+		}else {
+			sorRecord.setActionTimestamp(new Timestamp(0));
+		}
+		sorRecord.setVersionNumber(pceRecord.getPceVerNmb());
+		sorRecord.setStatusCode(N);
+		return sorRecord;
+	}
+
+	private <T> T getOrDefault(T value, T defaultValue) {
+		return value != null ? value : defaultValue;
+	}
+
+	private Timestamp getActionTimestamp(LocalDateTime actionDate) {
+		return actionDate != null ? Timestamp.valueOf(actionDate) : new Timestamp(0);
+	}
+
+	private void performDatabaseOperations(List<SorRecord> recordList) throws Exception {
+		Connection connection = DataSourceUtils.getConnection(sorDataSource);
+		try {
+			databaseSwitch.switchDataSourceAndSchema(reportMonthlyCaseHistorySorDao, nswdSchemaName, sorDataSource);
+			this.monthlyProgramCaseHistoryExtractDao.deleteProgramHistoryCases();
+			this.reportMonthlyCaseHistorySorDao.batchInsert(recordList);
+			connection.commit();
+		} catch (Exception e) {
+			LOG.error(e);
+			final String applicationMessage = "Error occurred while writing records to DB";
+			connection.rollback();
+			final SkippedRecord skippedRecord = new SkippedRecord("programHistoryRecord");
+			throw ExceptionUtil.batchSkipRecordException(BatchExceptionType.SQL_EXCEPTION, applicationMessage, null,
+					null, StatisticsConstants.PROGRAM_HISTORY_BATCH, e, skippedRecord);
+		} finally {
+			DataSourceUtils.releaseConnection(connection, sorDataSource);
+		}
+	}
 }
 
----------------------
+-----------------------
+package gov.nv.dwss.crystalreports.statistics.programhistory.tasklet;
 
-package gov.nv.dwss.crystalreports.statistics.programhistory.service;
-
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Set;
-
-import org.apache.commons.lang3.SerializationUtils;
+import gov.nv.dwss.crystalreports.statistics.common.dao.MonthlyCaseHistoryExtendedDao;
+import gov.nv.dwss.crystalreports.statistics.common.model.FamCaseStatsOfficeRecord;
+import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
+import gov.nv.dwss.crystalreports.statistics.programhistory.model.FamCaseStatsWorkingStorage;
+import gov.nv.dwss.domain.dao.sor.ReportMonthlyCaseHistorySorDao;
+import gov.nv.dwss.domain.record.SorRecord;
+import gov.nv.dwss.domain.record.sor.ReportMonthlyCaseHistorySorRecord;
+import gov.nv.dwss.fw.batch.context.SystemInfoParam;
+import gov.nv.dwss.fw.batch.enums.BatchExceptionType;
+import gov.nv.dwss.fw.batch.model.SkippedRecord;
+import gov.nv.dwss.fw.batch.util.ExceptionUtil;
+import gov.nv.dwss.switcher.DatabaseSwitcher;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.task.TaskExecutor;
-import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
+import javax.annotation.PostConstruct;
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.List;
+
+import static gov.nv.dwss.crystalreports.foodstampcharacteristicstudy.util.DateUtil.getTimeStamp;
+import static gov.nv.dwss.fw.batch.constants.FWConstants.LOW_DATE_STR;
+import static gov.nv.dwss.fw.batch.constants.FWConstants.MA;
+import static gov.nv.dwss.fw.batch.constants.FWConstants.Y;
+import static gov.nv.dwss.fw.batch.util.ObjectUtils.convertToDate;
+import static java.util.stream.Collectors.toList;
+
+@Component
+public class ProgramHistoryValidateTasklet implements Tasklet {
+
+    private static final Logger LOG = LogManager.getLogger(ProgramHistoryValidateTasklet.class);
+
+    private static final int PAGE_SIZE = 5000;
+    Date lowDate;
+    Timestamp lowDateTimestamp;
+
+    @Autowired ReportMonthlyCaseHistorySorDao reportMonthlyCaseHistorySorDao;
+    @Autowired MonthlyCaseHistoryExtendedDao monthlyCaseHistoryDao;
+    @Autowired @Qualifier(value = "nswdDataSource") DataSource nswdDataSource;
+    @Autowired DatabaseSwitcher databaseSwitch;
+    @Value("${db.nswd.schema}") String nswdSchemaName;
+
+    @PostConstruct
+    public void init() {
+        lowDate = convertToDate(LOW_DATE_STR);
+        lowDateTimestamp = getTimeStamp(LOW_DATE_STR);
+    }
+
+    @Override
+    public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+        List<FamCaseStatsOfficeRecord> famCaseStatsOfcRecord;
+        List<ReportMonthlyCaseHistorySorRecord> pceRecords;
+        FamCaseStatsWorkingStorage workingStorage = new FamCaseStatsWorkingStorage();
+        List<ReportMonthlyCaseHistorySorRecord> newPceRecords = new ArrayList<>();
+
+        try {
+            famCaseStatsOfcRecord = monthlyCaseHistoryDao.getAllOfcCasldIdAndAidCds();
+            pceRecords = fetchPceRecordsFromDb();
+            pceRecords.sort(Comparator.comparing(ReportMonthlyCaseHistorySorRecord::getOfficeCode)
+                    .thenComparing(ReportMonthlyCaseHistorySorRecord::getCaseLoadId)
+                    .thenComparing(ReportMonthlyCaseHistorySorRecord::getAidCode));
+        } catch (Exception e) {
+            LOG.error("Error fetching FamCaseStatsOfficeRecord/ProgramCaseHistory list: ", e);
+            return RepeatStatus.FINISHED;
+        }
+
+        try {
+            if (!CollectionUtils.isEmpty(famCaseStatsOfcRecord)) {
+                for (FamCaseStatsOfficeRecord or : famCaseStatsOfcRecord) {
+                    LOG.info("{}", or);
+                }
+                // Setup working storage with first FamCase
+                FamCaseStatsOfficeRecord famCaseRec1 = famCaseStatsOfcRecord.get(0);
+                updateWorkingStorageWithFamCase(famCaseRec1, workingStorage);
+
+                int i = 0; // FamCase index
+                while (i < famCaseStatsOfcRecord.size()) {
+                    FamCaseStatsOfficeRecord famCaseRec = famCaseStatsOfcRecord.get(i);
+                    if (!CollectionUtils.isEmpty(pceRecords)) {
+                        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
+                            try {
+                                boolean scanned = false;
+                                if (!pceRecord.getOfficeCode().equals(workingStorage.getPreviousOfcCd())) {
+                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
+
+                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) > 0) {
+                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
+                                        if (!famCaseRec.getOfcCd().isEmpty() && !famCaseRec.getCasldId().isEmpty()) {
+                                            newPceRecords.add(copyOfPceRecord);
+                                        }
+                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
+                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
+                                    }
+
+                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) == 0) {
+                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, false);
+                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
+                                    }
+
+                                    workingStorage.setPreviousOfcCd(workingStorage.getFamCaseOfcCd());
+                                    workingStorage.setPreviousCasldId(workingStorage.getFamCaseCasldId());
+                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
+
+                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
+
+                                } else if (!pceRecord.getCaseLoadId().equals(workingStorage.getPreviousCasldId())) {
+                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
+
+                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) > 0) {
+                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
+                                        if (!famCaseRec.getOfcCd().isEmpty() && !famCaseRec.getCasldId().isEmpty()) {
+                                            newPceRecords.add(copyOfPceRecord);
+                                        }
+                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
+                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
+                                    }
+
+                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) == 0) {
+                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, false);
+                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
+                                    }
+
+                                    workingStorage.setPreviousCasldId(workingStorage.getFamCaseCasldId());
+                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
+
+                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
+
+                                } else if (!pceRecord.getAidCode().equals(workingStorage.getPreviousAidCd())) {
+                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
+
+                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) > 0) {
+                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
+                                        if (!famCaseRec.getOfcCd().isEmpty() && !famCaseRec.getCasldId().isEmpty()) {
+                                            newPceRecords.add(copyOfPceRecord);
+                                        }
+                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
+                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
+                                    }
+
+                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) == 0) {
+                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, false);
+                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
+                                    }
+
+                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
+
+                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
+
+                                }
+                            } catch (Exception ex) {
+                                LOG.error("Error during FamCaseRecord/PceRecord processing. famCaseRec={}, pceRecord={}", famCaseRec, pceRecord, ex);
+                                // continue with next record
+                            }
+                        }
+                    }
+                    i++; // move to next FamCase for next while iteration if not already advanced
+                }
+            }
+            logNewProgramCaseHistories(newPceRecords);
+            performDatabaseOperations(newPceRecords);
+        } catch (Exception e) {
+            LOG.error("Error processing famCaseStats/pceRecords : ", e);
+        }
+
+
+
+        return RepeatStatus.FINISHED;
+    }
+
+    /** Updates FamCase values in working storage */
+    private void updateWorkingStorageWithFamCase(FamCaseStatsOfficeRecord famCase, FamCaseStatsWorkingStorage storage) {
+        storage.setFamCaseOfcCd(famCase.getOfcCd());
+        storage.setFamCaseCasldId(famCase.getCasldId());
+        storage.setFamCaseAidCd(famCase.getAidCd());
+        storage.setFamCaseRecords(famCase.getOfcCd() + famCase.getCasldId() + famCase.getAidCd());
+    }
+
+    /** Updates PceRecord values in working storage */
+    private void updateWorkingStorageWithPceRecord(ReportMonthlyCaseHistorySorRecord pceRecord, FamCaseStatsWorkingStorage storage) {
+        storage.setPceOfcCd(pceRecord.getOfficeCode());
+        storage.setPceCasldId(pceRecord.getCaseLoadId());
+        storage.setPceAidCd(pceRecord.getAidCode());
+        storage.setPceRecords(pceRecord.getOfficeCode() + pceRecord.getCaseLoadId() + pceRecord.getAidCode());
+    }
+
+    /** Safely advances to next FamCase and updates working storage if isFamStatUpdate, returns true if advanced */
+    private boolean scanNextFamCase(
+            int i, List<FamCaseStatsOfficeRecord> famCaseList, FamCaseStatsWorkingStorage storage, boolean isFamStatUpdate) {
+        if (i < famCaseList.size()) {
+            FamCaseStatsOfficeRecord nextFamCase = famCaseList.get(i);
+            if (isFamStatUpdate) updateWorkingStorageWithFamCase(nextFamCase, storage);
+            return true;
+        }
+        return false;
+    }
+
+    private ReportMonthlyCaseHistorySorRecord mapToNewPceRecord(FamCaseStatsOfficeRecord famCaseRec) {
+        ReportMonthlyCaseHistorySorRecord pceRecord = new ReportMonthlyCaseHistorySorRecord();
+        pceRecord.setRunDate(convertToDate(SystemInfoParam.getAsOfDate()));
+        pceRecord.setOfficeCode(famCaseRec.getOfcCd());
+        pceRecord.setCaseLoadId(famCaseRec.getCasldId());
+        pceRecord.setAidCode(famCaseRec.getAidCd());
+        pceRecord.setProgramCaseType(MA);
+        pceRecord.setActionTimestamp(lowDateTimestamp);
+        pceRecord.setApplicationDate(lowDate);
+        pceRecord.setStatusEffectiveDate(lowDate);
+        pceRecord.setStatusCode(Y);
+        return pceRecord;
+    }
+
+    private List<ReportMonthlyCaseHistorySorRecord> fetchPceRecordsFromDb() {
+
+        int totalCount = monthlyCaseHistoryDao.countProgramCaseHistoryForFamCaseStats();
+        LOG.info("Total ProgramCaseHistory records to fetch: {}", totalCount);
+
+        List<ReportMonthlyCaseHistorySorRecord> pceRecords = new ArrayList<>();
+
+        int pageIndex = 0;
+        while (pceRecords.size() < totalCount) {
+            int startIndex = pageIndex * PAGE_SIZE + 1;
+            int endIndex = Math.min((pageIndex + 1) * PAGE_SIZE, totalCount);
+
+            List<ReportMonthlyCaseHistorySorRecord> chunk =
+                    monthlyCaseHistoryDao.getProgramCaseHistoryForFamCaseStats(startIndex, endIndex);
+            LOG.info("Fetched rows {}-{} ({} records)", startIndex, endIndex, chunk.size());
+
+            pceRecords.addAll(chunk);
+
+            if (chunk.size() < PAGE_SIZE) { // Less than requested page size: this was the final page
+                break;
+            }
+            pageIndex++;
+        }
+        LOG.info("Total ProgramCaseHistory records loaded: {}", pceRecords.size());
+
+        return pceRecords;
+    }
+
+    private void logNewProgramCaseHistories(List<ReportMonthlyCaseHistorySorRecord> pceRecords) {
+        LOG.info("After Validation New ProgramCaseHistories :{}", pceRecords.size());
+        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
+            LOG.info("ofcCd={}, casld:{}, aidCd:{}, ici={}",
+                    pceRecord.getOfficeCode(), pceRecord.getCaseLoadId(), pceRecord.getAidCode(), pceRecord.getIci());
+        }
+    }
+
+    private void performDatabaseOperations(List<ReportMonthlyCaseHistorySorRecord> pceRecords) throws Exception {
+        int lastSeqNmb = monthlyCaseHistoryDao.getMaxSequenceNmbOfPceRecord();
+        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
+            pceRecord.setReportSequenceNumber(++lastSeqNmb);
+        }
+
+        List<SorRecord> recordList = pceRecords.stream().map((d -> (SorRecord) d)).collect(toList());
+        Connection connection = DataSourceUtils.getConnection(nswdDataSource);
+        try {
+            databaseSwitch.switchDataSourceAndSchema(reportMonthlyCaseHistorySorDao, nswdSchemaName, nswdDataSource);
+            this.reportMonthlyCaseHistorySorDao.batchInsert(recordList);
+            connection.commit();
+        } catch (Exception e) {
+            LOG.error(e);
+            final String applicationMessage = "Error occurred while writing FAM ProgramCaseHistory records to DB";
+            connection.rollback();
+            final SkippedRecord skippedRecord = new SkippedRecord("newProgramCaseHistoryRecord");
+            throw ExceptionUtil.batchSkipRecordException(BatchExceptionType.SQL_EXCEPTION, applicationMessage, null,
+                    null, StatisticsConstants.PROGRAM_HISTORY_BATCH, e, skippedRecord);
+        } finally {
+            DataSourceUtils.releaseConnection(connection, nswdDataSource);
+        }
+    }
+}
+---------------------------
+package gov.nv.dwss.crystalreports.statistics.programhistory.writer;
+
+import java.sql.SQLException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.batch.item.ExecutionContext;
+import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.file.FlatFileItemWriter;
+import org.springframework.batch.item.file.transform.PassThroughLineAggregator;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.stereotype.Component;
+
+import gov.nv.dwss.crystalreports.statistics.common.model.CommonData;
 import gov.nv.dwss.crystalreports.statistics.common.model.PceRecord;
-import gov.nv.dwss.crystalreports.statistics.programhistory.dao.ProgramHistoryExtractDao;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.EligibilityVersionInfo;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.FamilyAction;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.NomadsUser;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.ProgramCaseHistoryDetails;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.WorkingStorage;
-import gov.nv.dwss.fw.batch.common.AbstractSorDataService;
-import gov.nv.dwss.fw.batch.constants.FWConstants;
-import gov.nv.dwss.fw.batch.context.SystemInfoParam;
-import gov.nv.dwss.fw.batch.util.ObjectUtils;
+import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
+import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
+import gov.nv.dwss.fw.batch.enums.BatchExceptionType;
+import gov.nv.dwss.fw.batch.exception.BatchBusinessException;
+import gov.nv.dwss.fw.batch.exceptions.listener.FileCleanupListener;
+import gov.nv.dwss.fw.batch.util.ExceptionUtil;
 
-import static gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants.DUMMY_DATE;
+@Component
+public class ProgramHistoryWriter extends AbstractBatchStepComponent implements ItemWriter<List<PceRecord>> {
 
-@Service
-public class ProgramHistoryService extends AbstractSorDataService {
-
-	private static final Logger LOG = LogManager.getLogger(ProgramHistoryService.class);
-
-	@Autowired
-	ProgramHistoryExtractDao monthlyProgramCaseHistoryExtractDao;
+	private static final Logger LOG = LogManager.getLogger(ProgramHistoryWriter.class);
+	
+	@Value("${programHistoryOutputFileLocation}")
+	private String outputFileLocation;
+	
+	@Value("${appendTimestampToFile}")
+	String appendTimestampToFile;
+	
+	@Value("${fileFormat}")
+	String fileFormat;
+	
+	@Value("${generateOutput}")
+	boolean generateOutput;
 	
 	@Autowired
-	@Qualifier("threadPoolFWTaskExecutor")
-	protected TaskExecutor fwTaskExecutor;
-
-	public PceRecord buildPceRecord(ProgramCaseHistoryDetails programCaseHistoryDetails, WorkingStorage workingStorage) {
-		PceRecord pceRecord = new PceRecord(); 
-		pceRecord.setPceLastRecForMnth(FWConstants.CHAR_N);
-		pceRecord.setPceReinstInd(FWConstants.CHAR_N);
-		pceRecord.setPceReopnInd(FWConstants.CHAR_N);
-		pceRecord.setPceReappInd(FWConstants.CHAR_N);
-		pceRecord.setPceAprvlInd(FWConstants.CHAR_N);
-		pceRecord.setPceRedetInd(FWConstants.CHAR_N);
-		pceRecord.setPceConfrsInd(FWConstants.CHAR_N);
-		pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_N);
-
-		workingStorage.setFileAidCd(FWConstants.BLANK);
-		workingStorage.setFileEligCd(FWConstants.BLANK);
-
-		pceRecord.setPceReisntDt(FWConstants.LOW_DATE);
-		pceRecord.setPceNextRedetDt(FWConstants.LOW_DATE);
-
-		pceRecord.setPceIci(programCaseHistoryDetails.getIci());
-		pceRecord.setPcePrgmCaseType(programCaseHistoryDetails.getPrgmCaseType());
-		pceRecord.setPceAidCd(programCaseHistoryDetails.getAidCd());
-		workingStorage.setFileAidCd(programCaseHistoryDetails.getAidCd());
-		pceRecord.setPcePrgmCaseSts(programCaseHistoryDetails.getPrgmCaseSts());
-		pceRecord.setPcePrgmStsEffDt(programCaseHistoryDetails.getStsEffDt());
-		pceRecord.setPceInitAprvlDt(programCaseHistoryDetails.getInitAprvlDt());
-		workingStorage.setInitAprvlDt(programCaseHistoryDetails.getInitAprvlDt());
-		pceRecord.setPceApplDt(programCaseHistoryDetails.getApplDt());
-
-		if (programCaseHistoryDetails.getPrgmCaseType().equals("MA")
-				&& (programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_D)
-						|| programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_T))) {
-			pceRecord.setPceClsreRsnCd(programCaseHistoryDetails.getClsreRsnCd());
-		} else {
-			pceRecord.setPceClsreRsnCd(programCaseHistoryDetails.getSysClsreDnlRsn());
-		}
-
-		pceRecord.setPceExpdFsRsnCd(programCaseHistoryDetails.getExpdFsRsnCd());
-		pceRecord.setPceEligCd(programCaseHistoryDetails.getEligCd());
-		workingStorage.setFileEligCd(programCaseHistoryDetails.getEligCd());
-
-		pceRecord.setPceHohUpi(programCaseHistoryDetails.getHohUpi());
-		pceRecord.setPceAssistCd(programCaseHistoryDetails.getFsSufx());
-		pceRecord.setPceCaseSts(programCaseHistoryDetails.getCaseSts());
-		pceRecord.setPceMthlyRptrInd(programCaseHistoryDetails.getMthlyRptrInd());
-		pceRecord.setPceHmlsInd(programCaseHistoryDetails.getHmlsInd());
-
-		pceRecord.setPceOfcCd(programCaseHistoryDetails.getOfcCd());
-		pceRecord.setPceSprvsUnit(programCaseHistoryDetails.getSprvsUnit());
-		pceRecord.setPceFuncAreaCd(programCaseHistoryDetails.getFuncAreaCd());
-		pceRecord.setPceWrkrType(programCaseHistoryDetails.getWrkrType());
-		pceRecord.setPcePsnNmb(programCaseHistoryDetails.getPsnNmb());
-		pceRecord.setPceCasldId(programCaseHistoryDetails.getCasldId());
-		return pceRecord;
-	}
-
-	public List<PceRecord> getFamActionDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage, Set<PceRecord> programCaseSet) {
-//		ARX04P9-GET-AP-DT()
-		LOG.info("calling getFamilyActionDetailsForApplicationDate of ICI {} -- PrgmCaseType {} -- PrgmCaseSts {}",
-				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(),programCaseHistoryDetails.getPrgmCaseSts());
-		FamilyAction familyActions = monthlyProgramCaseHistoryExtractDao.getFamilyActionDetailsForApplicationDate(
-				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType());
-
-		workingStorage.setActApplDtTs(familyActions != null ? familyActions.getActnTs().toLocalDateTime().toLocalDate() : null);
-		pceRecord.setActnType(familyActions != null ? familyActions.getActnTyp() : null);
-		pceRecord.setPceActApplDt(workingStorage.getActApplDtTs());
-
-		workingStorage.setFlag(FWConstants.CHAR_Y);
-		workingStorage.setFamUrowr(FWConstants.ONE);
-
-		String asOfDate = SystemInfoParam.getAsOfDate();
-		int year = ObjectUtils.getYear(asOfDate);
-		int month = ObjectUtils.getMonth(asOfDate);
-//        ARX04P9-FAC-READ()
-		List<FamilyAction> familyActionList = monthlyProgramCaseHistoryExtractDao.getFamilyActionDetails(
-				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(), year, month);
-
-		LOG.info("calling getFamilyActionDetails of ICI :: {} && PrgmCaseType {} & Count :: {}",
-				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(),
-				familyActionList.size());
-
-		if (CollectionUtils.isEmpty(familyActionList)) {
-			if (programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_D)
-					|| programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_T)) {
-				workingStorage.setFlag(FWConstants.CHAR_N);
-				LOG.info("Skipping PceRecord because familyActionList: {}, ICI: {}, PrgmCaseType:{} and PrgmCaseSts: {}",
-						familyActionList.size(), programCaseHistoryDetails.getIci(),
-						programCaseHistoryDetails.getPrgmCaseType(), programCaseHistoryDetails.getPrgmCaseSts());
-				return null;
-			}
-			checkCaseload(programCaseHistoryDetails,pceRecord,workingStorage,programCaseSet);
-		}
-
-		List<PceRecord> pceList = new ArrayList<>();
-		for (FamilyAction famActn : familyActionList) {
-			workingStorage.setFlag(FWConstants.CHAR_N);
-
-			if (famActn.getActnTyp().equals("AP") && famActn.getFamApplType().equals(FWConstants.EMPTY) && (famActn.getBnftYr() > year
-					|| famActn.getBnftMth() > month || famActn.getBnftYr() < year || famActn.getBnftMth() < month)) {
-//				workingStorage.setFamUrowr(workingStorage.getFamUrowr() - 1);
-			} else {
-				if (workingStorage.getFamUrowr() > 1) {
-					eliminateBlank(pceRecord,workingStorage,pceList);
-				}
-
-				pceRecord.setPceAidCd(famActn.getAidCd());
-				pceRecord.setPcePrgmStsEffDt(famActn.getActnEffDt());
-				pceRecord.setPceExpdFsRsnCd(famActn.getExpdFsRsnCd());
-				pceRecord.setPceEligCd(famActn.getEligCd());
-
-				if (!famActn.getApplDt().equals(FWConstants.LOW_DATE)) {
-					pceRecord.setPceApplDt(famActn.getApplDt());
-				}
-
-				pceRecord.setPceMultClsreInd(FWConstants.BLANK);
-				pceRecord.setPceClsreRsnCd(FWConstants.BLANK);
-				pceRecord.setPceLastRecForMnth(FWConstants.CHAR_N);
-				pceRecord.setPceReinstInd(FWConstants.CHAR_N);
-				pceRecord.setPceReopnInd(FWConstants.CHAR_N);
-				pceRecord.setPceReappInd(FWConstants.CHAR_N);
-				pceRecord.setPceAprvlInd(FWConstants.CHAR_N);
-				pceRecord.setPceRedetInd(FWConstants.CHAR_N);
-				pceRecord.setPceConfrsInd(FWConstants.CHAR_N);
-				pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_N);
-				pceRecord.setPceReisntDt(FWConstants.LOW_DATE);
-				pceRecord.setPceNextRedetDt(FWConstants.LOW_DATE);
-
-				if (pceRecord.getPceInitAprvlDt().equals(FWConstants.LOW_DATE)) {
-					pceRecord.setPceInitAprvlDt(workingStorage.getInitAprvlDt());
-				}
-
-				if (famActn.getActnTyp().equals("AP") || famActn.getActnTyp().equals("DN")
-						|| famActn.getActnTyp().equals("TR")) {
-					if (famActn.getFamApplType().equals("FT")) {
-						pceRecord.setPceInitAprvlDt(famActn.getInitAprvlDt());
-					}
-
-					if (famActn.getFamApplType().equals("RC")) {
-						pceRecord.setPceRedetInd(FWConstants.CHAR_Y);
-					}
-
-					if (famActn.getFamApplType().equals("RP")) {
-						pceRecord.setPceReappInd(FWConstants.CHAR_Y);
-					}
-
-					if (famActn.getFamApplType().equals("RO")) {
-						pceRecord.setPceReopnInd(FWConstants.CHAR_Y);
-					}
-
-					if (famActn.getFamApplType().equals("RI")) {
-						pceRecord.setPceReinstInd(FWConstants.CHAR_Y);
-						pceRecord.setPceReisntDt(famActn.getActnEffDt());
-					}
-				}
-
-				if (famActn.getEligCd().equals("7")) {
-					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_P);
-					pceRecord.setPceInitAprvlDt(FWConstants.LOW_DATE);
-				} else if (famActn.getEligCd().equals("3") || famActn.getEligCd().equals("9")) {
-					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_D);
-				} else {
-					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_O);
-				}
-
-				if (famActn.getActnTyp().equals("FA")) {
-					pceRecord.setPceReappInd(FWConstants.CHAR_N);
-				}
-
-				if (famActn.getActnTyp().equals("RA")) {
-					pceRecord.setPceRedetInd(FWConstants.CHAR_Y);
-				}
-
-				if (famActn.getActnTyp().equals("AP")) {
-					pceRecord.setPceAprvlInd(FWConstants.CHAR_Y);
-					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_O);
-				}
-
-				if (famActn.getActnTyp().equals("DN")) {
-					pceRecord.setPceMultClsreInd(famActn.getMultClsreRsnInd());
-					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_D);
-					pceRecord.setPceClsreRsnCd(famActn.getActnRsnCd());
-				}
-
-				if (famActn.getActnTyp().equals("TR")) {
-					pceRecord.setPceMultClsreInd(famActn.getMultClsreRsnInd());
-					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_T);
-					pceRecord.setPceClsreRsnCd(famActn.getActnRsnCd());
-				}
-
-				if (famActn.getActnTyp().equals("RE")) {
-					if (famActn.getFamApplType().equals("RP") || famActn.getFamApplType().equals("RH")) {
-						pceRecord.setPceReappInd(FWConstants.CHAR_Y);
-					} else {
-						pceRecord.setPceReopnInd(FWConstants.CHAR_Y);
-					}
-				}
-
-				if (famActn.getActnTyp().equals("RI")) {
-					pceRecord.setPceReinstInd(FWConstants.CHAR_Y);
-					pceRecord.setPceReisntDt(famActn.getActnEffDt());
-				}
-
-				if (famActn.getBnftYr() != 0) {
-					getEligibilityDetailsS08(programCaseHistoryDetails, famActn,pceRecord,workingStorage);
-				} else {
-					pceRecord.setPceNoOfRcpnt(FWConstants.ZERO);
-					pceRecord.setPceNoOfChldRcpnt(FWConstants.ZERO);
-					pceRecord.setPceBnftAmt(BigDecimal.valueOf(0.00));
-					pceRecord.setPceEntlmAmt(BigDecimal.valueOf(0.00));
-					pceRecord.setPceBnftRdctnAmt(BigDecimal.valueOf(0.00));
-					pceRecord.setPceBnftMnth(FWConstants.ZERO);
-					pceRecord.setPceBnftYr(FWConstants.ZERO);
-					pceRecord.setPceVerNmb(FWConstants.ZERO);
-				}
-				workingStorage.setFamUrowr(workingStorage.getFamUrowr() + 1);
-			}
-			checkCaseload(programCaseHistoryDetails,pceRecord,workingStorage,programCaseSet);
-		}
-
-		getEligibilityDetails(programCaseHistoryDetails,pceRecord,workingStorage);
-		eliminateBlank(pceRecord,workingStorage,pceList);
-		return pceList;
-	}
-
-	private void checkCaseload(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage, Set<PceRecord> programCaseSet) {
-//		if (pceRecord.getPceOfcCd().equals(workingStorage.getPrevOfcCd())
-//				&& pceRecord.getPceSprvsUnit().equals(workingStorage.getPrevSprvsUnit())
-//				&& pceRecord.getPceFuncAreaCd().equals(workingStorage.getPrevFuncAreaCd())
-//				&& pceRecord.getPceWrkrType().equals(workingStorage.getPrevWrkrType())
-//				&& pceRecord.getPcePsnNmb().equals(workingStorage.getPrevPsnNmb())) {
-//			// Continue
-//		} else {
-//			workingStorage.setPrevOfcCd(pceRecord.getPceOfcCd());
-//			workingStorage.setPrevSprvsUnit(pceRecord.getPceSprvsUnit());
-//			workingStorage.setPrevFuncAreaCd(pceRecord.getPceFuncAreaCd());
-//			workingStorage.setPrevWrkrType(pceRecord.getPceWrkrType());
-//			workingStorage.setPrevPsnNmb(pceRecord.getPcePsnNmb());
-//
-//			getWorkerDetails(pceRecord,workingStorage);
-//		}
+	FileCleanupListener fileCleanupListener;
+	
+	@Override
+	public void write(List<? extends List<PceRecord>> items) throws Exception {
+		LOG.info("calling execute for before pceRecord count :: {}", items.size());
+		List<PceRecord> collect = items.stream().flatMap(List::stream).collect(Collectors.toList());
+		CommonData.getProgramCaseList().addAll(collect);
 		
-		synchronized (this) {
-			if(!programCaseSet.contains(pceRecord)) {
-				workingStorage.setPrevOfcCd(pceRecord.getPceOfcCd());
-				workingStorage.setPrevSprvsUnit(pceRecord.getPceSprvsUnit());
-				workingStorage.setPrevFuncAreaCd(pceRecord.getPceFuncAreaCd());
-				workingStorage.setPrevWrkrType(pceRecord.getPceWrkrType());
-				workingStorage.setPrevPsnNmb(pceRecord.getPcePsnNmb());
-
-				getWorkerDetails(pceRecord,workingStorage);
-				
-				programCaseSet.add(pceRecord);
+		LOG.info("calling execute for after pceRecord count :: {}", CommonData.getProgramCaseList().size());
+		
+		if(generateOutput) {
+			synchronized (CommonData.getProgramCaseList()) {
+				writer(CommonData.getProgramCaseList());
 			}
 		}
-
-		if (pceRecord.getPcePrgmCaseSts().equals(FWConstants.CHAR_O)) {
-			getRedeterminationDetails(programCaseHistoryDetails,pceRecord,workingStorage);
-			getConferenceDetails(programCaseHistoryDetails,pceRecord,workingStorage);
-		}
 	}
-
-	private void eliminateBlank(PceRecord pceRecord, WorkingStorage workingStorage, List<PceRecord> pceList) {
-		String workerId = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrId()) ? workingStorage.getWrkrId() : FWConstants.BLANK;
-		String workerName = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrNm()) ? workingStorage.getWrkrNm() : FWConstants.BLANK;
-		pceRecord.setPceWrkrId(workerId);
-		pceRecord.setPceWrkrNm(workerName);
-		if (!pceRecord.getPceCasldId().equals(FWConstants.BLANK) && !pceRecord.getPceOfcCd().equals(FWConstants.BLANK)) {
-			PceRecord record = SerializationUtils.clone(pceRecord);
-			pceList.add(record);
+	
+	private void writer(List<PceRecord> items) throws SQLException, BatchBusinessException {
+		String icis = StringUtils.join(items.stream().map(PceRecord::getPceIci).collect(Collectors.toList()), ",");
+		String fileLocation = outputFileLocation;
+		if (StatisticsConstants.TRUE.equalsIgnoreCase(appendTimestampToFile)) {
+			fileLocation += "_" + new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
 		}
+		FileSystemResource fileSystemResource = new FileSystemResource(fileLocation + fileFormat);
+		FlatFileItemWriter<String> itemWriter = new FlatFileItemWriter<>();
+		try {
+			itemWriter.setResource(fileSystemResource);
+			writeToFile(icis, items, itemWriter);
+
+			LOG.debug("Detail records written");
+		} catch (Exception ex) {
+			LOG.error("Rolling back transaction for ProgramHistory batch for -> {}", items.size());
+			String applicationMessage = String.format("Error occurred when writing records for icis %s", icis);
+			if (itemWriter != null)
+				fileCleanupListener.addWriter(itemWriter, fileSystemResource);
+			throw ExceptionUtil.batchBusinessException(BatchExceptionType.SQL_EXCEPTION, applicationMessage, null, null,
+					StatisticsConstants.PROGRAM_HISTORY_BATCH, ex);
+		}
+
 	}
-
-	private void getEligibilityDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage) {
-		String asOfDate = SystemInfoParam.getAsOfDate();
-		int year = ObjectUtils.getYear(asOfDate);
-		int month = ObjectUtils.getMonth(asOfDate);
-		pceRecord.setPceLastRecForMnth(FWConstants.CHAR_Y);
-		EligibilityVersionInfo eligibilityVersionInfo = monthlyProgramCaseHistoryExtractDao.getEligibilityVersionInfo(
-				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(), year, month, FWConstants.CHAR_Y);
-
-		if (eligibilityVersionInfo != null) {
-			pceRecord.setPceNoOfRcpnt(eligibilityVersionInfo.getEligNum());
-			pceRecord.setPceNoOfChldRcpnt(eligibilityVersionInfo.getChldNmb());
-			pceRecord.setPceBnftAmt(eligibilityVersionInfo.getTotMthlyBnftAmt());
-			pceRecord.setPceEntlmAmt(eligibilityVersionInfo.getEntlmAmt());
-			pceRecord.setPceBnftRdctnAmt(eligibilityVersionInfo.getBnftRdctnAmt());
-			pceRecord.setPceBnftMnth(month);
-			pceRecord.setPceBnftYr(year);
-			pceRecord.setPceVerNmb(eligibilityVersionInfo.getVerNmb());
-			pceRecord.setPceAidCd(workingStorage.getFileAidCd());
-			pceRecord.setPceEligCd(workingStorage.getFileEligCd());
-		} else {
-			pceRecord.setPceNoOfRcpnt(FWConstants.ZERO);
-			pceRecord.setPceNoOfChldRcpnt(FWConstants.ZERO);
-			pceRecord.setPceBnftAmt(BigDecimal.valueOf(0.00));
-			pceRecord.setPceEntlmAmt(BigDecimal.valueOf(0.00));
-			pceRecord.setPceBnftRdctnAmt(BigDecimal.valueOf(0.00));
-			pceRecord.setPceBnftMnth(FWConstants.ZERO);
-			pceRecord.setPceBnftYr(FWConstants.ZERO);
-			pceRecord.setPceVerNmb(FWConstants.ZERO);
-		}
-	}
-
-	private void getEligibilityDetailsS08(ProgramCaseHistoryDetails programCaseHistoryDetails,
-			FamilyAction familyAction, PceRecord pceRecord, WorkingStorage workingStorage) {
-		EligibilityVersionInfo eligibilityVersionInfo = monthlyProgramCaseHistoryExtractDao
-				.getEligibilityVersionInfoS08(programCaseHistoryDetails.getIci(),
-						programCaseHistoryDetails.getPrgmCaseType(), familyAction.getBnftYr(),
-						familyAction.getBnftMth(), familyAction.getVerNmb());
-
-		if (eligibilityVersionInfo != null) {
-			pceRecord.setPceNoOfRcpnt(eligibilityVersionInfo.getEligNum());
-			pceRecord.setPceNoOfChldRcpnt(eligibilityVersionInfo.getChldNmb());
-			pceRecord.setPceBnftAmt(eligibilityVersionInfo.getTotMthlyBnftAmt());
-			pceRecord.setPceEntlmAmt(eligibilityVersionInfo.getEntlmAmt());
-			pceRecord.setPceBnftRdctnAmt(eligibilityVersionInfo.getBnftRdctnAmt());
-			pceRecord.setPceBnftMnth(eligibilityVersionInfo.getBnftMth());
-			pceRecord.setPceBnftYr(eligibilityVersionInfo.getBnftYr());
-			pceRecord.setPceVerNmb(eligibilityVersionInfo.getVerNmb());
-			pceRecord.setPceAidCd(workingStorage.getFileAidCd());
-			pceRecord.setPceEligCd(workingStorage.getFileEligCd());
-		} else {
-			pceRecord.setPceNoOfRcpnt(FWConstants.ZERO);
-			pceRecord.setPceNoOfChldRcpnt(FWConstants.ZERO);
-			pceRecord.setPceBnftAmt(BigDecimal.valueOf(0.00));
-			pceRecord.setPceEntlmAmt(BigDecimal.valueOf(0.00));
-			pceRecord.setPceBnftRdctnAmt(BigDecimal.valueOf(0.00));
-			pceRecord.setPceBnftMnth(FWConstants.ZERO);
-			pceRecord.setPceBnftYr(FWConstants.ZERO);
-			pceRecord.setPceVerNmb(FWConstants.ZERO);
-		}
-	}
-
-	private void getWorkerDetails(PceRecord pceRecord, WorkingStorage workingStorage) {
-		String asOfDate = SystemInfoParam.getAsOfDate();
-		NomadsUser nomadsUser = monthlyProgramCaseHistoryExtractDao.getWorkerDetails(workingStorage.getPrevOfcCd(), "A",
-				workingStorage.getPrevSprvsUnit(), workingStorage.getPrevPsnNmb(), asOfDate);
-
-		if (nomadsUser != null) {
-			LOG.info("calling getWorkerDetails :: {}", nomadsUser.toString());
-			
-			workingStorage.setWrkrId(nomadsUser.getNomadsUsrid());
-			workingStorage.setWrkrLstNm(nomadsUser.getLstNm());
-			workingStorage.setWrkrFrstNm(nomadsUser.getFrstNm());
-			workingStorage.setWrkrNm(workingStorage.getWrkrLstNm().trim() + FWConstants.BLANK + workingStorage.getWrkrFrstNm().trim());
-		}
-
-		String workerId = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrId()) ? workingStorage.getWrkrId() : FWConstants.BLANK;
-		String workerName = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrNm()) ? workingStorage.getWrkrNm() : FWConstants.BLANK;
-		pceRecord.setPceWrkrId(workerId);
-		pceRecord.setPceWrkrNm(workerName);
-	}
-
-	private void getRedeterminationDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage) {
-		String asOfDate = SystemInfoParam.getAsOfDate();
-		int year = ObjectUtils.getYear(asOfDate);
-		int month = ObjectUtils.getMonth(asOfDate);
-		Date redeterminationDetails = monthlyProgramCaseHistoryExtractDao.getNextRedeterminationDate(
-				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType());
-
-		if (redeterminationDetails != null) {
-			pceRecord.setPceNextRedetDt(redeterminationDetails);
-		} else {
-			pceRecord.setPceNextRedetDt(DUMMY_DATE);
-		}
-
-		workingStorage.setCount(monthlyProgramCaseHistoryExtractDao.getCurrentMonthRedeterminationDetailsCount(
-				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(), year, month));
-
-		if (workingStorage.getCount() > 0) {
-			pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_Y);
-		} else {
-			pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_N);
-		}
-	}
-
-	private void getConferenceDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage) {
-		String asOfDate = SystemInfoParam.getAsOfDate();
-		int year = ObjectUtils.getYear(asOfDate);
-		int month = ObjectUtils.getMonth(asOfDate);
-		workingStorage.setCount(monthlyProgramCaseHistoryExtractDao.getWorkerCalendarDetailsCount(
-				workingStorage.getWrkrId(), programCaseHistoryDetails.getHohUpi(),
-				programCaseHistoryDetails.getPrgmCaseType(), "HC", "S", year, month));
-
-		if (workingStorage.getCount() > 0) {
-			pceRecord.setPceConfrsInd(FWConstants.CHAR_Y);
-		} else {
-			pceRecord.setPceConfrsInd(FWConstants.CHAR_N);
-		}
+	
+	private void writeToFile(String icis, List<PceRecord> detailRecordList, FlatFileItemWriter<String> itemWriter)
+			throws Exception {
+		LOG.debug("Writing detailRecord for -> {}", icis);
+		itemWriter.setLineAggregator(new PassThroughLineAggregator<String>());
+		itemWriter.open(new ExecutionContext());
+		itemWriter.afterPropertiesSet();
+		itemWriter.write(detailRecordList.stream().map(PceRecord::toString).collect(Collectors.toList()));
+		itemWriter.close();
 	}
 
 }
