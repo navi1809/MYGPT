@@ -1,384 +1,639 @@
-package gov.nv.dwss.crystalreports.statistics.programhistory.dao;
+package gov.nv.dwss.crystalreports.statistics.programhistory.partitioner;
 
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.batch.core.partition.support.Partitioner;
+import org.springframework.batch.item.ExecutionContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import gov.nv.dwss.crystalreports.statistics.programhistory.dao.ProgramHistoryExtractDao;
+import gov.nv.dwss.fw.batch.constants.FWConstants;
+import gov.nv.dwss.fw.batch.context.SystemInfoParam;
+import gov.nv.dwss.fw.batch.util.ObjectUtils;
+
+@Component
+public class ProgramHistoryPartitioner implements Partitioner {
+	
+	private static final Logger LOG = LogManager.getLogger(ProgramHistoryPartitioner.class);
+	
+	@Autowired
+	ProgramHistoryExtractDao monthlyProgramCaseHistoryExtractDao;
+	
+	@Value("${ofc-list}")
+	String ofcList;
+	
+	@Override
+	public Map<String, ExecutionContext> partition(int gridSize) {
+
+		Map<String, ExecutionContext> result = new HashMap<>();
+		int lines = 0;
+
+		List<String> offices;
+		LOG.info("Before - ofcList: {}", ofcList);
+		if (!ObjectUtils.isNullOrEmptyOrBlank(ofcList)) {
+			String ofcCds = Arrays.stream(ofcList.split(",")).map(e -> "'" + e + "'").collect(Collectors.joining(","));
+			offices = monthlyProgramCaseHistoryExtractDao.getOfficeDetails(ofcCds);
+		} else {
+			offices = this.monthlyProgramCaseHistoryExtractDao.getOfficeDetails();
+		}
+		String ofcCds = offices.stream().map(e -> "'" + e + "'").collect(Collectors.joining(","));
+
+		Integer programCaseHistoryDetails =
+				monthlyProgramCaseHistoryExtractDao.getProgramCaseHistoryDetailsForAllOfcCdCounts(ofcCds, SystemInfoParam.getAsOfDate());
+		LOG.info("Fetched ProgramCaseHistoryDetails counts for officeCodes :: {} and size: {}", ofcCds, programCaseHistoryDetails);
+
+		if (programCaseHistoryDetails != null) {
+			lines = programCaseHistoryDetails;
+		}
+
+		if (lines == 0) {
+			return result;
+		}
+
+		if (gridSize <= 0 || lines < gridSize) {
+			gridSize = FWConstants.ONE;
+		}
+
+		int range = lines / gridSize;
+		int remains = lines % gridSize;
+		int fromLine = 0;
+		int toLine = range;
+		for (int i = 1; i <= gridSize; i++) {
+			if (i == gridSize) {
+				toLine += remains;
+			}
+			ExecutionContext value = new ExecutionContext();
+			value.putInt("minValue", fromLine);
+			value.putInt("maxValue", toLine);
+			value.putInt("totalLines", lines);
+			fromLine = toLine;
+			toLine += range;
+			result.put("partition" + i, value);
+		}
+		return result;
+	}
+
+}
+
+-------------
+package gov.nv.dwss.crystalreports.statistics.programhistory.processor;
+
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+import org.springframework.batch.item.ItemProcessor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import gov.nv.dwss.crystalreports.statistics.common.model.PceRecord;
+import gov.nv.dwss.crystalreports.statistics.programhistory.model.ProgramCaseHistoryDetails;
+import gov.nv.dwss.crystalreports.statistics.programhistory.model.WorkingStorage;
+import gov.nv.dwss.crystalreports.statistics.programhistory.service.ProgramHistoryService;
+import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
+
+@Component
+public class ProgramHistoryProcessor extends AbstractBatchStepComponent implements ItemProcessor<ProgramCaseHistoryDetails, List<PceRecord>>{
+
+	@Autowired
+	ProgramHistoryService service;
+	
+	Set<PceRecord> programCaseSet = ConcurrentHashMap.newKeySet();
+	
+	@Override
+	public List<PceRecord> process(ProgramCaseHistoryDetails item) throws Exception {
+		WorkingStorage workingStorage = new WorkingStorage();
+		PceRecord pceRecord = this.service.buildPceRecord(item,workingStorage);
+		return this.service.getFamActionDetails(item,pceRecord,workingStorage,programCaseSet);
+	}
+
+}
+--------------------
+package gov.nv.dwss.crystalreports.statistics.programhistory.reader;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.batch.item.ItemReader;
+import org.springframework.batch.item.NonTransientResourceException;
+import org.springframework.batch.item.ParseException;
+import org.springframework.batch.item.UnexpectedInputException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+
+import gov.nv.dwss.crystalreports.statistics.programhistory.dao.ProgramHistoryExtractDao;
+import gov.nv.dwss.crystalreports.statistics.programhistory.model.ProgramCaseHistoryDetails;
+import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
+import gov.nv.dwss.fw.batch.context.SystemInfoParam;
+import gov.nv.dwss.fw.batch.util.ObjectUtils;
+
+public class ProgramHistoryReader extends AbstractBatchStepComponent implements ItemReader<ProgramCaseHistoryDetails> {
+
+	private static final Logger LOG = LogManager.getLogger(ProgramHistoryReader.class);
+
+	@Autowired
+	ProgramHistoryExtractDao monthlyProgramCaseHistoryExtractDao;
+
+	@Value("${ofc-list}")
+	String ofcList;
+	
+	Iterator<ProgramCaseHistoryDetails> iterator;
+	
+	private Map<String, Object> map = new HashMap<>();
+
+	public ProgramHistoryReader(Long partition, Long minValue, Long maxValue) {
+		map.put("partition", partition);
+		map.put("maxValue", maxValue);
+		map.put("minValue", minValue);
+	}
+
+	@Override
+	public ProgramCaseHistoryDetails read()
+			throws Exception, UnexpectedInputException, ParseException, NonTransientResourceException {
+		if(iterator == null) {
+			List<String> offices = new ArrayList<>();
+			LOG.info("Before - ofcList: {}", ofcList);
+			if (!ObjectUtils.isNullOrEmptyOrBlank(ofcList)) {
+				String ofcCds = Arrays.stream(ofcList.split(",")).map(e -> "'" + e + "'").collect(Collectors.joining(","));
+				offices = this.monthlyProgramCaseHistoryExtractDao.getOfficeDetails(ofcCds);
+			} else {
+				offices = this.monthlyProgramCaseHistoryExtractDao.getOfficeDetails();
+			}
+
+			String ofcCds = offices.stream().map(e -> "'" + e + "'").collect(Collectors.joining(","));
+
+			Long minVal = (Long) map.get("minValue");
+			Long maxVal = (Long) map.get("maxValue");
+			
+			if(minVal==null || maxVal == null){
+				return null;
+			}
+			
+			List<ProgramCaseHistoryDetails> programCaseHistoryDetails = this.monthlyProgramCaseHistoryExtractDao
+					.getProgramCaseHistoryDetailsForAllOfcCds(ofcCds, SystemInfoParam.getAsOfDate(), minVal + 1, maxVal);
+			LOG.info("Fetching ProgramCaseHistoryDetails for officeCodes size: {} and Range minVal:{}, maxVal:{}",
+					programCaseHistoryDetails.size(), minVal + 1, maxVal);
+			
+			iterator = programCaseHistoryDetails.iterator();
+		}
+		
+		if (iterator.hasNext()) {
+			return iterator.next();
+		} else {
+			iterator = null; // reset iterator for next job
+			return null;
+		}
+	}
+
+}
+
+---------------------
+
+package gov.nv.dwss.crystalreports.statistics.programhistory.service;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 
+import org.apache.commons.lang3.SerializationUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.stereotype.Repository;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
-import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
+import gov.nv.dwss.crystalreports.statistics.common.model.PceRecord;
+import gov.nv.dwss.crystalreports.statistics.programhistory.dao.ProgramHistoryExtractDao;
 import gov.nv.dwss.crystalreports.statistics.programhistory.model.EligibilityVersionInfo;
 import gov.nv.dwss.crystalreports.statistics.programhistory.model.FamilyAction;
 import gov.nv.dwss.crystalreports.statistics.programhistory.model.NomadsUser;
 import gov.nv.dwss.crystalreports.statistics.programhistory.model.ProgramCaseHistoryDetails;
-import gov.nv.dwss.domain.dao.sor.extended.ExtendedSorDao;
+import gov.nv.dwss.crystalreports.statistics.programhistory.model.WorkingStorage;
+import gov.nv.dwss.fw.batch.common.AbstractSorDataService;
+import gov.nv.dwss.fw.batch.constants.FWConstants;
 import gov.nv.dwss.fw.batch.context.SystemInfoParam;
 import gov.nv.dwss.fw.batch.util.ObjectUtils;
 
-@Repository
-public class ProgramHistoryExtractDao extends ExtendedSorDao {
+import static gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants.DUMMY_DATE;
+
+@Service
+public class ProgramHistoryService extends AbstractSorDataService {
+
+	private static final Logger LOG = LogManager.getLogger(ProgramHistoryService.class);
 
 	@Autowired
-    @Qualifier("nswdJdbcTemplate")
-    protected JdbcTemplate nswdJdbcTemplate;
+	ProgramHistoryExtractDao monthlyProgramCaseHistoryExtractDao;
 	
-    private static final String GET_OFFICE_DETAILS = "SELECT OFC_CD FROM ##db-schema-name##.TWNOFFICE WHERE OFC_TYP = 'A' AND OFC_CD BETWEEN 'AA' AND '01' FOR FETCH ONLY WITH UR";
-    private static final String GET_OFFICE_DETAILS_WITH_OFC = "SELECT OFC_CD FROM ##db-schema-name##.TWNOFFICE WHERE OFC_TYP = 'A' AND OFC_CD IN (##OFC-CD##) FOR FETCH ONLY WITH UR";
-    private static final String GET_PROGRAM_CASE_HISTORY_DETAILS_FOR_ALL_OFFICES = "SELECT * FROM (SELECT T1.OFC_CD, T1.SPRVS_UNIT, T1.PSN_NMB, T1.FUNC_AREA_CD, T1.WRKR_TYPE, T1.CASLD_ID, T2.CASE_STS, T2.MTHLY_RPTR_IND, T2.HOH_UPI, T2.FS_SUFX, T2.HMLS_IND, " + 
-    		"T3.ICI, T3.PRGM_CASE_TYPE, T3.STS_EFF_DT, T3.PRGM_CASE_STS, T3.EXPD_FS_RSN_CD, T3.INIT_APRVL_DT, T3.APPL_DT, T3.AID_CD, T3.ELIG_CD, T3.CLSRE_RSN_CD, " + 
-    		"T3.MULT_CLSRE_RSN_IND, T3.SYS_CLSRE_DNL_RSN,ROW_NUMBER() OVER (ORDER BY T1.OFC_CD ASC, T1.SPRVS_UNIT ASC, T1.FUNC_AREA_CD ASC, T1.WRKR_TYPE ASC, T1.PSN_NMB ASC, " + 
-    		"T3.ICI ASC, T3.PRGM_CASE_TYPE ASC, T3.AID_CD) AS RN FROM ##db-schema-name##.TWNFAM_CASELD_CASE T1, ##db-schema-name##.TWNFAM_CASE_HSTRY T2, " + 
-    		"##db-schema-name##.TWNPRGM_CASE_HSTRY T3 WHERE T1.OFC_CD IN (##OFC-CD##) " + 
-    		"AND T3.PRD_BEG_DT <= ? AND T3.PRD_END_DT >= ? " + 
-    		"AND T3.PRGM_CASE_TYPE IN ('AF', 'FS', 'MA', 'TC', 'TL', 'TN', 'TP', 'SG', 'MC', 'AO') AND T2.PRD_BEG_DT <= ? AND T2.PRD_END_DT >= ? " + 
-    		"AND T2.ICI = T3.ICI AND T1.ICI = T3.ICI ORDER BY T1.OFC_CD ASC, T1.SPRVS_UNIT ASC, T1.FUNC_AREA_CD ASC, T1.WRKR_TYPE ASC, T1.PSN_NMB ASC, " + 
-    		"T3.ICI ASC, T3.PRGM_CASE_TYPE ASC, T3.AID_CD) FINAL_QUERY WHERE RN BETWEEN ? AND ?  FOR FETCH ONLY WITH UR";
-    private static final String GET_WORKER_CALENDAR_DETAILS_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNWRKR_CALNDR WHERE UPI = ? AND PRGM_CASE_TYPE = ? AND YEAR(APMNT_DT) = ? AND MONTH(APMNT_DT) = ? AND ACTVY_TYPE_CD = ? AND APMNT_STS = ? AND NOMADS_USRID = ? FOR FETCH ONLY WITH UR";
-    private static final String GET_ELIGIBILITY_VERSION_INFO = "SELECT ELIG_NUM, CHD_NMB, BNFT_AMT, ENTLM_AMT, BNFT_RDCTN_AMT, VER_NMB, TOT_MTHLY_BNFT_AMT FROM ##db-schema-name##.TWNELIG_VERSION WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND BNFT_YR = ? AND BNFT_MTH = ? AND LST_POSTD_VER_IND = ? FOR FETCH ONLY WITH UR";
-    private static final String GET_ELIGIBILITY_VERSION_INFO_S08 = "SELECT ELIG_NUM, CHD_NMB, BNFT_AMT, ENTLM_AMT, BNFT_RDCTN_AMT, BNFT_YR, BNFT_MTH, VER_NMB, TOT_MTHLY_BNFT_AMT FROM ##db-schema-name##.TWNELIG_VERSION WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND BNFT_YR = ? AND BNFT_MTH = ? AND VER_NMB = ? FOR FETCH ONLY WITH UR";
-    private static final String GET_FAMILY_ACTION_DETAILS_FOR_APPLICATION_DATE = "SELECT ACTN_TS, ACTN_TYP FROM ##db-schema-name##.TWNFAM_ACTNS WHERE ICI = ? AND PRGM_TYP = ? AND ACTN_TYP IN ('FA','RA','RE') AND ACTN_TS IN (SELECT MAX(ACTN_TS) FROM ##db-schema-name##.TWNFAM_ACTNS WHERE ICI = ? AND PRGM_TYP = ? AND ACTN_TYP IN ('FA','RA','RE')) FOR FETCH ONLY WITH UR";
-    private static final String GET_FAMILY_ACTION_DETAILS = "SELECT ACTN_TYP, ACTN_TS, AID_CD, ACTN_EFF_DT, INIT_APRVL_DT, APPL_DT, EXPD_FS_RSN_CD, ELIG_CD, ACTN_RSN_CD, MULT_CLSRE_RSN_IND, BNFT_YR, BNFT_MTH, VER_NMB, FAM_APPL_TYPE FROM ##db-schema-name##.TWNFAM_ACTNS WHERE ICI = ? AND PRGM_TYP = ? AND YEAR(ACTN_TS) = ? AND MONTH(ACTN_TS) = ? ORDER BY ACTN_TS DESC FOR FETCH ONLY WITH UR";
-    private static final String GET_NEXT_REDETERMINATION_DATE = "SELECT MAX(NEXT_REDET_DT) as NEXT_REDET_DT FROM ##db-schema-name##.TWNREDET_RCRT_DTLS WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND (REDET_CMPLT_DT IS NULL OR REDET_CMPLT_DT = '9999-12-31' OR REDET_CMPLT_DT = '0001-01-01') FOR FETCH ONLY WITH UR";
-    private static final String GET_CURRENT_MONTH_REDETERMINATION_DETAILS_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNREDET_RCRT_DTLS WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND YEAR(REDET_CMPLT_DT) = ? AND MONTH(REDET_CMPLT_DT) = ? FOR FETCH ONLY WITH UR";
-    private static final String GET_WORKER_DETAILS = "SELECT T1.NOMADS_USRID, T1.FRST_NM, T1.LST_NM FROM ##db-schema-name##.TWNNOMADS_USER T1, ##db-schema-name##.TWNSUP_UNT_POS_HST T2 WHERE T2.OFC_CD = ? AND T2.PRGM_OFC_TYPE = ? AND T2.SPRVS_UNIT = ? AND T2.PSN_NMB = ? AND T2.NOMADS_USRID = T1.NOMADS_USRID AND T2.ASMNT_BEG_DT <= ? AND T2.ASMNT_END_DT >= ? FOR FETCH ONLY WITH UR";
+	@Autowired
+	@Qualifier("threadPoolFWTaskExecutor")
+	protected TaskExecutor fwTaskExecutor;
 
-    private static final String DELETE_PROGRAM_HISTORY_CASES = "DELETE FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ?";
-    
-    private static final String GET_PROGRAM_CASE_HISTORY_DETAILS_FOR_ALL_OFFICE_COUNTS = "SELECT COUNT(*) FROM ##db-schema-name##.TWNFAM_CASELD_CASE T1, ##db-schema-name##.TWNFAM_CASE_HSTRY T2, "
-    		+ "##db-schema-name##.TWNPRGM_CASE_HSTRY T3 WHERE T1.OFC_CD IN (##OFC-CD##) AND T3.PRD_BEG_DT <= ? AND T3.PRD_END_DT >= ? AND "
-    		+ "T3.PRGM_CASE_TYPE IN ('AF', 'FS', 'MA', 'TC', 'TL', 'TN', 'TP', 'SG', 'MC', 'AO') AND T2.PRD_BEG_DT <= ? AND T2.PRD_END_DT >= ? "
-    		+ "AND T2.ICI = T3.ICI AND T1.ICI = T3.ICI FOR FETCH ONLY WITH UR";
-    
-    public List<String> getOfficeDetails() {
-        return getJdbcTemplate().queryForList(getSql(GET_OFFICE_DETAILS), String.class);
-    }
-    
-    public List<String> getOfficeDetails(String ofcCds) {
-    	return getJdbcTemplate().queryForList(getSql(GET_OFFICE_DETAILS_WITH_OFC.replace("##OFC-CD##", ofcCds)), String.class);
-    }
+	public PceRecord buildPceRecord(ProgramCaseHistoryDetails programCaseHistoryDetails, WorkingStorage workingStorage) {
+		PceRecord pceRecord = new PceRecord(); 
+		pceRecord.setPceLastRecForMnth(FWConstants.CHAR_N);
+		pceRecord.setPceReinstInd(FWConstants.CHAR_N);
+		pceRecord.setPceReopnInd(FWConstants.CHAR_N);
+		pceRecord.setPceReappInd(FWConstants.CHAR_N);
+		pceRecord.setPceAprvlInd(FWConstants.CHAR_N);
+		pceRecord.setPceRedetInd(FWConstants.CHAR_N);
+		pceRecord.setPceConfrsInd(FWConstants.CHAR_N);
+		pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_N);
 
-    public int getWorkerCalendarDetailsCount(String nomadsUsrid, int upi, String prgmCaseType, String actvyTypeCd, String apmntSts, int year, int month) {
-        return this.getJdbcTemplate().queryForObject(getSql(GET_WORKER_CALENDAR_DETAILS_COUNT), Integer.class, upi, prgmCaseType, year, month, actvyTypeCd, apmntSts, nomadsUsrid);
-    }
+		workingStorage.setFileAidCd(FWConstants.BLANK);
+		workingStorage.setFileEligCd(FWConstants.BLANK);
 
-    public EligibilityVersionInfo getEligibilityVersionInfo(int ici, String prgmCaseType, int bnftYr, int bnftMth, String lstPostdVerInd) {
-    	List<EligibilityVersionInfo> list = getJdbcTemplate().query(getSql(GET_ELIGIBILITY_VERSION_INFO), eligibilityVersionInfoRowMapper, ici, prgmCaseType, bnftYr, bnftMth, lstPostdVerInd);
-    	if(list != null && !list.isEmpty()) {
-    		return list.get(0);
-    	}
-    	return null;
-    }
+		pceRecord.setPceReisntDt(FWConstants.LOW_DATE);
+		pceRecord.setPceNextRedetDt(FWConstants.LOW_DATE);
 
-    public EligibilityVersionInfo getEligibilityVersionInfoS08(int ici, String prgmCaseType, int bnftYr, int bnftMth, int verNmb) {
-    	List<EligibilityVersionInfo> list = getJdbcTemplate().query(getSql(GET_ELIGIBILITY_VERSION_INFO_S08), eligibilityVersionInfoRowMapperS08, ici, prgmCaseType, bnftYr, bnftMth, verNmb);
-    	if(list != null && !list.isEmpty()) {
-    		return list.get(0);
-    	}
-    	return null;
-    }
+		pceRecord.setPceIci(programCaseHistoryDetails.getIci());
+		pceRecord.setPcePrgmCaseType(programCaseHistoryDetails.getPrgmCaseType());
+		pceRecord.setPceAidCd(programCaseHistoryDetails.getAidCd());
+		workingStorage.setFileAidCd(programCaseHistoryDetails.getAidCd());
+		pceRecord.setPcePrgmCaseSts(programCaseHistoryDetails.getPrgmCaseSts());
+		pceRecord.setPcePrgmStsEffDt(programCaseHistoryDetails.getStsEffDt());
+		pceRecord.setPceInitAprvlDt(programCaseHistoryDetails.getInitAprvlDt());
+		workingStorage.setInitAprvlDt(programCaseHistoryDetails.getInitAprvlDt());
+		pceRecord.setPceApplDt(programCaseHistoryDetails.getApplDt());
 
-    public FamilyAction getFamilyActionDetailsForApplicationDate(int ici, String prgmType) {
-    	List<FamilyAction> familyActionList = getJdbcTemplate().query(getSql(GET_FAMILY_ACTION_DETAILS_FOR_APPLICATION_DATE), famActionApplDateRowMapper, ici, prgmType, ici, prgmType);
-    	if (!familyActionList.isEmpty()) {
-            return familyActionList.get(0);
-        }
-    	return null;
-    }
+		if (programCaseHistoryDetails.getPrgmCaseType().equals("MA")
+				&& (programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_D)
+						|| programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_T))) {
+			pceRecord.setPceClsreRsnCd(programCaseHistoryDetails.getClsreRsnCd());
+		} else {
+			pceRecord.setPceClsreRsnCd(programCaseHistoryDetails.getSysClsreDnlRsn());
+		}
 
-    public List<FamilyAction> getFamilyActionDetails(int ici, String prgmType, int year, int month) {
-        try {
-        	return getJdbcTemplate().query(getSql(GET_FAMILY_ACTION_DETAILS), familyActionRowMapper, ici, prgmType, year, month);
-        } catch (Exception e) {
-            throw e;
-        }
-    }
-    
-    public Date getNextRedeterminationDate(int ici, String prgmCaseType) {
-    	return getJdbcTemplate().queryForObject(getSql(GET_NEXT_REDETERMINATION_DATE), redeterminationDetailsRowMapper, ici, prgmCaseType);
-    }
+		pceRecord.setPceExpdFsRsnCd(programCaseHistoryDetails.getExpdFsRsnCd());
+		pceRecord.setPceEligCd(programCaseHistoryDetails.getEligCd());
+		workingStorage.setFileEligCd(programCaseHistoryDetails.getEligCd());
 
-    public int getCurrentMonthRedeterminationDetailsCount(int ici, String prgmCaseType, int year, int month) {
-        return getJdbcTemplate().queryForObject(getSql(GET_CURRENT_MONTH_REDETERMINATION_DETAILS_COUNT), Integer.class, ici, prgmCaseType, year, month);
-    }
+		pceRecord.setPceHohUpi(programCaseHistoryDetails.getHohUpi());
+		pceRecord.setPceAssistCd(programCaseHistoryDetails.getFsSufx());
+		pceRecord.setPceCaseSts(programCaseHistoryDetails.getCaseSts());
+		pceRecord.setPceMthlyRptrInd(programCaseHistoryDetails.getMthlyRptrInd());
+		pceRecord.setPceHmlsInd(programCaseHistoryDetails.getHmlsInd());
 
-    public NomadsUser getWorkerDetails(String ofcCd, String prgmOfcType, String sprvsUnit, String psnNmb, String asOfDate) {
-    	List<NomadsUser> list = getJdbcTemplate().query(getSql(GET_WORKER_DETAILS), nomadsUserRowMapper, ofcCd, prgmOfcType, sprvsUnit, psnNmb, asOfDate, asOfDate);
-    	if(list != null && !list.isEmpty()) {
-    		return list.get(0);
-    	}
-    	return null;
-    }
-
-    private final RowMapper<ProgramCaseHistoryDetails> programCaseHistoryDetailsRowMapper = (rs, rowNum) -> {
-        ProgramCaseHistoryDetails details = new ProgramCaseHistoryDetails();
-		details.setOfcCd(rs.getString("OFC_CD"));
-		details.setSprvsUnit(rs.getString("SPRVS_UNIT"));
-		details.setPsnNmb(rs.getString("PSN_NMB"));
-		details.setFuncAreaCd(rs.getString("FUNC_AREA_CD"));
-		details.setWrkrType(rs.getString("WRKR_TYPE"));
-		details.setCasldId(rs.getString("CASLD_ID"));
-		details.setCaseSts(rs.getString("CASE_STS"));
-		details.setMthlyRptrInd(rs.getString("MTHLY_RPTR_IND"));
-		details.setHohUpi(rs.getInt("HOH_UPI"));
-		details.setFsSufx(rs.getString("FS_SUFX"));
-		details.setHmlsInd(rs.getString("HMLS_IND"));
-		details.setIci(rs.getInt("ICI"));
-		details.setPrgmCaseType(rs.getString("PRGM_CASE_TYPE"));
-		details.setStsEffDt(ObjectUtils.getUtilDate(rs.getDate("STS_EFF_DT")));
-		details.setPrgmCaseSts(rs.getString("PRGM_CASE_STS"));
-		details.setExpdFsRsnCd(rs.getString("EXPD_FS_RSN_CD"));
-		details.setInitAprvlDt(ObjectUtils.getUtilDate(rs.getDate("INIT_APRVL_DT")));
-		details.setApplDt(ObjectUtils.getUtilDate(rs.getDate("APPL_DT")));
-		details.setAidCd(rs.getString("AID_CD"));
-		details.setEligCd(rs.getString("ELIG_CD"));
-		details.setClsreRsnCd(rs.getString("CLSRE_RSN_CD"));
-		details.setMultClsreRsnInd(rs.getString("MULT_CLSRE_RSN_IND"));
-		details.setSysClsreDnlRsn(rs.getString("SYS_CLSRE_DNL_RSN"));
-        return details;
-    };
-
-    private final RowMapper<EligibilityVersionInfo> eligibilityVersionInfoRowMapper = (rs, rowNum) -> {
-        EligibilityVersionInfo info = new EligibilityVersionInfo();
-        info.setEligNum(rs.getInt("ELIG_NUM"));
-        info.setChldNmb(rs.getInt("CHD_NMB"));
-        info.setBnftAmt(rs.getBigDecimal("BNFT_AMT"));
-        info.setEntlmAmt(rs.getBigDecimal("ENTLM_AMT"));
-        info.setBnftRdctnAmt(rs.getBigDecimal("BNFT_RDCTN_AMT"));
-        info.setVerNmb(rs.getInt(StatisticsConstants.COL_VER_NMB));
-        info.setTotMthlyBnftAmt(rs.getBigDecimal("TOT_MTHLY_BNFT_AMT"));
-        return info;
-    };
-    
-    private final RowMapper<EligibilityVersionInfo> eligibilityVersionInfoRowMapperS08 = (rs, rowNum) -> {
-        EligibilityVersionInfo info = new EligibilityVersionInfo();
-        info.setEligNum(rs.getInt("ELIG_NUM"));
-        info.setChldNmb(rs.getInt("CHD_NMB"));
-        info.setBnftAmt(rs.getBigDecimal("BNFT_AMT"));
-        info.setEntlmAmt(rs.getBigDecimal("ENTLM_AMT"));
-        info.setBnftRdctnAmt(rs.getBigDecimal("BNFT_RDCTN_AMT"));
-        info.setVerNmb(rs.getInt(StatisticsConstants.COL_VER_NMB));
-        info.setTotMthlyBnftAmt(rs.getBigDecimal("TOT_MTHLY_BNFT_AMT"));
-        info.setBnftYr(rs.getInt("BNFT_YR"));
-        info.setBnftMth(rs.getInt("BNFT_MTH"));
-        return info;
-    };
-
-    private final RowMapper<FamilyAction> famActionApplDateRowMapper = (rs, rowNum) -> {
-        FamilyAction action = new FamilyAction();
-        action.setActnTyp(rs.getString("ACTN_TYP"));
-        action.setActnTs(rs.getTimestamp("ACTN_TS"));
-        return action;
-    };
-    
-    private final RowMapper<FamilyAction> familyActionRowMapper = (rs, rowNum) -> {
-        FamilyAction action = new FamilyAction();
-        action.setActnTyp(rs.getString("ACTN_TYP"));
-        action.setActnTs(rs.getTimestamp("ACTN_TS"));
-        action.setAidCd(rs.getString("AID_CD"));
-        action.setActnEffDt(ObjectUtils.getUtilDate(rs.getDate("ACTN_EFF_DT")));
-        action.setInitAprvlDt(ObjectUtils.getUtilDate(rs.getDate("INIT_APRVL_DT")));
-        action.setApplDt(ObjectUtils.getUtilDate(rs.getDate("APPL_DT")));
-        action.setExpdFsRsnCd(rs.getString("EXPD_FS_RSN_CD"));
-        action.setEligCd(rs.getString("ELIG_CD"));
-        action.setActnRsnCd(rs.getString("ACTN_RSN_CD"));
-        action.setMultClsreRsnInd(rs.getString("MULT_CLSRE_RSN_IND"));
-        action.setBnftYr(rs.getInt("BNFT_YR"));
-        action.setBnftMth(rs.getInt("BNFT_MTH"));
-        action.setVerNmb(rs.getInt(StatisticsConstants.COL_VER_NMB));
-        action.setFamApplType(rs.getString("FAM_APPL_TYPE").trim());
-        return action;
-    };
-
-    private final RowMapper<Date> redeterminationDetailsRowMapper = (rs, rowNum) -> {
-        if(rs.getDate("NEXT_REDET_DT")!=null){
-            return ObjectUtils.getUtilDate(rs.getDate("NEXT_REDET_DT"));
-        }
-		return null;
-    };
-
-    private final RowMapper<NomadsUser> nomadsUserRowMapper = (rs, rowNum) -> {
-        NomadsUser user = new NomadsUser();
-        user.setNomadsUsrid(rs.getString("NOMADS_USRID"));
-        user.setFrstNm(rs.getString("FRST_NM"));
-        user.setLstNm(rs.getString("LST_NM"));
-        return user;
-    };
-
-	public List<ProgramCaseHistoryDetails> getProgramCaseHistoryDetailsForAllOfcCds(String ofcCds, String lastDayOfMonth, Long minVal, Long maxVal) {
-		return this.getJdbcTemplate().query(
-				getSql(GET_PROGRAM_CASE_HISTORY_DETAILS_FOR_ALL_OFFICES.replace("##OFC-CD##", ofcCds)),
-				programCaseHistoryDetailsRowMapper, lastDayOfMonth, lastDayOfMonth, lastDayOfMonth, lastDayOfMonth,
-				minVal, maxVal);
+		pceRecord.setPceOfcCd(programCaseHistoryDetails.getOfcCd());
+		pceRecord.setPceSprvsUnit(programCaseHistoryDetails.getSprvsUnit());
+		pceRecord.setPceFuncAreaCd(programCaseHistoryDetails.getFuncAreaCd());
+		pceRecord.setPceWrkrType(programCaseHistoryDetails.getWrkrType());
+		pceRecord.setPcePsnNmb(programCaseHistoryDetails.getPsnNmb());
+		pceRecord.setPceCasldId(programCaseHistoryDetails.getCasldId());
+		return pceRecord;
 	}
 
-	public void deleteProgramHistoryCases() {
-		nswdJdbcTemplate.update(getSql(DELETE_PROGRAM_HISTORY_CASES),SystemInfoParam.getAsOfDate());
+	public List<PceRecord> getFamActionDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage, Set<PceRecord> programCaseSet) {
+//		ARX04P9-GET-AP-DT()
+		LOG.info("calling getFamilyActionDetailsForApplicationDate of ICI {} -- PrgmCaseType {} -- PrgmCaseSts {}",
+				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(),programCaseHistoryDetails.getPrgmCaseSts());
+		FamilyAction familyActions = monthlyProgramCaseHistoryExtractDao.getFamilyActionDetailsForApplicationDate(
+				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType());
+
+		workingStorage.setActApplDtTs(familyActions != null ? familyActions.getActnTs().toLocalDateTime().toLocalDate() : null);
+		pceRecord.setActnType(familyActions != null ? familyActions.getActnTyp() : null);
+		pceRecord.setPceActApplDt(workingStorage.getActApplDtTs());
+
+		workingStorage.setFlag(FWConstants.CHAR_Y);
+		workingStorage.setFamUrowr(FWConstants.ONE);
+
+		String asOfDate = SystemInfoParam.getAsOfDate();
+		int year = ObjectUtils.getYear(asOfDate);
+		int month = ObjectUtils.getMonth(asOfDate);
+//        ARX04P9-FAC-READ()
+		List<FamilyAction> familyActionList = monthlyProgramCaseHistoryExtractDao.getFamilyActionDetails(
+				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(), year, month);
+
+		LOG.info("calling getFamilyActionDetails of ICI :: {} && PrgmCaseType {} & Count :: {}",
+				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(),
+				familyActionList.size());
+
+		if (CollectionUtils.isEmpty(familyActionList)) {
+			if (programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_D)
+					|| programCaseHistoryDetails.getPrgmCaseSts().equals(FWConstants.CHAR_T)) {
+				workingStorage.setFlag(FWConstants.CHAR_N);
+				LOG.info("Skipping PceRecord because familyActionList: {}, ICI: {}, PrgmCaseType:{} and PrgmCaseSts: {}",
+						familyActionList.size(), programCaseHistoryDetails.getIci(),
+						programCaseHistoryDetails.getPrgmCaseType(), programCaseHistoryDetails.getPrgmCaseSts());
+				return null;
+			}
+			checkCaseload(programCaseHistoryDetails,pceRecord,workingStorage,programCaseSet);
+		}
+
+		List<PceRecord> pceList = new ArrayList<>();
+		for (FamilyAction famActn : familyActionList) {
+			workingStorage.setFlag(FWConstants.CHAR_N);
+
+			if (famActn.getActnTyp().equals("AP") && famActn.getFamApplType().equals(FWConstants.EMPTY) && (famActn.getBnftYr() > year
+					|| famActn.getBnftMth() > month || famActn.getBnftYr() < year || famActn.getBnftMth() < month)) {
+//				workingStorage.setFamUrowr(workingStorage.getFamUrowr() - 1);
+			} else {
+				if (workingStorage.getFamUrowr() > 1) {
+					eliminateBlank(pceRecord,workingStorage,pceList);
+				}
+
+				pceRecord.setPceAidCd(famActn.getAidCd());
+				pceRecord.setPcePrgmStsEffDt(famActn.getActnEffDt());
+				pceRecord.setPceExpdFsRsnCd(famActn.getExpdFsRsnCd());
+				pceRecord.setPceEligCd(famActn.getEligCd());
+
+				if (!famActn.getApplDt().equals(FWConstants.LOW_DATE)) {
+					pceRecord.setPceApplDt(famActn.getApplDt());
+				}
+
+				pceRecord.setPceMultClsreInd(FWConstants.BLANK);
+				pceRecord.setPceClsreRsnCd(FWConstants.BLANK);
+				pceRecord.setPceLastRecForMnth(FWConstants.CHAR_N);
+				pceRecord.setPceReinstInd(FWConstants.CHAR_N);
+				pceRecord.setPceReopnInd(FWConstants.CHAR_N);
+				pceRecord.setPceReappInd(FWConstants.CHAR_N);
+				pceRecord.setPceAprvlInd(FWConstants.CHAR_N);
+				pceRecord.setPceRedetInd(FWConstants.CHAR_N);
+				pceRecord.setPceConfrsInd(FWConstants.CHAR_N);
+				pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_N);
+				pceRecord.setPceReisntDt(FWConstants.LOW_DATE);
+				pceRecord.setPceNextRedetDt(FWConstants.LOW_DATE);
+
+				if (pceRecord.getPceInitAprvlDt().equals(FWConstants.LOW_DATE)) {
+					pceRecord.setPceInitAprvlDt(workingStorage.getInitAprvlDt());
+				}
+
+				if (famActn.getActnTyp().equals("AP") || famActn.getActnTyp().equals("DN")
+						|| famActn.getActnTyp().equals("TR")) {
+					if (famActn.getFamApplType().equals("FT")) {
+						pceRecord.setPceInitAprvlDt(famActn.getInitAprvlDt());
+					}
+
+					if (famActn.getFamApplType().equals("RC")) {
+						pceRecord.setPceRedetInd(FWConstants.CHAR_Y);
+					}
+
+					if (famActn.getFamApplType().equals("RP")) {
+						pceRecord.setPceReappInd(FWConstants.CHAR_Y);
+					}
+
+					if (famActn.getFamApplType().equals("RO")) {
+						pceRecord.setPceReopnInd(FWConstants.CHAR_Y);
+					}
+
+					if (famActn.getFamApplType().equals("RI")) {
+						pceRecord.setPceReinstInd(FWConstants.CHAR_Y);
+						pceRecord.setPceReisntDt(famActn.getActnEffDt());
+					}
+				}
+
+				if (famActn.getEligCd().equals("7")) {
+					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_P);
+					pceRecord.setPceInitAprvlDt(FWConstants.LOW_DATE);
+				} else if (famActn.getEligCd().equals("3") || famActn.getEligCd().equals("9")) {
+					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_D);
+				} else {
+					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_O);
+				}
+
+				if (famActn.getActnTyp().equals("FA")) {
+					pceRecord.setPceReappInd(FWConstants.CHAR_N);
+				}
+
+				if (famActn.getActnTyp().equals("RA")) {
+					pceRecord.setPceRedetInd(FWConstants.CHAR_Y);
+				}
+
+				if (famActn.getActnTyp().equals("AP")) {
+					pceRecord.setPceAprvlInd(FWConstants.CHAR_Y);
+					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_O);
+				}
+
+				if (famActn.getActnTyp().equals("DN")) {
+					pceRecord.setPceMultClsreInd(famActn.getMultClsreRsnInd());
+					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_D);
+					pceRecord.setPceClsreRsnCd(famActn.getActnRsnCd());
+				}
+
+				if (famActn.getActnTyp().equals("TR")) {
+					pceRecord.setPceMultClsreInd(famActn.getMultClsreRsnInd());
+					pceRecord.setPcePrgmCaseSts(FWConstants.CHAR_T);
+					pceRecord.setPceClsreRsnCd(famActn.getActnRsnCd());
+				}
+
+				if (famActn.getActnTyp().equals("RE")) {
+					if (famActn.getFamApplType().equals("RP") || famActn.getFamApplType().equals("RH")) {
+						pceRecord.setPceReappInd(FWConstants.CHAR_Y);
+					} else {
+						pceRecord.setPceReopnInd(FWConstants.CHAR_Y);
+					}
+				}
+
+				if (famActn.getActnTyp().equals("RI")) {
+					pceRecord.setPceReinstInd(FWConstants.CHAR_Y);
+					pceRecord.setPceReisntDt(famActn.getActnEffDt());
+				}
+
+				if (famActn.getBnftYr() != 0) {
+					getEligibilityDetailsS08(programCaseHistoryDetails, famActn,pceRecord,workingStorage);
+				} else {
+					pceRecord.setPceNoOfRcpnt(FWConstants.ZERO);
+					pceRecord.setPceNoOfChldRcpnt(FWConstants.ZERO);
+					pceRecord.setPceBnftAmt(BigDecimal.valueOf(0.00));
+					pceRecord.setPceEntlmAmt(BigDecimal.valueOf(0.00));
+					pceRecord.setPceBnftRdctnAmt(BigDecimal.valueOf(0.00));
+					pceRecord.setPceBnftMnth(FWConstants.ZERO);
+					pceRecord.setPceBnftYr(FWConstants.ZERO);
+					pceRecord.setPceVerNmb(FWConstants.ZERO);
+				}
+				workingStorage.setFamUrowr(workingStorage.getFamUrowr() + 1);
+			}
+			checkCaseload(programCaseHistoryDetails,pceRecord,workingStorage,programCaseSet);
+		}
+
+		getEligibilityDetails(programCaseHistoryDetails,pceRecord,workingStorage);
+		eliminateBlank(pceRecord,workingStorage,pceList);
+		return pceList;
 	}
-	
-	public Integer getProgramCaseHistoryDetailsForAllOfcCdCounts(String ofcCds, String lastDayOfMonth) {
-		String sql = getSql(GET_PROGRAM_CASE_HISTORY_DETAILS_FOR_ALL_OFFICE_COUNTS.replace("##OFC-CD##", ofcCds));
-        return this.getJdbcTemplate().queryForObject(sql, Integer.class, lastDayOfMonth, lastDayOfMonth, lastDayOfMonth, lastDayOfMonth);
+
+	private void checkCaseload(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage, Set<PceRecord> programCaseSet) {
+//		if (pceRecord.getPceOfcCd().equals(workingStorage.getPrevOfcCd())
+//				&& pceRecord.getPceSprvsUnit().equals(workingStorage.getPrevSprvsUnit())
+//				&& pceRecord.getPceFuncAreaCd().equals(workingStorage.getPrevFuncAreaCd())
+//				&& pceRecord.getPceWrkrType().equals(workingStorage.getPrevWrkrType())
+//				&& pceRecord.getPcePsnNmb().equals(workingStorage.getPrevPsnNmb())) {
+//			// Continue
+//		} else {
+//			workingStorage.setPrevOfcCd(pceRecord.getPceOfcCd());
+//			workingStorage.setPrevSprvsUnit(pceRecord.getPceSprvsUnit());
+//			workingStorage.setPrevFuncAreaCd(pceRecord.getPceFuncAreaCd());
+//			workingStorage.setPrevWrkrType(pceRecord.getPceWrkrType());
+//			workingStorage.setPrevPsnNmb(pceRecord.getPcePsnNmb());
+//
+//			getWorkerDetails(pceRecord,workingStorage);
+//		}
+		
+		synchronized (this) {
+			if(!programCaseSet.contains(pceRecord)) {
+				workingStorage.setPrevOfcCd(pceRecord.getPceOfcCd());
+				workingStorage.setPrevSprvsUnit(pceRecord.getPceSprvsUnit());
+				workingStorage.setPrevFuncAreaCd(pceRecord.getPceFuncAreaCd());
+				workingStorage.setPrevWrkrType(pceRecord.getPceWrkrType());
+				workingStorage.setPrevPsnNmb(pceRecord.getPcePsnNmb());
+
+				getWorkerDetails(pceRecord,workingStorage);
+				
+				programCaseSet.add(pceRecord);
+			}
+		}
+
+		if (pceRecord.getPcePrgmCaseSts().equals(FWConstants.CHAR_O)) {
+			getRedeterminationDetails(programCaseHistoryDetails,pceRecord,workingStorage);
+			getConferenceDetails(programCaseHistoryDetails,pceRecord,workingStorage);
+		}
 	}
-}
 
-------------------------------------
+	private void eliminateBlank(PceRecord pceRecord, WorkingStorage workingStorage, List<PceRecord> pceList) {
+		String workerId = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrId()) ? workingStorage.getWrkrId() : FWConstants.BLANK;
+		String workerName = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrNm()) ? workingStorage.getWrkrNm() : FWConstants.BLANK;
+		pceRecord.setPceWrkrId(workerId);
+		pceRecord.setPceWrkrNm(workerName);
+		if (!pceRecord.getPceCasldId().equals(FWConstants.BLANK) && !pceRecord.getPceOfcCd().equals(FWConstants.BLANK)) {
+			PceRecord record = SerializationUtils.clone(pceRecord);
+			pceList.add(record);
+		}
+	}
 
-package gov.nv.dwss.crystalreports.statistics.programhistory.model;
+	private void getEligibilityDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage) {
+		String asOfDate = SystemInfoParam.getAsOfDate();
+		int year = ObjectUtils.getYear(asOfDate);
+		int month = ObjectUtils.getMonth(asOfDate);
+		pceRecord.setPceLastRecForMnth(FWConstants.CHAR_Y);
+		EligibilityVersionInfo eligibilityVersionInfo = monthlyProgramCaseHistoryExtractDao.getEligibilityVersionInfo(
+				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(), year, month, FWConstants.CHAR_Y);
 
-import java.math.BigDecimal;
+		if (eligibilityVersionInfo != null) {
+			pceRecord.setPceNoOfRcpnt(eligibilityVersionInfo.getEligNum());
+			pceRecord.setPceNoOfChldRcpnt(eligibilityVersionInfo.getChldNmb());
+			pceRecord.setPceBnftAmt(eligibilityVersionInfo.getTotMthlyBnftAmt());
+			pceRecord.setPceEntlmAmt(eligibilityVersionInfo.getEntlmAmt());
+			pceRecord.setPceBnftRdctnAmt(eligibilityVersionInfo.getBnftRdctnAmt());
+			pceRecord.setPceBnftMnth(month);
+			pceRecord.setPceBnftYr(year);
+			pceRecord.setPceVerNmb(eligibilityVersionInfo.getVerNmb());
+			pceRecord.setPceAidCd(workingStorage.getFileAidCd());
+			pceRecord.setPceEligCd(workingStorage.getFileEligCd());
+		} else {
+			pceRecord.setPceNoOfRcpnt(FWConstants.ZERO);
+			pceRecord.setPceNoOfChldRcpnt(FWConstants.ZERO);
+			pceRecord.setPceBnftAmt(BigDecimal.valueOf(0.00));
+			pceRecord.setPceEntlmAmt(BigDecimal.valueOf(0.00));
+			pceRecord.setPceBnftRdctnAmt(BigDecimal.valueOf(0.00));
+			pceRecord.setPceBnftMnth(FWConstants.ZERO);
+			pceRecord.setPceBnftYr(FWConstants.ZERO);
+			pceRecord.setPceVerNmb(FWConstants.ZERO);
+		}
+	}
 
-import lombok.Data;
+	private void getEligibilityDetailsS08(ProgramCaseHistoryDetails programCaseHistoryDetails,
+			FamilyAction familyAction, PceRecord pceRecord, WorkingStorage workingStorage) {
+		EligibilityVersionInfo eligibilityVersionInfo = monthlyProgramCaseHistoryExtractDao
+				.getEligibilityVersionInfoS08(programCaseHistoryDetails.getIci(),
+						programCaseHistoryDetails.getPrgmCaseType(), familyAction.getBnftYr(),
+						familyAction.getBnftMth(), familyAction.getVerNmb());
 
-@Data
-public class EligibilityVersionInfo {
-    private int eligNum;
-    private int chldNmb;
-    private BigDecimal bnftAmt;
-    private BigDecimal entlmAmt;
-    private BigDecimal bnftRdctnAmt;
-    private int verNmb;
-    private BigDecimal totMthlyBnftAmt;
-    private int bnftYr;
-    private int bnftMth;
-    private int ici;
-    private String programType;
-}
+		if (eligibilityVersionInfo != null) {
+			pceRecord.setPceNoOfRcpnt(eligibilityVersionInfo.getEligNum());
+			pceRecord.setPceNoOfChldRcpnt(eligibilityVersionInfo.getChldNmb());
+			pceRecord.setPceBnftAmt(eligibilityVersionInfo.getTotMthlyBnftAmt());
+			pceRecord.setPceEntlmAmt(eligibilityVersionInfo.getEntlmAmt());
+			pceRecord.setPceBnftRdctnAmt(eligibilityVersionInfo.getBnftRdctnAmt());
+			pceRecord.setPceBnftMnth(eligibilityVersionInfo.getBnftMth());
+			pceRecord.setPceBnftYr(eligibilityVersionInfo.getBnftYr());
+			pceRecord.setPceVerNmb(eligibilityVersionInfo.getVerNmb());
+			pceRecord.setPceAidCd(workingStorage.getFileAidCd());
+			pceRecord.setPceEligCd(workingStorage.getFileEligCd());
+		} else {
+			pceRecord.setPceNoOfRcpnt(FWConstants.ZERO);
+			pceRecord.setPceNoOfChldRcpnt(FWConstants.ZERO);
+			pceRecord.setPceBnftAmt(BigDecimal.valueOf(0.00));
+			pceRecord.setPceEntlmAmt(BigDecimal.valueOf(0.00));
+			pceRecord.setPceBnftRdctnAmt(BigDecimal.valueOf(0.00));
+			pceRecord.setPceBnftMnth(FWConstants.ZERO);
+			pceRecord.setPceBnftYr(FWConstants.ZERO);
+			pceRecord.setPceVerNmb(FWConstants.ZERO);
+		}
+	}
 
--------------------------------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.model;
+	private void getWorkerDetails(PceRecord pceRecord, WorkingStorage workingStorage) {
+		String asOfDate = SystemInfoParam.getAsOfDate();
+		NomadsUser nomadsUser = monthlyProgramCaseHistoryExtractDao.getWorkerDetails(workingStorage.getPrevOfcCd(), "A",
+				workingStorage.getPrevSprvsUnit(), workingStorage.getPrevPsnNmb(), asOfDate);
 
-import lombok.Data;
+		if (nomadsUser != null) {
+			LOG.info("calling getWorkerDetails :: {}", nomadsUser.toString());
+			
+			workingStorage.setWrkrId(nomadsUser.getNomadsUsrid());
+			workingStorage.setWrkrLstNm(nomadsUser.getLstNm());
+			workingStorage.setWrkrFrstNm(nomadsUser.getFrstNm());
+			workingStorage.setWrkrNm(workingStorage.getWrkrLstNm().trim() + FWConstants.BLANK + workingStorage.getWrkrFrstNm().trim());
+		}
 
-import static gov.nv.dwss.fw.batch.constants.FWConstants.EMPTY;
+		String workerId = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrId()) ? workingStorage.getWrkrId() : FWConstants.BLANK;
+		String workerName = !ObjectUtils.isNullOrEmptyOrBlank(workingStorage.getWrkrNm()) ? workingStorage.getWrkrNm() : FWConstants.BLANK;
+		pceRecord.setPceWrkrId(workerId);
+		pceRecord.setPceWrkrNm(workerName);
+	}
 
-@Data
-public class FamCaseStatsWorkingStorage {
-    private String previousOfcCd = EMPTY;
-    private String previousCasldId = EMPTY;
-    private String previousAidCd = EMPTY;
-    private String pceOfcCd;
-    private String pceCasldId;
-    private String pceAidCd;
-    private String pceRecords;
-    private String famCaseOfcCd;
-    private String famCaseCasldId;
-    private String famCaseAidCd;
-    private String famCaseRecords;
-}
-------------------------------------
+	private void getRedeterminationDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage) {
+		String asOfDate = SystemInfoParam.getAsOfDate();
+		int year = ObjectUtils.getYear(asOfDate);
+		int month = ObjectUtils.getMonth(asOfDate);
+		Date redeterminationDetails = monthlyProgramCaseHistoryExtractDao.getNextRedeterminationDate(
+				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType());
 
-package gov.nv.dwss.crystalreports.statistics.programhistory.model;
-import java.sql.Timestamp;
-import java.util.Date;
+		if (redeterminationDetails != null) {
+			pceRecord.setPceNextRedetDt(redeterminationDetails);
+		} else {
+			pceRecord.setPceNextRedetDt(DUMMY_DATE);
+		}
 
-import lombok.Data;
+		workingStorage.setCount(monthlyProgramCaseHistoryExtractDao.getCurrentMonthRedeterminationDetailsCount(
+				programCaseHistoryDetails.getIci(), programCaseHistoryDetails.getPrgmCaseType(), year, month));
 
-@Data
-public class FamilyAction {
-    private String actnTyp;
-    private Timestamp actnTs;
-    private String aidCd;
-    private Date actnEffDt;
-    private Date initAprvlDt;
-    private Date applDt;
-    private String expdFsRsnCd;
-    private String eligCd;
-    private String actnRsnCd;
-    private String multClsreRsnInd;
-    private int bnftYr;
-    private int bnftMth;
-    private int verNmb;
-    private String famApplType;
-    private int ici;
-    private String programType;
-}
----------------------------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.model;
+		if (workingStorage.getCount() > 0) {
+			pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_Y);
+		} else {
+			pceRecord.setPceRedetCmplThisMnth(FWConstants.CHAR_N);
+		}
+	}
 
-import lombok.Data;
+	private void getConferenceDetails(ProgramCaseHistoryDetails programCaseHistoryDetails, PceRecord pceRecord, WorkingStorage workingStorage) {
+		String asOfDate = SystemInfoParam.getAsOfDate();
+		int year = ObjectUtils.getYear(asOfDate);
+		int month = ObjectUtils.getMonth(asOfDate);
+		workingStorage.setCount(monthlyProgramCaseHistoryExtractDao.getWorkerCalendarDetailsCount(
+				workingStorage.getWrkrId(), programCaseHistoryDetails.getHohUpi(),
+				programCaseHistoryDetails.getPrgmCaseType(), "HC", "S", year, month));
 
-@Data
-public class NomadsUser {
-    private String nomadsUsrid;
-    private String frstNm;
-    private String lstNm;
-    private String ofcCd;
-    private String programOfcType;
-    private String sprvsUnit;
-	private String psnNmb;
-}
----------------------------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.model;
-
-import java.util.Date;
-
-import lombok.Data;
-
-@Data
-public class ProgramCaseHistoryDetails {
-	private String ofcCd;
-	private String sprvsUnit;
-	private String psnNmb;
-	private String funcAreaCd;
-	private String wrkrType;
-	private String casldId;
-	private String caseSts;
-	private String mthlyRptrInd;
-	private int hohUpi;
-	private String fsSufx;
-	private String hmlsInd;
-	private int ici;
-	private String prgmCaseType;
-	private Date stsEffDt;
-	private String prgmCaseSts;
-	private String expdFsRsnCd;
-	private Date initAprvlDt;
-	private Date applDt;
-	private String aidCd;
-	private String eligCd;
-	private String clsreRsnCd;
-	private String multClsreRsnInd;
-	private String sysClsreDnlRsn;
-}
------------------------------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.model;
-
-import java.time.LocalDate;
-import java.util.Date;
-
-import lombok.Data;
-
-@Data
-public class WorkingStorage {
-    private String fileAidCd;
-    private String fileEligCd;
-    private String prevOfcCd;
-    private String prevSprvsUnit;
-    private String prevFuncAreaCd;
-    private String prevWrkrType;
-    private String prevPsnNmb;
-    private String wrkrId;
-    private String wrkrNm;
-    private String wrkrLstNm;
-    private String wrkrFrstNm;
-    private int count;
-    private int lstYy;
-    private int lstMm;
-    private String flag;
-    private int famUrowr;
-    private int facUrowr;
-    private Date initAprvlDt;
-    private LocalDate actApplDtTs;
-    private Date actApplDt;
-    private int sqcod;
-    private String offData;
-    private int temp;
-    private String leapFlag;
-    private String errCd;
-    private String errFirstFour;
-    private String errLastFour;
+		if (workingStorage.getCount() > 0) {
+			pceRecord.setPceConfrsInd(FWConstants.CHAR_Y);
+		} else {
+			pceRecord.setPceConfrsInd(FWConstants.CHAR_N);
+		}
+	}
 
 }
