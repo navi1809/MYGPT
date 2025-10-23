@@ -1,552 +1,1397 @@
-package gov.nv.dwss.crystalreports.statistics.programhistory.tasklet;
+var people = [];
+people.push(document.getElementById('person'));
+var buttonAddPerson = document.getElementById('addPerson');
+buttonAddPerson.onclick = addPerson;
 
-import java.sql.Connection;
-import java.sql.Timestamp;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+function addPerson() {
+    const peopleCount = people.length + 1;
+    const defaultPerson = document.getElementById('person');
+    const newPerson = defaultPerson.cloneNode(true);
 
-import javax.sql.DataSource;
+    const buttonDeleteDiv = newPerson.querySelector('#buttons');
+    var buttonAddPerson = document.getElementById('addPerson');
+    const newAddPersonBtn = buttonAddPerson.cloneNode(true);
+    newAddPersonBtn.onclick = addPerson;
+    newAddPersonBtn.style.alignSelf = 'flex-start';
+    buttonDeleteDiv.appendChild(newAddPersonBtn);
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.core.step.tasklet.Tasklet;
-import org.springframework.batch.repeat.RepeatStatus;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.datasource.DataSourceUtils;
-import org.springframework.stereotype.Component;
+    const deleteButton = document.createElement('button');
+    deleteButton.innerText = deletePersonText + ' ' + peopleCount;
+    deleteButton.id = 'deleteButton';
+    deleteButton.name = 'Delete Person ' + peopleCount;
+    deleteButton.type = 'button';
+    deleteButton.style.alignSelf = 'flex-end';
+    deleteButton.classList.add('button');
+    deleteButton.classList.add('button-col-light');
+    deleteButton.onclick = function() {
+        deletePerson(this.id);
+    };
 
-import gov.nv.dwss.crystalreports.statistics.common.model.CommonData;
-import gov.nv.dwss.crystalreports.statistics.common.model.PceRecord;
-import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
-import gov.nv.dwss.crystalreports.statistics.programhistory.dao.ProgramHistoryExtractDao;
-import gov.nv.dwss.domain.dao.sor.ReportMonthlyCaseHistorySorDao;
-import gov.nv.dwss.domain.record.SorRecord;
-import gov.nv.dwss.domain.record.sor.ReportMonthlyCaseHistorySorRecord;
-import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
-import gov.nv.dwss.fw.batch.constants.FWConstants;
-import gov.nv.dwss.fw.batch.context.SystemInfoParam;
-import gov.nv.dwss.fw.batch.enums.BatchExceptionType;
-import gov.nv.dwss.fw.batch.model.SkippedRecord;
-import gov.nv.dwss.fw.batch.util.ExceptionUtil;
-import gov.nv.dwss.fw.batch.util.ObjectUtils;
-import gov.nv.dwss.switcher.DatabaseSwitcher;
+    buttonDeleteDiv.appendChild(deleteButton);
 
-import static gov.nv.dwss.fw.batch.constants.FWConstants.BLANK;
-import static gov.nv.dwss.fw.batch.constants.FWConstants.N;
-
-@Component
-public class ProgramHistoryInsertTasklet extends AbstractBatchStepComponent implements Tasklet {
-
-	private static final Logger LOG = LogManager.getLogger(ProgramHistoryInsertTasklet.class);
-
-	@Autowired
-	private DataSource sorDataSource;
-	
-	@Autowired
-	DatabaseSwitcher databaseSwitch;
-
-	@Value("${db.nswd.schema}")
-    private String nswdSchemaName;
-	
-	@Autowired
-	ProgramHistoryExtractDao monthlyProgramCaseHistoryExtractDao;
-	
-	@Autowired
-	ReportMonthlyCaseHistorySorDao reportMonthlyCaseHistorySorDao;
-	
-	@Override
-	public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
-		LOG.info("calling ProgramHistoryInsertTasklet for pceRecord count :: {}", CommonData.getProgramCaseList().size());
-		
-		List<PceRecord> list = CommonData.getProgramCaseList();
-		List<SorRecord> recordList = createSorRecords(list);
-		performDatabaseOperations(recordList);
-		LOG.info("calling ProgramHistoryInsertTasklet for final record count :: {}", recordList.size());
-		return RepeatStatus.FINISHED;
-	}
-
-	private List<SorRecord> createSorRecords(List<PceRecord> pceRecords) {
-		List<SorRecord> recordList = new ArrayList<>();
-		int sequenceNumber = 1;
-		for (PceRecord pceRecord : pceRecords) {
-			recordList.add(createSorRecord(pceRecord, sequenceNumber++));
-		}
-		return recordList;
-	}
-
-	private SorRecord createSorRecord(PceRecord pceRecord, int sequenceNumber) {
-		ReportMonthlyCaseHistorySorRecord sorRecord = new ReportMonthlyCaseHistorySorRecord();
-		sorRecord.setRunDate(ObjectUtils.convertToDate(SystemInfoParam.getAsOfDate()));
-		sorRecord.setReportSequenceNumber(sequenceNumber);
-		sorRecord.setAidCode(pceRecord.getPceAidCd());
-		sorRecord.setApplicationDate(pceRecord.getPceApplDt());
-		sorRecord.setApprovalIndicator(pceRecord.getPceAprvlInd());
-		sorRecord.setBenefitAmount(getOrDefault(pceRecord.getPceBnftAmt(), FWConstants.DEFAULT_DECIMAL));
-		sorRecord.setBenefitMonth(pceRecord.getPceBnftMnth());
-		sorRecord.setBenefitReductionAmount(getOrDefault(pceRecord.getPceBnftRdctnAmt(), FWConstants.DEFAULT_DECIMAL));
-		sorRecord.setBenefitYear(pceRecord.getPceBnftYr());
-		sorRecord.setCaseLoadId(pceRecord.getPceCasldId());
-		sorRecord.setCaseStatus(pceRecord.getPceCaseSts());
-		sorRecord.setClosureReasonCode(pceRecord.getPceClsreRsnCd());
-		sorRecord.setConfirseIndicator(pceRecord.getPceConfrsInd());
-		sorRecord.setEligCode(pceRecord.getPceEligCd());
-		sorRecord.setEntitlementAmount(getOrDefault(pceRecord.getPceEntlmAmt(), FWConstants.DEFAULT_DECIMAL));
-		sorRecord.setExpeditedSnapReasonCode(pceRecord.getPceExpdFsRsnCd());
-		sorRecord.setHohUpi(pceRecord.getPceHohUpi());
-		sorRecord.setHomelessIndicator(pceRecord.getPceHmlsInd());
-		sorRecord.setIci(pceRecord.getPceIci());
-		sorRecord.setInitialApprovalDate(pceRecord.getPceInitAprvlDt());
-		sorRecord.setLastRecordForMonth(pceRecord.getPceLastRecForMnth());
-		sorRecord.setMonthlyReportingIndicator(pceRecord.getPceMthlyRptrInd());
-		sorRecord.setMultipleClosureReasonIndicator(getOrDefault(pceRecord.getPceMultClsreInd(), BLANK));
-		sorRecord.setNextRedeterminationDate(pceRecord.getPceNextRedetDt());
-		sorRecord.setNomadsUserId(getOrDefault(pceRecord.getPceWrkrId(), BLANK));
-		sorRecord.setNoOfChildRecipient(pceRecord.getPceNoOfChldRcpnt());
-		sorRecord.setNoOfRecipient(pceRecord.getPceNoOfRcpnt());
-		sorRecord.setOfficeCode(pceRecord.getPceOfcCd());
-		sorRecord.setSupervisoryUnit(pceRecord.getPceSprvsUnit());
-		sorRecord.setFunctionalAreaCode(pceRecord.getPceFuncAreaCd());
-		sorRecord.setWorkerType(pceRecord.getPceWrkrType());
-		sorRecord.setPositionNumber(Integer.valueOf(pceRecord.getPcePsnNmb()));
-		sorRecord.setProgramCaseStatus(pceRecord.getPcePrgmCaseSts());
-		sorRecord.setProgramCaseType(pceRecord.getPcePrgmCaseType());
-		sorRecord.setReappCount(FWConstants.ZERO);
-		sorRecord.setReappIndicator(pceRecord.getPceReappInd());
-		sorRecord.setRedeterminationCompleteMonth(pceRecord.getPceRedetCmplThisMnth());
-		sorRecord.setRedeterminationIndicator(pceRecord.getPceRedetInd());
-		sorRecord.setReinstateDate(pceRecord.getPceReisntDt());
-		sorRecord.setReinstateIndicator(pceRecord.getPceReinstInd());
-		sorRecord.setReopenedIndicator(pceRecord.getPceReopnInd());
-		sorRecord.setSnapSuffix(pceRecord.getPceAssistCd());
-		sorRecord.setStatusEffectiveDate(pceRecord.getPcePrgmStsEffDt());
-		sorRecord.setWorkerName(getOrDefault(pceRecord.getPceWrkrNm(), BLANK));
-		sorRecord.setActionType(getOrDefault(pceRecord.getActnType(), BLANK));
-		if (pceRecord.getPceActApplDt() != null) {
-			sorRecord.setActionTimestamp(getActionTimestamp(pceRecord.getPceActApplDt().atStartOfDay()));
-		}else {
-			sorRecord.setActionTimestamp(new Timestamp(0));
-		}
-		sorRecord.setVersionNumber(pceRecord.getPceVerNmb());
-		sorRecord.setStatusCode(N);
-		return sorRecord;
-	}
-
-	private <T> T getOrDefault(T value, T defaultValue) {
-		return value != null ? value : defaultValue;
-	}
-
-	private Timestamp getActionTimestamp(LocalDateTime actionDate) {
-		return actionDate != null ? Timestamp.valueOf(actionDate) : new Timestamp(0);
-	}
-
-	private void performDatabaseOperations(List<SorRecord> recordList) throws Exception {
-		Connection connection = DataSourceUtils.getConnection(sorDataSource);
-		try {
-			databaseSwitch.switchDataSourceAndSchema(reportMonthlyCaseHistorySorDao, nswdSchemaName, sorDataSource);
-			this.monthlyProgramCaseHistoryExtractDao.deleteProgramHistoryCases();
-			this.reportMonthlyCaseHistorySorDao.batchInsert(recordList);
-			connection.commit();
-		} catch (Exception e) {
-			LOG.error(e);
-			final String applicationMessage = "Error occurred while writing records to DB";
-			connection.rollback();
-			final SkippedRecord skippedRecord = new SkippedRecord("programHistoryRecord");
-			throw ExceptionUtil.batchSkipRecordException(BatchExceptionType.SQL_EXCEPTION, applicationMessage, null,
-					null, StatisticsConstants.PROGRAM_HISTORY_BATCH, e, skippedRecord);
-		} finally {
-			DataSourceUtils.releaseConnection(connection, sorDataSource);
-		}
-	}
+    newPerson.querySelector('#personFirstName').value = '';
+    newPerson.querySelector('#personFirstName').disabled = false;
+    newPerson.querySelector('#personFirstName').classList.add("otherFirstName");
+    newPerson.querySelector('#personFirstName').style.maxWidth = '275px';
+    newPerson.querySelector('#personMiddle').value = '';
+    newPerson.querySelector('#personMiddle').disabled = false;
+    newPerson.querySelector('#personLastName').value = '';
+    newPerson.querySelector('#personLastName').disabled = false;
+    newPerson.querySelector('#personLastName').classList.add("otherLastName");
+    newPerson.querySelector('#personLastName').style.maxWidth = '275px';
+    newPerson.querySelector('#personRelationship').value = '';
+    newPerson.querySelector('#personRelationship').disabled = false;
+    newPerson.querySelector('#personSuffix').value = '';
+    newPerson.querySelector('#personSuffix').disabled = false;
+    newPerson.querySelector('#personFormerName').value = '';
+    newPerson.querySelector('#personFormerName').disabled = false;
+    newPerson.querySelector('#personFormerName').style.maxWidth = '275px';
+    
+    const ssnTogglePassword = newPerson.querySelector('#togglePassword');
+    ssnTogglePassword.onclick = function() {
+    	toggleSSNFields(this.id);
+    }
+    const newPersonElements = newPerson.querySelectorAll('*');
+    newPersonElements.forEach((child) => {
+    	if(child.tagName !== 'OPTION' ){
+    		child.value = '';
+    	}
+    	if(child.id !=="togglePassword"){
+    	child.checked = false;
+    	}
+    });
+    
+    const healthPlanRadio = newPerson.querySelectorAll('input[name*="programHealthCare"]');
+    healthPlanRadio.forEach(function(radio){
+    	radio.checked = false;
+    	radio.removeAttribute('checked');
+    });
+    
+    const newPersonTypeOfFacility = newPerson.querySelector('#typeOfFacility');
+    if(newPersonTypeOfFacility){
+    	 newPersonTypeOfFacility.addEventListener('change', function(event) {
+    	    	
+    	    	const selectedValue = this.value;
+    			for(var i=0; i<this.options.length;i++){
+    				if(this.options[i].value === selectedValue){
+    					this.options[i].setAttribute('selected', 'selected');
+    				}else{
+    					this.options[i].removeAttribute('selected', 'selected');
+    				}
+    			}
+    	    });
+    	
+    }
+    
+    const newRelations = newPerson.querySelector('#relation');
+    if(newRelations){
+    	 newRelations.addEventListener('change', function(event) {
+    	    	
+    	    	const selectedValue = this.value;
+    			for(var i=0; i<this.options.length;i++){
+    				if(this.options[i].value === selectedValue){
+    					this.options[i].setAttribute('selected', 'selected');
+    				}else{
+    					this.options[i].removeAttribute('selected', 'selected');
+    				}
+    			}
+    	    });
+    }
+     
+    adjustWidths(newPerson);
+    people.push(newPerson);
+    updatepeopleIds();
+    document.getElementById('people').appendChild(newPerson);
+    toggleButtonAddPerson();
+    addHover();
+    attachFamilyPlanListeners();
 }
 
------------------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.tasklet;
+function adjustWidths(newPerson) {
+	 const spouseHCWidth = newPerson.querySelectorAll('.listSpouseHC');
+	    spouseHCWidth.forEach(input => {
+	    	input.style.maxWidth = '350px';
+	    });
+    const depndtsHCWidth = newPerson.querySelectorAll('.listDepndtsHC');
+    depndtsHCWidth.forEach(input => {
+    	input.style.maxWidth = '350px';
+    });
+    const taxFilerHCWidth = newPerson.querySelectorAll('.TaxFilerNameHC');
+    depndtsHCWidth.forEach(input => {
+    	input.style.maxWidth = '350px';
+    });
+}
 
-import gov.nv.dwss.crystalreports.statistics.common.dao.MonthlyCaseHistoryExtendedDao;
-import gov.nv.dwss.crystalreports.statistics.common.model.FamCaseStatsOfficeRecord;
-import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.FamCaseStatsWorkingStorage;
-import gov.nv.dwss.domain.dao.sor.ReportMonthlyCaseHistorySorDao;
-import gov.nv.dwss.domain.record.SorRecord;
-import gov.nv.dwss.domain.record.sor.ReportMonthlyCaseHistorySorRecord;
-import gov.nv.dwss.fw.batch.context.SystemInfoParam;
-import gov.nv.dwss.fw.batch.enums.BatchExceptionType;
-import gov.nv.dwss.fw.batch.model.SkippedRecord;
-import gov.nv.dwss.fw.batch.util.ExceptionUtil;
-import gov.nv.dwss.switcher.DatabaseSwitcher;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.core.step.tasklet.Tasklet;
-import org.springframework.batch.repeat.RepeatStatus;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.datasource.DataSourceUtils;
-import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
+function deletePerson(deleteId) {
+    const index = Number(deleteId.split('_')[1]) - 1;
+    people[index].remove();
+    people.splice(index, 1);
+    updatepeopleIds();
+    toggleButtonAddPerson();
+}
 
-import javax.annotation.PostConstruct;
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.List;
-
-import static gov.nv.dwss.crystalreports.foodstampcharacteristicstudy.util.DateUtil.getTimeStamp;
-import static gov.nv.dwss.fw.batch.constants.FWConstants.LOW_DATE_STR;
-import static gov.nv.dwss.fw.batch.constants.FWConstants.MA;
-import static gov.nv.dwss.fw.batch.constants.FWConstants.Y;
-import static gov.nv.dwss.fw.batch.util.ObjectUtils.convertToDate;
-import static java.util.stream.Collectors.toList;
-
-@Component
-public class ProgramHistoryValidateTasklet implements Tasklet {
-
-    private static final Logger LOG = LogManager.getLogger(ProgramHistoryValidateTasklet.class);
-
-    private static final int PAGE_SIZE = 5000;
-    Date lowDate;
-    Timestamp lowDateTimestamp;
-
-    @Autowired ReportMonthlyCaseHistorySorDao reportMonthlyCaseHistorySorDao;
-    @Autowired MonthlyCaseHistoryExtendedDao monthlyCaseHistoryDao;
-    @Autowired @Qualifier(value = "nswdDataSource") DataSource nswdDataSource;
-    @Autowired DatabaseSwitcher databaseSwitch;
-    @Value("${db.nswd.schema}") String nswdSchemaName;
-
-    @PostConstruct
-    public void init() {
-        lowDate = convertToDate(LOW_DATE_STR);
-        lowDateTimestamp = getTimeStamp(LOW_DATE_STR);
+function toggleButtonAddPerson() {
+    const peopleCount = people.length + 1;
+    const buttonAddPerson = document.getElementById('addPerson');
+    const extraPeople = document.getElementById('extraPeople');
+    const dfltAddTxt = document.getElementById('dfltAddTxt');
+    if (peopleCount == 7) {
+        buttonAddPerson.style.display = 'none';
+        dfltAddTxt.style.display = 'none';
+        extraPeople.style.display = 'inline';
+    } else {
+        buttonAddPerson.style.display = 'inline';
+        dfltAddTxt.style.display = 'inline';
     }
-
-    @Override
-    public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
-        List<FamCaseStatsOfficeRecord> famCaseStatsOfcRecord;
-        List<ReportMonthlyCaseHistorySorRecord> pceRecords;
-        FamCaseStatsWorkingStorage workingStorage = new FamCaseStatsWorkingStorage();
-        List<ReportMonthlyCaseHistorySorRecord> newPceRecords = new ArrayList<>();
-
-        try {
-            famCaseStatsOfcRecord = monthlyCaseHistoryDao.getAllOfcCasldIdAndAidCds();
-            pceRecords = fetchPceRecordsFromDb();
-            pceRecords.sort(Comparator.comparing(ReportMonthlyCaseHistorySorRecord::getOfficeCode)
-                    .thenComparing(ReportMonthlyCaseHistorySorRecord::getCaseLoadId)
-                    .thenComparing(ReportMonthlyCaseHistorySorRecord::getAidCode));
-        } catch (Exception e) {
-            LOG.error("Error fetching FamCaseStatsOfficeRecord/ProgramCaseHistory list: ", e);
-            return RepeatStatus.FINISHED;
-        }
-
-        try {
-            if (!CollectionUtils.isEmpty(famCaseStatsOfcRecord)) {
-                for (FamCaseStatsOfficeRecord or : famCaseStatsOfcRecord) {
-                    LOG.info("{}", or);
-                }
-                // Setup working storage with first FamCase
-                FamCaseStatsOfficeRecord famCaseRec1 = famCaseStatsOfcRecord.get(0);
-                updateWorkingStorageWithFamCase(famCaseRec1, workingStorage);
-
-                int i = 0; // FamCase index
-                while (i < famCaseStatsOfcRecord.size()) {
-                    FamCaseStatsOfficeRecord famCaseRec = famCaseStatsOfcRecord.get(i);
-                    if (!CollectionUtils.isEmpty(pceRecords)) {
-                        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
-                            try {
-                                boolean scanned = false;
-                                if (!pceRecord.getOfficeCode().equals(workingStorage.getPreviousOfcCd())) {
-                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
-
-                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) > 0) {
-                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
-                                        if (!famCaseRec.getOfcCd().isEmpty() && !famCaseRec.getCasldId().isEmpty()) {
-                                            newPceRecords.add(copyOfPceRecord);
-                                        }
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) == 0) {
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, false);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    workingStorage.setPreviousOfcCd(workingStorage.getFamCaseOfcCd());
-                                    workingStorage.setPreviousCasldId(workingStorage.getFamCaseCasldId());
-                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
-
-                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
-
-                                } else if (!pceRecord.getCaseLoadId().equals(workingStorage.getPreviousCasldId())) {
-                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
-
-                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) > 0) {
-                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
-                                        if (!famCaseRec.getOfcCd().isEmpty() && !famCaseRec.getCasldId().isEmpty()) {
-                                            newPceRecords.add(copyOfPceRecord);
-                                        }
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) == 0) {
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, false);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    workingStorage.setPreviousCasldId(workingStorage.getFamCaseCasldId());
-                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
-
-                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
-
-                                } else if (!pceRecord.getAidCode().equals(workingStorage.getPreviousAidCd())) {
-                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
-
-                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) > 0) {
-                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
-                                        if (!famCaseRec.getOfcCd().isEmpty() && !famCaseRec.getCasldId().isEmpty()) {
-                                            newPceRecords.add(copyOfPceRecord);
-                                        }
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    if (workingStorage.getPceRecords().compareTo(workingStorage.getFamCaseRecords()) == 0) {
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, false);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
-
-                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
-
-                                }
-                            } catch (Exception ex) {
-                                LOG.error("Error during FamCaseRecord/PceRecord processing. famCaseRec={}, pceRecord={}", famCaseRec, pceRecord, ex);
-                                // continue with next record
-                            }
-                        }
+    people.forEach((person, index) => {
+        if (index > 0) {
+            const childElements = person.querySelectorAll('*');
+            const personOriginalId = person.id.replace(/_\d+$/, '');
+            person.id = personOriginalId + '_' + Number(index + 1);
+            childElements.forEach((child) => {
+                if (child.id == ('addPerson_' + Number(index + 1))) {
+                    if (peopleCount == 7) {
+                    	person.querySelector('#prsnAddTxt_'+ Number(index + 1)).style.display='none';
+                        child.style.display = 'none';
+                    } else {
+                    	person.querySelector('#prsnAddTxt_'+ Number(index + 1)).style.display='inline';
+                        child.style.display = 'inline';
                     }
-                    i++; // move to next FamCase for next while iteration if not already advanced
                 }
-            }
-            logNewProgramCaseHistories(newPceRecords);
-            performDatabaseOperations(newPceRecords);
-        } catch (Exception e) {
-            LOG.error("Error processing famCaseStats/pceRecords : ", e);
+            });
         }
-
-
-
-        return RepeatStatus.FINISHED;
-    }
-
-    /** Updates FamCase values in working storage */
-    private void updateWorkingStorageWithFamCase(FamCaseStatsOfficeRecord famCase, FamCaseStatsWorkingStorage storage) {
-        storage.setFamCaseOfcCd(famCase.getOfcCd());
-        storage.setFamCaseCasldId(famCase.getCasldId());
-        storage.setFamCaseAidCd(famCase.getAidCd());
-        storage.setFamCaseRecords(famCase.getOfcCd() + famCase.getCasldId() + famCase.getAidCd());
-    }
-
-    /** Updates PceRecord values in working storage */
-    private void updateWorkingStorageWithPceRecord(ReportMonthlyCaseHistorySorRecord pceRecord, FamCaseStatsWorkingStorage storage) {
-        storage.setPceOfcCd(pceRecord.getOfficeCode());
-        storage.setPceCasldId(pceRecord.getCaseLoadId());
-        storage.setPceAidCd(pceRecord.getAidCode());
-        storage.setPceRecords(pceRecord.getOfficeCode() + pceRecord.getCaseLoadId() + pceRecord.getAidCode());
-    }
-
-    /** Safely advances to next FamCase and updates working storage if isFamStatUpdate, returns true if advanced */
-    private boolean scanNextFamCase(
-            int i, List<FamCaseStatsOfficeRecord> famCaseList, FamCaseStatsWorkingStorage storage, boolean isFamStatUpdate) {
-        if (i < famCaseList.size()) {
-            FamCaseStatsOfficeRecord nextFamCase = famCaseList.get(i);
-            if (isFamStatUpdate) updateWorkingStorageWithFamCase(nextFamCase, storage);
-            return true;
-        }
-        return false;
-    }
-
-    private ReportMonthlyCaseHistorySorRecord mapToNewPceRecord(FamCaseStatsOfficeRecord famCaseRec) {
-        ReportMonthlyCaseHistorySorRecord pceRecord = new ReportMonthlyCaseHistorySorRecord();
-        pceRecord.setRunDate(convertToDate(SystemInfoParam.getAsOfDate()));
-        pceRecord.setOfficeCode(famCaseRec.getOfcCd());
-        pceRecord.setCaseLoadId(famCaseRec.getCasldId());
-        pceRecord.setAidCode(famCaseRec.getAidCd());
-        pceRecord.setProgramCaseType(MA);
-        pceRecord.setActionTimestamp(lowDateTimestamp);
-        pceRecord.setApplicationDate(lowDate);
-        pceRecord.setStatusEffectiveDate(lowDate);
-        pceRecord.setStatusCode(Y);
-        return pceRecord;
-    }
-
-    private List<ReportMonthlyCaseHistorySorRecord> fetchPceRecordsFromDb() {
-
-        int totalCount = monthlyCaseHistoryDao.countProgramCaseHistoryForFamCaseStats();
-        LOG.info("Total ProgramCaseHistory records to fetch: {}", totalCount);
-
-        List<ReportMonthlyCaseHistorySorRecord> pceRecords = new ArrayList<>();
-
-        int pageIndex = 0;
-        while (pceRecords.size() < totalCount) {
-            int startIndex = pageIndex * PAGE_SIZE + 1;
-            int endIndex = Math.min((pageIndex + 1) * PAGE_SIZE, totalCount);
-
-            List<ReportMonthlyCaseHistorySorRecord> chunk =
-                    monthlyCaseHistoryDao.getProgramCaseHistoryForFamCaseStats(startIndex, endIndex);
-            LOG.info("Fetched rows {}-{} ({} records)", startIndex, endIndex, chunk.size());
-
-            pceRecords.addAll(chunk);
-
-            if (chunk.size() < PAGE_SIZE) { // Less than requested page size: this was the final page
-                break;
-            }
-            pageIndex++;
-        }
-        LOG.info("Total ProgramCaseHistory records loaded: {}", pceRecords.size());
-
-        return pceRecords;
-    }
-
-    private void logNewProgramCaseHistories(List<ReportMonthlyCaseHistorySorRecord> pceRecords) {
-        LOG.info("After Validation New ProgramCaseHistories :{}", pceRecords.size());
-        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
-            LOG.info("ofcCd={}, casld:{}, aidCd:{}, ici={}",
-                    pceRecord.getOfficeCode(), pceRecord.getCaseLoadId(), pceRecord.getAidCode(), pceRecord.getIci());
-        }
-    }
-
-    private void performDatabaseOperations(List<ReportMonthlyCaseHistorySorRecord> pceRecords) throws Exception {
-        int lastSeqNmb = monthlyCaseHistoryDao.getMaxSequenceNmbOfPceRecord();
-        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
-            pceRecord.setReportSequenceNumber(++lastSeqNmb);
-        }
-
-        List<SorRecord> recordList = pceRecords.stream().map((d -> (SorRecord) d)).collect(toList());
-        Connection connection = DataSourceUtils.getConnection(nswdDataSource);
-        try {
-            databaseSwitch.switchDataSourceAndSchema(reportMonthlyCaseHistorySorDao, nswdSchemaName, nswdDataSource);
-            this.reportMonthlyCaseHistorySorDao.batchInsert(recordList);
-            connection.commit();
-        } catch (Exception e) {
-            LOG.error(e);
-            final String applicationMessage = "Error occurred while writing FAM ProgramCaseHistory records to DB";
-            connection.rollback();
-            final SkippedRecord skippedRecord = new SkippedRecord("newProgramCaseHistoryRecord");
-            throw ExceptionUtil.batchSkipRecordException(BatchExceptionType.SQL_EXCEPTION, applicationMessage, null,
-                    null, StatisticsConstants.PROGRAM_HISTORY_BATCH, e, skippedRecord);
-        } finally {
-            DataSourceUtils.releaseConnection(connection, nswdDataSource);
-        }
-    }
+    });
 }
----------------------------
-package gov.nv.dwss.crystalreports.statistics.programhistory.writer;
 
-import java.sql.SQLException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.List;
-import java.util.stream.Collectors;
+function updatepeopleIds() {
+    people.forEach((person, index) => {
+        if (index > 0) {
+            const childElements = person.querySelectorAll('*');
+            const personOriginalId = person.id.replace(/_\d+$/, '');
+            person.id = personOriginalId + '_' + Number(index + 1);
+            childElements.forEach((child) => {
+                if (child.id) {
+                    const originalId = child.id.replace(/_\d+$/, '');
+                    child.id = originalId + '_' + Number(index + 1);
+                }
+                if (child.name) {
+                    const originalName = child.name.replace(/_\d+$/, '');
+                    child.name = originalName + '_' + Number(index + 1);
+                }
+                if (child.id == ('startPersonNumber_' + Number(index + 1))) {
+                    child.innerText = startPersonText + ' ' + Number(index + 1);
+                }
 
-import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.batch.item.ExecutionContext;
-import org.springframework.batch.item.ItemWriter;
-import org.springframework.batch.item.file.FlatFileItemWriter;
-import org.springframework.batch.item.file.transform.PassThroughLineAggregator;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.stereotype.Component;
+                if (child.id == ('endPersonNumber_' + Number(index + 1))) {
+                    child.innerText = endpersontext + ' ' + Number(index + 1);
+                }
 
-import gov.nv.dwss.crystalreports.statistics.common.model.CommonData;
-import gov.nv.dwss.crystalreports.statistics.common.model.PceRecord;
-import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
-import gov.nv.dwss.fw.batch.common.AbstractBatchStepComponent;
-import gov.nv.dwss.fw.batch.enums.BatchExceptionType;
-import gov.nv.dwss.fw.batch.exception.BatchBusinessException;
-import gov.nv.dwss.fw.batch.exceptions.listener.FileCleanupListener;
-import gov.nv.dwss.fw.batch.util.ExceptionUtil;
+                if (child.id == ('deleteButton_' + Number(index + 1))) {
+                    child.innerText = deletePersonText + ' ' + Number(index + 1);
+                }
+            });
+        }
+    });
+}
+function getDatesForPdf() {
+	const options ={ year: 'numeric', month: 'long' , day: 'numeric' };	
+	if(language == 'ES'){
+		var date = new Date().toLocaleDateString('es-ES',options);		
+	}else{
+		var date = new Date().toLocaleDateString('en-US',options);
+	}
+	var currentDate = new Date();
+	// Extract time components
+	let hours = currentDate.getHours();
+	let minutes = currentDate.getMinutes();
+	let formattedHours = formatHours(hours);
+	let amPm = getAmPm(hours);
+	let formattedTime = `${addLeadingZero(formattedHours)}:${addLeadingZero(minutes)} ${amPm}`;
+	document.getElementById('dataTest').innerHTML= startDateTxt + " " + date +" " + secDateTxt + " " + formattedTime + " " +  endDateTxt;
+	document.getElementById('dateInfo').style.display='inline';
+}
+function formatHours(hours) {
+return hours % 12 || 12; // Convert 0 to 12 for midnight
+}
+function getAmPm(hours) {
+return hours >= 12 ? 'P.M.' : 'A.M.';
+}
+function addLeadingZero(value) {
+return value < 10 ? '0' + value : value;
+}
+function updatePdfSpaces() {
+	document.getElementById('dfltAddTxt').style.display='none';
+	document.getElementById('addPerson').style.display='none';
+	document.getElementById('braces').style.display='inline';
+	document.getElementById('nextPersonBraces').style.display='inline';
+	document.getElementById('migSpaces').style.display='inline';
+	document.getElementById('resSpaces').style.display='inline';
+	
+    people.forEach((person, index) => {
+        if (index > 0) {
+            const prsnAddTxt = person.querySelector('#prsnAddTxt' + '_' + Number(index + 1));
+            const prsnAddBtns = person.querySelector('#buttons' + '_' + Number(index + 1));
+            const befRaceBraces = person.querySelector('#beforeRaceBraces' + '_' + Number(index + 1));
+            const gQueBraces = person.querySelector('#generalQueBraces' + '_' + Number(index + 1));     
+            prsnAddTxt.style.display='none';
+            prsnAddBtns.style.display='none';
+            befRaceBraces.style.display='inline';                      
+            gQueBraces.style.display='inline';
+         
+        }
+    });
+    var elems = document.querySelectorAll(".divscroll");
+    
+    [].forEach.call(elems, function(el) {
+        el.classList.remove("divscroll");
+    });
+}
 
-@Component
-public class ProgramHistoryWriter extends AbstractBatchStepComponent implements ItemWriter<List<PceRecord>> {
-
-	private static final Logger LOG = LogManager.getLogger(ProgramHistoryWriter.class);
+function syncRadioBtns(sourceName,targetName){
 	
-	@Value("${programHistoryOutputFileLocation}")
-	private String outputFileLocation;
+	var sourceRadios=document.querySelectorAll('input[name="'+sourceName+'"]');
 	
-	@Value("${appendTimestampToFile}")
-	String appendTimestampToFile;
+	var targetRadios=document.querySelectorAll('input[name="'+targetName+'"]');
 	
-	@Value("${fileFormat}")
-	String fileFormat;
-	
-	@Value("${generateOutput}")
-	boolean generateOutput;
-	
-	@Autowired
-	FileCleanupListener fileCleanupListener;
-	
-	@Override
-	public void write(List<? extends List<PceRecord>> items) throws Exception {
-		LOG.info("calling execute for before pceRecord count :: {}", items.size());
-		List<PceRecord> collect = items.stream().flatMap(List::stream).collect(Collectors.toList());
-		CommonData.getProgramCaseList().addAll(collect);
+	sourceRadios.forEach(function(srcRadio){
+		srcRadio.addEventListener('change',function(){
+			
+			targetRadios.forEach(function(trgtRadio){
+				if(trgtRadio.value===srcRadio.value){
+					trgtRadio.checked=true;
+				}
+			});
+			
+		});
 		
-		LOG.info("calling execute for after pceRecord count :: {}", CommonData.getProgramCaseList().size());
+	});
+}
+
+syncRadioBtns('aplEligibleMedPgm','eligibleMedPgm');
+syncRadioBtns('aplBackDate','backDate');
+syncRadioBtns('aplProgramSNAP','programSNAP');
+syncRadioBtns('aplProgramHealthCare','programHealthCare');
+syncRadioBtns('aplProgramCash','programCash');
+syncRadioBtns('aplProgramFamilyPlan','programFamilyPlan');
+
+const appFstName = document.getElementById('applicantFirstName');
+const personFstName = document.getElementById('personFirstName');
+appFstName.addEventListener('input', function() {
+    personFstName.value = appFstName.value;
+});
+const appMi = document.getElementById('applicantMiddle');
+const personMi = document.getElementById('personMiddle');
+appMi.addEventListener('input', function() {
+    personMi.value = appMi.value;
+});
+const appLast = document.getElementById('applicantLastName');
+const personLast = document.getElementById('personLastName');
+appLast.addEventListener('input', function() {
+    personLast.value = appLast.value;
+});
+
+const appSuffix = document.getElementById('applicantSuffix');
+const personSuffix = document.getElementById('personSuffix');
+appSuffix.addEventListener('input', function() {
+	personSuffix.value = appSuffix.value;
+});
+
+const appFormer = document.getElementById('applicantFormerName');
+const personFormer = document.getElementById('personFormerName');
+appFormer.addEventListener('input', function() {
+	personFormer.value = appFormer.value;
+});
+
+const presentZipCode = document.getElementById('presentZipCode');
+
+var pdfUrl = null;
+function printPDFApp() {
+	window.open(pdfUrl);
+}
+
+document.onkeydown = (event) => {
+	const eventKey = event.key;
+    const eventTarget = event.target.tagName;
+	if (eventKey && eventKey === "Enter"  && eventTarget !== "BUTTON") {
+		document.getElementById("sumitApp").click();
+	}
+}
+document.getElementById("sumitApp").addEventListener("click", function() {
+	const elementTop = document.getElementById('errorTable');
+	var messageContents=document.getElementById('errMessageText');
+	messageContents.innerHTML='';
+	const errorTable=document.getElementById("errorTable");
+	var showErrorTable=false;
+	var ssnFldFlag=false;
+	var zipCdMdtryFlag=false;
+	var zipCdNumrcFlag=false;
+	var zipCdMinChrFlag=false;
+	var affidavitFlag=false;
+	var elecSigFlag=false;
+	var fstNameFlag=false;
+	var lstNameFlag=false;
+	var addrFlag=false;
+	var cityFlag=false;
+	var stateFlag=false;
+	var elcFstNameFlag=false;
+	var elcLstNameFlag=false;
+	var homePhnFldFlag=false;
+	var workPhnFldFlag=false;
+	var cellPhnFldFlag=false;
+	var altPhnFldFlag=false;
+	var fstNameSplCharFlag=false;
+	var lstNameSplCharFlag=false;
+	var elcFstNameSplFlag=false;
+	var elcLstNameSplFlag=false;
+	var taxFieldsFlag=false;
+	
+	const appFstNameSend = document.getElementById('applicantFirstName');
+	const appMiSend = document.getElementById('applicantMiddle');
+	const appLastSend = document.getElementById('applicantLastName');
+	const aplLastName = document.getElementById('applicantLastName');
+	const aplAddress = document.getElementById('applicantAddress');
+	const aplCity = document.getElementById('applicantCity');
+	const aplState = document.getElementById('applicantState');
+	
+	if(appFstNameSend.value.trim() === ''){
+		fstNameFlag=true;
+	} else if(!isValidName(appFstNameSend.value)){
+		fstNameSplCharFlag=true;
+	}
+	
+	if(appLastSend.value.trim() === ''){
+		lstNameFlag=true;
+	}else if(!isValidName(appLastSend.value)){
+		lstNameSplCharFlag=true;
+	}
+	
+	const homeless=document.getElementById('homeless');
+	
+	if(!homeless.checked){
 		
-		if(generateOutput) {
-			synchronized (CommonData.getProgramCaseList()) {
-				writer(CommonData.getProgramCaseList());
+		if(aplAddress.value.trim() === ''){
+			addrFlag=true;
+		}
+		if(aplCity.value.trim() === ''){
+			cityFlag=true;
+		}
+		if(aplState.value.trim() === ''){
+			stateFlag=true;
+		}
+		
+		if(presentZipCode.value.trim() === ''){
+			zipCdMdtryFlag=true;
+		}
+		else if(!isNumeric(presentZipCode.value)){
+			zipCdNumrcFlag=true;
+		}
+		else {
+			if (presentZipCode.value.length<5) {
+				zipCdMinChrFlag=true;
+			}
+		}
+	}
+	const  mailZipCode = document.getElementById('applicantMailZipCode');
+	const  repZipCode = document.getElementById('approvedRepZip');
+	
+	if(mailZipCode.value.trim() !== ''){
+		if(!isNumeric(mailZipCode.value)){
+			zipCdNumrcFlag=true;
+		}
+		else {
+			if (mailZipCode.value.length<5) {
+				zipCdMinChrFlag=true;
 			}
 		}
 	}
 	
-	private void writer(List<PceRecord> items) throws SQLException, BatchBusinessException {
-		String icis = StringUtils.join(items.stream().map(PceRecord::getPceIci).collect(Collectors.toList()), ",");
-		String fileLocation = outputFileLocation;
-		if (StatisticsConstants.TRUE.equalsIgnoreCase(appendTimestampToFile)) {
-			fileLocation += "_" + new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
+	if(repZipCode.value.trim() !== ''){
+		if(!isNumeric(repZipCode.value)){
+			zipCdNumrcFlag=true;
 		}
-		FileSystemResource fileSystemResource = new FileSystemResource(fileLocation + fileFormat);
-		FlatFileItemWriter<String> itemWriter = new FlatFileItemWriter<>();
-		try {
-			itemWriter.setResource(fileSystemResource);
-			writeToFile(icis, items, itemWriter);
-
-			LOG.debug("Detail records written");
-		} catch (Exception ex) {
-			LOG.error("Rolling back transaction for ProgramHistory batch for -> {}", items.size());
-			String applicationMessage = String.format("Error occurred when writing records for icis %s", icis);
-			if (itemWriter != null)
-				fileCleanupListener.addWriter(itemWriter, fileSystemResource);
-			throw ExceptionUtil.batchBusinessException(BatchExceptionType.SQL_EXCEPTION, applicationMessage, null, null,
-					StatisticsConstants.PROGRAM_HISTORY_BATCH, ex);
+		else {
+			if (repZipCode.value.length<5) {
+				zipCdMinChrFlag=true;
+			}
 		}
-
 	}
 	
-	private void writeToFile(String icis, List<PceRecord> detailRecordList, FlatFileItemWriter<String> itemWriter)
-			throws Exception {
-		LOG.debug("Writing detailRecord for -> {}", icis);
-		itemWriter.setLineAggregator(new PassThroughLineAggregator<String>());
-		itemWriter.open(new ExecutionContext());
-		itemWriter.afterPropertiesSet();
-		itemWriter.write(detailRecordList.stream().map(PceRecord::toString).collect(Collectors.toList()));
-		itemWriter.close();
-	}
+	const otherFirstNameFlds = document.querySelectorAll('.otherFirstName');
+	otherFirstNameFlds.forEach(otherFirstNameFld => {
+		var value=otherFirstNameFld.value;
+		if(value.trim()!== ''){
+			if(!isValidName(value)){
+				fstNameSplCharFlag=true;
+			}
+		}
+	});
+	
+	const otherLastNameFlds = document.querySelectorAll('.otherLastName');
+	otherLastNameFlds.forEach(otherLastNameFld => {
+		var value=otherLastNameFld.value;
+		if(value.trim()!== ''){
+			if(!isValidName(value)){
+				lstNameSplCharFlag=true;
+			}
+		}
+	});
 
+	const ssnFlds = document.querySelectorAll('.ssnFld');
+	ssnFlds.forEach(ssnFld => {
+		var value=ssnFld.value;
+		if(value.trim()!== ''){
+			if(!isNumeric(value)){
+				ssnFldFlag=true;
+			}
+		}
+	});
+	
+	const homePhnFlds = document.querySelectorAll('.homePhn');
+	homePhnFlds.forEach(homePhnFld => {
+		var value=homePhnFld.value;
+		if(value.trim()!== ''){
+			if(!isNumeric(value)){
+				homePhnFldFlag=true;
+			}
+		}
+	});
+	const workPhnFlds = document.querySelectorAll('.workPhn');
+	workPhnFlds.forEach(workPhnFld => {
+		var value=workPhnFld.value;
+		if(value.trim()!== ''){
+			if(!isNumeric(value)){
+				workPhnFldFlag=true;
+			}
+		}
+	});
+	const cellPhnFlds = document.querySelectorAll('.cellPhn');
+	cellPhnFlds.forEach(cellPhnFld => {
+		var value=cellPhnFld.value;
+		if(value.trim()!== ''){
+			if(!isNumeric(value)){
+				cellPhnFldFlag=true;
+			}
+		}
+	});
+	const altPhnFlds = document.querySelectorAll('.altPhn');
+	altPhnFlds.forEach(altPhnFld => {
+		var value=altPhnFld.value;
+		if(value.trim()!== ''){
+			if(!isNumeric(value)){
+				altPhnFldFlag=true;
+			}
+		}
+	});
+	
+	const affidavit = document.getElementById('fpAffidavit');
+	const electronicSignature = document.getElementById('electronicSignature');
+	const electronicFirstName = document.getElementById('electronicFirstName');
+	const electronicLastName = document.getElementById('electronicLastName');
+	
+	if(!affidavit.checked){
+		affidavitFlag=true;
+	}
+	if(!electronicSignature.checked){
+		elecSigFlag=true;
+	}
+	
+	if(electronicFirstName.value.trim() === ''){
+		elcFstNameFlag=true;
+	}	else if(!isValidName(electronicFirstName.value)){
+		elcFstNameSplFlag=true;
+	}
+	
+	if(electronicLastName.value.trim() === ''){
+		elcLstNameFlag=true;
+	} else if(!isValidName(electronicLastName.value)){
+		elcLstNameSplFlag=true;
+	}
+	
+	//START ILIES-312006 --- Household / Residence Validation/Tax filing validation ---
+    var q1 = parseInt(document.getElementById("peopleInYourHome")?.value, 10);
+    var q2 = parseInt(document.getElementById("outsideHomeType")?.value, 10);
+ 
+    if (isNaN(q1)) q1 = 0;
+    if (isNaN(q2)) q2 = 0;
+ 
+    var totalTop = q1 + q2;
+ 
+    const allSelects  = document.querySelectorAll("select.formNoStyle");
+    const selects = Array.prototype.filter.call(allSelects, function(sel){
+    	const nm = sel.getAttribute("name") || "";
+    	const id = sel.getAttribute("id") || "";
+    	return nm.includes("livingArrangement") || id.includes("livingArrangement");
+    });
+    let inHome = 0, outside = 0;
+    for (var i = 0; i < selects.length; i++) {
+        var val = selects[i].value;
+        if (!val || val === "SEL") continue;
+        if (val === "HO") inHome++;
+        else outside++;
+    }
+    var personsAdded = selects.length;
+    
+  //END ILIES-312006 --- Household / Residence Validation/Tax filing validation ---
+    
+
+    if (!validateTaxFieldsForAllMembers()) {
+        taxFieldsFlag = true;
+    }
+
+	 
+	const errorImg="<br> <img src=\"/access/images/icon_error.gif\" alt=\"Error\" width=\"17\" height=\"17\" vspace=\"2\" align=\"middle\">";
+	
+	if(fstNameFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+fstNameValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(fstNameSplCharFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+fstNameSplValidationMsg+"</label>";  
+		showErrorTable=true;
+	}
+	
+	if(lstNameFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+lstNameValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	
+	if(lstNameSplCharFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+lstNameSplValidationMsg+"</label>";  
+		showErrorTable=true;
+	}
+	if(addrFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+addrValidationMsg+"</label>"; 
+		showErrorTable=true;
+	}
+	if(cityFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+cityValidationMsg+"</label>"; 
+		showErrorTable=true;
+	}
+	if(stateFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+stateValidationMsg+"</label>"; 	
+		showErrorTable=true;
+	}
+	
+	if(zipCdMdtryFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML +="&nbsp;<label>"+zipCdValidationMsg+"</label>"; 
+		showErrorTable=true;
+	}
+	if(zipCdNumrcFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+zipCdNumValidationMsg+"</label>"; 
+		showErrorTable=true;
+	}
+	if(zipCdMinChrFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+zpCdLenValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(ssnFldFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+ssnValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(homePhnFldFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+homePhValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(workPhnFldFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+workPhValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(cellPhnFldFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+cellPhValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(altPhnFldFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+altPhPhValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(affidavitFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+afdvtValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(elecSigFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+elecValidationMsg+"</label>";
+		showErrorTable=true;
+		
+	}
+	if(elcFstNameFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+elecFstNameValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(elcFstNameSplFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+fstNameSplValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(elcLstNameFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+elecLstNameValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	if(elcLstNameSplFlag){
+		document.getElementById('errMessageText').innerHTML += errorImg;
+		document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+lstNameSplValidationMsg+"</label>";
+		showErrorTable=true;
+	}
+	
+    if(taxFieldsFlag){
+        document.getElementById('errMessageText').innerHTML += errorImg;
+        document.getElementById('errMessageText').innerHTML += "&nbsp;<label>Tax related questions are required when Health Care Plan is selected.</label>";
+        showErrorTable=true;
+    }
+
+	
+	//ILIES-312006 Showing error message for Tax filing
+	
+    if (totalTop !== personsAdded || q1 !== inHome || q2 !== outside) {
+    	document.getElementById('errMessageText').innerHTML += errorImg;
+	 	document.getElementById('errMessageText').innerHTML += "&nbsp;<label>"+"You have told us that there are a total of " +totalTop+ " household members ("+q1+" people in the household and "+q2+" people out of the household), however the household composition and residency information is not matching. Please update the Household Composition and/or Residency Information accordingly."+"</label>";
+    }
+	    
+	    
+	
+	if(showErrorTable){
+		errorTable.style.display='block';
+		elementTop.scrollIntoView({
+			behavior: 'smooth', block: 'center'
+		});
+		return false;
+	}
+	else{
+		errorTable.style.display='none';
+	}	
+	submitted=true;
+	window.onmousemove = null;
+	window.onkeypress = null;
+	window.onscroll = null;
+	window.onclick = null;
+	clearInterval(countdownInterval);
+	timeLeft = 900;
+	startCountdown();
+	updatePdfSpaces();
+	getDatesForPdf();
+	const element = document.getElementById('containarApp');
+    const inputsUnMaskFields = element.querySelectorAll('input[type="password"]');
+    inputsUnMaskFields.forEach(input => {
+    	input.type='text';
+    });
+	const sumitAppHide = document.getElementById('sumitApp');
+	sumitAppHide.style.display = 'none';	
+    const rect = sending.getBoundingClientRect();
+    const bottomPosition = rect.bottom + window.scrollY;  // Add scrollY to account for scrolled page
+    document.body.style.height = bottomPosition + 'px';
+	const thankYou = document.getElementById('thankYou');
+	const errorSubmission = document.getElementById('errorSubmission');
+    const options = {
+        margin: [.5, 0], filename: 'ASApplication.pdf',
+        image: {
+            type: 'jpeg',
+            quality: 1
+        },
+        html2canvas: {
+            scale: .90
+        },
+        jsPDF: {
+            unit: 'in',
+            format: 'letter',
+            orientation: 'portrait'
+        }
+    };
+    html2pdf().from(element).set(options).toPdf().output('blob').then((pdfBlob) => {
+    	element.style.display = 'none';
+		const sending = document.getElementById('sending');
+		sending.style.display = 'inline';
+		sending.scrollIntoView({
+			behavior: 'smooth', block: 'center'
+		});
+    	pdfUrl = URL.createObjectURL(pdfBlob);
+        const formData = new FormData();
+        formData.append('file', pdfBlob);
+        formData.append('appFstName', appFstName);
+        formData.append('applicantMiddle', appFstName);
+        formData.append('applicantLastName', appFstName);
+        formData.append('presentZipCode', presentZipCode);
+        const queryParam = '/access/FwOctetStreamReader?&requestType=1&PAGE_ACTION=ABWACSubmit&firstName=' + appFstNameSend.value 
+        					+ '&middleInitial=' + appMiSend.value + '&lastName=' + appLastSend.value + '&zipCode=' + presentZipCode.value + '&LANGUAGE=' + language;
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', queryParam, true);
+
+        xhr.onload = function() {
+        	sending.style.display = 'none';
+            if (xhr.readyState == 4 && xhr.status === 200) {
+            	var data = null;
+            	try {
+            		data = JSON.parse(xhr.responseText);
+            		if(data && data.status && data.status === 'SUCCESS'){
+	                   	 console.log('File uploaded successfully!');
+	                   	 if(document.getElementById('trackingNum')){
+	                   		document.getElementById('trackingNum').textContent=DOMPurify.sanitize(data.trackingNum);
+	                   	 } 
+                         thankYou.style.display = 'inline';
+            		} else{
+	                   	errorSubmission.style.display = 'inline';
+                   }
+            		
+        		} catch (e) {
+        			errorSubmission.style.display = 'inline';
+        			console.error('Error while parsing response', e);
+        		}
+                
+            } else {
+                console.log('Error occurred during file upload');
+                errorSubmission.style.display = 'inline';
+            }
+        };
+
+        try {
+        	xhr.send(formData);
+		} catch (e) {
+			sending.style.display = 'none';
+			errorSubmission.style.display = 'inline';
+			console.log("Error while sending application: " + e); 
+		}
+    });
+});
+
+const printMyApplication = document.getElementById('printMyApplication');
+printMyApplication.onclick = printPDFApp;
+const tablesMWidth = document.querySelectorAll('*');
+tablesMWidth.forEach(table => {
+	table.style.maxWidth = '800px';
+});
+const inputsMWidth = document.querySelectorAll('input[type="text"]');
+inputsMWidth.forEach(input => {
+	input.style.maxWidth = '130px';
+});
+
+document.getElementById('applicantAddress').style.maxWidth = '440px';
+document.getElementById('aplicantMailingAddress').style.maxWidth = '440px';
+document.getElementById('incPersonName1').style.maxWidth = '500px';
+document.getElementById('employerName1').style.maxWidth = '500px';
+document.getElementById('employerAddress1').style.maxWidth = '500px';
+document.getElementById('employerPhone1').style.maxWidth = '160px';
+document.getElementById('incPersonName2').style.maxWidth = '500px';
+document.getElementById('employerName2').style.maxWidth = '500px';
+document.getElementById('employerAddress2').style.maxWidth = '500px';
+document.getElementById('employerPhone2').style.maxWidth = '160px';
+document.getElementById('medicaidNames').style.maxWidth = '650px';
+document.getElementById('chipNames').style.maxWidth = '650px';
+document.getElementById('medicareNames').style.maxWidth = '650px';
+document.getElementById('tricare').style.maxWidth = '650px';
+document.getElementById('veteransIns').style.maxWidth = '650px';
+document.getElementById('peaceCorpsIns').style.maxWidth = '650px';
+document.getElementById('emplIns').style.maxWidth = '650px';
+document.getElementById('insuranceName').style.maxWidth = '460px';
+document.getElementById('emplName').style.maxWidth = '420px';
+document.getElementById('emplAddress').style.maxWidth = '420px';
+document.getElementById('empPhNum').style.maxWidth = '160px';
+document.getElementById('empIdNum').style.maxWidth = '160px';
+document.getElementById('emplContPerson').style.maxWidth = '330px';
+document.getElementById('emplContPh').style.maxWidth = '280px';
+document.getElementById('emplContEmail').style.maxWidth = '280px';
+document.getElementById('covFromJob').style.maxWidth = '365px';
+document.getElementById('noCoverageProvided').style.maxWidth = '360px';
+document.getElementById('endingInsurance').style.maxWidth = '360px';
+document.getElementById('reasonForInsEnd').style.maxWidth = '360px';
+document.getElementById('appliedPersonName').style.maxWidth = '100%';
+document.getElementById('veteranFamily').style.maxWidth = '100%';
+document.getElementById('emplPersonName1').style.maxWidth = '100%';
+document.getElementById('emplPersonName2').style.maxWidth = '100%';
+document.getElementById('approvedRepAdd').style.maxWidth = '51%';
+document.getElementById('payingCompanyName').style.maxWidth = '100%';
+document.getElementById('Ils_rel').style.maxWidth = '500px';
+document.getElementById('OthSt_rel').style.maxWidth = '500px';
+document.getElementById('ChkSa_rel').style.maxWidth = '500px';
+document.getElementById('Cert_rel').style.maxWidth = '500px';
+document.getElementById('Stock_rel').style.maxWidth = '500px';
+document.getElementById('Other_rel').style.maxWidth = '500px';
+document.getElementById('Explain_text').style.maxWidth = '500px';
+document.getElementById('empItemsBought1').style.maxWidth = '250px';
+document.getElementById('otherTrnsprt1').style.maxWidth = '160px';
+document.getElementById('costOthrTrnspt1').style.maxWidth = '240px';
+document.getElementById('empItemsBought2').style.maxWidth = '250px';
+document.getElementById('otherTrnsprt2').style.maxWidth = '160px';
+document.getElementById('costOthrTrnspt2').style.maxWidth = '240px';
+document.getElementById('listSpouse').style.maxWidth = '350px';
+document.getElementById('listDepndts').style.maxWidth = '350px';
+document.getElementById('TaxFilerName').style.maxWidth = '350px';
+document.getElementById('listBillsAmt').style.maxWidth = '300px';
+document.getElementById('applicantFirstName').style.maxWidth = '210px';
+document.getElementById('applicantLastName').style.maxWidth = '275px';
+document.getElementById('applicantFormerName').style.maxWidth = '275px';
+document.getElementById('applicantAddress').style.maxWidth = '475px';
+document.getElementById('applicantAddressSec').style.maxWidth = '475px';
+document.getElementById('aplicantMailingAddress').style.maxWidth = '475px';
+document.getElementById('aplicantMailingAddressSec').style.maxWidth = '475px';
+document.getElementById('electronicFirstName').style.maxWidth = '210px';
+document.getElementById('electronicMiddle').style.maxWidth = '75px';
+document.getElementById('electronicLastName').style.maxWidth = '275px';
+document.getElementById('appRepFirstName').style.maxWidth = '275px';
+document.getElementById('appRepLastName').style.maxWidth = '275px';
+document.getElementById('appRepOrgName').style.maxWidth = '750px';
+document.getElementById('applicantCity').style.maxWidth = '750px';
+document.getElementById('applicantMailCity').style.maxWidth = '750px';
+document.getElementById('approvedRepAddSec').style.maxWidth = '475px';
+document.getElementById('approvedRepAdd').style.maxWidth = '475px';
+document.getElementById('approvedRepCity').style.maxWidth = '750px';
+document.getElementById('approvedRepFirstName').style.maxWidth = '210px';
+document.getElementById('approvedRepLastName').style.maxWidth = '275px';
+document.getElementById('personFirstName').style.maxWidth = '275px';
+document.getElementById('personLastName').style.maxWidth = '275px';
+document.getElementById('personFormerName').style.maxWidth = '275px';
+document.getElementById('extraFirstName1').style.maxWidth = '200px';
+document.getElementById('extraLastName1').style.maxWidth = '275px';
+document.getElementById('extraRelationship1').style.maxWidth = '275px';
+document.getElementById('extraFirstName2').style.maxWidth = '200px';
+document.getElementById('extraLastName2').style.maxWidth = '275px';
+document.getElementById('extraRelationship2').style.maxWidth = '275px';
+document.getElementById('extraFirstName3').style.maxWidth = '200px';
+document.getElementById('extraLastName3').style.maxWidth = '275px';
+document.getElementById('extraRelationship3').style.maxWidth = '275px';
+document.getElementById('extraFirstName4').style.maxWidth = '200px';
+document.getElementById('extraLastName4').style.maxWidth = '275px';
+document.getElementById('extraRelationship4').style.maxWidth = '275px';
+document.getElementById('extraFirstName5').style.maxWidth = '200px';
+document.getElementById('extraLastName5').style.maxWidth = '275px';
+document.getElementById('extraRelationship5').style.maxWidth = '275px';
+function validateAmount(input){
+	if(!input.value.startsWith('$')){
+		input.value = '$' + input.value.replace('$', '');
+	}
+	input.value = '$' + input.value.substring(1).replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');	
 }
+
+const RsrcCompNameWidth = document.querySelectorAll('.RsrcBankCompNames');
+RsrcCompNameWidth.forEach(input => {
+	input.style.maxWidth = '230px';
+});
+
+function settingValue(){
+document.getElementById('empWeeklyAmt2').addEventListener('change', function(event){
+	var selectElement = event.target;
+	var selectedValue = selectElement.value;
+
+	for(var i=0; i<selectElement.options.length;i++){
+		if(selectElement.options[i].value === selectedValue){
+			selectElement.options[i].setAttribute('selected', 'selected');
+		}else{
+			selectElement.options[i].removeAttribute('selected', 'selected');
+		}
+	}
+});
+}
+function settingValueFirst(){
+	document.getElementById('empWeeklyAmt1').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+	
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected');
+			}
+		}
+	});
+}
+function settingDurSec(){
+	document.getElementById('durOfPrePlan2').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+}
+
+function empOftenPaidSec(){
+	document.getElementById('empOftenPaid2').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+}
+function empOftenPaid(){
+	document.getElementById('empOftenPaid1').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+}
+
+function intByPhoneValue(){
+	document.getElementById('intByPhone').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+}
+
+	document.getElementById('typeOfFacility').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+
+	document.getElementById('whatCounty').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+	const relationId = document.getElementById('relation');
+	if(relationId){
+		relationId.addEventListener('change', function(event){
+			var selectElement = event.target;
+			var selectedValue = selectElement.value;
+
+			for(var i=0; i<selectElement.options.length;i++){
+				if(selectElement.options[i].value === selectedValue){
+					selectElement.options[i].setAttribute('selected', 'selected');
+				}else{
+					selectElement.options[i].removeAttribute('selected', 'selected');
+				}
+			}
+		});
+	}
+	
+	document.getElementById('Elec_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	document.getElementById('Water_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+	document.getElementById('Garbage_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+	document.getElementById('Fuel_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	document.getElementById('Phone_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+	document.getElementById('Tank_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+	document.getElementById('Well_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	document.getElementById('Fee_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+	document.getElementById('Flat_due').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+		
+	document.getElementById('whatCounty_suffName').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+	document.getElementById('whatCounty_appRepZip').addEventListener('change', function(event){
+		var selectElement = event.target;
+		var selectedValue = selectElement.value;
+
+		for(var i=0; i<selectElement.options.length;i++){
+			if(selectElement.options[i].value === selectedValue){
+				selectElement.options[i].setAttribute('selected', 'selected');
+			}else{
+				selectElement.options[i].removeAttribute('selected', 'selected');
+			}
+		}
+	});
+	
+function toggleSSNFields(id) {
+		var idNumber = Number(id.split('_')[1]);
+		var title = document.getElementById("togglePassword_" + idNumber );
+		if(title.title=="SSN entered is displayed as DOT"){
+			title.title="SSN is displayed as numbers" }
+		else if(title.title=="SSN is displayed as numbers")
+			title.title="SSN entered is displayed as DOT"
+		else if(title.title=="SSN ingresado se muestra como DOT"){
+			title.title="SSN se muestra como n meros" }
+		else if(title.title=="SSN se muestra como n meros")
+			title.title="SSN ingresado se muestra como DOT"
+		var ssnId1="ssn1socialSecurity_" + idNumber;
+		var ssnId2="ssn2socialSecurity_" + idNumber;
+		var ssnId3="ssn3socialSecurity_" + idNumber;
+	    var ssn1 = document.getElementById(ssnId1);
+		var ssn2 = document.getElementById(ssnId2);
+		var ssn3 = document.getElementById(ssnId3);
+		if(ssn1.type=='password'){
+			ssn1.type='text'
+			ssn2.type='text'
+			ssn3.type='text';
+		} else if (ssn1.type=='text'){
+			ssn1.type='password'
+			ssn2.type='password'
+			ssn3.type='password';
+		}
+}
+function toggleSSNFieldsEP(id) {
+	var idNumber = Number(id.split('_')[1]);
+	var title = document.getElementById("togglePasswordEP_" + idNumber );
+	if(title.title=="SSN entered is displayed as DOT"){
+		title.title="SSN is displayed as numbers" }
+	else if(title.title=="SSN is displayed as numbers")
+		title.title="SSN entered is displayed as DOT"
+	else if(title.title=="SSN ingresado se muestra como DOT"){
+		title.title="SSN se muestra como n meros" }
+	else if(title.title=="SSN se muestra como n meros")
+		title.title="SSN ingresado se muestra como DOT"
+	var ssnId1="ssn1socialSecurityEP_" + idNumber;
+	var ssnId2="ssn2socialSecurityEP_" + idNumber;
+	var ssnId3="ssn3socialSecurityEP_" + idNumber;
+    var ssn1 = document.getElementById(ssnId1);
+	var ssn2 = document.getElementById(ssnId2);
+	var ssn3 = document.getElementById(ssnId3);
+	if(ssn1.type=='password'){
+		ssn1.type='text'
+		ssn2.type='text'
+		ssn3.type='text';
+	} else if (ssn1.type=='text'){
+		ssn1.type='password'
+		ssn2.type='password'
+		ssn3.type='password';
+	}
+}
+
+function isNumeric(value){
+	return /^[0-9]+$/.test(value);
+}
+
+function isValidName(name){
+	const regex=/^[a-zA-Z][a-zA-Z0-9' -]*$/;
+	
+	return regex.test(name);
+}
+
+function addHover(){
+	$(document).ready(function() {
+		$('.hover-help').hover(function(a) {
+			titles = [];
+			$('table[title]').each(function(index) {
+				titles.push([ index, $(this).attr('title') ]);
+			});
+			$('table[title]').attr('title', '');
+			$(this).css({"z-index":"1000"}).find('.hover-help-msg').show(100);
+			start_secds();
+		}, function(a) {
+			$(this).css({"z-index":"auto"}).find('.hover-help-msg').hide();
+			$('table[title]').each(function(index) {
+				$(this).attr('title', titles[index][1]);
+			});
+			if(!$(this).parent().find('.hover-help-msg').is(":visible") && time_opened > 0)
+			{
+			//Was requested.
+			var hidden_count = $(this).parent().find('.hit_count');
+			var secds_accesd = $(this).parent().find('.secds_accesd');
+			set_hit_count(hidden_count);
+			set_secds(secds_accesd);
+			}
+		});
+			
+		$('.hover-help a').click(function(){
+			$(this).parent().css({"z-index" : "1000"});
+			$(this).parent().find('.hover-help-msg').toggle(100,function(){
+				//Was requested.
+				if(!$(this).is(":visible"))
+				{
+					var hidden_count = $(this).parent().find('.hit_count');
+					var secds_accesd = $(this).parent().find('.secds_accesd');
+					set_hit_count(hidden_count);
+					set_secds(secds_accesd);
+				}else{
+					start_secds();
+				}			
+			});
+		});
+		
+		$('.hover-help a').blur(function(){
+			//Was requested.
+			if($(this).parent().find('.hover-help-msg').is(":visible"))
+			{
+				var hidden_count = $(this).parent().find('.hit_count');
+				var secds_accesd = $(this).parent().find('.secds_accesd');
+				set_hit_count(hidden_count);
+				set_secds(secds_accesd);
+			}	
+			$(this).parent().css({"z-index":"auto"}).find('.hover-help-msg').hide();
+		});
+		
+		
+	});
+}
+document.getElementById("hit_count_id_180012904").id += "_apl";
+document.getElementById("secds_accesd_id_180012904").id += "_apl";
+document.getElementById("hit_count_id_180012905").id += "_apl";
+document.getElementById("secds_accesd_id_180012905").id += "_apl";
+document.getElementById("control_180012904").id += "_apl"; 
+document.getElementById("control_180012905").id += "_apl";
+
+
+const hoverWidth = document.querySelectorAll('.msg');
+hoverWidth.forEach(input => {
+	input.style.width = '420px';
+});
+
+
+//START ILIES-312006 --- Household Composition SUM  ---
+
+function updateHouseholdTotal() {
+    var live = document.getElementById("peopleInYourHome").value;
+    var outside = document.getElementById("outsideHomeType").value;
+   // var dependent = document.getElementById("taxDependent").value;
+    var totalField = document.getElementById("totalPeopleHousehold");
+    var totalFieldHidden = document.getElementById("totalPeopleHouseholdHidden");
+ 
+    function num(v) { var n=parseInt(v,10); return isNaN(n)?0:n; }
+    var total = num(live) + num(outside);
+    if(totalField){
+    	 totalField.innerText = total;
+    	// totalFieldHidden.val(total);
+    }
+ 
+//END ILIES-312006 --- Household Composition SUM  ---
+}
+
+function toggleTaxFieldsMandatory(isMandatory) {
+    var taxFieldIds = [
+        'fileFederalTaxReturn_asterisk',
+        'fileJointlyWithSpouse_asterisk', 
+        'dependents_asterisk',
+        'dependentTaxReturn_asterisk'
+    ];
+    
+    // Handle original fields
+    taxFieldIds.forEach(function(fieldId) {
+        var asterisk = document.getElementById(fieldId);
+        if (asterisk) {
+            asterisk.style.display = isMandatory ? 'inline' : 'none';
+        }
+    });
+    
+    
+}
+
+function attachFamilyPlanListeners() {
+    const programFamilyPlanY = document.getElementById('programHealthCare_Y');
+    const programFamilyPlanN = document.getElementById('programHealthCare_N');
+
+    if (programFamilyPlanY && programFamilyPlanN ) {
+        // Remove existing listeners to prevent duplicates
+      //  programFamilyPlanY.removeEventListener('change', handleFamilyPlanYChange);
+        //programFamilyPlanN.removeEventListener('change', handleFamilyPlanNChange);
+        
+        // Add listeners
+        programFamilyPlanY.addEventListener('change', handleFamilyPlanYChange);
+        programFamilyPlanN.addEventListener('change', handleFamilyPlanNChange);
+        
+        // Check initial state
+        if (programFamilyPlanY.checked) {
+            toggleTaxFieldsMandatory(true);
+        }
+    }
+}
+
+function handleFamilyPlanYChange() {
+    if (this.checked) {
+        toggleTaxFieldsMandatory(true);
+    }
+}
+
+function handleFamilyPlanNChange() {
+    if (this.checked) {
+        toggleTaxFieldsMandatory(false);
+    }
+}
+
+if(document.readyState === 'loading'){
+	document.addEventListener('DOMContentLoaded', attachFamilyPlanListeners);
+}else{
+	attachFamilyPlanListeners;
+}
+
+// Enhanced tax validation for multiple members
+function validateTaxFieldsForAllMembers() {
+    const programFamilyPlanY = document.getElementById('programHealthCare_Y');
+    if (programFamilyPlanY && programFamilyPlanY.checked) {
+    	 var taxFields = ['FileFederalTaxReturn', 'FileJointlyWithSpouse', 'Dependents', 'DependentTaxReturn'];
+    	    
+    	    // Check original tax fields
+    	    for (var i = 0; i < taxFields.length; i++) {
+    	        var radioButtons = document.getElementsByName(taxFields[i]);
+    	        var isSelected = false;
+    	        
+    	        for (var j = 0; j < radioButtons.length; j++) {
+    	            if (radioButtons[j].id && !radioButtons[j].id.includes('_') && radioButtons[j].checked) {
+    	                isSelected = true;
+    	                break;
+    	            }
+    	        }
+    	        
+    	        if (!isSelected) {
+    	        	taxFieldsFlag = true;
+    	        	break;
+    	        }
+    	    }
+    }
+    
+ 
+}
+
+
+
+
+ 
