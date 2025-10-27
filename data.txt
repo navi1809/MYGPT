@@ -1,127 +1,370 @@
-DATE & SCHEMA  office                    Section                                      column                              legacy value                Crystal report
+--naveen query
+WITH RPT_DATES AS (
+    SELECT
+        VARCHAR_FORMAT(DATE('{?RPT_DT}') - (DAY(DATE('{?RPT_DT}')) - 1) DAYS, 'YYYY-MM-DD') AS RPT_BEG_DT,
+        VARCHAR_FORMAT(LAST_DAY(DATE('{?RPT_DT}')), 'YYYY-MM-DD') AS RPT_END_DT,
+        VARCHAR_FORMAT(DATE('{?RPT_DT}') - (DAY(DATE('{?RPT_DT}')) - 1) DAYS, 'YYYY-MM-DD') || '-00.00.00.000000' AS RPT_BEG_DT_TS,
+        VARCHAR_FORMAT(LAST_DAY(DATE('{?RPT_DT}')), 'YYYY-MM-DD') || '-23.59.59.999999' AS RPT_END_DT_TS,
+        VARCHAR_FORMAT('{?RPT_DT}', 'MM') AS RPT_MONTH_BIN,
+        VARCHAR_FORMAT('{?RPT_DT}', 'YYYY') AS RPT_YEAR_BIN,
+        CASE WHEN VARCHAR_FORMAT('{?RPT_DT}', 'MM') = '01' THEN 12 ELSE INTEGER(VARCHAR_FORMAT('{?RPT_DT}', 'MM')) - 1 END AS PREV_RPT_MTH,
+        CASE WHEN VARCHAR_FORMAT('{?RPT_DT}', 'MM') = '01' THEN INTEGER(VARCHAR_FORMAT('{?RPT_DT}', 'YYYY')) - 1 ELSE INTEGER(VARCHAR_FORMAT('{?RPT_DT}', 'YYYY')) END AS PREV_RPT_YR
+    FROM SYSIBM.SYSDUMMY1    
+),
+OFFICES AS (
+    SELECT DISTINCT T1.OFC_CD, T.OFC_NM
+    FROM {?SCHEMA}.TWNCASELD_DEBTLD T1
+    JOIN {?SCHEMA}.TWNOFFICE T ON T.OFC_CD = T1.OFC_CD
+    WHERE T1.PRGM_OFC_TYPE = 'A' AND T1.OFC_CD NOT IN ('DC', 'DH', 'DL', 'DR')
+),
+OFFICE_DATA AS (
+    SELECT
+        CASE WHEN '' IS NULL OR '' = '' THEN OFC.OFC_CD ELSE 'CO' END AS OFC_CD,
+        CASE WHEN '' IS NULL OR '' = '' THEN OFC.OFC_NM ELSE 'CENTRAL OFFICE' END AS OFC_NM
+    FROM OFFICES OFC
+),
+ACT_CASELD_INFO AS (
+    SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T2.MTHLY_RPTR_IND, T3.EXPD_SRVC_IND, T3.MTHD_OF_ISNCE, T3.ISNCE_MTHD
+    FROM {?SCHEMA}.TWNFAM_CASELD_CASE T1
+    JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
+    JOIN {?SCHEMA}.TWNFS_ISNCE T3 ON T2.ICI = T3.ICI
+    JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE
+        T2.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T2.PRD_END_DT >= RPT.RPT_END_DT
+        AND T3.ISNCE_DT <= RPT.RPT_END_DT
+        AND T3.BNFT_MTH = RPT.RPT_MONTH_BIN
+        AND T3.BNFT_YR = RPT.RPT_YEAR_BIN
+        AND T3.BNFT_TYPE = 'RG'
+        AND T3.FS_ISNCE_STS IN ('IS', 'RD')
+    ORDER BY T1.OFC_CD, T1.ICI
+),
+MAIN AS (
+    SELECT
+        ACI.OFC_CD, ACI.OFC_NM,
+        SUM(CASE WHEN ACI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PACASES,
+        SUM(CASE WHEN ACI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NACASES,
+        SUM(CASE WHEN ACI.EXPD_SRVC_IND = 'Y' AND ACI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PAEXPCASE,
+        SUM(CASE WHEN ACI.EXPD_SRVC_IND = 'Y' AND ACI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NAEXPCASE,
+        SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' AND ACI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PAEBTCASE,
+        SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' AND ACI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NAEBTCASE,
+        SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' THEN 1 ELSE 0 END) AS DMIEBT,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' AND ACI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PADAMS,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' AND ACI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NADAMS,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE <> '3' AND ACI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PASPHNDL,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE <> '3' AND ACI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NASPHNDL,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND (ACI.MTHD_OF_ISNCE = '0' OR ACI.MTHD_OF_ISNCE = ' ') THEN 1 ELSE 0 END) AS DMI0_COUNT,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '1' THEN 1 ELSE 0 END) AS DMI1_COUNT,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '2' THEN 1 ELSE 0 END) AS DMI2_COUNT,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' THEN 1 ELSE 0 END) AS DMI3_COUNT,    
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '4' THEN 1 ELSE 0 END) AS DMI4_COUNT,    
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '5' THEN 1 ELSE 0 END) AS DMI5_COUNT,
+        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '6' THEN 1 ELSE 0 END) AS DMI6_COUNT,    
+        SUM(CASE WHEN ACI.MTHLY_RPTR_IND = 'Y' AND ACI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PAMRC,
+        SUM(CASE WHEN ACI.MTHLY_RPTR_IND = 'Y' AND ACI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NAMRC
+    FROM ACT_CASELD_INFO ACI
+    GROUP BY ACI.OFC_CD, ACI.OFC_NM
+),
+LST_MTH_CSLD AS (
+    SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.ISNCE_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
+    FROM {?SCHEMA}.TWNFAM_CASELD_CASE T1
+    JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
+    JOIN {?SCHEMA}.TWNFS_ISNCE T3 ON T2.ICI = T3.ICI
+    JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE
+        T2.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T2.PRD_END_DT >= RPT.RPT_END_DT
+        AND T3.BNFT_MTH = RPT.PREV_RPT_MTH
+        AND T3.BNFT_YR = RPT.PREV_RPT_YR
+        AND T3.BNFT_TYPE = 'RG'
+        AND T3.FS_ISNCE_STS IN ('IS', 'RD')
+    ORDER BY T1.OFC_CD, T1.ICI
+),
+MAIN1 AS (
+    SELECT
+        LMC.OFC_CD, LMC.OFC_NM,
+        SUM(CASE WHEN LMC.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PAREVISED,
+        SUM(CASE WHEN LMC.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NAREVISED,
+        SUM(CASE WHEN LMC.FS_SUFX IN ('P', 'S', 'G', 'A') AND LMC.ISNCE_DT >= LMC.RPT_BEG_DT AND LMC.ISNCE_DT <= LMC.RPT_END_DT THEN 1 ELSE 0 END) AS PALMISS,
+        SUM(CASE WHEN LMC.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND LMC.ISNCE_DT >= LMC.RPT_BEG_DT AND LMC.ISNCE_DT <= LMC.RPT_END_DT THEN 1 ELSE 0 END) AS NALMISS
+    FROM LST_MTH_CSLD LMC
+    GROUP BY LMC.OFC_CD, LMC.OFC_NM
+),
+-- Step 1: Get all applications (like SETINQ-S04 in EGL)
+ACTION_QUERY AS (
+    SELECT T1.ICI, OFC.OFC_NM, MIN(T1.ACTN_TS) as ACTN_TS, T2.OFC_CD, 'AP' as ACTN_TYP
+    FROM {?SCHEMA}.TWNFAM_ACTNS T1
+    JOIN {?SCHEMA}.TWNFAM_CASELD_CASE T2 ON T1.ICI = T2.ICI
+    JOIN OFFICE_DATA OFC ON T2.OFC_CD = OFC.OFC_CD
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE
+        T2.PRGM_OFC_TYPE = 'A'
+        AND T1.ACTN_TS >= RPT.RPT_BEG_DT_TS
+        AND T1.ACTN_TS <= RPT.RPT_END_DT_TS
+        AND T1.ACTN_TYP = 'AP'  -- Applications only
+        AND T1.PRGM_TYP = 'FS'
+    GROUP BY T1.ICI, OFC.OFC_NM, T2.OFC_CD  -- Get MIN(ACTN_TS) per ICI like EGL does
+),
+-- Step 2: For each application, try to find the most recent previous FA/RE/RI action (like READ-S02)
+PREV_FAM_ACTNS_LOOKUP AS (
+    SELECT
+        AQ.OFC_CD, AQ.OFC_NM, AQ.ICI, AQ.ACTN_TS,
+        T1.ACTN_TS as PREV_ACTN_TS,
+        T1.ACTN_TYP as PREV_ACTN_TYP,
+        T2.FS_SUFX,
+        ROW_NUMBER() OVER (PARTITION BY AQ.ICI ORDER BY T1.ACTN_TS DESC) as RN
+    FROM ACTION_QUERY AQ
+    LEFT JOIN {?SCHEMA}.TWNFAM_ACTNS T1 ON AQ.ICI = T1.ICI
+        AND T1.PRGM_TYP = 'FS'
+        AND T1.ACTN_TS < AQ.ACTN_TS  -- Previous actions before the application
+        AND T1.ACTN_TYP IN ('FA','RE','RI')  -- These specific action types
+    LEFT JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE (T1.ICI IS NULL OR (T2.PRD_BEG_DT <= RPT.RPT_END_DT AND T2.PRD_END_DT >= RPT.RPT_END_DT))
+),
+-- Step 3: Filter to get only applications that have valid previous actions (like the IF condition in EGL)
+PREV_FAM_ACTNS_FILTERED AS (
+    SELECT OFC_CD, OFC_NM, ICI, ACTN_TS, FS_SUFX, PREV_ACTN_TYP
+    FROM PREV_FAM_ACTNS_LOOKUP
+    WHERE RN = 1  -- Get only the most recent previous action per application
+      AND PREV_ACTN_TYP IN ('FA','RE','RI')  -- Must have found a valid previous action type
+      AND FS_SUFX IS NOT NULL  -- Must have found valid case history
+),
+-- Step 4: For valid applications, try to get program case history (like READ-S03)
+-- EGL uses singleRow which expects exactly ONE record - if multiple exist, it fails
+PRGM_CSH_HSTRY_LOOKUP AS (
+    SELECT PFA.OFC_CD, PFA.OFC_NM, PFA.ICI, PFA.ACTN_TS, T1.RCRT_APL_DT, PFA.FS_SUFX, RPT.RPT_BEG_DT, RPT.RPT_END_DT,
+           COUNT(*) OVER (PARTITION BY PFA.ICI) as RECORD_COUNT  -- Count how many program case history records exist
+    FROM PREV_FAM_ACTNS_FILTERED PFA
+    LEFT JOIN {?SCHEMA}.TWNPRGM_CASE_HSTRY T1 ON PFA.ICI = T1.ICI
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE (T1.ICI IS NULL OR (
+        T1.PRGM_CASE_TYPE = 'FS'
+        AND T1.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T1.PRD_END_DT >= RPT.RPT_END_DT
+    ))
+),
+-- Step 5: Only count applications where program case history was successfully found (like successful READ-S03)
+-- EGL singleRow expects exactly 1 record - if 0 or >1 records exist, it fails
+PRGM_CSH_HSTRY_FILTERED AS (
+    SELECT OFC_CD, OFC_NM, ICI, ACTN_TS, RCRT_APL_DT, FS_SUFX, RPT_BEG_DT, RPT_END_DT
+    FROM PRGM_CSH_HSTRY_LOOKUP
+    WHERE RCRT_APL_DT IS NOT NULL  -- Must have found valid program case history
+      AND RECORD_COUNT = 1  -- EGL singleRow expects exactly ONE record - if multiple exist, it fails
+),
+MAIN2 AS (
+    SELECT
+        PCH.OFC_CD, PCH.OFC_NM,
+        COUNT(*) as TOTAL_RECORDS,  -- Debug: see how many records we have
+        SUM(CASE WHEN PCH.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PABNFT,
+        SUM(CASE WHEN PCH.FS_SUFX IN ('P','S','G','A') AND PCH.RCRT_APL_DT >= PCH.RPT_BEG_DT AND PCH.RCRT_APL_DT <= PCH.RPT_END_DT THEN 1 ELSE 0 END) AS PANEW,
+        SUM(CASE WHEN PCH.FS_SUFX IN ('P','S','G','A') AND (PCH.RCRT_APL_DT < PCH.RPT_BEG_DT OR PCH.RCRT_APL_DT > PCH.RPT_END_DT) THEN 1 ELSE 0 END) AS PASUBS,
+        SUM(CASE WHEN PCH.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NABNFT,
+        SUM(CASE WHEN PCH.FS_SUFX NOT IN ('P','S','G','A') AND PCH.RCRT_APL_DT >= PCH.RPT_BEG_DT AND PCH.RCRT_APL_DT <= PCH.RPT_END_DT THEN 1 ELSE 0 END) AS NANEW,
+        SUM(CASE WHEN PCH.FS_SUFX NOT IN ('P','S','G','A') AND (PCH.RCRT_APL_DT < PCH.RPT_BEG_DT OR PCH.RCRT_APL_DT > PCH.RPT_END_DT) THEN 1 ELSE 0 END) AS NASUBS
+    FROM PRGM_CSH_HSTRY_FILTERED PCH
+    GROUP BY PCH.OFC_CD, PCH.OFC_NM
+),
+WITH_DRAW_INFO AS (
+    SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
+    FROM {?SCHEMA}.TWNFAM_CASELD_CASE T1
+    JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
+    JOIN {?SCHEMA}.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
+    JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE
+        T2.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T2.PRD_END_DT >= RPT.RPT_END_DT
+        AND T3.PRGM_CASE_TYPE = 'FS'
+        AND T3.STS_EFF_DT >= RPT.RPT_BEG_DT
+        AND T3.STS_EFF_DT <= RPT.RPT_END_DT
+        AND T3.CLSRE_RSN_CD = 'W'
+    ORDER BY T1.OFC_CD, T1.ICI
+),
+MAIN3 AS (
+    SELECT
+        WDI.OFC_CD, WDI.OFC_NM,
+        SUM(CASE WHEN WDI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PAWTDR,
+        SUM(CASE WHEN WDI.FS_SUFX IN ('P', 'S', 'G', 'A') AND WDI.RCRT_APL_DT BETWEEN WDI.RPT_BEG_DT AND WDI.RPT_END_DT THEN 1 ELSE 0 END) AS PANEW,
+        SUM(CASE WHEN WDI.FS_SUFX IN ('P', 'S', 'G', 'A') AND (WDI.RCRT_APL_DT < WDI.RPT_BEG_DT OR WDI.RCRT_APL_DT > WDI.RPT_END_DT) THEN 1 ELSE 0 END) AS PASUBS,
+        SUM(CASE WHEN WDI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NAWTDR,
+        SUM(CASE WHEN WDI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND WDI.RCRT_APL_DT BETWEEN WDI.RPT_BEG_DT AND WDI.RPT_END_DT THEN 1 ELSE 0 END) AS NANEW,
+        SUM(CASE WHEN WDI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND (WDI.RCRT_APL_DT < WDI.RPT_BEG_DT OR WDI.RCRT_APL_DT > WDI.RPT_END_DT) THEN 1 ELSE 0 END) AS NASUBS
+    FROM WITH_DRAW_INFO WDI
+    GROUP BY WDI.OFC_CD, WDI.OFC_NM
+),
+DENIED_APPL_INFO AS (
+    SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.SYS_CLSRE_DNL_RSN, T3.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
+    FROM {?SCHEMA}.TWNFAM_CASELD_CASE T1
+    JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
+    JOIN {?SCHEMA}.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
+    JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE
+        T2.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T2.PRD_END_DT >= RPT.RPT_END_DT
+        AND T3.PRGM_CASE_TYPE = 'FS'
+        AND T3.STS_EFF_DT >= RPT.RPT_BEG_DT
+        AND T3.STS_EFF_DT <= RPT.RPT_END_DT
+        AND T3.PRGM_CASE_STS = 'D'
+        AND T3.CLSRE_RSN_CD <> 'W'
+    ORDER BY T1.OFC_CD, T1.ICI
+),
+MAIN4 AS (
+    SELECT
+        DAI.OFC_CD, DAI.OFC_NM,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PATOT,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') AND DAI.RCRT_APL_DT BETWEEN DAI.RPT_BEG_DT AND DAI.RPT_END_DT THEN 1 ELSE 0 END) AS PANEW,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') AND (DAI.RCRT_APL_DT < DAI.RPT_BEG_DT OR DAI.RCRT_APL_DT > DAI.RPT_END_DT) THEN 1 ELSE 0 END) AS PASUBS,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '11' THEN 1 ELSE 0 END) AS PADENY,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '08' THEN 1 ELSE 0 END) AS PANCOOP,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '10' THEN 1 ELSE 0 END) AS PAQUIT,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '20' THEN 1 ELSE 0 END) AS PARSRC,
+        SUM(CASE WHEN DAI.FS_SUFX IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN NOT IN ('11', '08', '10', '20') THEN 1 ELSE 0 END) AS PAOTHR,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NATOT,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND DAI.RCRT_APL_DT BETWEEN DAI.RPT_BEG_DT AND DAI.RPT_END_DT THEN 1 ELSE 0 END) AS NANEW,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND (DAI.RCRT_APL_DT < DAI.RPT_BEG_DT OR DAI.RCRT_APL_DT > DAI.RPT_END_DT) THEN 1 ELSE 0 END) AS NASUBS,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '11' THEN 1 ELSE 0 END) AS NADENY,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '08' THEN 1 ELSE 0 END) AS NANCOOP,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '10' THEN 1 ELSE 0 END) AS NAQUIT,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN = '20' THEN 1 ELSE 0 END) AS NARSRC,
+        SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND DAI.SYS_CLSRE_DNL_RSN NOT IN ('11', '08', '10', '20') THEN 1 ELSE 0 END) AS NAOTHR
+    FROM DENIED_APPL_INFO DAI
+    GROUP BY DAI.OFC_CD, DAI.OFC_NM
+),
+APPL_PRC_INFO AS (
+    SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.PRGM_CASE_STS, T3.RCRT_APL_DT, T3.PRD_BEG_DT, T3.PRD_END_DT
+    FROM {?SCHEMA}.TWNFAM_CASELD_CASE T1
+    JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
+    JOIN {?SCHEMA}.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
+    JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE
+        T2.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T2.PRD_END_DT >= RPT.RPT_END_DT
+        AND T3.PRGM_CASE_TYPE = 'FS'
+        AND T3.RCRT_APL_DT >= RPT.RPT_BEG_DT
+        AND T3.RCRT_APL_DT <= RPT.RPT_END_DT
+        AND T3.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T3.PRD_END_DT >= RPT.RPT_END_DT
+    ORDER BY T1.OFC_CD, T1.ICI
+),
+MAIN5 AS (
+    SELECT
+        API.OFC_CD, API.OFC_NM,
+        SUM(CASE WHEN API.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PAAPPLMTH,
+        SUM(CASE WHEN API.FS_SUFX IN ('P', 'S', 'G', 'A') AND API.PRGM_CASE_STS = 'P' THEN 1 ELSE 0 END) AS PAPNDMTH,
+        SUM(CASE WHEN API.FS_SUFX IN ('P', 'S', 'G', 'A') AND API.PRGM_CASE_STS = 'O' THEN 1 ELSE 0 END) AS PAAPPRVMTH,
+        SUM(CASE WHEN API.FS_SUFX IN ('P', 'S', 'G', 'A') AND API.PRGM_CASE_STS IN ('D', 'T') THEN 1 ELSE 0 END) AS PADNYWDMTH,
+        SUM(CASE WHEN API.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NAAPPLMTH,
+        SUM(CASE WHEN API.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND API.PRGM_CASE_STS = 'P' THEN 1 ELSE 0 END) AS NAPNDMTH,
+        SUM(CASE WHEN API.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND API.PRGM_CASE_STS = 'O' THEN 1 ELSE 0 END) AS NAAPPRVMTH,
+        SUM(CASE WHEN API.FS_SUFX NOT IN ('P', 'S', 'G', 'A') AND API.PRGM_CASE_STS IN ('D', 'T') THEN 1 ELSE 0 END) AS NADNYWDMTH
+    FROM APPL_PRC_INFO API
+    GROUP BY API.OFC_CD, API.OFC_NM
+),
+TERMI_NATIONS_INFO AS (
+    SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX
+    FROM {?SCHEMA}.TWNFAM_CASELD_CASE T1
+    JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
+    JOIN {?SCHEMA}.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
+    JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
+    JOIN RPT_DATES RPT ON 1=1
+    WHERE
+        T2.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T2.PRD_END_DT >= RPT.RPT_END_DT
+        AND T3.PRGM_CASE_TYPE = 'FS'
+        AND T3.PRD_BEG_DT <= RPT.RPT_END_DT
+        AND T3.PRD_END_DT >= RPT.RPT_END_DT
+        AND T3.STS_EFF_DT >= RPT.RPT_BEG_DT
+        AND T3.STS_EFF_DT <= RPT.RPT_END_DT
+        AND T3.PRGM_CASE_STS = 'T'
+    ORDER BY T1.OFC_CD, T1.ICI
+),
+MAIN6 AS (
+    SELECT
+        TNI.OFC_CD, TNI.OFC_NM,
+        SUM(CASE WHEN TNI.FS_SUFX IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS PATERM,
+        SUM(CASE WHEN TNI.FS_SUFX NOT IN ('P', 'S', 'G', 'A') THEN 1 ELSE 0 END) AS NATERM
+    FROM TERMI_NATIONS_INFO TNI
+    GROUP BY TNI.OFC_CD, TNI.OFC_NM
+)
+SELECT DISTINCT
+    UPPER(TO_CHAR('{?RPT_DT}', 'Month')) || ', ' || VARCHAR_FORMAT('{?RPT_DT}', 'YYYY') AS RPT_MONTH,
+    COALESCE(MAIN.OFC_NM, MAIN1.OFC_NM, MAIN2.OFC_NM, MAIN3.OFC_NM, MAIN4.OFC_NM, MAIN5.OFC_NM, MAIN6.OFC_NM) AS OFC_NM,
+    COALESCE(MAIN.PACASES, 0) AS PACASES,
+    COALESCE(MAIN.NACASES, 0) AS NACASES,
+    COALESCE(MAIN.PAEXPCASE, 0) AS PAEXPCASE,
+    COALESCE(MAIN.NAEXPCASE, 0) AS NAEXPCASE,
+    COALESCE(MAIN.PAEBTCASE, 0) AS PAEBTCASE,
+    COALESCE(MAIN.NAEBTCASE, 0) AS NAEBTCASE,
+    COALESCE(MAIN.DMIEBT, 0) AS DMIEBT,
+    COALESCE(MAIN.PADAMS, 0) AS PADAMS,
+    COALESCE(MAIN.NADAMS, 0) AS NADAMS,
+    COALESCE(MAIN.PASPHNDL, 0) AS PASPHNDL,
+    COALESCE(MAIN.NASPHNDL, 0) AS NASPHNDL,
+    COALESCE(MAIN.DMI0_COUNT, 0) AS DMI0_COUNT,
+    COALESCE(MAIN.DMI1_COUNT, 0) AS DMI1_COUNT,
+    COALESCE(MAIN.DMI2_COUNT, 0) AS DMI2_COUNT,
+    COALESCE(MAIN.DMI3_COUNT, 0) AS DMI3_COUNT,
+    COALESCE(MAIN.DMI4_COUNT, 0) AS DMI4_COUNT,
+    COALESCE(MAIN.DMI5_COUNT, 0) AS DMI5_COUNT,
+    COALESCE(MAIN.DMI6_COUNT, 0) AS DMI6_COUNT,
+    COALESCE(MAIN.PAMRC, 0) AS PAMRC,
+    COALESCE(MAIN.NAMRC, 0) AS NAMRC,
+    COALESCE(MAIN1.PAREVISED, 0) AS PAREVISED,
+    COALESCE(MAIN1.NAREVISED, 0) AS NAREVISED,
+    COALESCE(MAIN1.PALMISS, 0) AS PALMISS,
+    COALESCE(MAIN1.NALMISS, 0) AS NALMISS,
+    COALESCE(MAIN2.TOTAL_RECORDS, 0) AS TOTAL_RECORDS,
+    COALESCE(MAIN2.PABNFT, 0) AS PABNFT,
+    COALESCE(MAIN2.PANEW, 0) AS PANEW,
+    COALESCE(MAIN2.PASUBS, 0) AS PASUBS,
+    COALESCE(MAIN2.NABNFT, 0) AS NABNFT,
+    COALESCE(MAIN2.NANEW, 0) AS NANEW,
+    COALESCE(MAIN2.NASUBS, 0) AS NASUBS,
+    COALESCE(MAIN3.PAWTDR, 0) AS PAWTDR,
+    COALESCE(MAIN3.PANEW, 0) AS PANEW,
+    COALESCE(MAIN3.PASUBS, 0) AS PASUBS,
+    COALESCE(MAIN3.NAWTDR, 0) AS NAWTDR,
+    COALESCE(MAIN3.NANEW, 0) AS NANEW,
+    COALESCE(MAIN3.NASUBS, 0) AS NASUBS,
+    COALESCE(MAIN4.PATOT, 0) AS PATOT,
+    COALESCE(MAIN4.PANEW, 0) AS PANEW,
+    COALESCE(MAIN4.PASUBS, 0) AS PASUBS,
+    COALESCE(MAIN4.PADENY, 0) AS PADENY,
+    COALESCE(MAIN4.PANCOOP, 0) AS PANCOOP,
+    COALESCE(MAIN4.PAQUIT, 0) AS PAQUIT,
+    COALESCE(MAIN4.PARSRC, 0) AS PARSRC,
+    COALESCE(MAIN4.PAOTHR, 0) AS PAOTHR,
+    COALESCE(MAIN4.NATOT, 0) AS NATOT,
+    COALESCE(MAIN4.NANEW, 0) AS NANEW,
+    COALESCE(MAIN4.NASUBS, 0) AS NASUBS,
+    COALESCE(MAIN4.NADENY, 0) AS NADENY,
+    COALESCE(MAIN4.NANCOOP, 0) AS NANCOOP,
+    COALESCE(MAIN4.NAQUIT, 0) AS NAQUIT,
+    COALESCE(MAIN4.NARSRC, 0) AS NARSRC,
+    COALESCE(MAIN4.NAOTHR, 0) AS NAOTHR,
+    COALESCE(MAIN5.PAAPPLMTH, 0) AS PAAPPLMTH,
+    COALESCE(MAIN5.PAPNDMTH, 0) AS PAPNDMTH,
+    COALESCE(MAIN5.PAAPPRVMTH, 0) AS PAAPPRVMTH,
+    COALESCE(MAIN5.PADNYWDMTH, 0) AS PADNYWDMTH,
+    COALESCE(MAIN5.NAAPPLMTH, 0) AS NAAPPLMTH,
+    COALESCE(MAIN5.NAPNDMTH, 0) AS NAPNDMTH,
+    COALESCE(MAIN5.NAAPPRVMTH, 0) AS NAAPPRVMTH,
+    COALESCE(MAIN5.NADNYWDMTH, 0) AS NADNYWDMTH,
+    COALESCE(MAIN6.PATERM, 0) AS PATERM,
+    COALESCE(MAIN6.NATERM, 0) AS NATERM
+FROM MAIN
+FULL OUTER JOIN MAIN1 ON MAIN.OFC_CD = MAIN1.OFC_CD
+FULL OUTER JOIN MAIN2 ON COALESCE(MAIN.OFC_CD, MAIN1.OFC_CD) = MAIN2.OFC_CD    
+FULL OUTER JOIN MAIN3 ON COALESCE(MAIN.OFC_CD, MAIN1.OFC_CD, MAIN2.OFC_CD) = MAIN3.OFC_CD
+FULL OUTER JOIN MAIN4 ON COALESCE(MAIN.OFC_CD, MAIN1.OFC_CD, MAIN2.OFC_CD, MAIN3.OFC_CD) = MAIN4.OFC_CD
+FULL OUTER JOIN MAIN5 ON COALESCE(MAIN.OFC_CD, MAIN1.OFC_CD, MAIN2.OFC_CD, MAIN3.OFC_CD, MAIN4.OFC_CD) = MAIN5.OFC_CD
+FULL OUTER JOIN MAIN6 ON COALESCE(MAIN.OFC_CD, MAIN1.OFC_CD, MAIN2.OFC_CD, MAIN3.OFC_CD, MAIN4.OFC_CD, MAIN5.OFC_CD) = MAIN6.OFC_CD
+ORDER BY OFC_NM;
 
-1/1/2025 TF1   ADMINISTRATIVE OFFICE     FULL BNFT                                    PABNFT                                      0                          2
-                                                                                      SUB BNFT                                    0                          2
-                                         TOTAL APPROVED                               PAAPPROVED                                  0                          2
-                                                                                      SUB APPROVED                                0                          2
-               BELROSE DISTRICT OFFICE   FULL BNFT                                    NABNFT                                      0                          3
-                                                                                      SUB BNFT                                    0                          3
-                                         TOTAL APPROVED                               NAAPPROVED                                  0                          3
-                                                                                      SUB APPROVED                                0                          3
-               CARSON DISTRICT OFFICE    ACTIVE CASELOAD(CASE RECEIVED)               NACASES                                   793                        794
-                                                                                      GRAND TOTAL                               863                        864
-                                         IDENTIFIES EBT                               NAEBTCASE                                 793                        794
-                                                                                      SUBTOTAL                                  863                        864
-                                         CASES WITH ISSUES MADE FOR LAST MONTH        SUBTOTAL                                   39                        802
-                                         % RETRO ISSUE TO PRIOR MONTH CASELOAD        SUBTOTAL                                4.50%                         14
-                                         ESTIMATED CURRENT MONTH CASELOAD             NAEST                                     825                        826
-                                                                                      GRAND TOTAL                               902                        903
-                                         FULL BENEFIT                                 PABNFT                                      1                         55
-                                                                                      NABNFT                                     38                        767
-                                                                                      SUBTOTAL                                   39                        822
-                                         TOTAL APPROVED                               PAAPPROVED                                  1                         55
-                                                                                      NAAPPROVED                                 38                        767
-                                                                                      SUB APPROVED                               39                        822
-                                         WITHDRAWN APPLICATIONS                       NAWTDR                                     27                         30
-                                                                                      SUB TOTAL                                  29                         32
-                                          WORK-REG, OR QUIT                           NAQUIT                                      5                          8
-                                                                                      SUB TOTAL                                   5                          8
-                                         OTHER                                        NAOTHER                                    31                         32
-                                                                                      SUBTOTAL                                   31                         32
-                                         TOTAL DENIED                                 NADENIED                                   36                         40
-                                                                                      SUB TOTAL                                  36                         40
-                                         PENDING                                      NAPND                                     490                        489
-                                                                                      SUBTOTAL                                  490                        489
-                                         APPROVED                                     NAAPPRMTH                                1081                       1082
-                                                                                      SUBTOTAL                                 1150                       1151
-                                         DENIED/WITHDRAWN                             NADENWDMTH                                 70                         71
-                                                                                      SUBTOTAL                                   75                         76
-                                         TOTAL APPLICATIONS-REPORT MONTH:             NAAPPLRPTMTH                             1641                       1642
-                                                                                      GRAND TOTAL                              1715                       1716
-                                         METHOD OF ISSUANCE                           EBT                                       863                        864
-               CENTRAL OFFICE            CASES WITH ISSUES MADE FOR LAST MONTH        SUBTOTAL                                    5                        107
-                                         % RETRO ISSUE TO PRIOR MONTH CASELOAD        NARETRO                                   4.5                          4
-                                                                                      SUB TOTAL                                 4.3                          4
-                                         ESTIMATED CURRENT MONTH CASELOAD             NAEST                                     117                        116
-                                                                                      GRAND TOTAL                               122                        121
-                                         FULL BENEFIT                                 NABNFT                                     11                        152
-                                                                                      SUBTOTAL                                   11                        161
-                                         TOTAL APPROVED                               NAAPPROVED                                 11                        152
-                                                                                      SUB APPROVED                               11                        161
-                                          WORK-REG, OR QUIT                           NAQUIT                                      3                          4
-                                                                                      SUB TOTAL                                   3                          4
-                                         TOTAL DENIED                                 NADENIED                                    6                          7
-                                                                                      SUB TOTAL                                   6                          7
-                                         PENDING                                      NAPND                                      84                         86
-                                                                                      SUBTOTAL                                   84                         86
-                                         APPROVED                                     NAAPPRMTH                                 164                        165
-                                                                                      SUBTOTAL                                  174                        175
-                                         DENIED/WITHDRAWN                             NADENWDMTH                                257                        260
-                                                                                      SUBTOTAL                                  267                        270
-               STATE WIDE APPLICATION TEACASES WITH ISSUES MADE FOR LAST MONTH        SUBTOTAL                                    2                         55
-                                         % RETRO ISSUE TO PRIOR MONTH CASELOAD        NARETRO                                   3.2                          3
-                                                                                      SUB TOTAL                                 3.1                          3
-                                         FULL BENEFIT                                 PABNFT                                      0                          1
-                                                                                      NABNFT                                      4                         74
-                                                                                      SUBTOTAL                                    4                         75
-                                         TOTAL APPROVED                               PAAPPROVED                                  0                          1
-                                                                                      NAAPPROVED                                  4                         74
-                                                                                      SUB APPROVED                                4                         75
 
 
-
-
-
-
-
-
-
-
-
-2025-02-01 TF1 BELROSE DISTRICT OFFICE   ALL COUNTS MATCHING
-               CARSON DISTRICT OFFICE    CASES WITH ISSUES MADE FOR LAST MONTH        SUBTOTAL                                   12                        264
-                                         REVISED CASELOAD FOR PRIOR MONTH             NAREVISED                                 929                        930
-                                                                                      SUBTOTAL                                 1013                       1014
-                                         % RETRO ISSUE TO PRIOR MONTH CASELOAD        PARETRO                                  10.3                         10
-                                                                                      NARETRO                                   3.4                          3
-                                                                                      SUBTOTAL                                  4.1                         13
-                                         ESTIMATED CURRENT MONTH CASELOAD             NAEST                                     273                        272
-                                                                                      GRAND TOTAL                               305                        304
-                                         FULL BENEFIT                                 PABNFT                                      3                         23
-                                                                                      NABNFT                                     45                        164
-                                                                                      SUBTOTAL                                   48                        187
-                                         TOTAL APPROVED                               PAAPPROVED                                  3                         23
-                                                                                      NAAPPROVED                                 45                        164
-                                                                                      SUB APPROVED                               48                        187
-                                          WORK-REG, OR QUIT                           NAQUIT                                      4                          8
-                                                                                      SUB TOTAL                                   4                          8
-                                         OTHER                                        NAOTHER                                     2                          4
-                                                                                      SUBTOTAL                                    2                          4
-                                         TOTAL DENIED                                 NADENIED                                    6                         12
-                                                                                      SUB TOTAL                                   6                         12
-               CENTRAL OFFICE            CASES WITH ISSUES MADE FOR LAST MONTH        SUBTOTAL                                    9                         40
-                                         % RETRO ISSUE TO PRIOR MONTH CASELOAD        SUBTOTAL                                 19.1                         39
-                                         FULL BENEFIT                                 PABNFT                                      1                          3
-                                                                                      NABNFT                                      3                         21
-                                                                                      SUBTOTAL                                    4                         24
-                                         TOTAL APPROVED                               PAAPPROVED                                  1                          3
-                                                                                      NAAPPROVED                                  3                         21
-                                                                                      SUB APPROVED                                4                         24
-               STATE WIDE APPLICATION TEACASES WITH ISSUES MADE FOR LAST MONTH        SUBTOTAL                                    2                          9
-                                         % RETRO ISSUE TO PRIOR MONTH CASELOAD        NARETRO                                   7.7                          7
-                                                                                      SUBTOTAL                                 14.3                        107
-                                         FULL BENEFIT                                 PABNFT                                      1                          2
-                                                                                      NABNFT                                      4                          9
-                                                                                      SUBTOTAL                                    5                         11
-                                         TOTAL APPROVED                               PAAPPROVED                                  1                          2
-                                                                                      NAAPPROVED                                  4                          9
-                                                                                      SUB APPROVED                                5                         11
-
-
-
-
-note             TOTAL APPLICATIONS PROCESSED:
-               RECEIVED THIS MONTH       no code for these counts in egl also
-                RECEIVED PREVIOUS MONTHS
-
-               statewide                 not there in rpt
