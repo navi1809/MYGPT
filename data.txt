@@ -8,10 +8,12 @@ import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
+import gov.nv.dwss.crystalreports.statistics.common.model.FamCaseStatsOfficeRecord;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Component;
 
@@ -21,25 +23,31 @@ import gov.nv.dwss.domain.dao.sor.extended.ExtendedSorDao;
 import gov.nv.dwss.domain.record.SorRecord;
 import gov.nv.dwss.domain.record.sor.ReportMonthlyCaseHistorySorRecord;
 
+import static gov.nv.dwss.crystalreports.foodstampcharacteristicstudy.util.DateUtil.month;
+import static gov.nv.dwss.crystalreports.foodstampcharacteristicstudy.util.DateUtil.year;
+import static gov.nv.dwss.fw.batch.context.SystemInfoParam.getAsOfDate;
+
 @Component
 public class MonthlyCaseHistoryExtendedDao extends ExtendedSorDao {
 
-    private static final String GET_ALL_PCE_RECORDS_MONTHLY = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ?";
-    private static final String GET_ALL_PCE_RECORDS_DATE_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ?";
-    private static final String GET_ALL_PCE_RECORDS_OFC = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##)";
-    private static final String GET_ALL_PCE_RECORDS = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST";
-    private static final String GET_ALL_PCE_RECORDS_OFC_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##)";
-    private static final String GET_ALL_PCE_RECORDS_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST";
+    private static final String GET_ALL_PCE_RECORDS_MONTHLY = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ? AND STS_CD = 'N'";
+    private static final String GET_ALL_PCE_RECORDS_DATE_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ? AND STS_CD = 'N'";
+    private static final String GET_ALL_PCE_RECORDS_OFC = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##) AND STS_CD = 'N'";
+    private static final String GET_ALL_PCE_RECORDS = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ? AND STS_CD = 'N'";
+    private static final String GET_ALL_PCE_RECORDS_OFC_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##) AND RUN_DATE = ? AND STS_CD = 'N'";
+    private static final String GET_ALL_PCE_RECORDS_COUNT = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ? AND STS_CD = 'N'";
 
     private static final String GET_ALL_OFFICE_CODES = "SELECT DISTINCT OFC_CD FROM ##db-schema-name##.TWNRPT_MTH_CASEHST" +
             " WHERE PRGM_CASE_STS='O' AND LST_REC_FR_MTH='Y' " +
             " AND PRGM_CASE_TYPE IN ('FS', 'AF')" +
-            " AND STS_EFF_DT BETWEEN ? AND ?";
+            " AND STS_EFF_DT BETWEEN ? AND ? " +
+            " AND RUN_DATE = ? AND STS_CD = 'N'";
 
     private static final String GET_PCE_RECORDS_OFFICE_CODE_COUNT = "SELECT count(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD = ?" +
             " AND PRGM_CASE_STS='O' AND LST_REC_FR_MTH='Y'" +
             " AND PRGM_CASE_TYPE IN ('FS', 'AF')" +
-            " AND STS_EFF_DT BETWEEN ? AND ?";
+            " AND STS_EFF_DT BETWEEN ? AND ? " +
+            " AND RUN_DATE = ? AND STS_CD = 'N'";
 
     private static final String GET_PCE_RECORDS = "SELECT * FROM (" +
             "  SELECT t.*, ROW_NUMBER() OVER (ORDER BY t.RPT_SEQ_NMB) AS rn " +
@@ -47,13 +55,25 @@ public class MonthlyCaseHistoryExtendedDao extends ExtendedSorDao {
             "  WHERE t.OFC_CD = ? AND t.PRGM_CASE_STS='O' AND t.LST_REC_FR_MTH='Y' " +
             "  AND t.PRGM_CASE_TYPE IN ('FS', 'AF')" +
             "  AND t.STS_EFF_DT BETWEEN ? AND ? " +
+            "  AND RUN_DATE = ? AND STS_CD = 'N'" +
             "  ORDER BY t.OFC_CD ASC, t.SPRVS_UNIT ASC, t.FUNC_AREA_CD ASC, t.WRKR_TYPE ASC, t.PSN_NMB ASC"+
             ") sub " +
             "WHERE sub.rn BETWEEN ? AND ?";
     
-    private static final String GET_ALL_PCE_RECORDS_OFC_COUNT_BYDATE = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##) AND RUN_DATE = ?";
+    private static final String GET_ALL_PCE_RECORDS_OFC_COUNT_BYDATE = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##) AND RUN_DATE = ? AND STS_CD = 'N'";
     
-    private static final String GET_ALL_PCE_RECORDS_OFC_DATE = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##) AND RUN_DATE = ?";
+    private static final String GET_ALL_PCE_RECORDS_OFC_DATE = "SELECT * FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE OFC_CD IN (##OFC-CD##) AND RUN_DATE = ? AND STS_CD = 'N'";
+
+    // AMA46A QUERIES
+    private static final String GET_ALL_FAM_CASE_STATS_OFC = "SELECT DISTINCT OFC_CD, CASLD, AID_CD FROM ##db-schema-name##.TWNFAM_CASE_STATS T1 WHERE YR = ? AND MTH = ? ORDER BY OFC_CD ASC, CASLD ASC, AID_CD ASC";
+    private static final String COUNT_PCE_RECORDS_FAM_CASE_STATS = "SELECT COUNT(*) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ? AND STS_CD = 'N'";
+    private static final String GET_PCE_RECORDS_FAM_CASE_STATS =
+            "SELECT * FROM " +
+            "    (SELECT ICI, TRIM(OFC_CD) AS OFC_CD, TRIM(CASLD_ID) AS CASLD, TRIM(AID_CD) AS AID_CD, ROW_NUMBER() OVER (ORDER BY RPT_SEQ_NMB) AS RN, RPT_SEQ_NMB FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ? AND STS_CD = 'N') SUB_QUERY " +
+            "WHERE " +
+            "    SUB_QUERY.RN BETWEEN ? AND ?";
+    private static final String MAX_PCE_RECORD_SEQ_NMB =
+            "SELECT MAX(RPT_SEQ_NMB) FROM ##db-schema-name##.TWNRPT_MTH_CASEHST WHERE RUN_DATE = ? AND STS_CD = 'N'";
 
     @Autowired
     @Qualifier("nswdJdbcTemplate")
@@ -77,7 +97,7 @@ public class MonthlyCaseHistoryExtendedDao extends ExtendedSorDao {
 
     public List<String> getOfficeCodes(String fromDate, String toDate) {
         String sql = getSql(GET_ALL_OFFICE_CODES);
-        return nswdJdbcTemplate.queryForList(sql, String.class, fromDate, toDate);
+        return nswdJdbcTemplate.queryForList(sql, String.class, fromDate, toDate, getAsOfDate());
     }
 
     public Integer getPceRecordsByDateCount(String reportDate) {
@@ -86,39 +106,41 @@ public class MonthlyCaseHistoryExtendedDao extends ExtendedSorDao {
     }
 
     public List<ReportMonthlyCaseHistorySorRecord> getPceRecordByOfcCd(String ofcCds){
-    	String sql = this.getSql(GET_ALL_PCE_RECORDS_OFC.replace("##OFC-CD##", ofcCds));
-    	List<SorRecord> sorRecord = this.nswdJdbcTemplate.query(sql, this.sorDao.getSorMapper());
-    	return sorRecord.stream().map(e-> (ReportMonthlyCaseHistorySorRecord) e).collect(Collectors.toList());
+        String sql = this.getSql(GET_ALL_PCE_RECORDS_OFC.replace("##OFC-CD##", ofcCds));
+        List<SorRecord> sorRecord = this.nswdJdbcTemplate.query(sql, this.sorDao.getSorMapper());
+        return sorRecord.stream().map(e-> (ReportMonthlyCaseHistorySorRecord) e).collect(Collectors.toList());
     }
 
-	public List<ReportMonthlyCaseHistorySorRecord> getPceRecords() {
-		List<SorRecord> sorRecord = this.nswdJdbcTemplate.query(getSql(GET_ALL_PCE_RECORDS), this.sorDao.getSorMapper());
-		return sorRecord.stream().map(e-> (ReportMonthlyCaseHistorySorRecord) e).collect(Collectors.toList());
-	}
-	
-	public Integer getPceRecordByOfcCdCount(String ofcCds){
-    	String sql = getSql(GET_ALL_PCE_RECORDS_OFC_COUNT.replace("##OFC-CD##", ofcCds));
-    	return this.nswdJdbcTemplate.queryForObject(sql, Integer.class);
+    public List<ReportMonthlyCaseHistorySorRecord> getPceRecords() {
+       List<SorRecord> sorRecord = this.nswdJdbcTemplate.query(getSql(GET_ALL_PCE_RECORDS), this.sorDao.getSorMapper(), getAsOfDate());
+       return sorRecord.stream().map(e-> (ReportMonthlyCaseHistorySorRecord) e).collect(Collectors.toList());
+    }
+    
+    public Integer getPceRecordByOfcCdCount(String ofcCds){
+        String sql = getSql(GET_ALL_PCE_RECORDS_OFC_COUNT.replace("##OFC-CD##", ofcCds));
+        return this.nswdJdbcTemplate.queryForObject(sql, Integer.class, getAsOfDate());
     }
 
-	public Integer getPceRecordsCount() {
-		return this.nswdJdbcTemplate.queryForObject(getSql(GET_ALL_PCE_RECORDS_COUNT), Integer.class);
-	}
+    public Integer getPceRecordsCount() {
+       return this.nswdJdbcTemplate.queryForObject(getSql(GET_ALL_PCE_RECORDS_COUNT), Integer.class, getAsOfDate());
+    }
 
     public Integer countPceRecordsByOfficeCode(String officeCode, String fromDate, String toDate) {
         String sql = getSql(GET_PCE_RECORDS_OFFICE_CODE_COUNT);
-        return nswdJdbcTemplate.queryForObject(sql, Integer.class, officeCode, fromDate, toDate);
+        return nswdJdbcTemplate.queryForObject(sql, Integer.class, officeCode, fromDate, toDate, getAsOfDate());
     }
 
-    public List<ReportMonthlyCaseHistorySorRecord> getDailyCaseHistoryRecordsByOfcNmWithPaging(String officeCode, int startIndex, int maxRows,
-                                                                                               String fromDate, String toDate) throws SQLException {
+    public List<ReportMonthlyCaseHistorySorRecord> getDailyCaseHistoryRecordsByOfcNmWithPaging(
+            String officeCode, int startIndex, int maxRows,
+            String fromDate, String toDate) throws SQLException {
         int fromRow = startIndex + 1;
         int toRow = startIndex + maxRows;
         List<ReportMonthlyCaseHistorySorRecord> reportRecords = new ArrayList<>();
         Connection connection = DataSourceUtils.getConnection(dataSource);
         try {
             String sql = getSql(GET_PCE_RECORDS);
-            List<SorRecord> sorRecords = nswdJdbcTemplate.query(sql, this.sorDao.getSorMapper(), officeCode, fromDate, toDate, fromRow, toRow);
+            List<SorRecord> sorRecords = nswdJdbcTemplate.query(sql, this.sorDao.getSorMapper(), officeCode, fromDate, toDate,
+                    getAsOfDate(), fromRow, toRow);
             reportRecords =  sorRecords.stream()
                     .map(ReportMonthlyCaseHistorySorRecord.class::cast)
                     .collect(Collectors.toList());
@@ -130,19 +152,57 @@ public class MonthlyCaseHistoryExtendedDao extends ExtendedSorDao {
         return reportRecords;
     }
 
-	@Override
-	public String getSql(String sql) {
+    @Override
+    public String getSql(String sql) {
         return sql.replaceAll(Dao.SQL_DB_SCHEMA_PATTERN, schemaName);
     }
-	
-	public Integer getPceRecordByOfcCdByDateCount(String ofcCds, String reportDate){
-    	String sql = getSql(GET_ALL_PCE_RECORDS_OFC_COUNT_BYDATE.replace("##OFC-CD##", ofcCds));
-    	return this.nswdJdbcTemplate.queryForObject(sql, Integer.class, reportDate);
+    
+    public Integer getPceRecordByOfcCdByDateCount(String ofcCds, String reportDate){
+        String sql = getSql(GET_ALL_PCE_RECORDS_OFC_COUNT_BYDATE.replace("##OFC-CD##", ofcCds));
+        return this.nswdJdbcTemplate.queryForObject(sql, Integer.class, reportDate);
     }
-	
-	public List<ReportMonthlyCaseHistorySorRecord> getPceRecordByOfcCdDate(String ofcCds, String reportDate){
-    	String sql = this.getSql(GET_ALL_PCE_RECORDS_OFC_DATE.replace("##OFC-CD##", ofcCds));
-    	List<SorRecord> sorRecord = this.nswdJdbcTemplate.query(sql, this.sorDao.getSorMapper(), reportDate);
-    	return sorRecord.stream().map(e-> (ReportMonthlyCaseHistorySorRecord) e).collect(Collectors.toList());
+    
+    public List<ReportMonthlyCaseHistorySorRecord> getPceRecordByOfcCdDate(String ofcCds, String reportDate){
+        String sql = this.getSql(GET_ALL_PCE_RECORDS_OFC_DATE.replace("##OFC-CD##", ofcCds));
+        List<SorRecord> sorRecord = this.nswdJdbcTemplate.query(sql, this.sorDao.getSorMapper(), reportDate);
+        return sorRecord.stream().map(e-> (ReportMonthlyCaseHistorySorRecord) e).collect(Collectors.toList());
     }
+
+    public List<FamCaseStatsOfficeRecord> getAllOfcCasldIdAndAidCds() {
+        String sql = this.getSql(GET_ALL_FAM_CASE_STATS_OFC);
+        return this.getJdbcTemplate().query(sql, famCaseStatsRowMapper, year(), month());
+    }
+
+    public Integer countProgramCaseHistoryForFamCaseStats() {
+        String sql = this.getSql(COUNT_PCE_RECORDS_FAM_CASE_STATS);
+        return this.nswdJdbcTemplate.queryForObject(sql, Integer.class, getAsOfDate());
+    }
+
+    public List<ReportMonthlyCaseHistorySorRecord> getProgramCaseHistoryForFamCaseStats(int startIndex, int maxRows) {
+        String sql = getSql(GET_PCE_RECORDS_FAM_CASE_STATS);
+        return this.nswdJdbcTemplate.query(sql, pceRecordsRowMapper, getAsOfDate(), startIndex, maxRows);
+    }
+
+    public Integer getMaxSequenceNmbOfPceRecord() {
+        String sql = this.getSql(MAX_PCE_RECORD_SEQ_NMB);
+        return this.nswdJdbcTemplate.queryForObject(sql, Integer.class, getAsOfDate());
+    }
+
+    private final RowMapper<FamCaseStatsOfficeRecord> famCaseStatsRowMapper = (rs, rowNum) -> {
+        FamCaseStatsOfficeRecord rec = new FamCaseStatsOfficeRecord();
+        rec.setOfcCd(rs.getString("OFC_CD"));
+        rec.setCasldId(rs.getString("CASLD"));
+        rec.setAidCd(rs.getString("AID_CD"));
+        return rec;
+    };
+
+    private final RowMapper<ReportMonthlyCaseHistorySorRecord> pceRecordsRowMapper = (rs, rowNum) -> {
+        ReportMonthlyCaseHistorySorRecord rec = new ReportMonthlyCaseHistorySorRecord();
+        rec.setIci(rs.getInt("ICI"));
+        rec.setOfficeCode(rs.getString("OFC_CD"));
+        rec.setCaseLoadId(rs.getString("CASLD"));
+        rec.setAidCode(rs.getString("AID_CD"));
+        rec.setReportSequenceNumber(rs.getInt("RPT_SEQ_NMB"));
+        return rec;
+    };
 }
