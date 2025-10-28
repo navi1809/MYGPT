@@ -1,34 +1,91 @@
--- Replace LST_MTH_CSLD with:
-LST_MTH_ISSUANCE AS (
-  SELECT
-    T1.OFC_CD, OFC.OFC_NM, T2.ICI, T2.FS_SUFX,
-    T3.ISNCE_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT,
-    ROW_NUMBER() OVER (PARTITION BY T2.ICI ORDER BY T3.ISNCE_DT DESC) AS rn
-  FROM {?SCHEMA}.TWNFAM_CASELD_CASE T1
-  JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY   T2 ON T1.ICI = T2.ICI
-  JOIN {?SCHEMA}.TWNFS_ISNCE         T3 ON T2.ICI = T3.ICI
-  JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
-  JOIN RPT_DATES RPT ON 1=1
-  WHERE
-    T2.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T2.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.BNFT_MTH = RPT.PREV_RPT_MTH
-    AND T3.BNFT_YR  = RPT.PREV_RPT_YR
-    AND T3.BNFT_TYPE = 'RG'
-    AND T3.FS_ISNCE_STS IN ('IS','RD')
-),
-LST_MTH_CSLD AS (
-  SELECT OFC_CD, OFC_NM, ICI, FS_SUFX, ISNCE_DT, RPT_BEG_DT, RPT_END_DT
-  FROM LST_MTH_ISSUANCE
-  WHERE rn = 1  -- <-- one row per ICI for the month
-),
-MAIN1 AS (
-  SELECT
-    OFC_CD, OFC_NM,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAREVISED,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAREVISED,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') AND ISNCE_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS PALMISS,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') AND ISNCE_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS NALMISS
-  FROM LST_MTH_CSLD
-  GROUP BY OFC_CD, OFC_NM
-)
+// ---- BEGIN: alpha-then-numeric ordering helpers ----
+private static String nz(String s) { return s == null ? "" : s; }
+private static String up(String s) { return nz(s).toUpperCase(); }
+private static String trimUp(String s) { return up(s).trim(); }
+
+private static boolean startsWithLetter(String s) {
+    String v = trimUp(s);
+    return !v.isEmpty() && Character.isLetter(v.charAt(0));
+}
+private static boolean startsWithDigit(String s) {
+    String v = trimUp(s);
+    return !v.isEmpty() && Character.isDigit(v.charAt(0));
+}
+
+/** Compare caseload ids with "alpha-first, then numeric" grouping. */
+private static int compareCaseloadAlphaThenNumeric(String a, String b) {
+    String A = trimUp(a);
+    String B = trimUp(b);
+
+    boolean aAlpha = startsWithLetter(A);
+    boolean bAlpha = startsWithLetter(B);
+    if (aAlpha != bAlpha) return aAlpha ? -1 : 1; // alpha group first
+
+    boolean aNum = startsWithDigit(A);
+    boolean bNum = startsWithDigit(B);
+
+    // both alpha-start -> simple lexicographic
+    if (aAlpha && bAlpha) return A.compareTo(B);
+
+    // both numeric-start -> compare numeric prefix length, then value, then full string
+    if (aNum && bNum) {
+        String aDigits = A.replaceFirst("^\\D*(\\d+).*$", "$1").replaceFirst("^0+(\\d)", "$1");
+        String bDigits = B.replaceFirst("^\\D*(\\d+).*$", "$1").replaceFirst("^0+(\\d)", "$1");
+        if (!aDigits.isEmpty() && !bDigits.isEmpty()) {
+            int lenCmp = Integer.compare(aDigits.length(), bDigits.length());
+            if (lenCmp != 0) return lenCmp;      // longer number = bigger
+            int numCmp = aDigits.compareTo(bDigits);
+            if (numCmp != 0) return numCmp;
+        }
+        return A.compareTo(B);
+    }
+
+    // mixed or odd -> fallback lexicographic
+    return A.compareTo(B);
+}
+
+/** Key compare: OFC, CASLOAD (alpha-first numeric), AID (lexicographic). */
+private static int compareKeys(String ofc1, String cas1, String aid1,
+                               String ofc2, String cas2, String aid2) {
+    int c = up(ofc1).compareTo(up(ofc2));
+    if (c != 0) return c;
+    c = compareCaseloadAlphaThenNumeric(cas1, cas2);
+    if (c != 0) return c;
+    return up(aid1).compareTo(up(aid2));
+}
+
+/** Compare the PCE triplet vs FAM triplet in working storage using alpha-first ordering. */
+private static int compareWorkingStoragePceVsFam(FamCaseStatsWorkingStorage ws) {
+    return compareKeys(ws.getPceOfcCd(), ws.getPceCasldId(), ws.getPceAidCd(),
+                       ws.getFamCaseOfcCd(), ws.getFamCaseCasldId(), ws.getFamCaseAidCd());
+}
+// ---- END: alpha-then-numeric ordering helpers ----
+
+
+
+famCaseStatsOfcRecord = monthlyCaseHistoryDao.getAllOfcCasldIdAndAidCds();
+
+// NEW: sort to match AMA46A: OFC, CASLOAD (alpha first, then numeric), AID
+famCaseStatsOfcRecord.sort((a, b) -> compareKeys(
+        a.getOfcCd(), a.getCasldId(), a.getAidCd(),
+        b.getOfcCd(), b.getCasldId(), b.getAidCd()
+));
+
+
+pceRecords = fetchPceRecordsFromDb();
+// NEW: same alpha-first ordering for PCE
+pceRecords.sort((a, b) -> compareKeys(
+        a.getOfficeCode(), a.getCaseLoadId(), a.getAidCode(),
+        b.getOfficeCode(), b.getCaseLoadId(), b.getAidCode()
+));
+
+
+if (compareWorkingStoragePceVsFam(workingStorage) > 0) {
+
+
+if (compareWorkingStoragePceVsFam(workingStorage) == 0) {
+
+
+if (compareWorkingStoragePceVsFam(workingStorage) > 0) {
+
+if (compareWorkingStoragePceVsFam(workingStorage) == 0) {
