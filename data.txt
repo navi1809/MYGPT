@@ -1,452 +1,49 @@
-package gov.nv.dwss.crystalreports.statistics.programhistory.tasklet;
+/** Compare AID codes with "blank first, alpha next, numeric last". */
+private static int compareAidAlphaThenNumeric(String a, String b) {
+    String A = trimUp(a);
+    String B = trimUp(b);
 
-import java.util.Set;
-import java.util.HashSet;
-import java.util.stream.Collectors;
+    // blanks first
+    if (A.isEmpty() && !B.isEmpty()) return -1;
+    if (!A.isEmpty() && B.isEmpty()) return 1;
+    if (A.isEmpty() && B.isEmpty()) return 0;
 
-import gov.nv.dwss.crystalreports.statistics.common.dao.MonthlyCaseHistoryExtendedDao;
-import gov.nv.dwss.crystalreports.statistics.common.model.FamCaseStatsOfficeRecord;
-import gov.nv.dwss.crystalreports.statistics.constants.StatisticsConstants;
-import gov.nv.dwss.crystalreports.statistics.programhistory.model.FamCaseStatsWorkingStorage;
-import gov.nv.dwss.domain.dao.sor.ReportMonthlyCaseHistorySorDao;
-import gov.nv.dwss.domain.record.SorRecord;
-import gov.nv.dwss.domain.record.sor.ReportMonthlyCaseHistorySorRecord;
-import gov.nv.dwss.fw.batch.context.SystemInfoParam;
-import gov.nv.dwss.fw.batch.enums.BatchExceptionType;
-import gov.nv.dwss.fw.batch.model.SkippedRecord;
-import gov.nv.dwss.fw.batch.util.ExceptionUtil;
-import gov.nv.dwss.switcher.DatabaseSwitcher;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.core.step.tasklet.Tasklet;
-import org.springframework.batch.item.ExecutionContext;
-import org.springframework.batch.item.file.FlatFileItemWriter;
-import org.springframework.batch.item.file.transform.PassThroughLineAggregator;
-import org.springframework.batch.repeat.RepeatStatus;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.jdbc.datasource.DataSourceUtils;
-import org.springframework.stereotype.Component;
-import org.springframework.util.CollectionUtils;
+    boolean aAlpha = startsWithLetter(A);
+    boolean bAlpha = startsWithLetter(B);
+    if (aAlpha != bAlpha) return aAlpha ? -1 : 1; // alpha group first
 
-import javax.annotation.PostConstruct;
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+    boolean aNum = startsWithDigit(A);
+    boolean bNum = startsWithDigit(B);
 
-import static gov.nv.dwss.crystalreports.foodstampcharacteristicstudy.util.DateUtil.getTimeStamp;
-import static gov.nv.dwss.fw.batch.constants.FWConstants.LOW_DATE_STR;
-import static gov.nv.dwss.fw.batch.constants.FWConstants.MA;
-import static gov.nv.dwss.fw.batch.constants.FWConstants.Y;
-import static gov.nv.dwss.fw.batch.util.ObjectUtils.convertToDate;
-import static java.util.stream.Collectors.toList;
+    // both alpha
+    if (aAlpha && bAlpha) return A.compareTo(B);
 
-@Component
-public class ProgramHistoryValidateTasklet implements Tasklet {
-
-    private static final Logger LOG = LogManager.getLogger(ProgramHistoryValidateTasklet.class);
-
-    private static final String outputFilePath =
-            "C:\\Users\\pkumar63\\Downloads\\nomads_files\\ARX04A\\ARX04A_SORTED_JAVA_FILE";
-    private static final int PAGE_SIZE = 5000;
-    Date lowDate;
-    Timestamp lowDateTimestamp;
-
-    @Autowired ReportMonthlyCaseHistorySorDao reportMonthlyCaseHistorySorDao;
-    @Autowired MonthlyCaseHistoryExtendedDao monthlyCaseHistoryDao;
-    @Autowired @Qualifier(value = "nswdDataSource") DataSource nswdDataSource;
-    @Autowired DatabaseSwitcher databaseSwitch;
-    @Value("${db.nswd.schema}") String nswdSchemaName;
-
-    @PostConstruct
-    public void init() {
-        lowDate = convertToDate(LOW_DATE_STR);
-        lowDateTimestamp = getTimeStamp(LOW_DATE_STR);
-    }
-
-    @Override
-    public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
-        List<FamCaseStatsOfficeRecord> famCaseStatsOfcRecord;
-        List<ReportMonthlyCaseHistorySorRecord> pceRecords;
-        FamCaseStatsWorkingStorage workingStorage = new FamCaseStatsWorkingStorage();
-        List<ReportMonthlyCaseHistorySorRecord> newPceRecords = new ArrayList<>();
-
-        try {
-            famCaseStatsOfcRecord = monthlyCaseHistoryDao.getAllOfcCasldIdAndAidCds();
-            famCaseStatsOfcRecord.sort((a, b) -> compareKeys(
-                    a.getOfcCd(), a.getCasldId(), a.getAidCd(),
-                    b.getOfcCd(), b.getCasldId(), b.getAidCd()
-            ));
-
-
-            pceRecords = fetchPceRecordsFromDb();
-            pceRecords.sort((a, b) -> compareKeys(
-                    a.getOfficeCode(), a.getCaseLoadId(), a.getAidCode(),
-                    b.getOfficeCode(), b.getCaseLoadId(), b.getAidCode()
-            ));
-
-            List<String> list = getStrings(pceRecords);
-            fileWriter(list);
-        } catch (Exception e) {
-            LOG.error("Error fetching FamCaseStatsOfficeRecord/ProgramCaseHistory list: ", e);
-            return RepeatStatus.FINISHED;
+    // both numeric
+    if (aNum && bNum) {
+        String aDigits = A.replaceFirst("^\\D*(\\d+).*$", "$1").replaceFirst("^0+(\\d)", "$1");
+        String bDigits = B.replaceFirst("^\\D*(\\d+).*$", "$1").replaceFirst("^0+(\\d)", "$1");
+        if (!aDigits.isEmpty() && !bDigits.isEmpty()) {
+            int lenCmp = Integer.compare(aDigits.length(), bDigits.length());
+            if (lenCmp != 0) return lenCmp;
+            int numCmp = aDigits.compareTo(bDigits);
+            if (numCmp != 0) return numCmp;
         }
-
-        try {
-            if (!CollectionUtils.isEmpty(famCaseStatsOfcRecord)) {
-                for (FamCaseStatsOfficeRecord or : famCaseStatsOfcRecord) {
-                    LOG.info("{}", or);
-                }
-                // Setup working storage with first FamCase
-                FamCaseStatsOfficeRecord famCaseRec1 = famCaseStatsOfcRecord.get(0);
-                updateWorkingStorageWithFamCase(famCaseRec1, workingStorage);
-                LOG.info("01 AMA46W.WS-FAM-CASE-OFC-CD :{}", famCaseRec1.getOfcCd());
-                LOG.info("01 AMA46W.WS-FAME-CASE-CASLD:{}", famCaseRec1.getCasldId());
-                LOG.info("01 AMA46W.WS-FAME-CASE-AID-CD :{}", famCaseRec1.getAidCd());
-
-                int i = 0; // FamCase index
-                while (i < famCaseStatsOfcRecord.size()) {
-                    FamCaseStatsOfficeRecord famCaseRec = famCaseStatsOfcRecord.get(i);
-                    if (!CollectionUtils.isEmpty(pceRecords)) {
-                        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
-                            try {
-                                boolean scanned = false;
-                                if (!pceRecord.getOfficeCode().equals(workingStorage.getPreviousOfcCd())) {
-                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
-
-                                    if (compareWorkingStoragePceVsFam(workingStorage) > 0) {
-                                        LOG.info("01 AMA46W.WS-PCE-RECORD :{}", workingStorage.getPceRecords());
-                                        LOG.info("01 AMA46W.WS-FAM-CASE-RECORD :{}", workingStorage.getFamCaseRecords());
-                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
-                                        if (famCaseRec.getOfcCd() != null && !famCaseRec.getOfcCd().trim().isEmpty()
-                                                && famCaseRec.getCasldId() != null && !famCaseRec.getCasldId().trim().isEmpty()) {
-                                            newPceRecords.add(copyOfPceRecord);
-                                        }
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    if (compareWorkingStoragePceVsFam(workingStorage) == 0) {
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    workingStorage.setPreviousOfcCd(workingStorage.getFamCaseOfcCd());
-                                    workingStorage.setPreviousCasldId(workingStorage.getFamCaseCasldId());
-                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
-
-                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
-
-                                } else if (!pceRecord.getCaseLoadId().equals(workingStorage.getPreviousCasldId())) {
-                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
-
-                                    if (compareWorkingStoragePceVsFam(workingStorage) > 0) { 
-                                        LOG.info("02 AMA46W.WS-PCE-RECORD :{}", workingStorage.getPceRecords());
-                                        LOG.info("02 AMA46W.WS-FAM-CASE-RECORD :{}", workingStorage.getFamCaseRecords());
-                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
-                                        if (famCaseRec.getOfcCd() != null && !famCaseRec.getOfcCd().trim().isEmpty()
-                                                && famCaseRec.getCasldId() != null && !famCaseRec.getCasldId().trim().isEmpty()) {
-                                            newPceRecords.add(copyOfPceRecord);
-                                        }
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    if (compareWorkingStoragePceVsFam(workingStorage) == 0) {
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    workingStorage.setPreviousCasldId(workingStorage.getFamCaseCasldId());
-                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
-
-                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
-
-                                } else if (!pceRecord.getAidCode().equals(workingStorage.getPreviousAidCd())) {
-                                    updateWorkingStorageWithPceRecord(pceRecord, workingStorage);
-
-                                    if (compareWorkingStoragePceVsFam(workingStorage) > 0) {
-                                        LOG.info("03 AMA46W.WS-PCE-RECORD :{}", workingStorage.getPceRecords());
-                                        LOG.info("03 AMA46W.WS-FAM-CASE-RECORD :{}", workingStorage.getFamCaseRecords());
-                                        ReportMonthlyCaseHistorySorRecord copyOfPceRecord = mapToNewPceRecord(famCaseRec);
-                                        if (famCaseRec.getOfcCd() != null && !famCaseRec.getOfcCd().trim().isEmpty()
-                                                && famCaseRec.getCasldId() != null && !famCaseRec.getCasldId().trim().isEmpty()) {
-                                            newPceRecords.add(copyOfPceRecord);
-                                        }
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    if (compareWorkingStoragePceVsFam(workingStorage) == 0) {
-                                        scanned = scanNextFamCase(++i, famCaseStatsOfcRecord, workingStorage, true);
-                                        famCaseRec = scanned ? famCaseStatsOfcRecord.get(i) : famCaseRec;
-                                    }
-
-                                    workingStorage.setPreviousAidCd(workingStorage.getFamCaseAidCd());
-
-                                    if (!scanned && i >= famCaseStatsOfcRecord.size()) break;
-
-                                }
-                            } catch (Exception ex) {
-                                LOG.error("Error during FamCaseRecord/PceRecord processing. famCaseRec={}, pceRecord={}", famCaseRec, pceRecord, ex);
-                                // continue with next record
-                            }
-                        }
-                    }
-                    i++; // move to next FamCase for next while iteration if not already advanced
-                }
-            }
-            Set<String> existingKeys = new HashSet<>(
-                    pceRecords.stream()
-                            .map(r -> normKey(r.getOfficeCode(), r.getCaseLoadId(), r.getAidCode()))
-                            .collect(Collectors.toSet())
-            );
-            existingKeys.addAll(
-                    newPceRecords.stream()
-                            .map(r -> normKey(r.getOfficeCode(), r.getCaseLoadId(), r.getAidCode()))
-                            .collect(Collectors.toSet())
-            );
-
-
-            for (FamCaseStatsOfficeRecord fam : famCaseStatsOfcRecord) {
-                String key = normKey(fam.getOfcCd(), fam.getCasldId(), fam.getAidCd());
-                if (fam.getOfcCd() != null && !fam.getOfcCd().trim().isEmpty()
-                        && fam.getCasldId() != null && !fam.getCasldId().trim().isEmpty()
-                        && !existingKeys.contains(key)) {
-                    ReportMonthlyCaseHistorySorRecord add = mapToNewPceRecord(fam);
-                    newPceRecords.add(add);
-                    existingKeys.add(key);
-                }
-            }
-
-            logNewProgramCaseHistories(newPceRecords);
-            performDatabaseOperations(newPceRecords);
-        } catch (Exception e) {
-            LOG.error("Error processing famCaseStats/pceRecords : ", e);
-        }
-
-
-
-        return RepeatStatus.FINISHED;
-    }
-
-    private static String nz(String s) { return s == null ? "" : s; }
-    private static String normKey(String ofc, String casld, String aid) {
-        // AMA46A compares uppercased fixed-width fields; normalized uppercase+trim works here
-        return nz(ofc).trim().toUpperCase() + "|" +
-                nz(casld).trim().toUpperCase() + "|" +
-                nz(aid).trim().toUpperCase();
-    }
-
-    private static String up(String s) { return nz(s).toUpperCase(); }
-    private static String trimUp(String s) { return up(s).trim(); }
-
-    private static boolean startsWithLetter(String s) {
-        String v = trimUp(s);
-        return !v.isEmpty() && Character.isLetter(v.charAt(0));
-    }
-    private static boolean startsWithDigit(String s) {
-        String v = trimUp(s);
-        return !v.isEmpty() && Character.isDigit(v.charAt(0));
-    }
-
-    /** Compare caseload ids with "alpha-first, then numeric" grouping. */
-    private static int compareCaseloadAlphaThenNumeric(String a, String b) {
-        String A = trimUp(a);
-        String B = trimUp(b);
-
-        boolean aAlpha = startsWithLetter(A);
-        boolean bAlpha = startsWithLetter(B);
-        if (aAlpha != bAlpha) return aAlpha ? -1 : 1; // alpha group first
-
-        boolean aNum = startsWithDigit(A);
-        boolean bNum = startsWithDigit(B);
-
-        // both alpha-start -> simple lexicographic
-        if (aAlpha && bAlpha) return A.compareTo(B);
-
-        // both numeric-start -> compare numeric prefix length, then value, then full string
-        if (aNum && bNum) {
-            String aDigits = A.replaceFirst("^\\D*(\\d+).*$", "$1").replaceFirst("^0+(\\d)", "$1");
-            String bDigits = B.replaceFirst("^\\D*(\\d+).*$", "$1").replaceFirst("^0+(\\d)", "$1");
-            if (!aDigits.isEmpty() && !bDigits.isEmpty()) {
-                int lenCmp = Integer.compare(aDigits.length(), bDigits.length());
-                if (lenCmp != 0) return lenCmp;      // longer number = bigger
-                int numCmp = aDigits.compareTo(bDigits);
-                if (numCmp != 0) return numCmp;
-            }
-            return A.compareTo(B);
-        }
-
-        // mixed or odd -> fallback lexicographic
         return A.compareTo(B);
     }
 
-    /** Key compare: OFC, CASLOAD (alpha-first numeric), AID (lexicographic). */
-    private static int compareKeys(String ofc1, String cas1, String aid1,
-                                   String ofc2, String cas2, String aid2) {
-        int c = up(ofc1).compareTo(up(ofc2));
-        if (c != 0) return c;
-        c = compareCaseloadAlphaThenNumeric(cas1, cas2);
-        if (c != 0) return c;
-        return up(aid1).compareTo(up(aid2));
-    }
-
-    /** Compare the PCE triplet vs FAM triplet in working storage using alpha-first ordering. */
-    private static int compareWorkingStoragePceVsFam(FamCaseStatsWorkingStorage ws) {
-        return compareKeys(ws.getPceOfcCd(), ws.getPceCasldId(), ws.getPceAidCd(),
-                ws.getFamCaseOfcCd(), ws.getFamCaseCasldId(), ws.getFamCaseAidCd());
-    }
-
-    /** Updates FamCase values in working storage */
-    private void updateWorkingStorageWithFamCase(FamCaseStatsOfficeRecord famCase, FamCaseStatsWorkingStorage storage) {
-        storage.setFamCaseOfcCd(famCase.getOfcCd());
-        storage.setFamCaseCasldId(famCase.getCasldId());
-        storage.setFamCaseAidCd(famCase.getAidCd());
-        storage.setFamCaseRecords(famCase.getOfcCd() + famCase.getCasldId() + famCase.getAidCd());
-    }
-
-    /** Updates PceRecord values in working storage */
-    private void updateWorkingStorageWithPceRecord(ReportMonthlyCaseHistorySorRecord pceRecord, FamCaseStatsWorkingStorage storage) {
-        storage.setPceOfcCd(pceRecord.getOfficeCode());
-        storage.setPceCasldId(pceRecord.getCaseLoadId());
-        storage.setPceAidCd(pceRecord.getAidCode());
-        storage.setPceRecords(pceRecord.getOfficeCode() + pceRecord.getCaseLoadId() + pceRecord.getAidCode());
-    }
-
-    /** Safely advances to next FamCase and updates working storage if isFamStatUpdate, returns true if advanced */
-    private boolean scanNextFamCase(
-            int i, List<FamCaseStatsOfficeRecord> famCaseList, FamCaseStatsWorkingStorage storage, boolean isFamStatUpdate) {
-        if (i < famCaseList.size()) {
-            FamCaseStatsOfficeRecord nextFamCase = famCaseList.get(i);
-            if (isFamStatUpdate) updateWorkingStorageWithFamCase(nextFamCase, storage);
-            return true;
-        }
-        return false;
-    }
-
-    private ReportMonthlyCaseHistorySorRecord mapToNewPceRecord(FamCaseStatsOfficeRecord famCaseRec) {
-        ReportMonthlyCaseHistorySorRecord pceRecord = new ReportMonthlyCaseHistorySorRecord();
-        pceRecord.setRunDate(convertToDate(SystemInfoParam.getAsOfDate()));
-        pceRecord.setOfficeCode(famCaseRec.getOfcCd());
-        pceRecord.setCaseLoadId(famCaseRec.getCasldId());
-        pceRecord.setAidCode(famCaseRec.getAidCd());
-        pceRecord.setProgramCaseType(MA);
-        pceRecord.setActionTimestamp(lowDateTimestamp);
-        pceRecord.setApplicationDate(lowDate);
-        pceRecord.setStatusEffectiveDate(lowDate);
-        pceRecord.setStatusCode(Y);
-        return pceRecord;
-    }
-
-    private List<ReportMonthlyCaseHistorySorRecord> fetchPceRecordsFromDb() {
-
-        int totalCount = monthlyCaseHistoryDao.countProgramCaseHistoryForFamCaseStats();
-        LOG.info("Total ProgramCaseHistory records to fetch: {}", totalCount);
-
-        List<ReportMonthlyCaseHistorySorRecord> pceRecords = new ArrayList<>();
-
-        int pageIndex = 0;
-        while (pceRecords.size() < totalCount) {
-            int startIndex = pageIndex * PAGE_SIZE + 1;
-            int endIndex = Math.min((pageIndex + 1) * PAGE_SIZE, totalCount);
-
-            List<ReportMonthlyCaseHistorySorRecord> chunk =
-                    monthlyCaseHistoryDao.getProgramCaseHistoryForFamCaseStats(startIndex, endIndex);
-            LOG.info("Fetched rows {}-{} ({} records)", startIndex, endIndex, chunk.size());
-
-            pceRecords.addAll(chunk);
-
-            if (chunk.size() < PAGE_SIZE) { // Less than requested page size: this was the final page
-                break;
-            }
-            pageIndex++;
-        }
-        LOG.info("Total ProgramCaseHistory records loaded: {}", pceRecords.size());
-
-        return pceRecords;
-    }
-
-    private void logNewProgramCaseHistories(List<ReportMonthlyCaseHistorySorRecord> pceRecords) {
-        LOG.info("After Validation New ProgramCaseHistories :{}", pceRecords.size());
-        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
-            LOG.info("ofcCd={}, casld:{}, aidCd:{}, ici={}",
-                    pceRecord.getOfficeCode(), pceRecord.getCaseLoadId(), pceRecord.getAidCode(), pceRecord.getIci());
-        }
-    }
-
-    private void performDatabaseOperations(List<ReportMonthlyCaseHistorySorRecord> pceRecords) throws Exception {
-        int lastSeqNmb = monthlyCaseHistoryDao.getMaxSequenceNmbOfPceRecord();
-        for (ReportMonthlyCaseHistorySorRecord pceRecord : pceRecords) {
-            pceRecord.setReportSequenceNumber(++lastSeqNmb);
-        }
-
-        List<SorRecord> recordList = pceRecords.stream().map((d -> (SorRecord) d)).collect(toList());
-        Connection connection = DataSourceUtils.getConnection(nswdDataSource);
-        try {
-            databaseSwitch.switchDataSourceAndSchema(reportMonthlyCaseHistorySorDao, nswdSchemaName, nswdDataSource);
-            this.reportMonthlyCaseHistorySorDao.batchInsert(recordList);
-            connection.commit();
-        } catch (Exception e) {
-            LOG.error(e);
-            final String applicationMessage = "Error occurred while writing FAM ProgramCaseHistory records to DB";
-            connection.rollback();
-            final SkippedRecord skippedRecord = new SkippedRecord("newProgramCaseHistoryRecord");
-            throw ExceptionUtil.batchSkipRecordException(BatchExceptionType.SQL_EXCEPTION, applicationMessage, null,
-                    null, StatisticsConstants.PROGRAM_HISTORY_BATCH, e, skippedRecord);
-        } finally {
-            DataSourceUtils.releaseConnection(connection, nswdDataSource);
-        }
-    }
-
-    private static List<String> getStrings(List<ReportMonthlyCaseHistorySorRecord> records) {
-        String format = "%-10s%-3s%-4s%-11s%-11s%-2s%-2s%-2s%-2s%-11s%-3s%-2s%-2s%-11s%-2s%-2s%-6s%-2s%-2s%-5s%-3s%-6s%-4s%-4s%-8s%-8s%-8s%-11s%-2s%-2s%-10s%-2s%-2s%-2s%-2s%-3s%-2s%-2s%-2s%-3s%-6s%-9s%-31s%-11s%-3s";
-
-        List<String> list = new ArrayList<>();
-        for (ReportMonthlyCaseHistorySorRecord r : records) {
-            String line = String.format(format, r.getIci(), r.getProgramCaseType(), r.getAidCode(), r.getInitialApprovalDate(),
-                    r.getApplicationDate(), r.getExpeditedSnapReasonCode(), r.getEligCode(), r.getLastRecordForMonth(),
-                    r.getProgramCaseStatus(), r.getStatusEffectiveDate(), r.getClosureReasonCode(),
-                    r.getMultipleClosureReasonIndicator(), r.getReinstateIndicator(), r.getReinstateDate(),
-                    r.getReopenedIndicator(), r.getReappIndicator(), r.getReappCount(), r.getApprovalIndicator(),
-                    r.getRedeterminationIndicator(), r.getBenefitYear(), r.getBenefitMonth(), r.getVersionNumber(),
-                    r.getNoOfRecipient(), r.getNoOfChildRecipient(), r.getBenefitAmount(), r.getEntitlementAmount(),
-                    r.getBenefitReductionAmount(), r.getNextRedeterminationDate(), r.getRedeterminationCompleteMonth(),
-                    r.getConfirseIndicator(), r.getHohUpi(), r.getSnapSuffix(), r.getCaseStatus(),
-                    r.getMonthlyReportingIndicator(), r.getHomelessIndicator(), r.getOfficeCode(), r.getSupervisoryUnit(),
-                    r.getFunctionalAreaCode(), r.getWorkerType(), r.getPositionNumber(), r.getCaseLoadId(),
-                    r.getNomadsUserId(), r.getWorkerName(), r.getActionTimestamp(), r.getActionType());
-            list.add(line);
-        }
-        return list;
-    }
-
-    public static void fileWriter(List<String> items) {
-        LOG.debug("Creating sorted pce records file...");
-        FileSystemResource fileSystemResource = new FileSystemResource(outputFilePath);
-        FlatFileItemWriter<String> itemWriter = new FlatFileItemWriter<>();
-        try {
-            itemWriter.setResource(fileSystemResource);
-            writeToFile(items, itemWriter);
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
-    }
-
-    private static void writeToFile(List<String> detailRecordList, FlatFileItemWriter<String> itemWriter)
-            throws Exception {
-        itemWriter.setLineAggregator(new PassThroughLineAggregator<>());
-        itemWriter.open(new ExecutionContext());
-        itemWriter.afterPropertiesSet();
-        itemWriter.write(detailRecordList);
-        itemWriter.close();
-    }
+    // fallback lexicographic for mixed or others
+    return A.compareTo(B);
 }
- 
+
+
+
+
+/** Key compare: OFC, CASLOAD (alpha-first numeric), AID (blank→alpha→numeric). */
+private static int compareKeys(String ofc1, String cas1, String aid1,
+                               String ofc2, String cas2, String aid2) {
+    int c = up(ofc1).compareTo(up(ofc2));
+    if (c != 0) return c;
+    c = compareCaseloadAlphaThenNumeric(cas1, cas2);
+    if (c != 0) return c;
+    return compareAidAlphaThenNumeric(aid1, aid2);
+}
