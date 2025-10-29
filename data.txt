@@ -1,21 +1,66 @@
--- Full benefits by office (TOTAL, PA, NA) for Jan 2025 — DB2-compatible, no CTEs
-
+WITH p(rep_beg_ts, rep_end_ts, rpt_end_dt) AS (
+VALUES (
+TIMESTAMP('2025-01-01 00:00:00'),
+TIMESTAMP('2025-01-31 23:59:59.999999'),
+DATE('2025-01-31')
+)
+),
+ap_first AS (
 SELECT
-  C.OFC_CD,
-  COUNT(*) AS FULL_BENEFITS_TOTAL,
-  SUM(CASE WHEN H.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PA_BENEFITS,
-  SUM(CASE WHEN H.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END) AS NA_BENEFITS
-FROM W026DTF1.TWNFAM_ACTNS       A
-JOIN W026DTF1.TWNFAM_CASELD_CASE C
-  ON C.ICI = A.ICI
- AND C.PRGM_OFC_TYPE = 'A'                         -- Admin office caseload
-JOIN W026DTF1.TWNFAM_CASE_HSTRY  H
-  ON H.ICI = A.ICI
- AND H.PRD_BEG_DT <= DATE(A.ACTN_TS)               -- FS suffix as of action timestamp
- AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= DATE(A.ACTN_TS)
-WHERE A.PRGM_TYP = 'FS'
-  AND A.ACTN_TYP IN ('FA','RE','RI')               -- Full benefit approvals
-  AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-  AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
-GROUP BY C.OFC_CD
-ORDER BY C.OFC_CD;
+cc.OFC_CD,
+a.ICI,
+MIN(a.ACTN_TS) AS min_actn_ts
+FROM W026DTF1.TWNFAM_ACTNS a
+JOIN W026DTF1.TWNFAM_CASELD_CASE cc
+ON cc.ICI = a.ICI
+AND cc.PRGM_OFC_TYPE = 'A'
+WHERE a.PRGM_TYP = 'FS'
+AND a.ACTN_TYP = 'AP'
+AND a.ACTN_TS >= (SELECT rep_beg_ts FROM p)
+AND a.ACTN_TS <= (SELECT rep_end_ts FROM p)
+GROUP BY cc.OFC_CD, a.ICI
+),
+prev_act AS (
+SELECT
+af.OFC_CD,
+af.ICI,
+(SELECT a2.ACTN_TYP
+FROM W026DTF1.TWNFAM_ACTNS a2
+WHERE a2.ICI = af.ICI
+AND a2.PRGM_TYP = 'FS'
+AND a2.ACTN_TS < af.min_actn_ts
+ORDER BY a2.ACTN_TS DESC
+FETCH FIRST 1 ROW ONLY) AS prev_actn_typ
+FROM ap_first af
+),
+eligible AS (
+SELECT OFC_CD, ICI
+FROM prev_act
+WHERE prev_actn_typ IN ('FA','RE','RI')
+),
+suffix_pti AS (
+SELECT
+e.OFC_CD,
+e.ICI,
+ch.FS_SUFX
+FROM eligible e
+JOIN W026DTF1.TWNFAM_CASE_HSTRY ch
+ON ch.ICI = e.ICI
+AND ch.PRD_BEG_DT <= (SELECT rpt_end_dt FROM p)
+AND ch.PRD_END_DT >= (SELECT rpt_end_dt FROM p)
+),
+counts AS (
+SELECT
+OFC_CD,
+CASE WHEN FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END AS pa_benefit,
+CASE WHEN FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END AS na_benefit
+FROM suffix_pti
+)
+SELECT
+OFC_CD,
+SUM(pa_benefit) AS PA_BENEFITS,
+SUM(na_benefit) AS NA_BENEFITS,
+SUM(pa_benefit + na_benefit) AS FULL_BENEFITS
+FROM counts
+GROUP BY OFC_CD
+ORDER BY OFC_CD;
