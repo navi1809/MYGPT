@@ -1,79 +1,86 @@
 /* AME37A — Full benefits by office (TOTAL, PA, NA) for Jan 2025
-   Goal: match legacy S04 counts, include ALL offices, and fix CC office NA off-by-one.
-   Approach (matches your earlier “38” query but adds missing offices via LEFT JOIN):
-   1) For each ICI, pick the EARLIEST AP action in Jan-2025 (one per case in month).
-   2) Find the PREVIOUS FS action before that AP; keep only if type IN ('FA','RE','RI').
-   3) Classify PA/NA from FS_SUFX in CASE_HSTRY as-of the PREVIOUS action’s timestamp.
-   4) Attribute counts to the office code (OFC_CD) from CASELD_CASE.
-   5) LEFT JOIN on the distinct office list so ALL offices appear (zeros where no matches).
+   Same logic as the “38” query you liked, with two edge-case fixes:
+   - FS suffix fetched as a SINGLE row from CASE_HSTRY (no dup inflation)
+   - Office attribution comes from CASELD_CASE; list all admin offices
 */
 
+WITH
+-- earliest AP per ICI in Jan 2025
+AP0 AS (
+  SELECT A.ICI, MIN(A.ACTN_TS) AS AP_TS
+  FROM W026DTF1.TWNFAM_ACTNS A
+  WHERE A.PRGM_TYP = 'FS'
+    AND A.ACTN_TYP = 'AP'
+    AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
+    AND A.ACTN_TS <  TIMESTAMP('2025-02-01-00.00.00')  -- half-open window
+  GROUP BY A.ICI
+),
+
+-- previous FS action strictly before that AP
+PREV AS (
+  SELECT
+    P.ICI,
+    MAX(P.ACTN_TS) AS PREV_TS
+  FROM W026DTF1.TWNFAM_ACTNS P
+  JOIN AP0 F
+    ON F.ICI = P.ICI
+   AND P.PRGM_TYP = 'FS'
+   AND P.ACTN_TS < F.AP_TS
+  GROUP BY P.ICI
+),
+
+-- keep only if that previous action was FA/RE/RI (exactly like EGL)
+ELIG AS (
+  SELECT R.ICI, R.PREV_TS
+  FROM PREV R
+  JOIN W026DTF1.TWNFAM_ACTNS ROWX
+    ON ROWX.ICI = R.ICI
+   AND ROWX.PRGM_TYP = 'FS'
+   AND ROWX.ACTN_TS = R.PREV_TS
+   AND ROWX.ACTN_TYP IN ('FA','RE','RI')
+),
+
+-- attribute each eligible ICI to its office; admin offices only
+ATTR AS (
+  SELECT DISTINCT
+    C.OFC_CD,
+    E.ICI,
+    E.PREV_TS
+  FROM ELIG E
+  JOIN W026DTF1.TWNFAM_CASELD_CASE C
+    ON C.ICI = E.ICI
+   AND C.PRGM_OFC_TYPE = 'A'
+),
+
+-- FINAL per-ICI classification: look up exactly ONE FS_SUFX row as-of PREV_TS
+CLASS AS (
+  SELECT
+    A.OFC_CD,
+    A.ICI,
+    (
+      SELECT HS.FS_SUFX
+      FROM W026DTF1.TWNFAM_CASE_HSTRY HS
+      WHERE HS.ICI = A.ICI
+        AND HS.PRD_BEG_DT <= DATE(A.PREV_TS)
+        AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(A.PREV_TS)
+      ORDER BY HS.PRD_BEG_DT DESC
+      FETCH FIRST 1 ROW ONLY
+    ) AS FS_SUFX
+  FROM ATTR A
+)
+
+-- list ALL admin offices, return zeroes for offices with no matches
 SELECT
   O.OFC_CD,
-  COALESCE(SUM(X.full_flag), 0)                                            AS FULL_BENEFITS_TOTAL,
-  COALESCE(SUM(CASE WHEN X.fs_sufx IN ('P','S','G','A') THEN 1 ELSE 0 END), 0) AS PA_BENEFITS,
-  COALESCE(SUM(CASE WHEN X.fs_sufx IN ('P','S','G','A') THEN 0 ELSE 1 END), 0) AS NA_BENEFITS
-FROM
-(
-  /* DISTINCT list of all offices present in caseload table so every office prints */
-  SELECT DISTINCT C1.OFC_CD
-  FROM W026DTF1.TWNFAM_CASELD_CASE C1
+  COALESCE(COUNT(CX.ICI), 0) AS FULL_BENEFITS_TOTAL,
+  COALESCE(SUM(CASE WHEN CX.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END), 0) AS PA_BENEFITS,
+  COALESCE(SUM(CASE WHEN CX.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END), 0) AS NA_BENEFITS
+FROM (
+  SELECT DISTINCT OFC_CD
+  FROM W026DTF1.TWNFAM_CASELD_CASE
+  WHERE PRGM_OFC_TYPE = 'A'
 ) O
-LEFT JOIN
-(
-  /* === per-ICI, earliest AP in Jan-2025 === */
-  SELECT
-    C.OFC_CD,
-    F.ICI,
-    F.AP_TS,
-    HS.FS_SUFX,
-    1 AS full_flag
-  FROM
-  (
-    SELECT A.ICI, MIN(A.ACTN_TS) AS AP_TS
-    FROM W026DTF1.TWNFAM_ACTNS A
-    WHERE A.PRGM_TYP = 'FS'
-      AND A.ACTN_TYP = 'AP'
-      AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-      AND A.ACTN_TS <  TIMESTAMP('2025-02-01-00.00.00')   -- half-open to avoid time cutoff
-    GROUP BY A.ICI
-  ) F
-  /* Office attribution (do NOT filter by PRGM_OFC_TYPE; legacy shows all offices) */
-  JOIN W026DTF1.TWNFAM_CASELD_CASE C
-    ON C.ICI = F.ICI
-  /* === previous FS action strictly before the AP === */
-  JOIN
-  (
-    SELECT P1.ICI, MAX(P1.ACTN_TS) AS PREV_TS
-    FROM W026DTF1.TWNFAM_ACTNS P1
-    JOIN
-    (
-      SELECT A2.ICI, MIN(A2.ACTN_TS) AS AP_TS
-      FROM W026DTF1.TWNFAM_ACTNS A2
-      WHERE A2.PRGM_TYP = 'FS'
-        AND A2.ACTN_TYP = 'AP'
-        AND A2.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-        AND A2.ACTN_TS <  TIMESTAMP('2025-02-01-00.00.00')
-      GROUP BY A2.ICI
-    ) AAP
-      ON AAP.ICI = P1.ICI
-     AND P1.PRGM_TYP = 'FS'
-     AND P1.ACTN_TS < AAP.AP_TS
-    GROUP BY P1.ICI
-  ) PREV
-    ON PREV.ICI = F.ICI
-  /* keep only when that previous action is FA/RE/RI (matches EGL IF) */
-  JOIN W026DTF1.TWNFAM_ACTNS PREVROW
-    ON PREVROW.ICI = F.ICI
-   AND PREVROW.ACTN_TS = PREV.PREV_TS
-   AND PREVROW.PRGM_TYP = 'FS'
-   AND PREVROW.ACTN_TYP IN ('FA','RE','RI')
-  /* === classify PA/NA by suffix at time of the PREV action (EGL uses FCH.FS-SUFX) === */
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY HS
-    ON HS.ICI = F.ICI
-   AND HS.PRD_BEG_DT <= DATE(PREV.PREV_TS)
-   AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(PREV.PREV_TS)
-) X
-  ON X.OFC_CD = O.OFC_CD
+LEFT JOIN CLASS CX
+  ON CX.OFC_CD = O.OFC_CD
 GROUP BY O.OFC_CD
 ORDER BY O.OFC_CD;
