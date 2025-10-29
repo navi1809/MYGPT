@@ -1,85 +1,89 @@
-/* AME37A — Full benefits by office (TOTAL, PA, NA) for Jan 2025
-   Same logic as the “38” query you liked, with two edge-case fixes:
-   - FS suffix fetched as a SINGLE row from CASE_HSTRY (no dup inflation)
-   - Office attribution comes from CASELD_CASE; list all admin offices
-*/
+/* AME37A – Full benefits by office (TOTAL, PA, NA) for Jan 2025)  */
+/* Mirrors S01 (office list) + S04 (earliest AP per ICI per office) + READ-S02 (prev FS action) */
+/* Office list = admin offices from TWNCASELD_DEBTLD excluding DC, DH, DL, DR */
 
 WITH
--- earliest AP per ICI in Jan 2025
-AP0 AS (
-  SELECT A.ICI, MIN(A.ACTN_TS) AS AP_TS
-  FROM W026DTF1.TWNFAM_ACTNS A
+-- S01: office driving list (admin only, exclude specific codes)
+OFFICES AS (
+  SELECT DISTINCT D.OFC_CD
+  FROM W026DTF1.TWNCASELD_DEBTLD D
+  WHERE D.PRGM_OFC_TYPE = 'A'
+    AND D.OFC_CD NOT IN ('DC','DH','DL','DR')
+),
+
+-- S04: earliest AP per ICI **for that office** in the month (inclusive window)
+FAC AS (
+  SELECT
+      C.OFC_CD,
+      A.ICI,
+      MIN(A.ACTN_TS) AS AP_TS
+  FROM W026DTF1.TWNFAM_ACTNS      A
+  JOIN W026DTF1.TWNFAM_CASELD_CASE C
+    ON C.ICI = A.ICI
+   AND C.PRGM_OFC_TYPE = 'A'
   WHERE A.PRGM_TYP = 'FS'
     AND A.ACTN_TYP = 'AP'
     AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-    AND A.ACTN_TS <  TIMESTAMP('2025-02-01-00.00.00')  -- half-open window
-  GROUP BY A.ICI
+    AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
+  GROUP BY C.OFC_CD, A.ICI
 ),
 
--- previous FS action strictly before that AP
+-- Keep only ICIs that belong to the driven admin office list (matches legacy per-office loop)
+FAC_IN_SCOPE AS (
+  SELECT F.*
+  FROM FAC F
+  JOIN OFFICES O ON O.OFC_CD = F.OFC_CD
+),
+
+-- READ-S02: previous FS action strictly before AP (per ICI)
 PREV AS (
   SELECT
-    P.ICI,
+    F.ICI,
+    F.OFC_CD,
     MAX(P.ACTN_TS) AS PREV_TS
-  FROM W026DTF1.TWNFAM_ACTNS P
-  JOIN AP0 F
-    ON F.ICI = P.ICI
+  FROM FAC_IN_SCOPE F
+  JOIN W026DTF1.TWNFAM_ACTNS P
+    ON P.ICI = F.ICI
    AND P.PRGM_TYP = 'FS'
-   AND P.ACTN_TS < F.AP_TS
-  GROUP BY P.ICI
+   AND P.ACTN_TS  < F.AP_TS
+  GROUP BY F.ICI, F.OFC_CD
 ),
 
--- keep only if that previous action was FA/RE/RI (exactly like EGL)
-ELIG AS (
-  SELECT R.ICI, R.PREV_TS
-  FROM PREV R
-  JOIN W026DTF1.TWNFAM_ACTNS ROWX
-    ON ROWX.ICI = R.ICI
-   AND ROWX.PRGM_TYP = 'FS'
-   AND ROWX.ACTN_TS = R.PREV_TS
-   AND ROWX.ACTN_TYP IN ('FA','RE','RI')
+-- Filter to previous action types ('FA','RE','RI') exactly as EGL IF condition
+PREV_OK AS (
+  SELECT P.OFC_CD, P.ICI, P.PREV_TS
+  FROM PREV P
+  JOIN W026DTF1.TWNFAM_ACTNS R
+    ON R.ICI = P.ICI
+   AND R.PRGM_TYP = 'FS'
+   AND R.ACTN_TS = P.PREV_TS
+   AND R.ACTN_TYP IN ('FA','RE','RI')
 ),
 
--- attribute each eligible ICI to its office; admin offices only
-ATTR AS (
-  SELECT DISTINCT
-    C.OFC_CD,
-    E.ICI,
-    E.PREV_TS
-  FROM ELIG E
-  JOIN W026DTF1.TWNFAM_CASELD_CASE C
-    ON C.ICI = E.ICI
-   AND C.PRGM_OFC_TYPE = 'A'
-),
-
--- FINAL per-ICI classification: look up exactly ONE FS_SUFX row as-of PREV_TS
+-- FS suffix as-of the PREVIOUS action's timestamp (READ-S02 provides FS-SUFX)
 CLASS AS (
   SELECT
-    A.OFC_CD,
-    A.ICI,
+    K.OFC_CD,
+    K.ICI,
     (
-      SELECT HS.FS_SUFX
-      FROM W026DTF1.TWNFAM_CASE_HSTRY HS
-      WHERE HS.ICI = A.ICI
-        AND HS.PRD_BEG_DT <= DATE(A.PREV_TS)
-        AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(A.PREV_TS)
-      ORDER BY HS.PRD_BEG_DT DESC
+      SELECT H.FS_SUFX
+      FROM W026DTF1.TWNFAM_CASE_HSTRY H
+      WHERE H.ICI = K.ICI
+        AND H.PRD_BEG_DT <= DATE(K.PREV_TS)
+        AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= DATE(K.PREV_TS)
+      ORDER BY H.PRD_BEG_DT DESC
       FETCH FIRST 1 ROW ONLY
     ) AS FS_SUFX
-  FROM ATTR A
+  FROM PREV_OK K
 )
 
--- list ALL admin offices, return zeroes for offices with no matches
+-- Final by office: FULL (total), PA, NA
 SELECT
   O.OFC_CD,
   COALESCE(COUNT(CX.ICI), 0) AS FULL_BENEFITS_TOTAL,
   COALESCE(SUM(CASE WHEN CX.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END), 0) AS PA_BENEFITS,
   COALESCE(SUM(CASE WHEN CX.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END), 0) AS NA_BENEFITS
-FROM (
-  SELECT DISTINCT OFC_CD
-  FROM W026DTF1.TWNFAM_CASELD_CASE
-  WHERE PRGM_OFC_TYPE = 'A'
-) O
+FROM OFFICES O
 LEFT JOIN CLASS CX
   ON CX.OFC_CD = O.OFC_CD
 GROUP BY O.OFC_CD
