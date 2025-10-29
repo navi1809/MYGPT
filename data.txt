@@ -1,36 +1,59 @@
--- AME37A – Full benefits by office (TOTAL, PA, NA) for Jan 2025
--- Edge-case fixes:
---  • Count ALL AP actions in window (do NOT collapse to one per ICI).
---  • Classify PA/NA using FS_SUFX as-of the PREVIOUS action’s timestamp
---    (this mirrors H2-2-FAA-FCH.FS-SUFX after READ-S02).
+-- AME37A — Full benefits by office (TOTAL, PA, NA) for Jan 2025
+-- Match legacy S04 exactly, fixing the NA off-by-one:
+--  • Use the EARLIEST AP per ICI within the month (one row per case).
+--  • Classify PA/NA using FS_SUFX as-of the PREVIOUS action’s timestamp.
+--  • Admin offices only (PRGM_OFC_TYPE='A').
 
 SELECT
-  C.OFC_CD,
+  X.OFC_CD,
   COUNT(*) AS FULL_BENEFITS_TOTAL,
   SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PA_BENEFITS,
   SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END) AS NA_BENEFITS
-FROM W026DTF1.TWNFAM_ACTNS FAC
-JOIN W026DTF1.TWNFAM_CASELD_CASE C
-  ON C.ICI = FAC.ICI
- AND C.PRGM_OFC_TYPE = 'A'
-JOIN W026DTF1.TWNFAM_ACTNS PREV
+FROM
+(
+  /* For each ICI, pick the earliest AP in Jan-2025 and find its previous FS action */
+  SELECT
+    C.OFC_CD,
+    A.ICI,
+    MIN(A.ACTN_TS) AS AP_TS
+  FROM W026DTF1.TWNFAM_ACTNS A
+  JOIN W026DTF1.TWNFAM_CASELD_CASE C
+       ON C.ICI = A.ICI
+      AND C.PRGM_OFC_TYPE = 'A'
+  WHERE A.PRGM_TYP = 'FS'
+    AND A.ACTN_TYP = 'AP'
+    AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
+    AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
+  GROUP BY C.OFC_CD, A.ICI
+) FAC
+JOIN
+(
+  /* Previous FS action before that AP (type must be FA/RE/RI) */
+  SELECT
+    F.ICI,
+    MAX(P.ACTN_TS) AS PREV_TS
+  FROM
+  (
+    SELECT A.ICI, MIN(A.ACTN_TS) AS AP_TS
+    FROM W026DTF1.TWNFAM_ACTNS A
+    WHERE A.PRGM_TYP = 'FS'
+      AND A.ACTN_TYP = 'AP'
+      AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
+      AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
+    GROUP BY A.ICI
+  ) F
+  JOIN W026DTF1.TWNFAM_ACTNS P
+       ON P.ICI = F.ICI
+      AND P.PRGM_TYP = 'FS'
+      AND P.ACTN_TS < F.AP_TS
+  WHERE P.ACTN_TYP IN ('FA','RE','RI')
+  GROUP BY F.ICI
+) PREV
   ON PREV.ICI = FAC.ICI
- AND PREV.PRGM_TYP = 'FS'
- AND PREV.ACTN_TS = (
-       SELECT MAX(P2.ACTN_TS)
-       FROM W026DTF1.TWNFAM_ACTNS P2
-       WHERE P2.ICI = FAC.ICI
-         AND P2.PRGM_TYP = 'FS'
-         AND P2.ACTN_TS < FAC.ACTN_TS
-     )
+/* PA/NA suffix as-of the previous action timestamp */
 JOIN W026DTF1.TWNFAM_CASE_HSTRY HS
   ON HS.ICI = FAC.ICI
- AND HS.PRD_BEG_DT <= DATE(PREV.ACTN_TS)
- AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(PREV.ACTN_TS)
-WHERE FAC.PRGM_TYP = 'FS'
-  AND FAC.ACTN_TYP = 'AP'                                         -- report-month AP actions
-  AND PREV.ACTN_TYP IN ('FA','RE','RI')                           -- prior full-benefit action
-  AND FAC.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-  AND FAC.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
-GROUP BY C.OFC_CD
-ORDER BY C.OFC_CD;
+ AND HS.PRD_BEG_DT <= DATE(PREV.PREV_TS)
+ AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(PREV.PREV_TS)
+GROUP BY X.OFC_CD
+ORDER BY X.OFC_CD;
