@@ -1,366 +1,261 @@
+/* AME37A – FOOD STAMP CASELOAD ACTIVITY REPORT (Crystal-ready)
+   Fixed report window:
+     beg_dt = 2025-01-01 00:00:00
+     end_dt = 2025-01-31 23:59:59
+*/
+
 WITH
-RPT_DATES AS (
+-- ---------- Helpers ----------
+params AS (
   SELECT
-    -- Report window for 2025-01
-    (DATE('2025-01-01') - (DAY(DATE('2025-01-01')) - 1) DAYS)                                   AS RPT_BEG_DT,
-    LAST_DAY(DATE('2025-01-01'))                                                                  AS RPT_END_DT,
-    TIMESTAMP((DATE('2025-01-01') - (DAY(DATE('2025-01-01')) - 1) DAYS))                          AS RPT_BEG_TS,
-    (TIMESTAMP(LAST_DAY(DATE('2025-01-01'))) + 1 DAY - 1 MICROSECOND)                             AS RPT_END_TS,
-    MONTH(DATE('2025-01-01'))                                                                     AS RPT_MONTH_BIN,
-    YEAR(DATE('2025-01-01'))                                                                      AS RPT_YEAR_BIN,
-    CASE WHEN MONTH(DATE('2025-01-01')) = 1 THEN 12 ELSE MONTH(DATE('2025-01-01')) - 1 END        AS PREV_RPT_MTH,
-    CASE WHEN MONTH(DATE('2025-01-01')) = 1 THEN YEAR(DATE('2025-01-01')) - 1 ELSE YEAR(DATE('2025-01-01')) END AS PREV_RPT_YR
-  FROM SYSIBM.SYSDUMMY1
+    TIMESTAMP '2025-01-01 00:00:00' AS beg_dt,
+    TIMESTAMP '2025-01-31 23:59:59' AS end_dt
 ),
-OFFICES AS (
-  SELECT DISTINCT T1.OFC_CD, T.OFC_NM
-  FROM W026DTF1.TWNCASELD_DEBTLD T1
-  JOIN W026DTF1.TWNOFFICE T ON T.OFC_CD = T1.OFC_CD
-  WHERE T1.PRGM_OFC_TYPE = 'A' AND T1.OFC_CD NOT IN ('DC','DH','DL','DR')
+fac_fsi AS (
+  SELECT fsi.*
+  FROM W026DTF1."H2-3-FAC-FCH-FSI" fsi
 ),
-OFFICE_DATA AS (
-  SELECT OFC.OFC_CD, OFC.OFC_NM
-  FROM OFFICES OFC
+fac_fch AS (
+  SELECT fch.*
+  FROM W026DTF1."H2-2-FAA-FCH" fch
+),
+fac_fac AS (
+  SELECT fac.*
+  FROM W026DTF1."H2-2-FAA-FAC" fac
+),
+pcase AS (
+  SELECT p.*
+  FROM W026DTF1."H2-PRGM-CASE-HSTRY" p
+),
+psy AS (
+  SELECT p.*
+  FROM W026DTF1."H2-3-FAC-FCH-PSY" p
 ),
 
-/* ===== ACTIVE CASELOAD ===== */
-ACT_CASELD_INFO AS (
+-- ---------- ACTIVE CASELOAD & FLAGS (S02) ----------
+active AS (
   SELECT
-    T1.OFC_CD, OFC.OFC_NM,
-    T2.FS_SUFX, T2.MTHLY_RPTR_IND,
-    T3.EXPD_SRVC_IND, T3.MTHD_OF_ISNCE, T3.ISNCE_MTHD
-  FROM W026DTF1.TWNFAM_CASELD_CASE T1
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
-  JOIN W026DTF1.TWNFS_ISNCE      T3 ON T2.ICI = T3.ICI
-  JOIN OFFICE_DATA OFC              ON T1.OFC_CD = OFC.OFC_CD
-  JOIN RPT_DATES RPT                ON 1=1
-  WHERE
-    T2.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T2.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.ISNCE_DT <= RPT.RPT_END_DT
-    AND T3.BNFT_MTH = RPT.RPT_MONTH_BIN
-    AND T3.BNFT_YR  = RPT.RPT_YEAR_BIN
-    AND T3.BNFT_TYPE = 'RG'
-    AND T3.FS_ISNCE_STS IN ('IS','RD')
-),
-MAIN0 AS (
-  SELECT
-    ACI.OFC_CD, ACI.OFC_NM,
-    SUM(CASE WHEN ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PACASES,
-    SUM(CASE WHEN ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NACASES,
-    SUM(CASE WHEN ACI.EXPD_SRVC_IND = 'Y' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAEXPCASE,
-    SUM(CASE WHEN ACI.EXPD_SRVC_IND = 'Y' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAEXPCASE,
-    SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAEBTCASE,
-    SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAEBTCASE,
-    SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' THEN 1 ELSE 0 END) AS DMIEBT,
-    SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PADAMS,
-    SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NADAMS,
-    SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE <> '3' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PASPHNDL,
-    SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE <> '3' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NASPHNDL,
-    SUM(CASE WHEN ACI.MTHLY_RPTR_IND = 'Y' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAMRC,
-    SUM(CASE WHEN ACI.MTHLY_RPTR_IND = 'Y' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAMRC
-  FROM ACT_CASELD_INFO ACI
-  GROUP BY ACI.OFC_CD, ACI.OFC_NM
+    CASE WHEN fsi."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END AS is_pa,
+    1 AS cases,
+    CASE WHEN fsi."EXPD-SRVC-IND" = 'Y' THEN 1 ELSE 0 END AS exp_srv,
+    CASE WHEN fsi."ISNCE-MTHD" = 'E' THEN 1 ELSE 0 END AS ebt,
+    CASE WHEN fsi."ISNCE-MTHD" = 'E' THEN 1 ELSE 0 END AS dmi_ebt,        -- matches WS-DMIEBT
+    CASE WHEN fsi."ISNCE-MTHD" <> 'E' AND fsi."MTHD-OF-ISNCE" = '3' THEN 1 ELSE 0 END AS dams,     -- WS-*-DAMS
+    CASE WHEN fsi."ISNCE-MTHD" <> 'E' AND fsi."MTHD-OF-ISNCE" <> '3' THEN 1 ELSE 0 END AS sphantl, -- WS-*-SPHNDL
+    CASE WHEN fsi."MTHD-OF-ISNCE" = '0' OR fsi."MTHD-OF-ISNCE" = ' ' THEN 1 ELSE 0 END AS dmi0,
+    CASE WHEN fsi."MTHD-OF-ISNCE" = '1' THEN 1 ELSE 0 END AS dmi1,
+    CASE WHEN fsi."MTHD-OF-ISNCE" = '2' THEN 1 ELSE 0 END AS dmi2,
+    CASE WHEN fsi."MTHD-OF-ISNCE" = '3' THEN 1 ELSE 0 END AS dmi3,
+    CASE WHEN fsi."MTHD-OF-ISNCE" = '4' THEN 1 ELSE 0 END AS dmi4,
+    CASE WHEN fsi."MTHD-OF-ISNCE" = '5' THEN 1 ELSE 0 END AS dmi5,
+    CASE WHEN fsi."MTHD-OF-ISNCE" = '6' THEN 1 ELSE 0 END AS dmi6,
+    CASE WHEN fsi."MTHLY-RPTR-IND" = 'Y' THEN 1 ELSE 0 END AS mrc
+  FROM fac_fsi fsi
 ),
 
-/* ===== LAST MONTH ISSUES / REVISED ===== */
-LST_MTH_CSLD AS (
-  SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.ISNCE_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
-  FROM W026DTF1.TWNFAM_CASELD_CASE T1
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
-  JOIN W026DTF1.TWNFS_ISNCE      T3 ON T2.ICI = T3.ICI
-  JOIN OFFICE_DATA OFC              ON T1.OFC_CD = OFC.OFC_CD
-  JOIN RPT_DATES RPT                ON 1=1
-  WHERE
-    T2.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T2.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.BNFT_MTH = RPT.PREV_RPT_MTH
-    AND T3.BNFT_YR  = RPT.PREV_RPT_YR
-    AND T3.BNFT_TYPE = 'RG'
-    AND T3.FS_ISNCE_STS IN ('IS','RD')
-),
-MAIN1 AS (
+active_rollup AS (
   SELECT
-    LMC.OFC_CD, LMC.OFC_NM,
-    SUM(CASE WHEN LMC.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAREVISED,
-    SUM(CASE WHEN LMC.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAREVISED,
-    SUM(CASE WHEN LMC.FS_SUFX IN ('P','S','G','A') AND LMC.ISNCE_DT BETWEEN LMC.RPT_BEG_DT AND LMC.RPT_END_DT THEN 1 ELSE 0 END) AS PALMISS,
-    SUM(CASE WHEN LMC.FS_SUFX NOT IN ('P','S','G','A') AND LMC.ISNCE_DT BETWEEN LMC.RPT_BEG_DT AND LMC.RPT_END_DT THEN 1 ELSE 0 END) AS NALMISS
-  FROM LST_MTH_CSLD LMC
-  GROUP BY LMC.OFC_CD, LMC.OFC_NM
+    is_pa,
+    SUM(cases)      AS active_cases,
+    SUM(exp_srv)    AS expedited_cases,
+    SUM(ebt)        AS ebt_cases,
+    SUM(dams)       AS dams_cases,
+    SUM(sphantl)    AS sphndl_cases,
+    SUM(dmi_ebt)    AS dmi_ebt,
+    SUM(dmi0) AS dmi0, SUM(dmi1) AS dmi1, SUM(dmi2) AS dmi2,
+    SUM(dmi3) AS dmi3, SUM(dmi4) AS dmi4, SUM(dmi5) AS dmi5, SUM(dmi6) AS dmi6,
+    SUM(mrc)        AS monthly_reporters
+  FROM active
+  GROUP BY is_pa
 ),
 
-/* ====== S04: FULL BENEFIT (exact, deduped) ====== */
-ACTION_QUERY AS (
+-- ---------- LAST-MONTH ISSUES & REVISED (S03 / LAST-MTH) ----------
+issues_last_month AS (
   SELECT
-    T1.ICI, T2.OFC_CD, OFC.OFC_NM,
-    MIN(T1.ACTN_TS) AS AP_TS
-  FROM W026DTF1.TWNFAM_ACTNS       T1
-  JOIN W026DTF1.TWNFAM_CASELD_CASE T2 ON T2.ICI = T1.ICI
-  JOIN OFFICE_DATA OFC ON OFC.OFC_CD = T2.OFC_CD
-  JOIN RPT_DATES RPT ON 1=1
-  WHERE
-    T2.PRGM_OFC_TYPE = 'A'
-    AND T1.PRGM_TYP = 'FS'
-    AND T1.ACTN_TYP = 'AP'
-    AND T1.ACTN_TS >= RPT.RPT_BEG_TS
-    AND T1.ACTN_TS <= RPT.RPT_END_TS
-  GROUP BY T1.ICI, T2.OFC_CD, OFC.OFC_NM
-),
-PREV_FARI AS (
-  SELECT
-    AQ.OFC_CD, AQ.OFC_NM, AQ.ICI, AQ.AP_TS,
-    FA.ACTN_TS  AS PREV_TS,
-    FA.ACTN_TYP AS PREV_TYP,
-    CH.FS_SUFX,
-    ROW_NUMBER() OVER (PARTITION BY AQ.ICI ORDER BY FA.ACTN_TS DESC)                AS RN_PREV,
-    ROW_NUMBER() OVER (PARTITION BY AQ.ICI, FA.ACTN_TS ORDER BY CH.PRD_BEG_DT DESC) AS RN_CH
-  FROM ACTION_QUERY AQ
-  JOIN W026DTF1.TWNFAM_ACTNS FA
-    ON FA.ICI = AQ.ICI
-   AND FA.PRGM_TYP = 'FS'
-   AND FA.ACTN_TS  < AQ.AP_TS
-   AND FA.ACTN_TYP IN ('FA','RE','RI')
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY CH
-    ON CH.ICI = FA.ICI
-   AND CH.PRD_BEG_DT <= DATE(FA.ACTN_TS)
-   AND CH.PRD_END_DT >= DATE(FA.ACTN_TS)
-),
-S04_PREV AS (
-  SELECT OFC_CD, OFC_NM, ICI, AP_TS, PREV_TS, PREV_TYP, FS_SUFX
-  FROM PREV_FARI
-  WHERE RN_PREV = 1 AND RN_CH = 1
-),
-PRGM_CSH_HSTRY_LOOKUP AS (
-  SELECT
-    P.OFC_CD, P.OFC_NM, P.ICI, P.FS_SUFX,
-    H.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT,
-    COUNT(*) OVER (PARTITION BY P.ICI) AS PCH_CNT
-  FROM S04_PREV P
-  JOIN RPT_DATES RPT ON 1=1
-  LEFT JOIN W026DTF1.TWNPRGM_CASE_HSTRY H
-    ON H.ICI = P.ICI
-   AND H.PRGM_CASE_TYPE = 'FS'
-   AND H.PRD_BEG_DT <= RPT.RPT_END_DT
-   AND H.PRD_END_DT >= RPT.RPT_END_DT
-),
-PRGM_CSH_HSTRY_FILTERED AS (
-  SELECT OFC_CD, OFC_NM, ICI, FS_SUFX, RCRT_APL_DT, RPT_BEG_DT, RPT_END_DT
-  FROM PRGM_CSH_HSTRY_LOOKUP
-  WHERE PCH_CNT = 1 AND RCRT_APL_DT IS NOT NULL
-),
-S04_APPROVALS_DEDUP AS (
-  SELECT OFC_CD, OFC_NM, ICI, FS_SUFX, RCRT_APL_DT, RPT_BEG_DT, RPT_END_DT
-  FROM (
-    SELECT *,
-           ROW_NUMBER() OVER (PARTITION BY ICI ORDER BY ICI) AS RN
-    FROM PRGM_CSH_HSTRY_FILTERED
-  ) D
-  WHERE RN = 1
-),
-MAIN2 AS (
-  SELECT
-    OFC_CD, OFC_NM,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PABNFT,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NABNFT,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS PABNFT_NEW,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 ELSE 0 END) AS PABNFT_SUBS,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS NABNFT_NEW,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 ELSE 0 END) AS NABNFT_SUBS
-  FROM S04_APPROVALS_DEDUP
-  GROUP BY OFC_CD, OFC_NM
+    CASE WHEN fsi."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END AS is_pa,
+    SUM(CASE WHEN fsi."ISNCE-DT" BETWEEN (SELECT beg_dt FROM params) AND (SELECT end_dt FROM params) THEN 1 ELSE 0 END) AS last_month_issues,
+    COUNT(*) AS revised_caseload -- mirrors PAREVISED/NAREVISED increment (no date filter in code)
+  FROM fac_fsi fsi
+  GROUP BY CASE WHEN fsi."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END
 ),
 
-/* ===== WITHDRAWN / DENIED / APPLICATIONS / TERMINATIONS ===== */
-WITHDRAW_INFO AS (
-  SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
-  FROM W026DTF1.TWNFAM_CASELD_CASE T1
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
-  JOIN W026DTF1.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
-  JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
-  JOIN RPT_DATES RPT ON 1=1
-  WHERE
-    T2.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T2.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.PRGM_CASE_TYPE = 'FS'
-    AND T3.STS_EFF_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-    AND T3.CLSRE_RSN_CD = 'W'
-),
-MAIN3 AS (
+-- ---------- APPLICATIONS via FAC/FCH joined to PROGRAM CASE HISTORY (S04) ----------
+apps_benefit AS (
   SELECT
-    WDI.OFC_CD, WDI.OFC_NM,
-    SUM(CASE WHEN WDI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAWTDR,
-    SUM(CASE WHEN WDI.FS_SUFX IN ('P','S','G','A') AND WDI.RCRT_APL_DT BETWEEN WDI.RPT_BEG_DT AND WDI.RPT_END_DT THEN 1 ELSE 0 END) AS PAWTDR_NEW,
-    SUM(CASE WHEN WDI.FS_SUFX IN ('P','S','G','A') AND (WDI.RCRT_APL_DT < WDI.RPT_BEG_DT OR WDI.RCRT_APL_DT > WDI.RPT_END_DT) THEN 1 ELSE 0 END) AS PAWTDR_SUBS,
-    SUM(CASE WHEN WDI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAWTDR,
-    SUM(CASE WHEN WDI.FS_SUFX NOT IN ('P','S','G','A') AND WDI.RCRT_APL_DT BETWEEN WDI.RPT_BEG_DT AND WDI.RPT_END_DT THEN 1 ELSE 0 END) AS NAWTDR_NEW,
-    SUM(CASE WHEN WDI.FS_SUFX NOT IN ('P','S','G','A') AND (WDI.RCRT_APL_DT < WDI.RPT_BEG_DT OR WDI.RCRT_APL_DT > WDI.RPT_END_DT) THEN 1 ELSE 0 END) AS NAWTDR_SUBS
-  FROM WITHDRAW_INFO WDI
-  GROUP BY WDI.OFC_CD, WDI.OFC_NM
+    CASE WHEN fch."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END AS is_pa,
+    COUNT(*) AS full_benefit,  -- BENEFIT approvals (no “partial” in NOMADS per code)
+    SUM(CASE WHEN p."RCRT-APL-DT" BETWEEN (SELECT beg_dt FROM params) AND (SELECT end_dt FROM params) THEN 1 ELSE 0 END) AS new_apps,
+    SUM(CASE WHEN p."RCRT-APL-DT" BETWEEN (SELECT beg_dt FROM params) AND (SELECT end_dt FROM params) THEN 0 ELSE 1 END) AS subs_apps
+  FROM fac_fac fac
+  JOIN fac_fch fch
+    ON fch."ICI" = fac."ICI"
+   AND fch."ACTN-TS" = fac."ACTN-TS"
+  JOIN pcase p
+    ON p."ICI" = fac."ICI"
+  WHERE fch."ACTN-TYP" IN ('FA','RE','RI')
+  GROUP BY CASE WHEN fch."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END
 ),
-DENIED_INFO AS (
-  SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.SYS_CLSRE_DNL_RSN, T3.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
-  FROM W026DTF1.TWNFAM_CASELD_CASE T1
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
-  JOIN W026DTF1.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
-  JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
-  JOIN RPT_DATES RPT ON 1=1
-  WHERE
-    T2.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T2.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.PRGM_CASE_TYPE = 'FS'
-    AND T3.STS_EFF_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-    AND T3.PRGM_CASE_STS = 'D'
-    AND T3.CLSRE_RSN_CD <> 'W'
+
+-- ---------- WITHDRAWN/APPLICATION REASONS (S05/S06 via PSY) ----------
+psy_base AS (
+  SELECT DISTINCT
+    p."ICI",
+    p."FS-SUFX",
+    p."RCRT-APL-DT",
+    p."SYS-CLSRE-DNL-RSN",
+    p."PRGM-CASE-STS"
+  FROM psy p
 ),
-MAIN4 AS (
+psy_withdrawn AS (
   SELECT
-    DAI.OFC_CD, DAI.OFC_NM,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PATOT,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') AND DAI.RCRT_APL_DT BETWEEN DAI.RPT_BEG_DT AND DAI.RPT_END_DT THEN 1 ELSE 0 END) AS PADENY_NEW,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') AND (DAI.RCRT_APL_DT < DAI.RPT_BEG_DT OR DAI.RCRT_APL_DT > DAI.RPT_END_DT) THEN 1 ELSE 0 END) AS PADENY_SUBS,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '11' THEN 1 ELSE 0 END) AS PADENY,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '08' THEN 1 ELSE 0 END) AS PANCOOP,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '10' THEN 1 ELSE 0 END) AS PAQUIT,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '20' THEN 1 ELSE 0 END) AS PARSRC,
-    SUM(CASE WHEN DAI.FS_SUFX IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN NOT IN ('11','08','10','20') THEN 1 ELSE 0 END) AS PAOTHR,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NATOT,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') AND DAI.RCRT_APL_DT BETWEEN DAI.RPT_BEG_DT AND DAI.RPT_END_DT THEN 1 ELSE 0 END) AS NADENY_NEW,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') AND (DAI.RCRT_APL_DT < DAI.RPT_BEG_DT OR DAI.RCRT_APL_DT > DAI.RPT_END_DT) THEN 1 ELSE 0 END) AS NADENY_SUBS,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '11' THEN 1 ELSE 0 END) AS NADENY,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '08' THEN 1 ELSE 0 END) AS NANCOOP,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '10' THEN 1 ELSE 0 END) AS NAQUIT,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN = '20' THEN 1 ELSE 0 END) AS NARSRC,
-    SUM(CASE WHEN DAI.FS_SUFX NOT IN ('P','S','G','A') AND DAI.SYS_CLSRE_DNL_RSN NOT IN ('11','08','10','20') THEN 1 ELSE 0 END) AS NAOTHR
-  FROM DENIED_INFO DAI
-  GROUP BY DAI.OFC_CD, DAI.OFC_NM
+    CASE WHEN "FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END AS is_pa,
+    COUNT(*) AS withdrawn
+  FROM psy_base
+  GROUP BY CASE WHEN "FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END
 ),
-APPL_PRC_INFO AS (
-  SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX, T3.PRGM_CASE_STS, T3.RCRT_APL_DT, T3.PRD_BEG_DT, T3.PRD_END_DT
-  FROM W026DTF1.TWNFAM_CASELD_CASE T1
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
-  JOIN W026DTF1.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
-  JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
-  JOIN RPT_DATES RPT ON 1=1
-  WHERE
-    T2.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T2.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.PRGM_CASE_TYPE = 'FS'
-    AND T3.RCRT_APL_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-    AND T3.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T3.PRD_END_DT >= RPT.RPT_END_DT
-),
-MAIN5 AS (
+psy_totals_and_reasons AS (
   SELECT
-    API.OFC_CD, API.OFC_NM,
-    SUM(CASE WHEN API.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAAPPLMTH,
-    SUM(CASE WHEN API.FS_SUFX IN ('P','S','G','A') AND API.PRGM_CASE_STS = 'P' THEN 1 ELSE 0 END) AS PAPNDMTH,
-    SUM(CASE WHEN API.FS_SUFX IN ('P','S','G','A') AND API.PRGM_CASE_STS = 'O' THEN 1 ELSE 0 END) AS PAAPPRVMTH,
-    SUM(CASE WHEN API.FS_SUFX IN ('P','S','G','A') AND API.PRGM_CASE_STS IN ('D','T') THEN 1 ELSE 0 END) AS PADNYWDMTH,
-    SUM(CASE WHEN API.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAAPPLMTH,
-    SUM(CASE WHEN API.FS_SUFX NOT IN ('P','S','G','A') AND API.PRGM_CASE_STS = 'P' THEN 1 ELSE 0 END) AS NAPNDMTH,
-    SUM(CASE WHEN API.FS_SUFX NOT IN ('P','S','G','A') AND API.PRGM_CASE_STS = 'O' THEN 1 ELSE 0 END) AS NAAPPRVMTH,
-    SUM(CASE WHEN API.FS_SUFX NOT IN ('P','S','G','A') AND API.PRGM_CASE_STS IN ('D','T') THEN 1 ELSE 0 END) AS NADNYWDMTH
-  FROM APPL_PRC_INFO API
-  GROUP BY API.OFC_CD, API.OFC_NM
+    CASE WHEN "FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END AS is_pa,
+    COUNT(*) AS total_apps_psy,
+    SUM(CASE WHEN "SYS-CLSRE-DNL-RSN" = '11' THEN 1 ELSE 0 END) AS deny_excess_income,
+    SUM(CASE WHEN "SYS-CLSRE-DNL-RSN" = '08' THEN 1 ELSE 0 END) AS non_coop,
+    SUM(CASE WHEN "SYS-CLSRE-DNL-RSN" = '10' THEN 1 ELSE 0 END) AS quit_workreg,
+    SUM(CASE WHEN "SYS-CLSRE-DNL-RSN" = '20' THEN 1 ELSE 0 END) AS excess_resource,
+    SUM(CASE WHEN "SYS-CLSRE-DNL-RSN" NOT IN ('11','08','10','20') THEN 1 ELSE 0 END) AS other_reasons,
+    SUM(CASE WHEN "RCRT-APL-DT" BETWEEN (SELECT beg_dt FROM params) AND (SELECT end_dt FROM params) THEN 1 ELSE 0 END) AS psy_new,
+    SUM(CASE WHEN "RCRT-APL-DT" BETWEEN (SELECT beg_dt FROM params) AND (SELECT end_dt FROM params) THEN 0 ELSE 1 END) AS psy_subs
+  FROM psy_base
+  GROUP BY CASE WHEN "FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END
 ),
-TERMINATIONS_INFO AS (
-  SELECT T1.OFC_CD, OFC.OFC_NM, T2.FS_SUFX
-  FROM W026DTF1.TWNFAM_CASELD_CASE T1
-  JOIN W026DTF1.TWNFAM_CASE_HSTRY T2 ON T1.ICI = T2.ICI
-  JOIN W026DTF1.TWNPRGM_CASE_HSTRY T3 ON T1.ICI = T3.ICI
-  JOIN OFFICE_DATA OFC ON T1.OFC_CD = OFC.OFC_CD
-  JOIN RPT_DATES RPT ON 1=1
-  WHERE
-    T2.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T2.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.PRGM_CASE_TYPE = 'FS'
-    AND T3.PRD_BEG_DT <= RPT.RPT_END_DT
-    AND T3.PRD_END_DT >= RPT.RPT_END_DT
-    AND T3.STS_EFF_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-    AND T3.PRGM_CASE_STS = 'T'
-),
-MAIN6 AS (
+
+-- ---------- APPS RECEIVED IN MONTH BY STATUS (S07) ----------
+apps_month_by_status AS (
   SELECT
-    TNI.OFC_CD, TNI.OFC_NM,
-    SUM(CASE WHEN TNI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PATERM,
-    SUM(CASE WHEN TNI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NATERM
-  FROM TERMINATIONS_INFO TNI
-  GROUP BY TNI.OFC_CD, TNI.OFC_NM
+    CASE WHEN p."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END AS is_pa,
+    COUNT(*)                                                     AS appl_this_month,
+    SUM(CASE WHEN p."PRGM-CASE-STS" = 'P' THEN 1 ELSE 0 END)    AS pending_mth,
+    SUM(CASE WHEN p."PRGM-CASE-STS" = 'O' THEN 1 ELSE 0 END)    AS approved_mth,
+    SUM(CASE WHEN p."PRGM-CASE-STS" IN ('D','T') THEN 1 ELSE 0 END) AS denied_withdrawn_mth
+  FROM psy_base p
+  WHERE p."RCRT-APL-DT" BETWEEN (SELECT beg_dt FROM params) AND (SELECT end_dt FROM params)
+  GROUP BY CASE WHEN p."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END
 ),
-ALL_OFFICES AS (
-  SELECT OFC_CD, OFC_NM FROM MAIN0
-  UNION SELECT OFC_CD, OFC_NM FROM MAIN1
-  UNION SELECT OFC_CD, OFC_NM FROM MAIN2
-  UNION SELECT OFC_CD, OFC_NM FROM MAIN3
-  UNION SELECT OFC_CD, OFC_NM FROM MAIN4
-  UNION SELECT OFC_CD, OFC_NM FROM MAIN5
-  UNION SELECT OFC_CD, OFC_NM FROM MAIN6
+
+-- ---------- TERMINATIONS (S08) ----------
+terminations AS (
+  /* If your schema has a specific termination flag/date, add it here to mirror S08 exactly. */
+  SELECT
+    CASE WHEN p."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END AS is_pa,
+    COUNT(*) AS terminations
+  FROM psy_base p
+  GROUP BY CASE WHEN p."FS-SUFX" IN ('P','S','G','A') THEN 1 ELSE 0 END
+),
+
+-- ---------- Merge all per-suffix (PA vs Non-PA) ----------
+merged AS (
+  SELECT
+    COALESCE(a.is_pa, i.is_pa, ab.is_pa, w.is_pa, pr.is_pa, s7.is_pa, t.is_pa, 0) AS is_pa,
+    -- Active caseload
+    COALESCE(a.active_cases, 0)                    AS active_cases,
+    COALESCE(a.expedited_cases, 0)                 AS exp_service_cases,
+    COALESCE(a.ebt_cases, 0)                       AS ebt_cases,
+    COALESCE(a.dams_cases, 0)                      AS dams_cases,
+    COALESCE(a.sphndl_cases, 0)                    AS sphndl_cases,
+    COALESCE(a.dmi_ebt, 0)                         AS dmi_ebt,
+    COALESCE(a.dmi0,0) AS dmi0, COALESCE(a.dmi1,0) AS dmi1, COALESCE(a.dmi2,0) AS dmi2,
+    COALESCE(a.dmi3,0) AS dmi3, COALESCE(a.dmi4,0) AS dmi4, COALESCE(a.dmi5,0) AS dmi5, COALESCE(a.dmi6,0) AS dmi6,
+    COALESCE(a.monthly_reporters, 0)               AS monthly_reporters,
+
+    -- Last-month issues / revised
+    COALESCE(i.last_month_issues, 0)               AS issues_last_month,
+    COALESCE(i.revised_caseload, 0)                AS revised_caseload,
+
+    -- Applications: approvals treated as "full benefit" per code (no partials in NOMADS)
+    COALESCE(ab.full_benefit, 0)                   AS approved_full_benefit,
+    0                                              AS approved_partial_benefit,  -- per code
+    COALESCE(ab.full_benefit, 0)                   AS approved_total,            -- full + partial(0)
+    COALESCE(w.withdrawn, 0)                       AS withdrawn_apps,
+
+    -- Denial reasons
+    COALESCE(pr.deny_excess_income, 0)             AS denied_excess_income,
+    COALESCE(pr.non_coop, 0)                       AS denied_non_coop,
+    COALESCE(pr.quit_workreg, 0)                   AS denied_quit_workreg,
+    COALESCE(pr.excess_resource, 0)                AS denied_excess_resource,
+    COALESCE(pr.other_reasons, 0)                  AS denied_other,
+    (COALESCE(pr.deny_excess_income, 0)
+     + COALESCE(pr.non_coop, 0)
+     + COALESCE(pr.quit_workreg, 0)
+     + COALESCE(pr.excess_resource, 0)
+     + COALESCE(pr.other_reasons, 0))              AS denied_total,
+
+    -- Applications processed (report-month breakdown)
+    COALESCE(s7.appl_this_month, 0)                AS apps_received_this_month,
+    COALESCE(s7.pending_mth, 0)                    AS pending_this_month,
+    COALESCE(s7.approved_mth, 0)                   AS approved_this_month,
+    COALESCE(s7.denied_withdrawn_mth, 0)           AS denied_withdrawn_this_month,
+
+    -- New vs previous months received during processing
+    COALESCE(ab.new_apps, 0) + COALESCE(pr.psy_new, 0)   AS new_received,
+    COALESCE(ab.subs_apps, 0) + COALESCE(pr.psy_subs, 0) AS previous_months_received,
+
+    -- Non-application actions
+    COALESCE(t.terminations, 0)                    AS terminations
+
+  FROM active_rollup a
+  FULL OUTER JOIN issues_last_month i      ON i.is_pa  = a.is_pa
+  FULL OUTER JOIN apps_benefit ab          ON ab.is_pa = COALESCE(a.is_pa, i.is_pa)
+  FULL OUTER JOIN psy_withdrawn w          ON w.is_pa  = COALESCE(a.is_pa, i.is_pa)
+  FULL OUTER JOIN psy_totals_and_reasons pr ON pr.is_pa = COALESCE(a.is_pa, i.is_pa)
+  FULL OUTER JOIN apps_month_by_status s7   ON s7.is_pa = COALESCE(a.is_pa, i.is_pa)
+  FULL OUTER JOIN terminations t            ON t.is_pa  = COALESCE(a.is_pa, i.is_pa)
 )
+
 SELECT
-  'JANUARY, 2025' AS RPT_MONTH,
-  AO.OFC_NM,
-  COALESCE(M0.PACASES,0) AS PACASES,
-  COALESCE(M0.NACASES,0) AS NACASES,
-  COALESCE(M0.PAEXPCASE,0) AS PAEXPCASE,
-  COALESCE(M0.NAEXPCASE,0) AS NAEXPCASE,
-  COALESCE(M0.PAEBTCASE,0) AS PAEBTCASE,
-  COALESCE(M0.NAEBTCASE,0) AS NAEBTCASE,
-  COALESCE(M0.DMIEBT,0) AS DMIEBT,
-  COALESCE(M0.PADAMS,0) AS PADAMS,
-  COALESCE(M0.NADAMS,0) AS NADAMS,
-  COALESCE(M0.PASPHNDL,0) AS PASPHNDL,
-  COALESCE(M0.NASPHNDL,0) AS NASPHNDL,
-  COALESCE(M0.PAMRC,0) AS PAMRC,
-  COALESCE(M0.NAMRC,0) AS NAMRC,
-  COALESCE(M1.PAREVISED,0) AS PAREVISED,
-  COALESCE(M1.NAREVISED,0) AS NAREVISED,
-  COALESCE(M1.PALMISS,0) AS PALMISS,
-  COALESCE(M1.NALMISS,0) AS NALMISS,
-  COALESCE(M2.PABNFT,0) AS PABNFT,
-  COALESCE(M2.PABNFT_NEW,0) AS PABNFT_NEW,
-  COALESCE(M2.PABNFT_SUBS,0) AS PABNFT_SUBS,
-  COALESCE(M2.NABNFT,0) AS NABNFT,
-  COALESCE(M2.NABNFT_NEW,0) AS NABNFT_NEW,
-  COALESCE(M2.NABNFT_SUBS,0) AS NABNFT_SUBS,
-  COALESCE(M3.PAWTDR,0) AS PAWTDR,
-  COALESCE(M3.PAWTDR_NEW,0) AS PAWTDR_NEW,
-  COALESCE(M3.PAWTDR_SUBS,0) AS PAWTDR_SUBS,
-  COALESCE(M3.NAWTDR,0) AS NAWTDR,
-  COALESCE(M3.NAWTDR_NEW,0) AS NAWTDR_NEW,
-  COALESCE(M3.NAWTDR_SUBS,0) AS NAWTDR_SUBS,
-  COALESCE(M4.PATOT,0) AS PATOT,
-  COALESCE(M4.PADENY_NEW,0) AS PADENY_NEW,
-  COALESCE(M4.PADENY_SUBS,0) AS PADENY_SUBS,
-  COALESCE(M4.PADENY,0) AS PADENY,
-  COALESCE(M4.PANCOOP,0) AS PANCOOP,
-  COALESCE(M4.PAQUIT,0) AS PAQUIT,
-  COALESCE(M4.PARSRC,0) AS PARSRC,
-  COALESCE(M4.PAOTHR,0) AS PAOTHR,
-  COALESCE(M4.NATOT,0) AS NATOT,
-  COALESCE(M4.NADENY_NEW,0) AS NADENY_NEW,
-  COALESCE(M4.NADENY_SUBS,0) AS NADENY_SUBS,
-  COALESCE(M4.NADENY,0) AS NADENY,
-  COALESCE(M4.NANCOOP,0) AS NANCOOP,
-  COALESCE(M4.NAQUIT,0) AS NAQUIT,
-  COALESCE(M4.NARSRC,0) AS NARSRC,
-  COALESCE(M4.NAOTHR,0) AS NAOTHR,
-  COALESCE(M5.PAAPPLMTH,0) AS PAAPPLMTH,
-  COALESCE(M5.PAPNDMTH,0) AS PAPNDMTH,
-  COALESCE(M5.PAAPPRVMTH,0) AS PAAPPRVMTH,
-  COALESCE(M5.PADNYWDMTH,0) AS PADNYWDMTH,
-  COALESCE(M5.NAAPPLMTH,0) AS NAAPPLMTH,
-  COALESCE(M5.NAPNDMTH,0) AS NAPNDMTH,
-  COALESCE(M5.NAAPPRVMTH,0) AS NAAPPRVMTH,
-  COALESCE(M5.NADNYWDMTH,0) AS NADNYWDMTH,
-  COALESCE(M6.PATERM,0) AS PATERM,
-  COALESCE(M6.NATERM,0) AS NATERM
-FROM ALL_OFFICES AO
-LEFT JOIN MAIN0 M0 ON AO.OFC_CD = M0.OFC_CD
-LEFT JOIN MAIN1 M1 ON AO.OFC_CD = M1.OFC_CD
-LEFT JOIN MAIN2 M2 ON AO.OFC_CD = M2.OFC_CD
-LEFT JOIN MAIN3 M3 ON AO.OFC_CD = M3.OFC_CD
-LEFT JOIN MAIN4 M4 ON AO.OFC_CD = M4.OFC_CD
-LEFT JOIN MAIN5 M5 ON AO.OFC_CD = M5.OFC_CD
-LEFT JOIN MAIN6 M6 ON AO.OFC_CD = M6.OFC_CD
-ORDER BY AO.OFC_NM;
+  CASE WHEN is_pa = 1 THEN 'PA (P/S/G/A)' ELSE 'Non-PA' END AS suffix_bucket,
+
+  -- ACTIVE CASELOAD
+  active_cases                                    AS pac_nac_cases,
+  exp_service_cases                               AS expedited_cases,
+  ebt_cases                                       AS ebt_cases,
+  dams_cases                                      AS dams_cases,
+  sphndl_cases                                    AS special_handling_cases,
+  dmi0, dmi1, dmi2, dmi3, dmi4, dmi5, dmi6, dmi_ebt,
+  monthly_reporters,
+
+  -- LAST MONTH ISSUES + REVISED
+  issues_last_month,
+  revised_caseload,
+
+  -- RETRO % (issues_last_month / active_cases * 100)
+  CASE WHEN active_cases > 0
+       THEN ROUND( (issues_last_month * 100.0) / active_cases, 2)
+       ELSE 0 END                                  AS pct_retro_issues,
+
+  -- ESTIMATED CURRENT MONTH CASELOAD
+  CASE WHEN active_cases > 0
+       THEN ROUND( active_cases + ((issues_last_month * 100.0) / active_cases) * active_cases / 100.0 , 0)
+       ELSE active_cases END                       AS estimated_current_month_caseload,
+
+  -- APPLICATIONS – APPROVALS/WITHDRAWN/DENIED
+  approved_full_benefit,
+  approved_partial_benefit,
+  approved_total,
+  withdrawn_apps,
+
+  denied_excess_income,
+  denied_non_coop,
+  denied_quit_workreg,
+  denied_excess_resource,
+  denied_other,
+  denied_total,
+
+  -- APPLICATIONS PROCESSED: THIS MONTH VS PREV MONTHS
+  apps_received_this_month,
+  new_received,
+  previous_months_received,
+
+  -- NON-APPLICATION ACTIONS
+  terminations
+
+FROM merged
+ORDER BY is_pa DESC;
