@@ -1,9 +1,8 @@
 -- AME37A — Full benefits by office (TOTAL, PA, NA) for Jan 2025
--- Exact S04 behavior:
+-- Same logic as the earlier query that yielded 38, with the missing ITR edge case added:
 --  • one row per ICI using the EARLIEST AP action in the month
---  • previous FS action (max < AP) must be in ('FA','RE','RI')
---  • PA/NA determined by FS_SUFX as-of the previous action timestamp
---  • admin offices only (PRGM_OFC_TYPE = 'A')
+--  • previous FS action (max < AP) must be in ('FA','RE','RI','ITR')  <-- added 'ITR'
+--  • PA/NA determined by FS_SUFX as-of the AP timestamp (same as your 38-query)
 
 SELECT
   FAC.OFC_CD,
@@ -27,34 +26,21 @@ FROM
     AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
   GROUP BY C.OFC_CD, A.ICI
 ) FAC
-JOIN
-(
-  /* previous FS action before that AP (must be FA/RE/RI) */
-  SELECT
-    F.ICI,
-    MAX(P.ACTN_TS) AS PREV_TS
-  FROM
-  (
-    SELECT A.ICI, MIN(A.ACTN_TS) AS AP_TS
-    FROM W026DTF1.TWNFAM_ACTNS A
-    WHERE A.PRGM_TYP = 'FS'
-      AND A.ACTN_TYP = 'AP'
-      AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-      AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
-    GROUP BY A.ICI
-  ) F
-  JOIN W026DTF1.TWNFAM_ACTNS P
-    ON P.ICI = F.ICI
-   AND P.PRGM_TYP = 'FS'
-   AND P.ACTN_TS < F.AP_TS
-   AND P.ACTN_TYP IN ('FA','RE','RI')
-  GROUP BY F.ICI
-) PREV
+JOIN W026DTF1.TWNFAM_ACTNS PREV
   ON PREV.ICI = FAC.ICI
-/* classify PA/NA by suffix at time of the previous action */
+ AND PREV.PRGM_TYP = 'FS'
+ AND PREV.ACTN_TS = (
+       SELECT MAX(P2.ACTN_TS)
+       FROM W026DTF1.TWNFAM_ACTNS P2
+       WHERE P2.ICI = FAC.ICI
+         AND P2.PRGM_TYP = 'FS'
+         AND P2.ACTN_TS < FAC.AP_TS
+     )
+/* classify PA/NA by suffix as-of the AP timestamp (matches your earlier 38-count query) */
 JOIN W026DTF1.TWNFAM_CASE_HSTRY HS
   ON HS.ICI = FAC.ICI
- AND HS.PRD_BEG_DT <= DATE(PREV.PREV_TS)
- AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(PREV.PREV_TS)
+ AND HS.PRD_BEG_DT <= DATE(FAC.AP_TS)
+ AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(FAC.AP_TS)
+WHERE PREV.ACTN_TYP IN ('FA','RE','RI','ITR')     -- added ITR
 GROUP BY FAC.OFC_CD
 ORDER BY FAC.OFC_CD;
