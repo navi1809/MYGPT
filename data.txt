@@ -1,211 +1,43 @@
-/** Tax validations for ABHHQ
- * 1. No tax questions answered (global)
- * 2. Missing "plan to file" per person (when enabled)
- * 3. Missing "file jointly" per person (when enabled)
- * 4. Missing "claimed as dependent" per person (when enabled)
- * 5. Missing claimer when dependent==Y
- * 6. Soft-edit: A claims B and B claims A
- * 7. Disallow self-claim & disallow claiming someone if you’re claimed by someone else
- * 8. If person plans to file (Y) AND is claimed as dependent (Y)
- */
-private void validateTaxSection(
-    final APP_INDV_Collection appIndvColl,
-    final APP_TAX_RLT_Collection taxIndvColl,
-    final PeopleHandler peopleHandler
-) {
-
-   
-    java.util.Map<String, String> fileTaxesByPerson = new java.util.HashMap<String, String>();
-    java.util.Map<String, java.util.List<APP_TAX_RLT_Cargo>> claimsBySrc = new java.util.HashMap<>();
-    java.util.Map<String, java.util.List<APP_TAX_RLT_Cargo>> claimsByRef = new java.util.HashMap<>();
-    java.util.Set<String> anyoneAnswered = new java.util.HashSet<>();
-
-    // gather "plan to file?" from APP_INDV_Collection
-    for (int i = 0; i < appIndvColl.size(); i++) {
-        gov.illinois.access.business.entities.APP_INDV_Cargo c = appIndvColl.getCargo(i);
-        String src = c.getIndv_seq_num();
-        String plan = c.getFile_taxes_sw();
-        fileTaxesByPerson.put(src, plan == null ? "" : plan.trim());
-        if (plan != null && plan.trim().length() > 0) {
-            anyoneAnswered.add("FILE");
-        }
-    }
-
-    // gather tax relation answers
-    if (taxIndvColl != null) {
-        for (APP_TAX_RLT_Cargo t : taxIndvColl.getResults()) {
-            // Track "any answers"
-            if (t.getTax_dependent_sw() != null && t.getTax_dependent_sw().trim().length() > 0) {
-                anyoneAnswered.add("DEP");
-            }
-            if (t.getTax_jointly_filed_sw() != null && t.getTax_jointly_filed_sw().trim().length() > 0) {
-                anyoneAnswered.add("JOINT");
-            }
-
-            String src = t.getSrc_indv_seq_num();
-            String ref = t.getRef_indv_seq_num();
-
-            claimsBySrc.computeIfAbsent(src, k -> new java.util.ArrayList<>()).add(t);
-            if (ref != null && ref.trim().length() > 0 && !"0".equalsIgnoreCase(ref) && !"SEL".equalsIgnoreCase(ref)) {
-                claimsByRef.computeIfAbsent(ref, k -> new java.util.ArrayList<>()).add(t);
-            }
-        }
-    }
-
-    
-    // 1) No tax questions answered
-    if (anyoneAnswered.isEmpty()) {
-        this.addMessageText("Please fill in Tax Information before proceeding to next page.");
-    }
-
-    for (int i = 0; i < appIndvColl.size(); i++) {
-        gov.illinois.access.business.entities.APP_INDV_Cargo person = appIndvColl.getCargo(i);
-        final String p = person.getIndv_seq_num();
-        final String pName = peopleHandler != null ? peopleHandler.getFirstName(p) : "This person";
-
-        // 2) Missing plan to file?
-        String plan = fileTaxesByPerson.getOrDefault(p, "");
-        if (plan.length() == 0) {
-            this.addMessageText("Please be sure to answer tax filing question before proceeding to next page.");
-        }
-
-        java.util.List<APP_TAX_RLT_Cargo> mine = claimsBySrc.getOrDefault(p, java.util.Collections.emptyList());
-
-        boolean jointQShownAtLeastOnce = false;
-        boolean depQShownAtLeastOnce   = false;
-        boolean markedDependentYes = false;
-        String  chosenClaimer      = null;
-
-        for (APP_TAX_RLT_Cargo t : mine) {
-            // 3) Missing joint answer
-            if (t.getTax_jointly_filed_sw() == null || t.getTax_jointly_filed_sw().trim().length() == 0) {
-                jointQShownAtLeastOnce = true;
-            } else {
-                jointQShownAtLeastOnce = true;
-            }
-
-            // 4) Missing claimed as dependent?
-            if (t.getTax_dependent_sw() == null || t.getTax_dependent_sw().trim().length() == 0) {
-                depQShownAtLeastOnce = true;
-            } else {
-                depQShownAtLeastOnce = true;
-                // 5) If dependent==Y but no claimer selected
-                if ("Y".equalsIgnoreCase(t.getTax_dependent_sw())) {
-                    markedDependentYes = true;
-                    chosenClaimer = t.getRef_indv_seq_num();
-                    if (chosenClaimer == null || chosenClaimer.trim().length() == 0
-                            || "0".equalsIgnoreCase(chosenClaimer) || "SEL".equalsIgnoreCase(chosenClaimer)) {
-                        this.addMessageText("Please be sure to select the name of the tax filer before proceeding to next page.");
-                    }
-                }
-            }
-
-            // 7a) Disallow selecting self as claimer
-            if (t.getRef_indv_seq_num() != null && t.getRef_indv_seq_num().equalsIgnoreCase(p)) {
-                this.addMessageText("You cannot select Tax filer as yourself");
-            }
-        }
-
-        if (jointQShownAtLeastOnce) {
-            boolean allJointAnswered = true;
-            for (APP_TAX_RLT_Cargo t : mine) {
-                if (t.getTax_jointly_filed_sw() == null || t.getTax_jointly_filed_sw().trim().length() == 0) {
-                    allJointAnswered = false; break;
-                }
-            }
-            if (!allJointAnswered) {
-                this.addMessageText("Please be sure to answer filing taxes jointly question before proceeding to next page.");
-            }
-        }
-
-        if (depQShownAtLeastOnce) {
-            boolean allDepAnswered = true;
-            for (APP_TAX_RLT_Cargo t : mine) {
-                if (t.getTax_dependent_sw() == null || t.getTax_dependent_sw().trim().length() == 0) {
-                    allDepAnswered = false; break;
-                }
-            }
-            if (!allDepAnswered) {
-                this.addMessageText("Please be sure to answer claiming as a tax dependent question before proceeding to next page.");
-            }
-        }
-
-        // 7b) If this person is being claimed by someone they cannot claim someone else
-        boolean thisPersonIsClaimedBySomeone = claimsByRef.containsKey(p) && !claimsByRef.get(p).isEmpty();
-        if (thisPersonIsClaimedBySomeone) {
-            // If they try to claim anyone as dependent
-            for (APP_TAX_RLT_Cargo t : mine) {
-                if ("Y".equalsIgnoreCase(t.getTax_dependent_sw())) {
-                    this.addMessageText("You cannot claim a tax dependent if you are being claimed as dependent by someone else");
-                    break;
-                }
-            }
-        }
-
-        // 8) If person plans to file (Y) AND is claimed as a dependent (Y)
-        if ("Y".equalsIgnoreCase(plan)) {
-            boolean claimedAsDependent = false;
-            for (APP_TAX_RLT_Cargo t : mine) {
-                if ("Y".equalsIgnoreCase(t.getTax_dependent_sw())) {
-                    claimedAsDependent = true; break;
-                }
-            }
-            if (claimedAsDependent) {
-                this.addMessageText("If " + pName + " is filing taxes then that person cannot be claimed as a tax dependent. Please correct the information before proceeding to next page.");
-            }
-        }
-    }
-
-    // 6) Soft-edit: A claims B and B claims A (mutual claim)
-    java.util.Set<String> warnedPairs = new java.util.HashSet<>();
-    for (APP_TAX_RLT_Cargo a : taxIndvColl.getResults()) {
-        if (!"Y".equalsIgnoreCase(a.getTax_dependent_sw())) continue;
-        String A = a.getSrc_indv_seq_num();
-        String B = a.getRef_indv_seq_num();
-        if (A == null || B == null) continue;
-
-        for (APP_TAX_RLT_Cargo b : taxIndvColl.getResults()) {
-            if (!"Y".equalsIgnoreCase(b.getTax_dependent_sw())) continue;
-            if (B.equalsIgnoreCase(b.getSrc_indv_seq_num())
-                    && A.equalsIgnoreCase(b.getRef_indv_seq_num())) {
-                String key = A + "->" + B;
-                String rkey = B + "->" + A;
-                if (!warnedPairs.contains(key) && !warnedPairs.contains(rkey)) {
-                    String aName = peopleHandler != null ? peopleHandler.getFirstName(A) : "Person A";
-                    String bName = peopleHandler != null ? peopleHandler.getFirstName(B) : "Person B";
-                    this.addWarningText("Individuals cannot claim each other. Review your responses for " + aName + " and " + bName + ".");
-                    warnedPairs.add(key); warnedPairs.add(rkey);
-                }
-            }
-        }
-    }
-}
-
-
-private void addMessageText(String text){
-    gov.illinois.framework.management.messages.FwMessage msg =
-        new gov.illinois.framework.management.messages.FwMessage();
-    msg.setMessageSeverity(gov.illinois.access.management.constants.AppConstants.ERROR);
-    msg.setMessageText(text);
-    this.getMessageList().addMessage(msg);
-}
-
-private void addWarningText(String text){
-    gov.illinois.framework.management.messages.FwMessage msg =
-        new gov.illinois.framework.management.messages.FwMessage();
-    msg.setMessageSeverity(gov.illinois.access.management.constants.AppConstants.WARNING);
-    msg.setMessageText(text);
-    this.getMessageList().addMessage(msg);
-}
-
-
-
-FwMessageList taxMessages =
-        abhhqObj.validateTaxSection(appIndvColl, taxColl, peopleHandler);
-
-
-if (taxMessages != null && taxMessages.hasMessages()) {
-    txnBean.getRequest().put(FwConstants.MESSAGE_LIST, taxMessages);
-    return; 
-}
-
+-- 1) Build an S04-like base tied to FA/RE/RI actions
+APPRV_BASE AS (
+  SELECT
+    T1.OFC_CD,
+    OFC.OFC_NM,
+    T2.ICI,
+    T2.FS_SUFX,
+    T3.RCRT_APL_DT,
+    RPT.RPT_BEG_DT,
+    RPT.RPT_END_DT,
+    TFA.ACTN_TYP,
+    TFA.ACTN_TS,
+    ROW_NUMBER() OVER (PARTITION BY T2.ICI ORDER BY TFA.ACTN_TS DESC) AS rn
+  FROM {?SCHEMA}.TWNFAM_CASELD_CASE  T1
+  JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY   T2  ON T1.ICI = T2.ICI
+  JOIN {?SCHEMA}.TWNPRGM_CASE_HSTRY  T3  ON T1.ICI = T3.ICI AND T3.PRGM_CASE_TYPE = 'FS'
+  JOIN {?SCHEMA}.TWNFAM_ACTNS        TFA ON T1.ICI = TFA.ICI                    -- Family Actions
+  JOIN OFFICE_DATA OFC                    ON T1.OFC_CD = OFC.OFC_CD
+  JOIN RPT_DATES RPT                      ON 1=1
+  WHERE
+    T2.PRD_BEG_DT <= RPT.RPT_END_DT
+    AND T2.PRD_END_DT >= RPT.RPT_END_DT
+    AND TFA.ACTN_TYP IN ('FA','RE','RI')                                        -- <-- legacy S04 filter
+),
+-- 2) One row per case (latest action), then compute PABNFT/NABNFT and NEW/SUBS
+APPRV_DEDUP AS (
+  SELECT *
+  FROM APPRV_BASE
+  WHERE rn = 1
+),
+MAIN2 AS (  -- replaces your existing MAIN2
+  SELECT
+    OFC_CD,
+    OFC_NM,
+    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PABNFT,   -- FULL BENEFIT (PA)
+    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS PANEW,
+    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 ELSE 0 END) AS PASUBS,
+    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NABNFT,  -- FULL BENEFIT (NA)
+    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS NANEW,
+    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 ELSE 0 END) AS NASUBS
+  FROM APPRV_DEDUP
+  GROUP BY OFC_CD, OFC_NM
+)
