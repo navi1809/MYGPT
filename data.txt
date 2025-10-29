@@ -1,56 +1,52 @@
-/* AME37A – Full benefits by office (TOTAL, PA, NA) for Jan 2025)  */
-/* Mirrors S01 (office list) + S04 (earliest AP per ICI per office) + READ-S02 (prev FS action) */
-/* Office list = admin offices from TWNCASELD_DEBTLD excluding DC, DH, DL, DR */
+/* AME37A — Full benefits by office (TOTAL, PA, NA) for Jan 2025)
+   Exact S04 logic + READ-S02 timing:
+   • Drive offices from TWNCASELD_DEBTLD (admin, exclude DC/DH/DL/DR)  :contentReference[oaicite:0]{index=0}
+   • For each office, take the EARLIEST AP per ICI within the month (<= end ts)  :contentReference[oaicite:1]{index=1}
+   • Previous FS action is MAX(ACTN_TS) < AP_TS and must be in ('FA','RE','RI')  :contentReference[oaicite:2]{index=2}
+   • Classify PA/NA using FS_SUFX from CASE_HSTRY as of REPORT END DATE
+     (PRD_BEG_DT <= :END_DT AND PRD_END_DT >= :END_DT), per READ-S02  :contentReference[oaicite:3]{index=3}
+*/
 
 WITH
--- S01: office driving list (admin only, exclude specific codes)
-OFFICES AS (
+OFFICES AS (  -- admin reporting offices, legacy driver
   SELECT DISTINCT D.OFC_CD
   FROM W026DTF1.TWNCASELD_DEBTLD D
   WHERE D.PRGM_OFC_TYPE = 'A'
     AND D.OFC_CD NOT IN ('DC','DH','DL','DR')
 ),
-
--- S04: earliest AP per ICI **for that office** in the month (inclusive window)
-FAC AS (
+AP0 AS (       -- earliest AP per ICI in Jan 2025 for the office
   SELECT
-      C.OFC_CD,
-      A.ICI,
-      MIN(A.ACTN_TS) AS AP_TS
-  FROM W026DTF1.TWNFAM_ACTNS      A
+    C.OFC_CD,
+    A.ICI,
+    MIN(A.ACTN_TS) AS AP_TS
+  FROM W026DTF1.TWNFAM_ACTNS A
   JOIN W026DTF1.TWNFAM_CASELD_CASE C
     ON C.ICI = A.ICI
    AND C.PRGM_OFC_TYPE = 'A'
   WHERE A.PRGM_TYP = 'FS'
     AND A.ACTN_TYP = 'AP'
     AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-    AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
+    AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')   -- inclusive, matches legacy
   GROUP BY C.OFC_CD, A.ICI
 ),
-
--- Keep only ICIs that belong to the driven admin office list (matches legacy per-office loop)
-FAC_IN_SCOPE AS (
-  SELECT F.*
-  FROM FAC F
-  JOIN OFFICES O ON O.OFC_CD = F.OFC_CD
+AP_OFF AS (     -- only offices in the reporting list
+  SELECT A.*
+  FROM AP0 A
+  JOIN OFFICES O ON O.OFC_CD = A.OFC_CD
 ),
-
--- READ-S02: previous FS action strictly before AP (per ICI)
-PREV AS (
+PREV AS (       -- previous FS action before that AP (any type for now)
   SELECT
-    F.ICI,
     F.OFC_CD,
+    F.ICI,
     MAX(P.ACTN_TS) AS PREV_TS
-  FROM FAC_IN_SCOPE F
+  FROM AP_OFF F
   JOIN W026DTF1.TWNFAM_ACTNS P
     ON P.ICI = F.ICI
    AND P.PRGM_TYP = 'FS'
    AND P.ACTN_TS  < F.AP_TS
-  GROUP BY F.ICI, F.OFC_CD
+  GROUP BY F.OFC_CD, F.ICI
 ),
-
--- Filter to previous action types ('FA','RE','RI') exactly as EGL IF condition
-PREV_OK AS (
+PREV_OK AS (    -- keep only if previous action type is FA/RE/RI (full benefit)
   SELECT P.OFC_CD, P.ICI, P.PREV_TS
   FROM PREV P
   JOIN W026DTF1.TWNFAM_ACTNS R
@@ -59,9 +55,7 @@ PREV_OK AS (
    AND R.ACTN_TS = P.PREV_TS
    AND R.ACTN_TYP IN ('FA','RE','RI')
 ),
-
--- FS suffix as-of the PREVIOUS action's timestamp (READ-S02 provides FS-SUFX)
-CLASS AS (
+CLASS AS (      -- FS suffix as of REPORT END DATE (not AP/prev time) per READ-S02
   SELECT
     K.OFC_CD,
     K.ICI,
@@ -69,15 +63,14 @@ CLASS AS (
       SELECT H.FS_SUFX
       FROM W026DTF1.TWNFAM_CASE_HSTRY H
       WHERE H.ICI = K.ICI
-        AND H.PRD_BEG_DT <= DATE(K.PREV_TS)
-        AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= DATE(K.PREV_TS)
+        AND H.PRD_BEG_DT <= DATE('2025-01-31')
+        AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= DATE('2025-01-31')
       ORDER BY H.PRD_BEG_DT DESC
       FETCH FIRST 1 ROW ONLY
     ) AS FS_SUFX
   FROM PREV_OK K
 )
 
--- Final by office: FULL (total), PA, NA
 SELECT
   O.OFC_CD,
   COALESCE(COUNT(CX.ICI), 0) AS FULL_BENEFITS_TOTAL,
