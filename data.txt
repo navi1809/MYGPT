@@ -1,25 +1,26 @@
 -- AME37A — Full benefits by office (TOTAL, PA, NA) for Jan 2025
--- Match legacy S04 exactly, fixing the NA off-by-one:
---  • Use the EARLIEST AP per ICI within the month (one row per case).
---  • Classify PA/NA using FS_SUFX as-of the PREVIOUS action’s timestamp.
---  • Admin offices only (PRGM_OFC_TYPE='A').
+-- Exact S04 behavior:
+--  • one row per ICI using the EARLIEST AP action in the month
+--  • previous FS action (max < AP) must be in ('FA','RE','RI')
+--  • PA/NA determined by FS_SUFX as-of the previous action timestamp
+--  • admin offices only (PRGM_OFC_TYPE = 'A')
 
 SELECT
-  X.OFC_CD,
+  FAC.OFC_CD,
   COUNT(*) AS FULL_BENEFITS_TOTAL,
   SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PA_BENEFITS,
   SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END) AS NA_BENEFITS
 FROM
 (
-  /* For each ICI, pick the earliest AP in Jan-2025 and find its previous FS action */
+  /* earliest AP in Jan-2025 per ICI, limited to admin offices */
   SELECT
     C.OFC_CD,
     A.ICI,
     MIN(A.ACTN_TS) AS AP_TS
   FROM W026DTF1.TWNFAM_ACTNS A
   JOIN W026DTF1.TWNFAM_CASELD_CASE C
-       ON C.ICI = A.ICI
-      AND C.PRGM_OFC_TYPE = 'A'
+    ON C.ICI = A.ICI
+   AND C.PRGM_OFC_TYPE = 'A'
   WHERE A.PRGM_TYP = 'FS'
     AND A.ACTN_TYP = 'AP'
     AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
@@ -28,7 +29,7 @@ FROM
 ) FAC
 JOIN
 (
-  /* Previous FS action before that AP (type must be FA/RE/RI) */
+  /* previous FS action before that AP (must be FA/RE/RI) */
   SELECT
     F.ICI,
     MAX(P.ACTN_TS) AS PREV_TS
@@ -43,17 +44,17 @@ JOIN
     GROUP BY A.ICI
   ) F
   JOIN W026DTF1.TWNFAM_ACTNS P
-       ON P.ICI = F.ICI
-      AND P.PRGM_TYP = 'FS'
-      AND P.ACTN_TS < F.AP_TS
-  WHERE P.ACTN_TYP IN ('FA','RE','RI')
+    ON P.ICI = F.ICI
+   AND P.PRGM_TYP = 'FS'
+   AND P.ACTN_TS < F.AP_TS
+   AND P.ACTN_TYP IN ('FA','RE','RI')
   GROUP BY F.ICI
 ) PREV
   ON PREV.ICI = FAC.ICI
-/* PA/NA suffix as-of the previous action timestamp */
+/* classify PA/NA by suffix at time of the previous action */
 JOIN W026DTF1.TWNFAM_CASE_HSTRY HS
   ON HS.ICI = FAC.ICI
  AND HS.PRD_BEG_DT <= DATE(PREV.PREV_TS)
  AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(PREV.PREV_TS)
-GROUP BY X.OFC_CD
-ORDER BY X.OFC_CD;
+GROUP BY FAC.OFC_CD
+ORDER BY FAC.OFC_CD;
