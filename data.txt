@@ -1,32 +1,103 @@
-LEFT JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY T2
-  ON T1.ICI = T2.ICI
- AND T2.PRD_BEG_DT <= DATE(T1.ACTN_TS)              
- AND T2.PRD_END_DT >= DATE(T1.ACTN_TS)
- 
- 
- 
- 
- -- new layer to dedup once per case
-S04_APPROVALS_DEDUP AS (
+-- S04 step 0: report window + office set (keep your existing RPT_DATES and OFFICE_DATA)
+
+-- S04 step 1: Applications during report month, one per case (MIN AP timestamp)
+ACTION_QUERY AS (
+  SELECT
+    T1.ICI,
+    T2.OFC_CD,
+    OFC.OFC_NM,
+    MIN(T1.ACTN_TS) AS AP_TS
+  FROM {?SCHEMA}.TWNFAM_ACTNS T1
+  JOIN {?SCHEMA}.TWNFAM_CASELD_CASE T2 ON T2.ICI = T1.ICI
+  JOIN OFFICE_DATA OFC ON OFC.OFC_CD = T2.OFC_CD
+  JOIN RPT_DATES RPT ON 1=1
+  WHERE
+    T2.PRGM_OFC_TYPE = 'A'
+    AND T1.PRGM_TYP = 'FS'
+    AND T1.ACTN_TYP = 'AP'
+    AND T1.ACTN_TS >= RPT.RPT_BEG_DT_TS
+    AND T1.ACTN_TS <= RPT.RPT_END_DT_TS
+  GROUP BY T1.ICI, T2.OFC_CD, OFC.OFC_NM
+),
+
+-- S04 step 2: Most-recent *previous* FA/RE/RI before AP, and FS_SUFX as-of that previous timestamp
+PREV_FARI AS (
+  SELECT
+    AQ.OFC_CD, AQ.OFC_NM, AQ.ICI, AQ.AP_TS,
+    FA.ACTN_TS  AS PREV_TS,
+    FA.ACTN_TYP AS PREV_TYP,
+    CH.FS_SUFX,
+    ROW_NUMBER() OVER (PARTITION BY AQ.ICI ORDER BY FA.ACTN_TS DESC) AS rn
+  FROM ACTION_QUERY AQ
+  JOIN {?SCHEMA}.TWNFAM_ACTNS FA
+    ON FA.ICI = AQ.ICI
+   AND FA.PRGM_TYP = 'FS'
+   AND FA.ACTN_TS < AQ.AP_TS
+   AND FA.ACTN_TYP IN ('FA','RE','RI')
+  -- FS_SUFX must be from history that covers the PREV action timestamp (EGL reads FCH in that context)
+  JOIN {?SCHEMA}.TWNFAM_CASE_HSTRY CH
+    ON CH.ICI = FA.ICI
+   AND CH.PRD_BEG_DT <= DATE(FA.ACTN_TS)
+   AND CH.PRD_END_DT >= DATE(FA.ACTN_TS)
+),
+
+-- S04 step 3: Keep exactly one qualifying previous action per case (mirrors the IF .. then increment once)
+S04_PREV AS (
+  SELECT OFC_CD, OFC_NM, ICI, AP_TS, PREV_TS, PREV_TYP, FS_SUFX
+  FROM PREV_FARI
+  WHERE rn = 1
+),
+
+-- S04 step 4: Read program case history (EGL does a single-row read); require exactly one valid row
+PRGM_CSH_HSTRY_LOOKUP AS (
+  SELECT
+    P.OFC_CD, P.OFC_NM, P.ICI, P.AP_TS, P.FS_SUFX,
+    H.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT,
+    COUNT(*) OVER (PARTITION BY P.ICI) AS rowcnt
+  FROM S04_PREV P
+  LEFT JOIN {?SCHEMA}.TWNPRGM_CASE_HSTRY H
+    ON H.ICI = P.ICI
+   AND H.PRGM_CASE_TYPE = 'FS'
+  JOIN RPT_DATES RPT ON 1=1
+  WHERE (H.ICI IS NULL
+         OR (H.PRD_BEG_DT <= RPT.RPT_END_DT AND H.PRD_END_DT >= RPT.RPT_END_DT))
+),
+
+PRGM_CSH_HSTRY_FILTERED AS (
   SELECT OFC_CD, OFC_NM, ICI, FS_SUFX, RCRT_APL_DT, RPT_BEG_DT, RPT_END_DT
+  FROM PRGM_CSH_HSTRY_LOOKUP
+  WHERE RCRT_APL_DT IS NOT NULL
+    AND rowcnt = 1  -- EGL singleRow expectation
+),
+
+-- S04 step 5 (exact increments): one row per case, then compute FULL BENEFIT counters
+S04_APPROVALS_DEDUP AS (
+  SELECT *
   FROM (
-    SELECT PCH.*,
-           ROW_NUMBER() OVER (PARTITION BY ICI ORDER BY ACTN_TS) AS rn
-    FROM PRGM_CSH_HSTRY_FILTERED PCH
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY ICI ORDER BY ICI) AS rn
+    FROM PRGM_CSH_HSTRY_FILTERED
   ) d
   WHERE rn = 1
 ),
 
--- MAIN2 becomes:
 MAIN2 AS (
   SELECT
     OFC_CD, OFC_NM,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END)                                                   AS PABNFT,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS PANEW,
-    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 END) AS PASUBS,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END)                                                AS NABNFT,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS NANEW,
-    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 END) AS NASUBS
+    -- FULL BENEFIT (PA / NA)
+    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PABNFT,
+    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NABNFT,
+
+    -- NEW vs SUBS split follows S04 by RCRT_APL_DT vs report window
+    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A')
+              AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS PANEW,
+    SUM(CASE WHEN FS_SUFX IN ('P','S','G','A')
+              AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 ELSE 0 END) AS PASUBS,
+
+    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A')
+              AND RCRT_APL_DT BETWEEN RPT_BEG_DT AND RPT_END_DT THEN 1 ELSE 0 END) AS NANEW,
+    SUM(CASE WHEN FS_SUFX NOT IN ('P','S','G','A')
+              AND (RCRT_APL_DT < RPT_BEG_DT OR RCRT_APL_DT > RPT_END_DT) THEN 1 ELSE 0 END) AS NASUBS
   FROM S04_APPROVALS_DEDUP
   GROUP BY OFC_CD, OFC_NM
 )
