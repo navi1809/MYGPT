@@ -1,13 +1,20 @@
--- AME37A: Full benefits counts (PA / NA) by office for Jan 2025
--- Mirrors EGL logic: SETINQ-S04 / READ-S02 / READ-S03
+-- Full benefits by office (TOTAL, PA, NA) for Jan 2025 — aligned to AME37A S04 logic
+-- Key points:
+--  • Take AP actions in the month (FAC = current action).
+--  • Find the previous FS action before that AP (FCH); keep only if in ('FA','RE','RI').
+--  • Classify PA/NA using FS_SUFX from CASE_HSTRY as-of the AP action date.
+--  • Count by office (Admin offices only: PRGM_OFC_TYPE='A').
 
 SELECT
-    C.OFC_CD,
-    COUNT(*) AS FULL_BENEFITS_TOTAL,
-    SUM(CASE WHEN FCH.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PA_BENEFITS,
-    SUM(CASE WHEN FCH.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NA_BENEFITS
-FROM W026DTF1.TWNFAM_ACTNS     FAC   -- corresponds to H2-2-FAA-FAC
-JOIN W026DTF1.TWNFAM_ACTNS     FCH   -- corresponds to H2-2-FAA-FCH
+  C.OFC_CD,
+  COUNT(*) AS FULL_BENEFITS_TOTAL,
+  SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PA_BENEFITS,
+  SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END) AS NA_BENEFITS
+FROM W026DTF1.TWNFAM_ACTNS FAC                                   -- current AP action
+JOIN W026DTF1.TWNFAM_CASELD_CASE C
+  ON C.ICI = FAC.ICI
+ AND C.PRGM_OFC_TYPE = 'A'
+JOIN W026DTF1.TWNFAM_ACTNS FCH                                   -- previous FS action
   ON FCH.ICI = FAC.ICI
  AND FCH.ACTN_TS = (
        SELECT MAX(F2.ACTN_TS)
@@ -16,16 +23,14 @@ JOIN W026DTF1.TWNFAM_ACTNS     FCH   -- corresponds to H2-2-FAA-FCH
           AND F2.PRGM_TYP = 'FS'
           AND F2.ACTN_TS <  FAC.ACTN_TS
      )
-JOIN W026DTF1.TWNFAM_CASE_HSTRY HST  -- corresponds to H2-PRGM-CASE-HSTRY
-  ON HST.ICI = FAC.ICI
-JOIN W026DTF1.TWNFAM_CASELD_CASE C
-  ON C.ICI = FAC.ICI
-WHERE C.PRGM_OFC_TYPE = 'A'
-  AND FAC.PRGM_TYP = 'FS'
-  AND FAC.ACTN_TYP = 'AP'                          -- new approval actions (AME37 logic)
-  AND FCH.ACTN_TYP IN ('FA','RE','RI')             -- previous full-benefit actions
+JOIN W026DTF1.TWNFAM_CASE_HSTRY HS                                -- suffix as-of AP date
+  ON HS.ICI = FAC.ICI
+ AND HS.PRD_BEG_DT <= DATE(FAC.ACTN_TS)
+ AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(FAC.ACTN_TS)
+WHERE FAC.PRGM_TYP = 'FS'
+  AND FAC.ACTN_TYP = 'AP'                                         -- approval month actions
+  AND FCH.ACTN_TYP IN ('FA','RE','RI')                            -- prior full-benefit action
   AND FAC.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
   AND FAC.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
-  AND HST.RCRT_APL_DT BETWEEN DATE('2025-01-01') AND DATE('2025-01-31')
 GROUP BY C.OFC_CD
 ORDER BY C.OFC_CD;
