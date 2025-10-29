@@ -1,28 +1,19 @@
 -- AME37A – Full benefits by office (TOTAL, PA, NA) for Jan 2025
--- Mirrors SETINQ-S04 + READ-S02 + READ-S03 logic exactly
+-- Edge-case fixes:
+--  • Count ALL AP actions in window (do NOT collapse to one per ICI).
+--  • Classify PA/NA using FS_SUFX as-of the PREVIOUS action’s timestamp
+--    (this mirrors H2-2-FAA-FCH.FS-SUFX after READ-S02).
 
 SELECT
-    FAC.OFC_CD,
-    COUNT(*)                                                     AS FULL_BENEFITS_TOTAL,
-    SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PA_BENEFITS,
-    SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END) AS NA_BENEFITS
-FROM (
-    /* Per office & ICI: earliest AP action in the month (MIN ACTN_TS) */
-    SELECT
-        C.OFC_CD,
-        A.ICI,
-        MIN(A.ACTN_TS) AS AP_TS
-    FROM W026DTF1.TWNFAM_ACTNS      A
-    JOIN W026DTF1.TWNFAM_CASELD_CASE C
-      ON C.ICI = A.ICI
-    WHERE C.PRGM_OFC_TYPE = 'A'
-      AND A.PRGM_TYP = 'FS'
-      AND A.ACTN_TYP = 'AP'
-      AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-      AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
-    GROUP BY C.OFC_CD, A.ICI
-) FAC
-JOIN W026DTF1.TWNFAM_ACTNS PREV                 -- previous FS action before the AP
+  C.OFC_CD,
+  COUNT(*) AS FULL_BENEFITS_TOTAL,
+  SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PA_BENEFITS,
+  SUM(CASE WHEN HS.FS_SUFX IN ('P','S','G','A') THEN 0 ELSE 1 END) AS NA_BENEFITS
+FROM W026DTF1.TWNFAM_ACTNS FAC
+JOIN W026DTF1.TWNFAM_CASELD_CASE C
+  ON C.ICI = FAC.ICI
+ AND C.PRGM_OFC_TYPE = 'A'
+JOIN W026DTF1.TWNFAM_ACTNS PREV
   ON PREV.ICI = FAC.ICI
  AND PREV.PRGM_TYP = 'FS'
  AND PREV.ACTN_TS = (
@@ -30,12 +21,16 @@ JOIN W026DTF1.TWNFAM_ACTNS PREV                 -- previous FS action before the
        FROM W026DTF1.TWNFAM_ACTNS P2
        WHERE P2.ICI = FAC.ICI
          AND P2.PRGM_TYP = 'FS'
-         AND P2.ACTN_TS < FAC.AP_TS
+         AND P2.ACTN_TS < FAC.ACTN_TS
      )
-JOIN W026DTF1.TWNFAM_CASE_HSTRY HS              -- FS suffix as-of report end date
+JOIN W026DTF1.TWNFAM_CASE_HSTRY HS
   ON HS.ICI = FAC.ICI
- AND HS.PRD_BEG_DT <= DATE('2025-01-31')
- AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE('2025-01-31')
-WHERE PREV.ACTN_TYP IN ('FA','RE','RI')         -- only if prior action is FA/RE/RI
-GROUP BY FAC.OFC_CD
-ORDER BY FAC.OFC_CD;
+ AND HS.PRD_BEG_DT <= DATE(PREV.ACTN_TS)
+ AND COALESCE(HS.PRD_END_DT, DATE('9999-12-31')) >= DATE(PREV.ACTN_TS)
+WHERE FAC.PRGM_TYP = 'FS'
+  AND FAC.ACTN_TYP = 'AP'                                         -- report-month AP actions
+  AND PREV.ACTN_TYP IN ('FA','RE','RI')                           -- prior full-benefit action
+  AND FAC.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
+  AND FAC.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
+GROUP BY C.OFC_CD
+ORDER BY C.OFC_CD;
