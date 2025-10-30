@@ -1,419 +1,487 @@
-/* AME37A — Combined report for January 2025 (schema: W026DTF1)
-   Includes: Active caseload (MAIN), Last-month caseload (MAIN1),
-             Full benefits (MAIN2) — NULL-safe per your spec,
-             Withdrawn (MAIN3), Denied (MAIN4),
-             Applications processed (MAIN5), Terminations (MAIN6)
-*/
-
-WITH RPT_DATES AS (
-    SELECT
-        DATE('2025-01-01')                                              AS RPT_BEG_DT,
-        LAST_DAY(DATE('2025-01-01'))                                    AS RPT_END_DT,
-        VARCHAR_FORMAT('2025-01-01', 'MM')                              AS RPT_MONTH_BIN,
-        VARCHAR_FORMAT('2025-01-01', 'YYYY')                            AS RPT_YEAR_BIN,
-        VARCHAR_FORMAT(DATE('2025-01-01') - 1 MONTH, 'MM')              AS PREV_RPT_MTH,
-        VARCHAR_FORMAT(DATE('2025-01-01') - 1 MONTH, 'YYYY')            AS PREV_RPT_YR,
-        VARCHAR_FORMAT(DATE('2025-01-01'), 'YYYY-MM-DD') || '-00.00.00.000000' AS RPT_BEG_DT_TS,
-        VARCHAR_FORMAT(LAST_DAY(DATE('2025-01-01')), 'YYYY-MM-DD') || '-23.59.59.999999' AS RPT_END_DT_TS
-    FROM SYSIBM.SYSDUMMY1
-),
-
-/* Office driver (admin only, exclude DC/DH/DL/DR) with names */
-OFFICES AS (
-    SELECT DISTINCT D.OFC_CD, O.OFC_NM
-    FROM W026DTF1.TWNCASELD_DEBTLD D
-    JOIN W026DTF1.TWNOFFICE O ON O.OFC_CD = D.OFC_CD
-    WHERE D.PRGM_OFC_TYPE = 'A'
-      AND D.OFC_CD NOT IN ('DC','DH','DL','DR')
-),
-
-/* ----------------- 1) ACTIVE CASELOAD & FLAGS ----------------- */
-ACT_CASELD_INFO AS (
-    SELECT C.OFC_CD, OFC.OFC_NM, H.FS_SUFX, H.MTHLY_RPTR_IND,
-           I.EXPD_SRVC_IND, I.MTHD_OF_ISNCE, I.ISNCE_MTHD
-    FROM W026DTF1.TWNFAM_CASELD_CASE C
-    JOIN OFFICES OFC ON OFC.OFC_CD = C.OFC_CD
-    JOIN W026DTF1.TWNFAM_CASE_HSTRY H ON H.ICI = C.ICI
-    JOIN W026DTF1.TWNFS_ISNCE I ON I.ICI = C.ICI
-    JOIN RPT_DATES RPT ON 1=1
-    WHERE H.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-      AND I.ISNCE_DT <= RPT.RPT_END_DT
-      AND I.BNFT_MTH = RPT.RPT_MONTH_BIN
-      AND I.BNFT_YR  = RPT.RPT_YEAR_BIN
-      AND I.BNFT_TYPE = 'RG'
-      AND I.FS_ISNCE_STS IN ('IS','RD')
-),
-MAIN AS (
-    SELECT
-        ACI.OFC_CD, ACI.OFC_NM,
-        SUM(CASE WHEN ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PACASES,
-        SUM(CASE WHEN ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NACASES,
-        SUM(CASE WHEN ACI.EXPD_SRVC_IND = 'Y' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAEXPCASE,
-        SUM(CASE WHEN ACI.EXPD_SRVC_IND = 'Y' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAEXPCASE,
-        SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAEBTCASE,
-        SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAEBTCASE,
-        SUM(CASE WHEN ACI.ISNCE_MTHD = 'E' THEN 1 ELSE 0 END) AS DMIEBT,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PADAMS,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NADAMS,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE <> '3' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PASPHNDL,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE <> '3' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NASPHNDL,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND (ACI.MTHD_OF_ISNCE IN ('0',' ')) THEN 1 ELSE 0 END) AS DMI0_COUNT,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '1' THEN 1 ELSE 0 END) AS DMI1_COUNT,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '2' THEN 1 ELSE 0 END) AS DMI2_COUNT,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '3' THEN 1 ELSE 0 END) AS DMI3_COUNT,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '4' THEN 1 ELSE 0 END) AS DMI4_COUNT,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '5' THEN 1 ELSE 0 END) AS DMI5_COUNT,
-        SUM(CASE WHEN ACI.ISNCE_MTHD <> 'E' AND ACI.MTHD_OF_ISNCE = '6' THEN 1 ELSE 0 END) AS DMI6_COUNT,
-        SUM(CASE WHEN ACI.MTHLY_RPTR_IND = 'Y' AND ACI.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAMRC,
-        SUM(CASE WHEN ACI.MTHLY_RPTR_IND = 'Y' AND ACI.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAMRC
-    FROM ACT_CASELD_INFO ACI
-    GROUP BY ACI.OFC_CD, ACI.OFC_NM
-),
-
-/* ----------------- 2) LAST-MONTH CASELOAD ----------------- */
-LST_MTH_CSLD AS (
-    SELECT C.OFC_CD, OFC.OFC_NM, H.FS_SUFX, I.ISNCE_DT,
-           RPT.RPT_BEG_DT, RPT.RPT_END_DT
-    FROM W026DTF1.TWNFAM_CASELD_CASE C
-    JOIN OFFICES OFC ON OFC.OFC_CD = C.OFC_CD
-    JOIN W026DTF1.TWNFAM_CASE_HSTRY H ON H.ICI = C.ICI
-    JOIN W026DTF1.TWNFS_ISNCE I ON I.ICI = H.ICI
-    JOIN RPT_DATES RPT ON 1=1
-    WHERE H.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-      AND I.BNFT_MTH = RPT.PREV_RPT_MTH
-      AND I.BNFT_YR  = RPT.PREV_RPT_YR
-      AND I.BNFT_TYPE = 'RG'
-      AND I.FS_ISNCE_STS IN ('IS','RD')
-),
-MAIN1 AS (
-    SELECT
-        L.OFC_CD, L.OFC_NM,
-        SUM(CASE WHEN L.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAREVISED,
-        SUM(CASE WHEN L.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAREVISED,
-        SUM(CASE WHEN L.FS_SUFX IN ('P','S','G','A') AND L.ISNCE_DT BETWEEN L.RPT_BEG_DT AND L.RPT_END_DT THEN 1 ELSE 0 END) AS PALMISS,
-        SUM(CASE WHEN L.FS_SUFX NOT IN ('P','S','G','A') AND L.ISNCE_DT BETWEEN L.RPT_BEG_DT AND L.RPT_END_DT THEN 1 ELSE 0 END) AS NALMISS
-    FROM LST_MTH_CSLD L
-    GROUP BY L.OFC_CD, L.OFC_NM
-),
-
-/* ----------------- 3) FULL BENEFITS — NULL-SAFE (your spec) ----------------- */
-AP0 AS (  /* earliest AP per ICI in Jan 2025 for admin offices */
-  SELECT
-    C.OFC_CD,
-    A.ICI,
-    MIN(A.ACTN_TS) AS AP_TS
-  FROM W026DTF1.TWNFAM_ACTNS A
-  JOIN W026DTF1.TWNFAM_CASELD_CASE C
-    ON C.ICI = A.ICI
-   AND C.PRGM_OFC_TYPE = 'A'
-  WHERE A.PRGM_TYP = 'FS'
-    AND A.ACTN_TYP = 'AP'
-    AND A.ACTN_TS >= TIMESTAMP('2025-01-01-00.00.00')
-    AND A.ACTN_TS <= TIMESTAMP('2025-01-31-23.59.59')
-  GROUP BY C.OFC_CD, A.ICI
-),
-AP_OFF AS (     /* restrict to reporting offices */
-  SELECT A.*
-  FROM AP0 A
-  JOIN OFFICES O ON O.OFC_CD = A.OFC_CD
-),
-PREV AS (       /* previous FS action before that AP */
-  SELECT
-    F.OFC_CD,
-    F.ICI,
-    MAX(P.ACTN_TS) AS PREV_TS
-  FROM AP_OFF F
-  JOIN W026DTF1.TWNFAM_ACTNS P
-    ON P.ICI = F.ICI
-   AND P.PRGM_TYP = 'FS'
-   AND P.ACTN_TS  < F.AP_TS
-  GROUP BY F.OFC_CD, F.ICI
-),
-PREV_OK AS (    /* keep only FA/RE/RI */
-  SELECT P.OFC_CD, P.ICI, P.PREV_TS
-  FROM PREV P
-  JOIN W026DTF1.TWNFAM_ACTNS R
-    ON R.ICI = P.ICI
-   AND R.PRGM_TYP = 'FS'
-   AND R.ACTN_TS = P.PREV_TS
-   AND R.ACTN_TYP IN ('FA','RE','RI')
-),
-CLASS AS (      /* FS suffix as of REPORT END DATE; pick exactly one row */
-  SELECT
-    K.OFC_CD,
-    K.ICI,
-    (
-      SELECT H.FS_SUFX
-      FROM W026DTF1.TWNFAM_CASE_HSTRY H
-      WHERE H.ICI = K.ICI
-        AND H.PRD_BEG_DT <= DATE('2025-01-31')
-        AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= DATE('2025-01-31')
-      ORDER BY H.PRD_BEG_DT DESC
-      FETCH FIRST 1 ROW ONLY
-    ) AS FS_SUFX
-  FROM PREV_OK K
-),
-S04_RCRT AS (   /* optional recruit date for NEW/SUBS split; do not filter out NULLs */
-  SELECT
-    C.OFC_CD,
-    C.ICI,
-    C.FS_SUFX,
-    (
-      SELECT MIN(H.RCRT_APL_DT)
-      FROM W026DTF1.TWNPRGM_CASE_HSTRY H
-      WHERE H.ICI = C.ICI
-        AND H.PRGM_CASE_TYPE = 'FS'
-    ) AS RCRT_APL_DT
-  FROM CLASS C
-),
-MAIN2 AS (      /* final full-benefit metrics per office; NULL-safe NA */
-  SELECT
-    R.OFC_CD,
-    O.OFC_NM,
-    SUM(CASE WHEN R.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PABNFT,
-    SUM(CASE WHEN R.FS_SUFX IS NOT NULL AND R.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NABNFT,
-    SUM(CASE WHEN R.FS_SUFX IN ('P','S','G','A')
-               AND R.RCRT_APL_DT IS NOT NULL
-               AND DATE(R.RCRT_APL_DT) BETWEEN DATE('2025-01-01') AND DATE('2025-01-31')
-             THEN 1 ELSE 0 END) AS PABNFT_NEW,
-    SUM(CASE WHEN R.FS_SUFX IN ('P','S','G','A')
-               AND (R.RCRT_APL_DT IS NULL
-                 OR DATE(R.RCRT_APL_DT) < DATE('2025-01-01')
-                 OR DATE(R.RCRT_APL_DT) > DATE('2025-01-31'))
-             THEN 1 ELSE 0 END) AS PABNFT_SUBS,
-    SUM(CASE WHEN R.FS_SUFX IS NOT NULL AND R.FS_SUFX NOT IN ('P','S','G','A')
-               AND R.RCRT_APL_DT IS NOT NULL
-               AND DATE(R.RCRT_APL_DT) BETWEEN DATE('2025-01-01') AND DATE('2025-01-31')
-             THEN 1 ELSE 0 END) AS NABNFT_NEW,
-    SUM(CASE WHEN R.FS_SUFX IS NOT NULL AND R.FS_SUFX NOT IN ('P','S','G','A')
-               AND (R.RCRT_APL_DT IS NULL
-                 OR DATE(R.RCRT_APL_DT) < DATE('2025-01-01')
-                 OR DATE(R.RCRT_APL_DT) > DATE('2025-01-31'))
-             THEN 1 ELSE 0 END) AS NABNFT_SUBS
-  FROM S04_RCRT R
-  JOIN OFFICES O ON O.OFC_CD = R.OFC_CD
-  GROUP BY R.OFC_CD, O.OFC_NM
-),
-
-/* ----------------- 4) WITHDRAWN DURING MONTH ----------------- */
-WITH_DRAW_INFO AS (
-    SELECT C.OFC_CD, OFC.OFC_NM, H.FS_SUFX,
-           PC.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
-    FROM W026DTF1.TWNFAM_CASELD_CASE C
-    JOIN OFFICES OFC ON OFC.OFC_CD = C.OFC_CD
-    JOIN W026DTF1.TWNFAM_CASE_HSTRY H ON H.ICI = C.ICI
-    JOIN W026DTF1.TWNPRGM_CASE_HSTRY PC
-      ON PC.ICI = C.ICI AND PC.PRGM_CASE_TYPE = 'FS'
-    JOIN RPT_DATES RPT ON 1=1
-    WHERE H.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-      AND PC.STS_EFF_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-      AND PC.CLSRE_RSN_CD = 'W'
-),
-MAIN3 AS (
-    SELECT
-        W.OFC_CD, W.OFC_NM,
-        SUM(CASE WHEN W.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAWTDR,
-        SUM(CASE WHEN W.FS_SUFX IN ('P','S','G','A') AND W.RCRT_APL_DT BETWEEN W.RPT_BEG_DT AND W.RPT_END_DT THEN 1 ELSE 0 END) AS PAWTDR_NEW,
-        SUM(CASE WHEN W.FS_SUFX IN ('P','S','G','A') AND (W.RCRT_APL_DT IS NULL OR W.RCRT_APL_DT < W.RPT_BEG_DT OR W.RCRT_APL_DT > W.RPT_END_DT) THEN 1 ELSE 0 END) AS PAWTDR_SUBS,
-        SUM(CASE WHEN W.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAWTDR,
-        SUM(CASE WHEN W.FS_SUFX NOT IN ('P','S','G','A') AND W.RCRT_APL_DT BETWEEN W.RPT_BEG_DT AND W.RPT_END_DT THEN 1 ELSE 0 END) AS NAWTDR_NEW,
-        SUM(CASE WHEN W.FS_SUFX NOT IN ('P','S','G','A') AND (W.RCRT_APL_DT IS NULL OR W.RCRT_APL_DT < W.RPT_BEG_DT OR W.RCRT_APL_DT > W.RPT_END_DT) THEN 1 ELSE 0 END) AS NAWTDR_SUBS
-    FROM WITH_DRAW_INFO W
-    GROUP BY W.OFC_CD, W.OFC_NM
-),
-
-/* ----------------- 5) DENIED DURING MONTH ----------------- */
-DENIED_APPL_INFO AS (
-    SELECT C.OFC_CD, OFC.OFC_NM, H.FS_SUFX, PC.SYS_CLSRE_DNL_RSN,
-           PC.RCRT_APL_DT, RPT.RPT_BEG_DT, RPT.RPT_END_DT
-    FROM W026DTF1.TWNFAM_CASELD_CASE C
-    JOIN OFFICES OFC ON OFC.OFC_CD = C.OFC_CD
-    JOIN W026DTF1.TWNFAM_CASE_HSTRY H ON H.ICI = C.ICI
-    JOIN W026DTF1.TWNPRGM_CASE_HSTRY PC
-      ON PC.ICI = C.ICI AND PC.PRGM_CASE_TYPE = 'FS'
-    JOIN RPT_DATES RPT ON 1=1
-    WHERE H.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-      AND PC.STS_EFF_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-      AND PC.PRGM_CASE_STS = 'D'
-      AND PC.CLSRE_RSN_CD <> 'W'
-),
-MAIN4 AS (
-    SELECT
-        D.OFC_CD, D.OFC_NM,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PATOT,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') AND D.RCRT_APL_DT BETWEEN D.RPT_BEG_DT AND D.RPT_END_DT THEN 1 ELSE 0 END) AS PADENY_NEW,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') AND (D.RCRT_APL_DT IS NULL OR D.RCRT_APL_DT < D.RPT_BEG_DT OR D.RCRT_APL_DT > D.RPT_END_DT) THEN 1 ELSE 0 END) AS PADENY_SUBS,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '11' THEN 1 ELSE 0 END) AS PADENY,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '08' THEN 1 ELSE 0 END) AS PANCOOP,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '10' THEN 1 ELSE 0 END) AS PAQUIT,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '20' THEN 1 ELSE 0 END) AS PARSRC,
-        SUM(CASE WHEN D.FS_SUFX IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN NOT IN ('11','08','10','20') THEN 1 ELSE 0 END) AS PAOTHR,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NATOT,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') AND D.RCRT_APL_DT BETWEEN D.RPT_BEG_DT AND D.RPT_END_DT THEN 1 ELSE 0 END) AS NADENY_NEW,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') AND (D.RCRT_APL_DT IS NULL OR D.RCRT_APL_DT < D.RPT_BEG_DT OR D.RCRT_APL_DT > D.RPT_END_DT) THEN 1 ELSE 0 END) AS NADENY_SUBS,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '11' THEN 1 ELSE 0 END) AS NADENY,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '08' THEN 1 ELSE 0 END) AS NANCOOP,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '10' THEN 1 ELSE 0 END) AS NAQUIT,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN = '20' THEN 1 ELSE 0 END) AS NARSRC,
-        SUM(CASE WHEN D.FS_SUFX NOT IN ('P','S','G','A') AND D.SYS_CLSRE_DNL_RSN NOT IN ('11','08','10','20') THEN 1 ELSE 0 END) AS NAOTHR
-    FROM DENIED_APPL_INFO D
-    GROUP BY D.OFC_CD, D.OFC_NM
-),
-
-/* ----------------- 6) APPLICATIONS PROCESSED DURING MONTH ----------------- */
-APPL_PRC_INFO AS (
-    SELECT C.OFC_CD, OFC.OFC_NM, H.FS_SUFX,
-           PC.PRGM_CASE_STS, PC.RCRT_APL_DT, PC.PRD_BEG_DT, PC.PRD_END_DT
-    FROM W026DTF1.TWNFAM_CASELD_CASE C
-    JOIN OFFICES OFC ON OFC.OFC_CD = C.OFC_CD
-    JOIN W026DTF1.TWNFAM_CASE_HSTRY H ON H.ICI = C.ICI
-    JOIN W026DTF1.TWNPRGM_CASE_HSTRY PC
-      ON PC.ICI = C.ICI AND PC.PRGM_CASE_TYPE = 'FS'
-    JOIN RPT_DATES RPT ON 1=1
-    WHERE H.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-      AND PC.RCRT_APL_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-      AND PC.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(PC.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-),
-MAIN5 AS (
-    SELECT
-        A.OFC_CD, A.OFC_NM,
-        SUM(CASE WHEN A.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PAAPPLMTH,
-        SUM(CASE WHEN A.FS_SUFX IN ('P','S','G','A') AND A.PRGM_CASE_STS = 'P' THEN 1 ELSE 0 END) AS PAPNDMTH,
-        SUM(CASE WHEN A.FS_SUFX IN ('P','S','G','A') AND A.PRGM_CASE_STS = 'O' THEN 1 ELSE 0 END) AS PAAPPRVMTH,
-        SUM(CASE WHEN A.FS_SUFX IN ('P','S','G','A') AND A.PRGM_CASE_STS IN ('D','T') THEN 1 ELSE 0 END) AS PADNYWDMTH,
-        SUM(CASE WHEN A.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NAAPPLMTH,
-        SUM(CASE WHEN A.FS_SUFX NOT IN ('P','S','G','A') AND A.PRGM_CASE_STS = 'P' THEN 1 ELSE 0 END) AS NAPNDMTH,
-        SUM(CASE WHEN A.FS_SUFX NOT IN ('P','S','G','A') AND A.PRGM_CASE_STS = 'O' THEN 1 ELSE 0 END) AS NAAPPRVMTH,
-        SUM(CASE WHEN A.FS_SUFX NOT IN ('P','S','G','A') AND A.PRGM_CASE_STS IN ('D','T') THEN 1 ELSE 0 END) AS NADNYWDMTH
-    FROM APPL_PRC_INFO A
-    GROUP BY A.OFC_CD, A.OFC_NM
-),
-
-/* ----------------- 7) TERMINATIONS DURING MONTH ----------------- */
-TERMI_NATIONS_INFO AS (
-    SELECT C.OFC_CD, OFC.OFC_NM, H.FS_SUFX
-    FROM W026DTF1.TWNFAM_CASELD_CASE C
-    JOIN OFFICES OFC ON OFC.OFC_CD = C.OFC_CD
-    JOIN W026DTF1.TWNFAM_CASE_HSTRY H ON H.ICI = C.ICI
-    JOIN W026DTF1.TWNPRGM_CASE_HSTRY PC
-      ON PC.ICI = C.ICI AND PC.PRGM_CASE_TYPE = 'FS'
-    JOIN RPT_DATES RPT ON 1=1
-    WHERE H.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(H.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-      AND PC.PRD_BEG_DT <= RPT.RPT_END_DT
-      AND COALESCE(PC.PRD_END_DT, DATE('9999-12-31')) >= RPT.RPT_END_DT
-      AND PC.STS_EFF_DT BETWEEN RPT.RPT_BEG_DT AND RPT.RPT_END_DT
-      AND PC.PRGM_CASE_STS = 'T'
-),
-MAIN6 AS (
-    SELECT
-        T.OFC_CD, T.OFC_NM,
-        SUM(CASE WHEN T.FS_SUFX IN ('P','S','G','A') THEN 1 ELSE 0 END) AS PATERM,
-        SUM(CASE WHEN T.FS_SUFX NOT IN ('P','S','G','A') THEN 1 ELSE 0 END) AS NATERM
-    FROM TERMI_NATIONS_INFO T
-    GROUP BY T.OFC_CD, T.OFC_NM
-),
-
-/* Union of offices appearing anywhere to ensure all display */
-ALL_OFFICES AS (
-    SELECT OFC_CD, OFC_NM FROM OFFICES
-    UNION SELECT OFC_CD, OFC_NM FROM MAIN
-    UNION SELECT OFC_CD, OFC_NM FROM MAIN1
-    UNION SELECT OFC_CD, OFC_NM FROM MAIN2
-    UNION SELECT OFC_CD, OFC_NM FROM MAIN3
-    UNION SELECT OFC_CD, OFC_NM FROM MAIN4
-    UNION SELECT OFC_CD, OFC_NM FROM MAIN5
-    UNION SELECT OFC_CD, OFC_NM FROM MAIN6
-)
-
-SELECT
-    'JANUARY, 2025' AS RPT_MONTH,
-    AO.OFC_NM,
-    /* Active caseload */
-    COALESCE(M.PACASES, 0) AS PACASES,
-    COALESCE(M.NACASES, 0) AS NACASES,
-    COALESCE(M.PAEXPCASE, 0) AS PAEXPCASE,
-    COALESCE(M.NAEXPCASE, 0) AS NAEXPCASE,
-    COALESCE(M.PAEBTCASE, 0) AS PAEBTCASE,
-    COALESCE(M.NAEBTCASE, 0) AS NAEBTCASE,
-    COALESCE(M.DMIEBT, 0) AS DMIEBT,
-    COALESCE(M.PADAMS, 0) AS PADAMS,
-    COALESCE(M.NADAMS, 0) AS NADAMS,
-    COALESCE(M.PASPHNDL, 0) AS PASPHNDL,
-    COALESCE(M.NASPHNDL, 0) AS NASPHNDL,
-    COALESCE(M.DMI0_COUNT, 0) AS DMI0_COUNT,
-    COALESCE(M.DMI1_COUNT, 0) AS DMI1_COUNT,
-    COALESCE(M.DMI2_COUNT, 0) AS DMI2_COUNT,
-    COALESCE(M.DMI3_COUNT, 0) AS DMI3_COUNT,
-    COALESCE(M.DMI4_COUNT, 0) AS DMI4_COUNT,
-    COALESCE(M.DMI5_COUNT, 0) AS DMI5_COUNT,
-    COALESCE(M.DMI6_COUNT, 0) AS DMI6_COUNT,
-    COALESCE(M.PAMRC, 0) AS PAMRC,
-    COALESCE(M.NAMRC, 0) AS NAMRC,
-
-    /* Last-month caseload */
-    COALESCE(M1.PAREVISED, 0) AS PAREVISED,
-    COALESCE(M1.NAREVISED, 0) AS NAREVISED,
-    COALESCE(M1.PALMISS, 0) AS PALMISS,
-    COALESCE(M1.NALMISS, 0) AS NALMISS,
-
-    /* Full benefits — NULL-safe */
-    COALESCE(M2.PABNFT, 0) AS PABNFT,
-    COALESCE(M2.PABNFT_NEW, 0) AS PABNFT_NEW,
-    COALESCE(M2.PABNFT_SUBS, 0) AS PABNFT_SUBS,
-    COALESCE(M2.NABNFT, 0) AS NABNFT,
-    COALESCE(M2.NABNFT_NEW, 0) AS NABNFT_NEW,
-    COALESCE(M2.NABNFT_SUBS, 0) AS NABNFT_SUBS,
-
-    /* Withdrawn / Denied / Applications / Terminations */
-    COALESCE(M3.PAWTDR, 0) AS PAWTDR,
-    COALESCE(M3.PAWTDR_NEW, 0) AS PAWTDR_NEW,
-    COALESCE(M3.PAWTDR_SUBS, 0) AS PAWTDR_SUBS,
-    COALESCE(M3.NAWTDR, 0) AS NAWTDR,
-    COALESCE(M3.NAWTDR_NEW, 0) AS NAWTDR_NEW,
-    COALESCE(M3.NAWTDR_SUBS, 0) AS NAWTDR_SUBS,
-
-    COALESCE(M4.PATOT, 0) AS PATOT,
-    COALESCE(M4.PADENY_NEW, 0) AS PADENY_NEW,
-    COALESCE(M4.PADENY_SUBS, 0) AS PADENY_SUBS,
-    COALESCE(M4.PADENY, 0) AS PADENY,
-    COALESCE(M4.PANCOOP, 0) AS PANCOOP,
-    COALESCE(M4.PAQUIT, 0) AS PAQUIT,
-    COALESCE(M4.PARSRC, 0) AS PARSRC,
-    COALESCE(M4.PAOTHR, 0) AS PAOTHR,
-    COALESCE(M4.NATOT, 0) AS NATOT,
-    COALESCE(M4.NADENY_NEW, 0) AS NADENY_NEW,
-    COALESCE(M4.NADENY_SUBS, 0) AS NADENY_SUBS,
-    COALESCE(M4.NADENY, 0) AS NADENY,
-    COALESCE(M4.NANCOOP, 0) AS NANCOOP,
-    COALESCE(M4.NAQUIT, 0) AS NAQUIT,
-    COALESCE(M4.NARSRC, 0) AS NARSRC,
-    COALESCE(M4.NAOTHR, 0) AS NAOTHR,
-
-    COALESCE(M5.PAAPPLMTH, 0) AS PAAPPLMTH,
-    COALESCE(M5.PAPNDMTH, 0) AS PAPNDMTH,
-    COALESCE(M5.PAAPPRVMTH, 0) AS PAAPPRVMTH,
-    COALESCE(M5.PADNYWDMTH, 0) AS PADNYWDMTH,
-    COALESCE(M5.NAAPPLMTH, 0) AS NAAPPLMTH,
-    COALESCE(M5.NAPNDMTH, 0) AS NAPNDMTH,
-    COALESCE(M5.NAAPPRVMTH, 0) AS NAAPPRVMTH,
-    COALESCE(M5.NADNYWDMTH, 0) AS NADNYWDMTH,
-
-    COALESCE(M6.PATERM, 0) AS PATERM,
-    COALESCE(M6.NATERM, 0) AS NATERM
-
-FROM ALL_OFFICES AO
-LEFT JOIN MAIN  M  ON AO.OFC_CD = M.OFC_CD
-LEFT JOIN MAIN1 M1 ON AO.OFC_CD = M1.OFC_CD
-LEFT JOIN MAIN2 M2 ON AO.OFC_CD = M2.OFC_CD
-LEFT JOIN MAIN3 M3 ON AO.OFC_CD = M3.OFC_CD
-LEFT JOIN MAIN4 M4 ON AO.OFC_CD = M4.OFC_CD
-LEFT JOIN MAIN5 M5 ON AO.OFC_CD = M5.OFC_CD
-LEFT JOIN MAIN6 M6 ON AO.OFC_CD = M6.OFC_CD
-ORDER BY AO.OFC_NM;
+AM |AO|ZIZ99                                                                       
+CH |AO|ZIZ99                                                                       
+FS |AO|ZIZ99                                                                       
+IN3|AO|ZIZ99                                                                       
+TN |AO|ZIZ99                                                                       
+FS |AO|1ZZ01                                                                       
+KB3|AO|1ZZ01                                                                       
+WY9|AO|1ZZ01                                                                       
+AL1|BL|ZIZ99                                                                       
+AM1|BL|ZIZ99                                                                       
+CH1|BL|ZIZ99                                                                       
+QI3|BL|ZIZ99                                                                       
+WY9|BL|ZIZ99                                                                       
+   |BL|1ZZ01                                                                       
+   |BL|1ZZ02                                                                       
+   |BL|1ZZ03                                                                       
+IN3|BL|1ZZ05                                                                       
+SM |BL|1ZZ05                                                                       
+AM |CC|AZZ99                                                                       
+AM1|CC|AZZ99                                                                       
+CH |CC|AZZ99                                                                       
+CM1|CC|AZZ99                                                                       
+COK|CC|AZZ99                                                                       
+CON|CC|AZZ99                                                                       
+FS |CC|AZZ99                                                                       
+HC1|CC|AZZ99                                                                       
+IN1|CC|AZZ99                                                                       
+IN3|CC|AZZ99                                                                       
+NC |CC|AZZ99                                                                       
+QM1|CC|AZZ99                                                                       
+TL |CC|AZZ99                                                                       
+TN |CC|AZZ99                                                                       
+TP |CC|AZZ99                                                                       
+TR |CC|AZZ99                                                                       
+53 |CC|AZZ99                                                                       
+56 |CC|AZZ99                                                                       
+57 |CC|AZZ99                                                                       
+58 |CC|AZZ99                                                                       
+60 |CC|AZZ99                                                                       
+61 |CC|AZZ99                                                                       
+   |CC|ZIZ99                                                                       
+AD3|CC|ZIZ99                                                                       
+AM |CC|ZIZ99                                                                       
+AM1|CC|ZIZ99                                                                       
+CA |CC|ZIZ99                                                                       
+CH |CC|ZIZ99                                                                       
+CM1|CC|ZIZ99                                                                       
+CM3|CC|ZIZ99                                                                       
+COA|CC|ZIZ99                                                                       
+COF|CC|ZIZ99                                                                       
+CON|CC|ZIZ99                                                                       
+COS|CC|ZIZ99                                                                       
+EM4|CC|ZIZ99                                                                       
+EM9|CC|ZIZ99                                                                       
+GC9|CC|ZIZ99                                                                       
+HC1|CC|ZIZ99                                                                       
+HG1|CC|ZIZ99                                                                       
+HR3|CC|ZIZ99                                                                       
+IN1|CC|ZIZ99                                                                       
+IN9|CC|ZIZ99                                                                       
+KB3|CC|ZIZ99                                                                       
+MCB|CC|ZIZ99                                                                       
+PK1|CC|ZIZ99                                                                       
+PM |CC|ZIZ99                                                                       
+QD9|CC|ZIZ99                                                                       
+QI3|CC|ZIZ99                                                                       
+QM1|CC|ZIZ99                                                                       
+SG |CC|ZIZ99                                                                       
+SI9|CC|ZIZ99                                                                       
+SL3|CC|ZIZ99                                                                       
+SS1|CC|ZIZ99                                                                       
+TL |CC|ZIZ99                                                                       
+TN |CC|ZIZ99                                                                       
+TN2|CC|ZIZ99                                                                       
+TP |CC|ZIZ99                                                                       
+UP |CC|ZIZ99                                                                       
+WY9|CC|ZIZ99                                                                       
+60 |CC|ZIZ99                                                                       
+61 |CC|ZIZ99                                                                       
+70 |CC|ZIZ99                                                                       
+73 |CC|ZIZ99                                                                       
+75 |CC|ZIZ99                                                                       
+AM1|CC|1BZ01                                                                       
+   |CC|1OW02                                                                       
+CA |CC|1OW02                                                                       
+CH |CC|1OW02                                                                       
+CON|CC|1OW02                                                                       
+FS |CC|1OW02                                                                       
+IN3|CC|1OW02                                                                       
+KB3|CC|1OW02                                                                       
+SG |CC|1OW02                                                                       
+TL |CC|1OW02                                                                       
+TN |CC|1OW02                                                                       
+TN2|CC|1OW02                                                                       
+TP |CC|1OW02                                                                       
+CA |CC|3BW03                                                                       
+   |CC|3ZZ01                                                                       
+AM1|CC|3ZZ01                                                                       
+CA |CC|3ZZ01                                                                       
+CH1|CC|3ZZ01                                                                       
+FS |CC|3ZZ01                                                                       
+MCB|CC|3ZZ01                                                                       
+TR |CC|3ZZ01                                                                       
+CA |CC|6RZ03                                                                       
+   |CH|ZIZ99                                                                       
+FS |CH|ZIZ99                                                                       
+   |CH|1ZZ01                                                                       
+MCB|CH|1ZZ01                                                                       
+FS |CN|ZIZ99                                                                       
+TL |CN|ZIZ99                                                                       
+   |CO|BZZ01                                                                       
+CON|CO|BZZ01                                                                       
+TN |CO|BZZ01                                                                       
+TP |CO|BZZ01                                                                       
+   |CO|EZZ01                                                                       
+TN |CO|EZZ01                                                                       
+TN |CO|NZZ01                                                                       
+   |CO|ZIZ99                                                                       
+AL1|CO|ZIZ99                                                                       
+AM |CO|ZIZ99                                                                       
+AO |CO|ZIZ99                                                                       
+CA |CO|ZIZ99                                                                       
+CH1|CO|ZIZ99                                                                       
+CM1|CO|ZIZ99                                                                       
+COA|CO|ZIZ99                                                                       
+COF|CO|ZIZ99                                                                       
+CON|CO|ZIZ99                                                                       
+COS|CO|ZIZ99                                                                       
+EM4|CO|ZIZ99                                                                       
+EM9|CO|ZIZ99                                                                       
+HG3|CO|ZIZ99                                                                       
+IN1|CO|ZIZ99                                                                       
+IN9|CO|ZIZ99                                                                       
+KB3|CO|ZIZ99                                                                       
+MCB|CO|ZIZ99                                                                       
+PK9|CO|ZIZ99                                                                       
+PM |CO|ZIZ99                                                                       
+QI1|CO|ZIZ99                                                                       
+QI3|CO|ZIZ99                                                                       
+SG |CO|ZIZ99                                                                       
+SI9|CO|ZIZ99                                                                       
+SL1|CO|ZIZ99                                                                       
+SL3|CO|ZIZ99                                                                       
+SM |CO|ZIZ99                                                                       
+SS3|CO|ZIZ99                                                                       
+TN |CO|ZIZ99                                                                       
+TN1|CO|ZIZ99                                                                       
+TP |CO|ZIZ99                                                                       
+TR |CO|ZIZ99                                                                       
+UP |CO|ZIZ99                                                                       
+WB9|CO|ZIZ99                                                                       
+WY9|CO|ZIZ99                                                                       
+60 |CO|ZIZ99                                                                       
+61 |CO|ZIZ99                                                                       
+   |CR|ZIZ97                                                                       
+AM |CR|ZIZ99                                                                       
+CH |CR|ZIZ99                                                                       
+CH1|CR|ZIZ99                                                                       
+CON|CR|ZIZ99                                                                       
+IN9|CR|ZIZ99                                                                       
+SM |CR|ZIZ99                                                                       
+TN2|CR|ZIZ99                                                                       
+AM1|CR|1BW03                                                                       
+TN2|CR|1BW03                                                                       
+FS |CR|1ZZ01                                                                       
+CH |DC|XBH45                                                                       
+COS|DC|XBH45                                                                       
+IN9|DC|XBH45                                                                       
+55 |DC|XBH45                                                                       
+56 |DC|XBH45                                                                       
+AD3|DC|XBW01                                                                       
+AM |DC|XBW01                                                                       
+CA |DC|XBW01                                                                       
+CH |DC|XBW01                                                                       
+CM1|DC|XBW01                                                                       
+COA|DC|XBW01                                                                       
+CON|DC|XBW01                                                                       
+COS|DC|XBW01                                                                       
+EM2|DC|XBW01                                                                       
+GC1|DC|XBW01                                                                       
+HC1|DC|XBW01                                                                       
+HR9|DC|XBW01                                                                       
+IN1|DC|XBW01                                                                       
+IN3|DC|XBW01                                                                       
+KB3|DC|XBW01                                                                       
+NC |DC|XBW01                                                                       
+QM1|DC|XBW01                                                                       
+QM9|DC|XBW01                                                                       
+TN |DC|XBW01                                                                       
+TP |DC|XBW01                                                                       
+TR |DC|XBW01                                                                       
+WS3|DC|XBW01                                                                       
+WY9|DC|XBW01                                                                       
+53 |DC|XBW01                                                                       
+56 |DC|XBW01                                                                       
+57 |DC|XBW01                                                                       
+58 |DC|XBW01                                                                       
+60 |DC|XBW01                                                                       
+61 |DC|XBW01                                                                       
+AM |DE|ZIZ99                                                                       
+AM1|DE|ZIZ99                                                                       
+CH |DE|ZIZ99                                                                       
+CH1|DE|ZIZ99                                                                       
+COK|DE|ZIZ99                                                                       
+CON|DE|ZIZ99                                                                       
+FS |DE|ZIZ99                                                                       
+GC1|DE|ZIZ99                                                                       
+IN9|DE|ZIZ99                                                                       
+NC |DE|ZIZ99                                                                       
+TL |DE|ZIZ99                                                                       
+TN |DE|ZIZ99                                                                       
+TP |DE|ZIZ99                                                                       
+WS3|DE|ZIZ99                                                                       
+53 |DE|ZIZ99                                                                       
+61 |DE|ZIZ99                                                                       
+AD3|DE|4AA23                                                                       
+AM |DE|4AA23                                                                       
+AO |DE|4AA23                                                                       
+CA |DE|4AA23                                                                       
+CH1|DE|4AA23                                                                       
+COA|DE|4AA23                                                                       
+COS|DE|4AA23                                                                       
+EM4|DE|4AA23                                                                       
+FS |DE|4AA23                                                                       
+HG3|DE|4AA23                                                                       
+KB3|DE|4AA23                                                                       
+MCB|DE|4AA23                                                                       
+QD9|DE|4AA23                                                                       
+SG |DE|4AA23                                                                       
+SL9|DE|4AA23                                                                       
+SM |DE|4AA23                                                                       
+TL |DE|4AA23                                                                       
+TN2|DE|4AA23                                                                       
+TP |DE|4AA23                                                                       
+61 |DE|4AA23                                                                       
+   |DH|ZIZ99                                                                       
+MCB|DL|XAA12                                                                       
+AM |DR|XAA34                                                                       
+AM1|DR|XAA34                                                                       
+CA |DR|XAA34                                                                       
+COA|DR|XAA34                                                                       
+FS |DR|XAA34                                                                       
+NC |DR|XAA34                                                                       
+TN |DR|XAA34                                                                       
+TN2|DR|XAA34                                                                       
+   |DU|AZZ99                                                                       
+   |DU|ZIZ97                                                                       
+AM |DU|ZIZ97                                                                       
+AM1|DU|ZIZ97                                                                       
+CA |DU|ZIZ97                                                                       
+CH |DU|ZIZ97                                                                       
+CH1|DU|ZIZ97                                                                       
+COA|DU|ZIZ97                                                                       
+CON|DU|ZIZ97                                                                       
+COS|DU|ZIZ97                                                                       
+FS |DU|ZIZ97                                                                       
+IN1|DU|ZIZ97                                                                       
+IN3|DU|ZIZ97                                                                       
+IN9|DU|ZIZ97                                                                       
+KB3|DU|ZIZ97                                                                       
+MCB|DU|ZIZ97                                                                       
+NC |DU|ZIZ97                                                                       
+SI1|DU|ZIZ97                                                                       
+SL9|DU|ZIZ97                                                                       
+SS3|DU|ZIZ97                                                                       
+TL |DU|ZIZ97                                                                       
+TN |DU|ZIZ97                                                                       
+TP |DU|ZIZ97                                                                       
+WB9|DU|ZIZ97                                                                       
+61 |DU|ZIZ97                                                                       
+CA |DU|ZIZ99                                                                       
+TN |DU|ZIZ99                                                                       
+AM |EK|ZIZ99                                                                       
+AM1|EK|ZIZ99                                                                       
+CA |EK|ZIZ99                                                                       
+FS |EK|ZIZ99                                                                       
+IN3|EK|ZIZ99                                                                       
+IN9|EK|ZIZ99                                                                       
+SG |EK|ZIZ99                                                                       
+TL |EK|ZIZ99                                                                       
+TN |EK|ZIZ99                                                                       
+TN2|EK|ZIZ99                                                                       
+TP |EK|ZIZ99                                                                       
+61 |EK|ZIZ99                                                                       
+FS |EK|1BW04                                                                       
+FS |EY|ZIZ99                                                                       
+TL |EY|ZIZ99                                                                       
+   |EY|1BW04                                                                       
+   |EY|1BW05                                                                       
+TP |FL|ZIZ99                                                                       
+   |FL|1ZZ01                                                                       
+AM |FM|ZIZ99                                                                       
+CA |FM|ZIZ99                                                                       
+FS |FM|ZIZ99                                                                       
+TN |FM|ZIZ99                                                                       
+   |HN|ZIZ99                                                                       
+AM |HN|ZIZ99                                                                       
+CM9|HN|ZIZ99                                                                       
+CON|HN|ZIZ99                                                                       
+   |HW|ZIZ99                                                                       
+AM |HW|ZIZ99                                                                       
+CON|HW|ZIZ99                                                                       
+SG |HW|ZIZ99                                                                       
+TL |HW|ZIZ99                                                                       
+TN |HW|ZIZ99                                                                       
+TN2|HW|ZIZ99                                                                       
+TP |HW|ZIZ99                                                                       
+   |HW|1ZZ04                                                                       
+CON|HW|1ZZ04                                                                       
+   |LC|ZIZ99                                                                       
+AM |LC|ZIZ99                                                                       
+AM1|LC|ZIZ99                                                                       
+AO |LC|ZIZ99                                                                       
+CA |LC|ZIZ99                                                                       
+COA|LC|ZIZ99                                                                       
+CON|LC|ZIZ99                                                                       
+FS |LC|ZIZ99                                                                       
+NC |LC|ZIZ99                                                                       
+TL |LC|ZIZ99                                                                       
+TN |LC|ZIZ99                                                                       
+TN2|LC|ZIZ99                                                                       
+AM |LC|1ZZ01                                                                       
+TN |LC|1ZZ01                                                                       
+CON|LC|1ZZ16                                                                       
+AM |MA|1BW02                                                                       
+TN |MA|1BW02                                                                       
+COA|MA|1ZZ01                                                                       
+TN |MA|1ZZ01                                                                       
+   |OW|ZIZ99                                                                       
+AM |OW|ZIZ99                                                                       
+AO |OW|ZIZ99                                                                       
+CA |OW|ZIZ99                                                                       
+CON|OW|ZIZ99                                                                       
+FS |OW|ZIZ99                                                                       
+NC |OW|ZIZ99                                                                       
+   |OW|1ZZ01                                                                       
+CA |OW|1ZZ01                                                                       
+COA|OW|1ZZ01                                                                       
+COS|OW|1ZZ01                                                                       
+FS |OW|1ZZ01                                                                       
+IN3|OW|1ZZ01                                                                       
+SG |OW|1ZZ01                                                                       
+TL |OW|1ZZ01                                                                       
+TN |OW|1ZZ01                                                                       
+TP |OW|1ZZ01                                                                       
+AM |OW|1ZZ02                                                                       
+   |OW|1ZZ03                                                                       
+   |PR|ZIZ99                                                                       
+CA |PR|ZIZ99                                                                       
+PM |PR|ZIZ99                                                                       
+TR |PR|ZIZ99                                                                       
+UP |PR|ZIZ99                                                                       
+   |PR|1OF04                                                                       
+AM |PR|1OF04                                                                       
+AM1|PR|1OF04                                                                       
+CA |PR|1OF04                                                                       
+CH |PR|1OF04                                                                       
+CON|PR|1OF04                                                                       
+COS|PR|1OF04                                                                       
+FS |PR|1OF04                                                                       
+IN3|PR|1OF04                                                                       
+MCB|PR|1OF04                                                                       
+NC |PR|1OF04                                                                       
+SG |PR|1OF04                                                                       
+SM |PR|1OF04                                                                       
+TL |PR|1OF04                                                                       
+TN2|PR|1OF04                                                                       
+TP |PR|1OF04                                                                       
+61 |PR|1OF04                                                                       
+AL1|PR|1OF08                                                                       
+AM |PR|1OF08                                                                       
+CA |PR|1OF08                                                                       
+CH |PR|1OF08                                                                       
+COA|PR|1OF08                                                                       
+COF|PR|1OF08                                                                       
+CON|PR|1OF08                                                                       
+COS|PR|1OF08                                                                       
+EM9|PR|1OF08                                                                       
+HG3|PR|1OF08                                                                       
+IN1|PR|1OF08                                                                       
+IN9|PR|1OF08                                                                       
+KB3|PR|1OF08                                                                       
+NC |PR|1OF08                                                                       
+QI1|PR|1OF08                                                                       
+SG |PR|1OF08                                                                       
+SI9|PR|1OF08                                                                       
+SL3|PR|1OF08                                                                       
+SS3|PR|1OF08                                                                       
+TN |PR|1OF08                                                                       
+TN1|PR|1OF08                                                                       
+TP |PR|1OF08                                                                       
+TR |PR|1OF08                                                                       
+60 |PR|1OF08                                                                       
+61 |PR|1OF08                                                                       
+   |PR|1ZZ02                                                                       
+AM |PR|1ZZ02                                                                       
+AO |PR|1ZZ02                                                                       
+CA |PR|1ZZ02                                                                       
+CM9|PR|1ZZ02                                                                       
+COA|PR|1ZZ02                                                                       
+COK|PR|1ZZ02                                                                       
+CON|PR|1ZZ02                                                                       
+FS |PR|1ZZ02                                                                       
+HG3|PR|1ZZ02                                                                       
+IN3|PR|1ZZ02                                                                       
+IN9|PR|1ZZ02                                                                       
+PK9|PR|1ZZ02                                                                       
+SG |PR|1ZZ02                                                                       
+SL1|PR|1ZZ02                                                                       
+TL |PR|1ZZ02                                                                       
+TN1|PR|1ZZ02                                                                       
+TN2|PR|1ZZ02                                                                       
+61 |PR|1ZZ02                                                                       
+   |RN|HIW02                                                                       
+   |RN|ZIZ99                                                                       
+NC |RN|ZIZ99                                                                       
+   |RN|1ZZ03                                                                       
+AM |SM|ZIZ99                                                                       
+FS |SM|ZIZ99                                                                       
+   |TP|ZIZ01                                                                       
+AM |TP|ZIZ01                                                                       
+CA |TP|ZIZ01                                                                       
+CON|TP|ZIZ01                                                                       
+IN3|TP|ZIZ01                                                                       
+IN9|TP|ZIZ01                                                                       
+TL |TP|ZIZ01                                                                       
+TN |TP|ZIZ01                                                                       
+TP |TP|ZIZ01                                                                       
+61 |TP|ZIZ01                                                                       
+AM |UN|ZIZ99                                                                       
+CA |UN|ZIZ99                                                                       
+CH |UN|ZIZ99                                                                       
+CON|UN|ZIZ99                                                                       
+COS|UN|ZIZ99                                                                       
+FS |UN|ZIZ99                                                                       
+MCB|UN|ZIZ99                                                                       
+SL3|UN|ZIZ99                                                                       
+TL |UN|ZIZ99                                                                       
+TN1|UN|ZIZ99                                                                       
+55 |UN|ZIZ99                                                                       
+56 |UN|ZIZ99                                                                       
+AM |VY|ZIZ01                                                                       
+AM1|VY|ZIZ01                                                                       
+CA |VY|ZIZ01                                                                       
+CH |VY|ZIZ01                                                                       
+CM3|VY|ZIZ01                                                                       
+COA|VY|ZIZ01                                                                       
+COK|VY|ZIZ01                                                                       
+CON|VY|ZIZ01                                                                       
+EM1|VY|ZIZ01                                                                       
+EM9|VY|ZIZ01                                                                       
+GC9|VY|ZIZ01                                                                       
+HC1|VY|ZIZ01                                                                       
+HR3|VY|ZIZ01                                                                       
+IN3|VY|ZIZ01                                                                       
+MCB|VY|ZIZ01                                                                       
+NC |VY|ZIZ01                                                                       
+QD9|VY|ZIZ01                                                                       
+QI1|VY|ZIZ01                                                                       
+SG |VY|ZIZ01                                                                       
+SI9|VY|ZIZ01                                                                       
+SS1|VY|ZIZ01                                                                       
+TL |VY|ZIZ01                                                                       
+TN |VY|ZIZ01                                                                       
+TN2|VY|ZIZ01                                                                       
+TP |VY|ZIZ01                                                                       
+WY9|VY|ZIZ01                                                                       
+60 |VY|ZIZ01                                                                       
+61 |VY|ZIZ01                                                                       
+70 |VY|ZIZ01                                                                       
+73 |VY|ZIZ01                                                                       
+75 |VY|ZIZ01                                                                       
+CA |VY|ZIZ99                                                                       
+FS |VY|ZIZ99                                                                       
+SG |VY|ZIZ99                                                                       
+   |WM|1ZZ01                                                                       
+TN |WM|1ZZ01                                                                       
+   |WN|1BW01                                                                       
+AM |YR|ZIZ97                                                                       
+AM1|YR|ZIZ97                                                                       
+CA |YR|ZIZ97                                                                       
+CON|YR|ZIZ97                                                                       
+FS |YR|ZIZ97                                                                       
+TL |YR|ZIZ97                                                                       
+TN |YR|ZIZ97                                                                       
+TN2|YR|ZIZ97                                                                       
+TP |YR|ZIZ97                                                                       
