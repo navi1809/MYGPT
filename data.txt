@@ -1,59 +1,33 @@
+DUPlicant Participation
+
 {
     "openapi": "3.0.1",
     "info": {
-        "title": "Match Resolution API",
-        "description": "The API for retrieving matches, match details, and submitting new match resolution dispositions.\n",
-        "version": "v1"
+        "title": "Duplicate participation API",
+        "description": "The API where matching will occur",
+        "version": "v2"
     },
     "servers": [
         {
-            "url": "https://api-train.nac.fns.usda.gov/match-resolution/v1"
+            "url": "https://api-train.nac.fns.usda.gov/match/v2"
         }
     ],
     "paths": {
-        "/matches/{match_id}/disposition": {
-            "patch": {
+        "/find_matches": {
+            "post": {
                 "tags": [
-                    "Resolution"
+                    "Match"
                 ],
-                "summary": "Update a state's Disposition",
-                "description": "Update a state's disposition to resolve a match",
-                "operationId": "Update-a-State-s-Disposition",
+                "summary": "Search for all matching participant records using de-identified data",
+                "description": "Searches all state databases for any participant records that are an exact match to the `lds_hash` of persons provided in the request. Does not search the database for the state initiating the request. Each state is allowed a maximum of 1,050 requests per minute.",
+                "operationId": "Find-matches",
                 "parameters": [
-                    {
-                        "name": "match_id",
-                        "in": "path",
-                        "description": "The Match ID retrieved from a match query",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
                     {
                         "name": "From",
                         "in": "header",
                         "description": "As in the HTTP/1.1 RFC, used for logging purposes as a means for identifying the source of invalid or unwanted requests. The interpretation of this field is that the request is being performed on behalf of the state government-affiliated person whose email address (or username) is specified here. It is not used for authentication or authorization.",
-                        "required": true,
                         "schema": {
                             "type": "string"
-                        }
-                    },
-                    {
-                        "name": "X-Initiating-State",
-                        "in": "header",
-                        "description": "Two-letter postal abbreviation for the caller's state role",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "Utc-Offset",
-                        "in": "header",
-                        "description": "The amount of hours that are different between the local time and the UTC time. For example, EST would be -4. Default value is 0 (UTC time).",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
                         }
                     }
                 ],
@@ -67,88 +41,84 @@
                                 "type": "object",
                                 "properties": {
                                     "data": {
-                                        "type": "object",
-                                        "properties": {
-                                            "final_disposition": {
-                                                "type": "string",
-                                                "description": "The final disposition for the match from the state. Valid options: Benefits Approved, Benefits Denied, Benefits Terminated, Benefits Unchanged"
-                                            },
-                                            "initial_action_at": {
-                                                "type": "string",
-                                                "description": "The date of the initial action taken by the state",
-                                                "format": "date"
-                                            },
-                                            "invalid_match": {
-                                                "type": "boolean",
-                                                "description": "The state's determination of whether the match is invalid"
-                                            },
-                                            "vulnerable_individual": {
-                                                "type": "boolean",
-                                                "description": "Determines whether states should protect location of the individual when resolving matches"
-                                            },
-                                            "initial_action_taken": {
-                                                "type": "string",
-                                                "description": "The initial action that was taken towards resolving the match. Valid options: Notice Sent, Client Provided Required Verification, Client Verified Moved Out of State"
-                                            },
-                                            "invalid_match_reason": {
-                                                "type": "string",
-                                                "description": "The reason for marking the match as invalid. Valid options: Incorrect Client Information, System Error, Potential Identity Theft, Other"
-                                            },
-                                            "other_reasoning_for_invalid_match": {
-                                                "type": "string",
-                                                "description": "The reason for having 'OTHER' for invalid_match_reason"
-                                            },
-                                            "final_disposition_date": {
-                                                "type": "string",
-                                                "description": "The date of the final disposition taken by the state",
-                                                "format": "date"
-                                            },
-                                            "state": {
-                                                "type": "string",
-                                                "description": "The state adding the event to the match"
+                                        "maxItems": 50,
+                                        "minItems": 1,
+                                        "type": "array",
+                                        "items": {
+                                            "required": [
+                                                "lds_hash",
+                                                "search_reason",
+                                                "participant_id"
+                                            ],
+                                            "type": "object",
+                                            "properties": {
+                                                "lds_hash": {
+                                                    "pattern": "^[0-9a-f]{128}$",
+                                                    "type": "string",
+                                                    "description": "SHA-512 digest of participant's last name, DoB, and SSN. See docs/pprl.md for details"
+                                                },
+                                                "participant_id": {
+                                                    "pattern": "^[A-Za-z0-9-_]+$",
+                                                    "type": "string",
+                                                    "description": "Participant's state-specific identifier. Unique to the participant. Must not include social security number or other identifying information used outside of the benefits eligibility context."
+                                                },
+                                                "case_id": {
+                                                    "pattern": "^[A-Za-z0-9-_]+$",
+                                                    "type": "string",
+                                                    "description": "Participant's state-specific case number"
+                                                },
+                                                "search_reason": {
+                                                    "type": "string",
+                                                    "description": "The case action or other valid reason for performing the NAC search.  Valid options are 'application', 'recertification', 'new_household_member', or 'other'"
+                                                },
+                                                "vulnerable_individual": {
+                                                    "type": "boolean",
+                                                    "description": "Location protection flag for vulnerable individuals. True values indicate that the individual’s location must be protected from disclosure to avoid harm to the individual. Apply the same protections to true and null values."
+                                                }
                                             }
-                                        }
+                                        },
+                                        "description": "An array containing 1 to 50 individuals to match against records of active participants in other States"
                                     }
                                 }
                             },
                             "examples": {
-                                "Both": {
-                                    "description": "Example of an initiating state providing the initial action and final disposition fields for a match created earlier than the initial_action_at",
+                                "Single person": {
+                                    "description": "An example request to query a single person, with values for all fields",
                                     "value": {
-                                        "data": {
-                                            "initial_action_at": "2024-05-26",
-                                            "initial_action_taken": "Notice Sent",
-                                            "final_disposition": "Benefits Approved",
-                                            "final_disposition_date": "2024-05-30"
-                                        }
+                                        "data": [
+                                            {
+                                                "lds_hash": "eaa834c957213fbf958a5965c46fa50939299165803cd8043e7b1b0ec07882dbd5921bce7a5fb45510670b46c1bf8591bf2f3d28d329e9207b7b6d6abaca5458",
+                                                "case_id": "CaseNumber12345",
+                                                "participant_id": "ParticipantId12345",
+                                                "search_reason": "application",
+                                                "vulnerable_individual": true
+                                            }
+                                        ]
                                     }
                                 },
-                                "InvalidMatch": {
-                                    "description": "Example of a state claiming the match is invalid",
+                                "Single required person": {
+                                    "description": "An example request to query a single person, with values for all required fields",
                                     "value": {
-                                        "data": {
-                                            "invalid_match": true,
-                                            "invalid_match_reason": "Other",
-                                            "other_reasoning_for_invalid_match": "invalid match reasoning here"
-                                        }
+                                        "data": [
+                                            {
+                                                "lds_hash": "eaa834c957213fbf958a5965c46fa50939299165803cd8043e7b1b0ec07882dbd5921bce7a5fb45510670b46c1bf8591bf2f3d28d329e9207b7b6d6abaca5458",
+                                                "participant_id": "ParticipantId12345",
+                                                "search_reason": "other"
+                                            }
+                                        ]
                                     }
                                 },
-                                "FinalDisposition": {
-                                    "description": "Example of a state providing their final disposition",
+                                "Multiple persons": {
+                                    "description": "A request with multiple persons",
                                     "value": {
-                                        "data": {
-                                            "final_disposition": "Benefits Approved",
-                                            "final_disposition_date": "2024-05-30"
-                                        }
-                                    }
-                                },
-                                "InitialAction": {
-                                    "description": "Example of a state providing their initial action",
-                                    "value": {
-                                        "data": {
-                                            "initial_action_at": "2024-05-26",
-                                            "initial_action_taken": "Notice Sent"
-                                        }
+                                        "data": [
+                                            {
+                                                "lds_hash": "eaa834c957213fbf958a5965c46fa50939299165803cd8043e7b1b0ec07882dbd5921bce7a5fb45510670b46c1bf8591bf2f3d28d329e9207b7b6d6abaca5458"
+                                            },
+                                            {
+                                                "lds_hash": "97719c32bb3c6a5e08c1241a7435d6d7047e75f40d8b3880744c07fef9d586954f77dc93279044c662d5d379e9c8a447ce03d9619ce384a7467d322e647e5d95"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -157,1139 +127,325 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Successfully updated"
-                    },
-                    "400": {
-                        "description": "Bad request. Request body does not match the required format.",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "Default": {
-                                        "description": "400 Bad Request exception",
-                                        "value": {
-                                            "errors": [
-                                                {
-                                                    "status": "400",
-                                                    "title": "Error validating data",
-                                                    "detail": "Initial Action Date cannot be before the match date of MM/DD/YYYY"
-                                                },
-                                                {
-                                                    "status": "400",
-                                                    "title": "Error validating data",
-                                                    "detail": "sent the notice is not a valid value for Initial Action Taken as a Matching State"
-                                                },
-                                                {
-                                                    "status": "400",
-                                                    "title": "Error validating data",
-                                                    "detail": "Invalid Match Reason is not allowed unless Invalid Match is set to True"
-                                                },
-                                                {
-                                                    "status": "400",
-                                                    "title": "Error validating data",
-                                                    "detail": "wrong value is not a valid value for Final Disposition Taken as a Matching State"
-                                                }
-                                            ]
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "Default": {
-                                        "description": "401 Access Denied",
-                                        "value": {
-                                            "statusCode": "401",
-                                            "message": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "Default": {
-                                        "description": "404 Not Found exception",
-                                        "value": {
-                                            "errors": [
-                                                {
-                                                    "status": "404",
-                                                    "title": "NotFoundException",
-                                                    "detail": "not found"
-                                                }
-                                            ]
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "UnprocessableEntity",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "Default": {
-                                        "description": "422 UnprocessableEntity",
-                                        "value": {
-                                            "errors": [
-                                                {
-                                                    "status": "422",
-                                                    "title": "UnprocessableEntity",
-                                                    "detail": "Duplicate action not allowed"
-                                                }
-                                            ]
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests. The status code indicates the user has sent too many requests in a given amount of time 'rate limiting'."
-                    }
-                }
-            }
-        },
-        "/matches": {
-            "get": {
-                "tags": [
-                    "Resolution"
-                ],
-                "summary": "Search for all existing matches in match database",
-                "description": "Searches for all open existing matches in match database",
-                "operationId": "Get-Matches",
-                "parameters": [
-                    {
-                        "name": "Page",
-                        "in": "query",
-                        "description": "The page of results being requested. By default Get Matches returns 10 results per page.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "PerPage",
-                        "in": "query",
-                        "description": "The number of items we want returned per page. Must be below 101 and above 0 or else it will be automatically changed",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "State",
-                        "in": "query",
-                        "description": "Sender's current state. Note: This should not be passed in the request object, but instead will be set via the request location header",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "SortColumn",
-                        "in": "query",
-                        "description": "The field to sort the matches returned by. Options are: Match Status (status), State (state) (will sort alphabetically by the state that is not the X-Request-Location), Resolution status (resolution), Created At (created_at), Match Id (match_id), MBM or Query made (source), and Last Updated At (last_updated_at)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "SortAscending",
-                        "in": "query",
-                        "description": "Whether or not we are sorting Ascending or Descending. Value only matters if SortColumn is set, otherwise is ignore.",
-                        "schema": {
-                            "type": "boolean"
-                        }
-                    },
-                    {
-                        "name": "HoursOffset",
-                        "in": "query",
-                        "description": "The number of hours that the current user is offset from UTC time",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "StartDate",
-                        "in": "query",
-                        "description": "Filter only for matches created on or after this time. Some valid formats include: YYYY-MM-DD and YYYY-MM-DD HH:MM:SS. If no time is provided, midnight will be assumed. For example, passing 2024-12-01 will grab records created on or after midnight on December 1, 2024. Passing 2024-12-01 12:00:00 will grab records created on or after noon on December 1, 2024.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "EndDate",
-                        "in": "query",
-                        "description": "Filter only for matches created before this time. Some valid formats include: YYYY-MM-DD and YYYY-MM-DD HH:MM:SS. If no time is provided, midnight will be assumed. For example, passing 2024-12-01 will grab records created before (not including) December 1, 2024. Passing 2024-12-01 12:00:00 will grab records created before noon on December 1, 2024.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "OtherState",
-                        "in": "query",
-                        "description": "Filter only for matches between sender's state and another state",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "Region",
-                        "in": "query",
-                        "description": "Filter only for matches that include a state from this region",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "Lds",
-                        "in": "query",
-                        "description": "Filter for only matches with the Lds hash",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "MatchId",
-                        "in": "query",
-                        "description": "Filter for only matches with the given Match ID",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "ParticipantId",
-                        "in": "query",
-                        "description": "Filter for only matches with the given participant ID",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "CaseNumber",
-                        "in": "query",
-                        "description": "Filter for only matches with the given case number",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "ResolutionStatus",
-                        "in": "query",
-                        "description": "Filter by any of the listed resolution statuses (Not Started, In Progress, Completed). Remember, any spaces must be URL encoded.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "OtherStateResolutionStatus",
-                        "in": "query",
-                        "description": "Filter by any of the listed resolution statuses (Not Started, In Progress, Completed) for the other state in the match. Remember, any spaces must be URL encoded.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "Source",
-                        "in": "query",
-                        "description": "Filter by the source of the match (Query, MBM)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "MatchStatus",
-                        "in": "query",
-                        "description": "Filter by any of the listed match statuses (open, closed)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "LastUpdatedAt",
-                        "in": "query",
-                        "description": "Filter by date & time matches were last updated. All matches updated at or after this time will be returned. Some valid formats include: YYYY-MM-DD and YYYY-MM-DD HH:MM:SS. If no time is provided, midnight will be assumed. For example, passing 2024-12-01 will grab records last updated on or after December 1, 2024. Passing 2024-12-01 12:00:00 will grab records last updated on or after noon on December 1, 2024.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "LastUpdatedTo",
-                        "in": "query",
-                        "description": "Filter by date & time matches were last updated until the date/time provided. Some valid formats include: YYYY-MM-DD and YYYY-MM-DD HH:MM:SS. If no time is provided, midnight will be assumed. For example, passing 2024-12-01 will grab records last updated before (not including) December 1, 2024. Passing 2024-12-01 12:00:00 will grab records last updated before noon on December 1, 2024.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "InitialAction",
-                        "in": "query",
-                        "description": "Filter by any of the listed initial actions (None, Notice Sent, Client Provided Required Verification, Client Verified Moved Out of State). Remember, any spaces must be URL encoded.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "OtherStateInitialAction",
-                        "in": "query",
-                        "description": "Filter by any of the listed initial actions (None, Notice Sent, Client Provided Required Verification, Client Verified Moved Out of State) for the other state in the match. Remember, any spaces must be URL encoded.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "FinalDisposition",
-                        "in": "query",
-                        "description": "Filter by any of the listed final dispositions (None, Benefits Approved, Benefits Terminated, Benefits Unchanged, Benefits Denied). Remember, any spaces must be URL encoded.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "OtherStateFinalDisposition",
-                        "in": "query",
-                        "description": "Filter by any of the listed final dispositions (None, Benefits Approved, Benefits Terminated, Benefits Unchanged, Benefits Denied) for the other state in the match. Remember, any spaces must be URL encoded.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "InvalidMatchReason",
-                        "in": "query",
-                        "description": "Filter by any of the listed invalid match selections (Yes, No, Unanswered), or in addition you can specify the reason as well. Example: Yes, Other. Remember, any spaces and commas must be URL encoded",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "OtherStateInvalidMatchReason",
-                        "in": "query",
-                        "description": "For the other state in the match, filter by any of the listed invalid match selections (Yes, No, Unanswered), or in addition you can specify the reason as well. Example: Yes, Other. Remember, any spaces and commas must be URL encoded",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "QueryMatchRole",
-                        "in": "query",
-                        "description": "Filter for matches where you are either Initiating or Matching state. Pass 'Initiating' for matches where you are the initiating state, and/or 'Matching' for matches where you are the matching state. MBM matches will not be returned since you are neither the initiating or matching state.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "ReportType",
-                        "in": "query",
-                        "description": "Filter by the type of report( mbm , consolidated)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "X-Request-Location",
-                        "in": "header",
-                        "description": "The State that the User is from. e.g. EB for an Echo Bravo user. This will be used to find all matches including this state in one of the initiating or matching state fields",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful response. Returns matches",
+                        "description": "Successful response. Returns match response items.",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "title": "Get Matches response",
+                                    "title": "Match response",
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "required": [
-                                                    "dispositions",
-                                                    "initiator",
-                                                    "match_id",
-                                                    "created_at",
-                                                    "participants",
-                                                    "states",
-                                                    "status",
-                                                    "init_state_primary_contact_email",
-                                                    "matching_state_primary_contact_email",
-                                                    "init_state_phone",
-                                                    "matching_state_phone",
-                                                    "init_state",
-                                                    "matching_state"
-                                                ],
-                                                "type": "object",
-                                                "properties": {
-                                                    "dispositions": {
-                                                        "type": "array",
-                                                        "items": {
-                                                            "required": [
-                                                                "state"
-                                                            ],
-                                                            "type": "object",
-                                                            "properties": {
-                                                                "initial_action_at": {
-                                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                                    "type": "string",
-                                                                    "description": "The date the initial action was taken",
-                                                                    "example": "2021-01-31"
-                                                                },
-                                                                "initial_action_taken": {
-                                                                    "type": "string",
-                                                                    "description": "Which action was taken"
-                                                                },
-                                                                "invalid_match": {
-                                                                    "type": "boolean",
-                                                                    "description": "Whether or not the match was valid"
-                                                                },
-                                                                "invalid_match_reason": {
-                                                                    "type": "string",
-                                                                    "description": "The reason the match was marked invalid"
-                                                                },
-                                                                "other_reasoning_for_invalid_match": {
-                                                                    "type": "string",
-                                                                    "description": "The reasoning behind marking the invalid match reason as Other"
-                                                                },
-                                                                "final_disposition": {
-                                                                    "type": "string",
-                                                                    "description": "What the final dispostion was"
-                                                                },
-                                                                "final_disposition_date": {
-                                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                                    "type": "string",
-                                                                    "description": "The date the final disposition was taken on",
-                                                                    "example": "2021-01-31"
-                                                                },
-                                                                "vulnerable_individual": {
-                                                                    "type": "boolean",
-                                                                    "description": "A true, false, or null value on whether or not the participants location needs to be protected"
-                                                                },
-                                                                "state": {
-                                                                    "type": "string",
-                                                                    "description": "The state that took these actions"
+                                            "required": [
+                                                "results",
+                                                "errors"
+                                            ],
+                                            "type": "object",
+                                            "properties": {
+                                                "results": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "required": [
+                                                            "index",
+                                                            "matches"
+                                                        ],
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "index": {
+                                                                "type": "integer",
+                                                                "description": "The index of the person that the result corresponds to, starting from 0. Index is derived from the implicit order of persons provided in the request."
+                                                            },
+                                                            "matches": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "required": [
+                                                                        "state",
+                                                                        "participant_id",
+                                                                        "case_id",
+                                                                        "match_id",
+                                                                        "match_url",
+                                                                        "lds_hash"
+                                                                    ],
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "match_id": {
+                                                                            "type": "string",
+                                                                            "description": "Unique identifier for the match. Generated by the NAC system when a match is found."
+                                                                        },
+                                                                        "state": {
+                                                                            "type": "string",
+                                                                            "description": "State/territory two-letter postal abbreviation"
+                                                                        },
+                                                                        "case_id": {
+                                                                            "type": "string",
+                                                                            "description": "Participant's state-specific case identifier. Can be the same for multiple participants."
+                                                                        },
+                                                                        "participant_id": {
+                                                                            "type": "string",
+                                                                            "description": "Participant's state-specific identifier. Unique to the participant. Must not include social security number or other identifying information used outside of the benefits eligibility context."
+                                                                        },
+                                                                        "participant_closing_date": {
+                                                                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                                                                            "type": "string",
+                                                                            "description": "Date when the Participant's case will close. This will be the last date the participate is eligible to receive benefits.",
+                                                                            "example": "2021-01-31"
+                                                                        },
+                                                                        "vulnerable_individual": {
+                                                                            "type": "boolean",
+                                                                            "description": "Location protection flag for vulnerable individuals. True values indicate that the individual’s location must be protected from disclosure to avoid harm to the individual. Apply the same protections to true and null values.",
+                                                                            "nullable": true,
+                                                                            "example": true
+                                                                        },
+                                                                        "recent_certification_months": {
+                                                                            "maxLength": 3,
+                                                                            "minLength": 0,
+                                                                            "type": "array",
+                                                                            "items": {
+                                                                                "type": "string",
+                                                                                "description": "default to start of the month and year"
+                                                                            },
+                                                                            "description": "Collection of up to 3 date that participant has been certified at the time the match was found."
+                                                                        },
+                                                                        "match_url": {
+                                                                            "type": "string",
+                                                                            "description": "URL to visit to view details about this match."
+                                                                        }
+                                                                    }
                                                                 }
                                                             }
-                                                        },
-                                                        "description": "The dispostions of each state"
+                                                        }
                                                     },
-                                                    "initiator": {
-                                                        "type": "string",
-                                                        "description": "The state that initiated the match"
-                                                    },
-                                                    "match_id": {
-                                                        "type": "string",
-                                                        "description": "The unique id that identifies the match"
-                                                    },
-                                                    "created_at": {
-                                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}[T]\\d{2}:\\d{2}:\\d{2}\\.\\d{6}[Z]$",
-                                                        "type": "string",
-                                                        "description": "The date the match was created on",
-                                                        "example": "2024-08-13T18:11:53.131701Z"
-                                                    },
-                                                    "participants": {
-                                                        "type": "array",
-                                                        "items": {
-                                                            "required": [
-                                                                "participant_id"
-                                                            ],
-                                                            "type": "object",
-                                                            "properties": {
-                                                                "case_id": {
-                                                                    "type": "string",
-                                                                    "description": "The identifier for this participants instance of benefits"
-                                                                },
-                                                                "participant_closing_date": {
-                                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                                    "type": "string",
-                                                                    "description": "The last date the participant will recieve benefits in that state",
-                                                                    "example": "2021-01-31"
-                                                                },
-                                                                "participant_id": {
-                                                                    "type": "string",
-                                                                    "description": "An identifier for the participant"
-                                                                },
-                                                                "state": {
-                                                                    "type": "string",
-                                                                    "description": "The state that the other parameters refer to"
-                                                                },
-                                                                "vulnerable_individual": {
-                                                                    "type": "boolean",
-                                                                    "description": "A true, false, or null value on whether or not the participants location needs to be protected"
-                                                                },
-                                                                "recent_certification_months": {
-                                                                    "type": "array",
-                                                                    "items": {
-                                                                        "type": "string"
-                                                                    },
-                                                                    "description": "The list of months the participant has recently received certification"
-                                                                }
+                                                    "description": "Array of query results. For every person provided in the request, a result is returned, even if no matches are found. If a query fails, the failure data will be in the errors array."
+                                                },
+                                                "errors": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "required": [
+                                                            "index"
+                                                        ],
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "index": {
+                                                                "type": "integer",
+                                                                "description": "The index of the person that the result corresponds to, starting from 0. Index is derived from the implicit order of persons provided in the request."
+                                                            },
+                                                            "code": {
+                                                                "type": "string",
+                                                                "description": "The application-specific error code"
+                                                            },
+                                                            "title": {
+                                                                "type": "string",
+                                                                "description": "The short, human-readable summary of the error, consistent across all occurrences of the error"
+                                                            },
+                                                            "detail": {
+                                                                "type": "string",
+                                                                "description": "The human-readable explanation specific to this occurrence of the error"
                                                             }
-                                                        },
-                                                        "description": "The participant was matched in both states"
+                                                        }
                                                     },
-                                                    "states": {
-                                                        "type": "array",
-                                                        "items": {
-                                                            "type": "string"
-                                                        },
-                                                        "description": "The states that are involved in the match"
-                                                    },
-                                                    "init_state_primary_contact_email": {
-                                                        "type": "string",
-                                                        "description": "The main email used for contacting the initiating state"
-                                                    },
-                                                    "init_state_phone": {
-                                                        "type": "string",
-                                                        "description": "The main phone number used for contacting the initiating state"
-                                                    },
-                                                    "matching_state_primary_contact_email": {
-                                                        "type": "string",
-                                                        "description": "The main email used for contacting the matching state"
-                                                    },
-                                                    "matching_state_phone": {
-                                                        "type": "string",
-                                                        "description": "The main phone number used for contacting the matching state"
-                                                    },
-                                                    "status": {
-                                                        "type": "string",
-                                                        "description": "The status of whether or not the match resolution has been closed. Possible statuses are open or closed"
-                                                    },
-                                                    "mbm_created_at": {
-                                                        "pattern": "(\\d{4}-\\d{2})(,(\\d{4}-\\d{2}))*",
-                                                        "type": "string",
-                                                        "description": "The date the match was created by the mbm. Will be null if the match was not made by mbm",
-                                                        "example": "2024-06,2024-07,2024-08"
-                                                    },
-                                                    "init_state": {
-                                                        "type": "string",
-                                                        "description": "The full state name of the state that initiated"
-                                                    },
-                                                    "init_state_invalid_match": {
-                                                        "type": "boolean",
-                                                        "description": "Whether or not the match was valid for the initiating state"
-                                                    },
-                                                    "init_state_invalid_match_reason": {
-                                                        "type": "string",
-                                                        "description": "The reason the match was declared invalid for the initiating state"
-                                                    },
-                                                    "init_state_other_reasoning_for_invalid_match": {
-                                                        "type": "string",
-                                                        "description": "The reason the invalid match reason was declared Other for the initiating state"
-                                                    },
-                                                    "init_state_initial_action_at": {
-                                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                        "type": "string",
-                                                        "description": "The date the initial action was taken for the initiating state",
-                                                        "example": "2021-01-31"
-                                                    },
-                                                    "init_state_initial_action_taken": {
-                                                        "type": "string",
-                                                        "description": "Which action was taken for the initiating state"
-                                                    },
-                                                    "init_state_final_disposition": {
-                                                        "type": "string",
-                                                        "description": "What the final dispostion was for the initiating state"
-                                                    },
-                                                    "init_state_final_disposition_date": {
-                                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                        "type": "string",
-                                                        "description": "The date the final disposition was taken on for the initiating state",
-                                                        "example": "2021-01-31"
-                                                    },
-                                                    "init_state_vulnerable_individual": {
-                                                        "type": "boolean",
-                                                        "description": "A true, false, or null value on whether or not the participants location needs to be protected for the initiating state"
-                                                    },
-                                                    "init_state_resolution_status": {
-                                                        "type": "string",
-                                                        "description": "The status of the match for the initiating state"
-                                                    },
-                                                    "init_state_case_id": {
-                                                        "type": "string",
-                                                        "description": "The identifier for this participants instance of benefits for the initiating state"
-                                                    },
-                                                    "init_state_participant_id": {
-                                                        "type": "string",
-                                                        "description": "An identifier for the participant for the initiating state"
-                                                    },
-                                                    "matching_state": {
-                                                        "type": "string",
-                                                        "description": "The full state name of the matching state"
-                                                    },
-                                                    "matching_state_invalid_match": {
-                                                        "type": "boolean",
-                                                        "description": "Whether or not the match was valid for the matching state"
-                                                    },
-                                                    "matching_state_invalid_match_reason": {
-                                                        "type": "string",
-                                                        "description": "The reason the match was declared invalid for the matching state"
-                                                    },
-                                                    "matching_state_other_reasoning_for_invalid_match": {
-                                                        "type": "string",
-                                                        "description": "The reason the invalid match reason was declared Other for the matching state"
-                                                    },
-                                                    "matching_state_initial_action_at": {
-                                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                        "type": "string",
-                                                        "description": "The date the initial action was taken for the matching state",
-                                                        "example": "2021-01-31"
-                                                    },
-                                                    "matching_state_initial_action_taken": {
-                                                        "type": "string",
-                                                        "description": "Which action was taken for the matching state"
-                                                    },
-                                                    "matching_state_final_disposition": {
-                                                        "type": "string",
-                                                        "description": "What the final dispostion was for the matching state"
-                                                    },
-                                                    "matching_state_final_disposition_date": {
-                                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                        "type": "string",
-                                                        "description": "The date the final disposition was taken on for the matching state",
-                                                        "example": "2021-01-31"
-                                                    },
-                                                    "matching_state_vulnerable_individual": {
-                                                        "type": "boolean",
-                                                        "description": "A true, false, or null value on whether or not the participants location needs to be protected for the matching state"
-                                                    },
-                                                    "matching_state_resolution_status": {
-                                                        "type": "string",
-                                                        "description": "The status of the match for the matching state"
-                                                    },
-                                                    "matching_state_case_id": {
-                                                        "type": "string",
-                                                        "description": "The identifier for this participants instance of benefits for the matching state"
-                                                    },
-                                                    "matching_state_participant_id": {
-                                                        "type": "string",
-                                                        "description": "An identifier for the participant for the matching state"
-                                                    },
-                                                    "last_updated_at": {
-                                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}[T]\\d{2}:\\d{2}:\\d{2}\\.\\d{6}[Z]$",
-                                                        "type": "string",
-                                                        "description": "The date and time the match was last updated on",
-                                                        "example": "2024-08-13T18:11:53.131701Z"
-                                                    }
+                                                    "description": "Array of error objects corresponding to a person in the request. If a query for a single person fails, the failure data will display here. Note that a single person in a request could have multiple error items."
                                                 }
                                             },
                                             "description": "The response payload. Either an errors or data property will be present in the response, but not both.",
                                             "nullable": true
                                         },
-                                        "meta": {
-                                            "type": "object",
-                                            "properties": {
-                                                "perPage": {
-                                                    "type": "integer",
-                                                    "description": "An integer of how many matches will show up on each page of results"
-                                                },
-                                                "page": {
-                                                    "type": "integer",
-                                                    "description": "An integer of which page the results are being shown for"
-                                                },
-                                                "total": {
-                                                    "type": "integer",
-                                                    "description": "An integer of how many matches were returned"
-                                                },
-                                                "pageQueryParams": {
-                                                    "type": "string",
-                                                    "description": "A string of all parameters that were used to filter for this request"
-                                                }
-                                            },
-                                            "description": "An object containing data about the results"
-                                        }
-                                    }
-                                },
-                                "example": {
-                                    "data": [
-                                        {
-                                            "dispositions": [
-                                                {
-                                                    "initial_action_at": "2021-01-31",
-                                                    "initial_action_taken": "string",
-                                                    "invalid_match": true,
-                                                    "invalid_match_reason": "string",
-                                                    "other_reasoning_for_invalid_match": "string",
-                                                    "final_disposition": "string",
-                                                    "final_disposition_date": "2021-01-31",
-                                                    "vulnerable_individual": true,
-                                                    "state": "string"
-                                                }
-                                            ],
-                                            "initiator": "string",
-                                            "match_id": "string",
-                                            "created_at": "2024-08-13T18:11:53.1317010+00:00",
-                                            "participants": [
-                                                {
-                                                    "case_id": "string",
-                                                    "participant_closing_date": "2021-01-31",
-                                                    "participant_id": "string",
-                                                    "state": "string",
-                                                    "vulnerable_individual": true,
-                                                    "recent_certification_months": [
-                                                        "string"
-                                                    ]
-                                                }
-                                            ],
-                                            "states": [
-                                                "string"
-                                            ],
-                                            "init_state_primary_contact_email": "string",
-                                            "init_state_phone": "string",
-                                            "matching_state_primary_contact_email": "string",
-                                            "matching_state_phone": "string",
-                                            "status": "string",
-                                            "mbm_created_at": "2024-06,2024-07,2024-08",
-                                            "init_state": "string",
-                                            "init_state_invalid_match": true,
-                                            "init_state_invalid_match_reason": "string",
-                                            "init_state_other_reasoning_for_invalid_match": "string",
-                                            "init_state_initial_action_at": "2021-01-31",
-                                            "init_state_initial_action_taken": "string",
-                                            "init_state_final_disposition": "string",
-                                            "init_state_final_disposition_date": "2021-01-31",
-                                            "init_state_vulnerable_individual": true,
-                                            "init_state_resolution_status": "string",
-                                            "init_state_case_id": "string",
-                                            "init_state_participant_id": "string",
-                                            "matching_state": "string",
-                                            "matching_state_invalid_match": true,
-                                            "matching_state_invalid_match_reason": "string",
-                                            "matching_state_other_reasoning_for_invalid_match": "string",
-                                            "matching_state_initial_action_at": "2021-01-31",
-                                            "matching_state_initial_action_taken": "string",
-                                            "matching_state_final_disposition": "string",
-                                            "matching_state_final_disposition_date": "2021-01-31",
-                                            "matching_state_vulnerable_individual": true,
-                                            "matching_state_resolution_status": "string",
-                                            "matching_state_case_id": "string",
-                                            "matching_state_participant_id": "string",
-                                            "last_updated_at": "2024-08-13T18:11:53.1317010+00:00"
-                                        }
-                                    ],
-                                    "meta": {
-                                        "perPage": 0,
-                                        "page": 0,
-                                        "total": 0,
-                                        "pageQueryParams": "string"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "Default": {
-                                        "description": "401 Access Denied",
-                                        "value": {
-                                            "statusCode": "401",
-                                            "message": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests. The status code indicates the user has sent too many requests in a given amount of time 'rate limiting'."
-                    }
-                }
-            }
-        },
-        "/matches/{match_id}": {
-            "get": {
-                "tags": [
-                    "Resolution"
-                ],
-                "summary": "Get Match Details",
-                "description": "Get Match details for resolving matches between states",
-                "operationId": "Get-Match-Details",
-                "parameters": [
-                    {
-                        "name": "match_id",
-                        "in": "path",
-                        "description": "The Match ID retrieved from a match query",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "From",
-                        "in": "header",
-                        "description": "As in the HTTP/1.1 RFC, used for logging purposes as a means for identifying the source of invalid or unwanted requests. The interpretation of this field is that the request is being performed on behalf of the state government-affiliated person whose email address (or username) is specified here. It is not used for authentication or authorization.",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "X-Request-Location",
-                        "in": "header",
-                        "description": "The state or region abbreviation for the user making the request. If the user is a national office user, this should be *",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "required": [
-                                                "initiator",
-                                                "match_id",
-                                                "states",
-                                                "status",
-                                                "participants",
-                                                "dispositions"
-                                            ],
-                                            "type": "object",
-                                            "properties": {
-                                                "created_at": {
-                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}[T]\\d{2}:\\d{2}:\\d{2}\\.\\d{6}[Z]$",
-                                                    "type": "string",
-                                                    "description": "The date the match was created on",
-                                                    "example": "2021-01-13T18:11:53.131701Z"
-                                                },
-                                                "initiator": {
-                                                    "type": "string",
-                                                    "description": "The state that initiated the match"
-                                                },
-                                                "match_id": {
-                                                    "type": "string",
-                                                    "description": "The unique id that identifies the match"
-                                                },
-                                                "states": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "string"
-                                                    },
-                                                    "description": "The states that are involved in the match"
-                                                },
-                                                "init_state_primary_contact_email": {
-                                                    "type": "string",
-                                                    "description": "The main email used for contacting the initiating state"
-                                                },
-                                                "init_state_phone": {
-                                                    "type": "string",
-                                                    "description": "The main phone number used for contacting the initiating state"
-                                                },
-                                                "matching_state_primary_contact_email": {
-                                                    "type": "string",
-                                                    "description": "The main email used for contacting the matching state"
-                                                },
-                                                "matching_state_phone": {
-                                                    "type": "string",
-                                                    "description": "The main phone number used for contacting the matching state"
-                                                },
-                                                "status": {
-                                                    "type": "string",
-                                                    "description": "The status of whether or not the match resolution has been closed. Possible statuses are open or closed"
-                                                },
-                                                "mbm_created_at": {
-                                                    "pattern": "(\\d{4}-\\d{2})(,(\\d{4}-\\d{2}))*",
-                                                    "type": "string",
-                                                    "description": "The year and month the match was created by the mbm. Will be null if the match was not made by mbm",
-                                                    "example": "2024-06,2024-07,2024-08"
-                                                },
-                                                "init_state": {
-                                                    "type": "string",
-                                                    "description": "The full state name of the state that initiated"
-                                                },
-                                                "init_state_invalid_match": {
-                                                    "type": "boolean",
-                                                    "description": "Whether or not the match was valid for the initiating state"
-                                                },
-                                                "init_state_invalid_match_reason": {
-                                                    "type": "string",
-                                                    "description": "The reason the match was declared invalid for the initiating state"
-                                                },
-                                                "init_state_other_reasoning_for_invalid_match": {
-                                                    "type": "string",
-                                                    "description": "The reason the invalid match reason was declared Other for the initiating state"
-                                                },
-                                                "init_state_initial_action_at": {
-                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                    "type": "string",
-                                                    "description": "The date the initial action was taken for the initiating state",
-                                                    "example": "2021-01-31"
-                                                },
-                                                "init_state_initial_action_taken": {
-                                                    "type": "string",
-                                                    "description": "Which action was taken for the initiating state"
-                                                },
-                                                "init_state_final_disposition": {
-                                                    "type": "string",
-                                                    "description": "What the final dispostion was for the initiating state"
-                                                },
-                                                "init_state_final_disposition_date": {
-                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                    "type": "string",
-                                                    "description": "The date the final disposition was taken on for the initiating state",
-                                                    "example": "2021-01-31"
-                                                },
-                                                "init_state_vulnerable_individual": {
-                                                    "type": "boolean",
-                                                    "description": "A true, false, or null value on whether or not the participants location needs to be protected for the initiating state"
-                                                },
-                                                "init_state_resolution_status": {
-                                                    "type": "string",
-                                                    "description": "The status of the match for the initiating state"
-                                                },
-                                                "init_state_case_id": {
-                                                    "type": "string",
-                                                    "description": "The identifier for this participants instance of benefits for the initiating state"
-                                                },
-                                                "init_state_participant_id": {
-                                                    "type": "string",
-                                                    "description": "An identifier for the participant for the initiating state"
-                                                },
-                                                "matching_state": {
-                                                    "type": "string",
-                                                    "description": "The full state name of the matching state"
-                                                },
-                                                "matching_state_invalid_match": {
-                                                    "type": "boolean",
-                                                    "description": "Whether or not the match was valid for the matching state"
-                                                },
-                                                "matching_state_invalid_match_reason": {
-                                                    "type": "string",
-                                                    "description": "The reason the match was declared invalid for the matching state"
-                                                },
-                                                "matching_state_other_reasoning_for_invalid_match": {
-                                                    "type": "string",
-                                                    "description": "The reason the invalid match reason was declared Other for the matching state"
-                                                },
-                                                "matching_state_initial_action_at": {
-                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                    "type": "string",
-                                                    "description": "The date the initial action was taken for the matching state",
-                                                    "example": "2021-01-31"
-                                                },
-                                                "matching_state_initial_action_taken": {
-                                                    "type": "string",
-                                                    "description": "Which action was taken for the matching state"
-                                                },
-                                                "matching_state_final_disposition": {
-                                                    "type": "string",
-                                                    "description": "What the final dispostion was for the matching state"
-                                                },
-                                                "matching_state_final_disposition_date": {
-                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                    "type": "string",
-                                                    "description": "The date the final disposition was taken on for the matching state",
-                                                    "example": "2021-01-31"
-                                                },
-                                                "matching_state_vulnerable_individual": {
-                                                    "type": "boolean",
-                                                    "description": "A true, false, or null value on whether or not the participants location needs to be protected for the matching state"
-                                                },
-                                                "matching_state_resolution_status": {
-                                                    "type": "string",
-                                                    "description": "The status of the match for the matching state"
-                                                },
-                                                "matching_state_case_id": {
-                                                    "type": "string",
-                                                    "description": "The identifier for this participants instance of benefits for the matching state"
-                                                },
-                                                "matching_state_participant_id": {
-                                                    "type": "string",
-                                                    "description": "An identifier for the participant for the matching state"
-                                                },
-                                                "last_updated_at": {
-                                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}[T]\\d{2}:\\d{2}:\\d{2}\\.\\d{6}[Z]$",
-                                                    "type": "string",
-                                                    "description": "The date and time the match was last updated on",
-                                                    "example": "2021-02-06T14:54:05.670329Z"
-                                                },
-                                                "participants": {
-                                                    "required": [
-                                                        "case_id",
-                                                        "participant_id",
-                                                        "participant_closing_date",
-                                                        "recent_certification_months"
-                                                    ],
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "case_id": {
-                                                                "type": "string",
-                                                                "description": "Case ID of matched participant in this state at the time the match was found"
-                                                            },
-                                                            "participant_closing_date": {
-                                                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                                "type": "string",
-                                                                "description": "Date when participant's case will close at the time a match was found. This will be the last date the participant is eligible to receive benefits.",
-                                                                "format": "date",
-                                                                "example": "2021-01-31"
-                                                            },
-                                                            "participant_id": {
-                                                                "type": "string",
-                                                                "description": "Participant ID of matched participant in this state at the time the match was found"
-                                                            },
-                                                            "recent_certification_months": {
-                                                                "maxLength": 3,
-                                                                "minLength": 0,
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "pattern": "^[A-Z]{1}[a-z]*\\s\\d{4}$",
-                                                                    "type": "string",
-                                                                    "description": "default to start of the month and year.",
-                                                                    "example": "March 2021"
-                                                                },
-                                                                "description": "The list of recently received certification months for the participant."
-                                                            },
-                                                            "state": {
-                                                                "type": "string",
-                                                                "description": "Two-letter postal abbreviation for the state to which this data belongs"
-                                                            },
-                                                            "vulnerable_individual": {
-                                                                "type": "boolean",
-                                                                "description": "A true, false, or null value on whether or not the participants location needs to be protected"
-                                                            }
-                                                        }
-                                                    },
-                                                    "description": "the participant data from each state at the time a match was found"
-                                                },
-                                                "dispositions": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "initial_action_at": {
-                                                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                                "type": "string",
-                                                                "description": "The date the initial action was taken",
-                                                                "example": "2021-01-31"
-                                                            },
-                                                            "initial_action_taken": {
-                                                                "type": "string",
-                                                                "description": "Which action was taken"
-                                                            },
-                                                            "invalid_match": {
-                                                                "type": "boolean",
-                                                                "description": "Whether or not the match was valid"
-                                                            },
-                                                            "invalid_match_reason": {
-                                                                "type": "string",
-                                                                "description": "The reason the match was marked invalid"
-                                                            },
-                                                            "other_reasoning_for_invalid_match": {
-                                                                "type": "string",
-                                                                "description": "The reasoning behind marking the invalid match reason as Other"
-                                                            },
-                                                            "final_disposition": {
-                                                                "type": "string",
-                                                                "description": "What the final dispostion was"
-                                                            },
-                                                            "final_disposition_date": {
-                                                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                                "type": "string",
-                                                                "description": "The date the final disposition was taken on",
-                                                                "example": "2021-01-31"
-                                                            },
-                                                            "vulnerable_individual": {
-                                                                "type": "boolean",
-                                                                "description": "A true, false, or null value on whether or not the participants location needs to be protected"
-                                                            },
-                                                            "state": {
-                                                                "type": "string",
-                                                                "description": "The state that took these actions"
-                                                            }
-                                                        }
-                                                    },
-                                                    "description": "Disposition data for each related state in a match. This data is updated by states in the resolution process."
-                                                }
-                                            },
-                                            "description": "The response payload representing match data."
-                                        }
-                                    }
-                                },
-                                "example": {
-                                    "data": {
-                                        "created_at": "2021-01-13T18:11:53.1317010+00:00",
-                                        "initiator": "string",
-                                        "match_id": "string",
-                                        "states": [
-                                            "string"
-                                        ],
-                                        "init_state_primary_contact_email": "string",
-                                        "init_state_phone": "string",
-                                        "matching_state_primary_contact_email": "string",
-                                        "matching_state_phone": "string",
-                                        "status": "string",
-                                        "mbm_created_at": "2024-06,2024-07,2024-08",
-                                        "init_state": "string",
-                                        "init_state_invalid_match": true,
-                                        "init_state_invalid_match_reason": "string",
-                                        "init_state_other_reasoning_for_invalid_match": "string",
-                                        "init_state_initial_action_at": "2021-01-31",
-                                        "init_state_initial_action_taken": "string",
-                                        "init_state_final_disposition": "string",
-                                        "init_state_final_disposition_date": "2021-01-31",
-                                        "init_state_vulnerable_individual": true,
-                                        "init_state_resolution_status": "string",
-                                        "init_state_case_id": "string",
-                                        "init_state_participant_id": "string",
-                                        "matching_state": "string",
-                                        "matching_state_invalid_match": true,
-                                        "matching_state_invalid_match_reason": "string",
-                                        "matching_state_other_reasoning_for_invalid_match": "string",
-                                        "matching_state_initial_action_at": "2021-01-31",
-                                        "matching_state_initial_action_taken": "string",
-                                        "matching_state_final_disposition": "string",
-                                        "matching_state_final_disposition_date": "2021-01-31",
-                                        "matching_state_vulnerable_individual": true,
-                                        "matching_state_resolution_status": "string",
-                                        "matching_state_case_id": "string",
-                                        "matching_state_participant_id": "string",
-                                        "last_updated_at": "2021-02-06T14:54:05.6703290+00:00",
-                                        "participants": [
-                                            {
-                                                "case_id": "string",
-                                                "participant_closing_date": "2021-01-31",
-                                                "participant_id": "string",
-                                                "recent_certification_months": [
-                                                    "2021-03-01"
+                                        "errors": {
+                                            "type": "array",
+                                            "items": {
+                                                "required": [
+                                                    "status"
                                                 ],
-                                                "state": "string",
-                                                "vulnerable_individual": true
+                                                "type": "object",
+                                                "properties": {
+                                                    "status": {
+                                                        "type": "string",
+                                                        "description": "The HTTP status code"
+                                                    },
+                                                    "code": {
+                                                        "type": "string",
+                                                        "description": "The application-specific error code"
+                                                    },
+                                                    "title": {
+                                                        "type": "string",
+                                                        "description": "The short, human-readable summary of the error, consistent across all occurrences of the error"
+                                                    },
+                                                    "detail": {
+                                                        "type": "string",
+                                                        "description": "The human-readable explanation specific to this occurrence of the error"
+                                                    }
+                                                }
+                                            },
+                                            "description": "Holds HTTP and other top-level errors. Either an errors or data property will be present in the response, but not both.",
+                                            "nullable": true
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Single match": {
+                                        "description": "A query for a single person returning a single match",
+                                        "value": {
+                                            "data": {
+                                                "results": [
+                                                    {
+                                                        "index": 0,
+                                                        "matches": [
+                                                            {
+                                                                "match_id": "BCD2345",
+                                                                "state": "ea",
+                                                                "case_id": "string",
+                                                                "participant_id": "string",
+                                                                "participant_closing_date": "2021-10-13",
+                                                                "vulnerable_individual": true,
+                                                                "recent_certification_months": [
+                                                                    "2021-06-01",
+                                                                    "2022-09-01",
+                                                                    "2023-01-01"
+                                                                ],
+                                                                "match_url": "https://nac.example/match/BCD2345"
+                                                            }
+                                                        ]
+                                                    }
+                                                ],
+                                                "errors": []
                                             }
-                                        ],
-                                        "dispositions": [
-                                            {
-                                                "initial_action_at": "2021-01-31",
-                                                "initial_action_taken": "string",
-                                                "invalid_match": true,
-                                                "invalid_match_reason": "string",
-                                                "other_reasoning_for_invalid_match": "string",
-                                                "final_disposition": "string",
-                                                "final_disposition_date": "2021-01-31",
-                                                "vulnerable_individual": true,
-                                                "state": "string"
+                                        }
+                                    },
+                                    "No matches": {
+                                        "description": "A query for a single person returning no matches",
+                                        "value": {
+                                            "data": {
+                                                "results": [
+                                                    {
+                                                        "index": 0,
+                                                        "matches": []
+                                                    }
+                                                ],
+                                                "errors": []
                                             }
-                                        ]
+                                        }
+                                    },
+                                    "Multiple matches": {
+                                        "description": "A query for one person returning multiple matches",
+                                        "value": {
+                                            "data": {
+                                                "results": [
+                                                    {
+                                                        "index": 0,
+                                                        "matches": [
+                                                            {
+                                                                "match_id": "XYZ9876",
+                                                                "state": "eb",
+                                                                "case_id": "string",
+                                                                "participant_id": "string",
+                                                                "participant_closing_date": "2021-10-13",
+                                                                "vulnerable_individual": true,
+                                                                "recent_certification_months": [
+                                                                    "2021-06-01",
+                                                                    "2022-09-01",
+                                                                    "2023-01-01"
+                                                                ],
+                                                                "match_url": "https://nac.example/match/XYZ9876"
+                                                            },
+                                                            {
+                                                                "match_id": "4567CDF",
+                                                                "state": "ec",
+                                                                "case_id": "string",
+                                                                "participant_id": "string",
+                                                                "participant_closing_date": null,
+                                                                "vulnerable_individual": null,
+                                                                "match_url": "https://nac.example/match/4567CDF"
+                                                            }
+                                                        ]
+                                                    }
+                                                ],
+                                                "errors": []
+                                            }
+                                        }
+                                    },
+                                    "Multiple persons with matches": {
+                                        "description": "A query for two persons returning one match for each person",
+                                        "value": {
+                                            "data": {
+                                                "results": [
+                                                    {
+                                                        "index": 0,
+                                                        "matches": [
+                                                            {
+                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Multiple%20matches/value/data/results/0/matches/1"
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "index": 1,
+                                                        "matches": [
+                                                            {
+                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Single%20match/value/data/results/0/matches/0"
+                                                            }
+                                                        ]
+                                                    }
+                                                ],
+                                                "errors": []
+                                            }
+                                        }
+                                    },
+                                    "Multiple persons with one match": {
+                                        "description": "A query for two persons returning no matches for one person and a match for the other",
+                                        "value": {
+                                            "data": {
+                                                "results": [
+                                                    {
+                                                        "index": 0,
+                                                        "matches": []
+                                                    },
+                                                    {
+                                                        "index": 1,
+                                                        "matches": [
+                                                            {
+                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Multiple%20matches/value/data/results/0/matches/1"
+                                                            }
+                                                        ]
+                                                    }
+                                                ],
+                                                "errors": []
+                                            }
+                                        }
+                                    },
+                                    "Multiple persons with errors": {
+                                        "description": "A query for two persons returning a successful result for one person and an error for the other person",
+                                        "value": {
+                                            "data": {
+                                                "results": [
+                                                    {
+                                                        "index": 1,
+                                                        "matches": [
+                                                            {
+                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Multiple%20matches/value/data/results/0/matches/1"
+                                                            }
+                                                        ]
+                                                    }
+                                                ],
+                                                "errors": [
+                                                    {
+                                                        "index": 0,
+                                                        "code": "XYZ",
+                                                        "title": "Internal Server Exception",
+                                                        "detail": "Unexpected Server Error. Please try again."
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    "Top-level error": {
+                                        "description": "An example response for an invalid request",
+                                        "value": {
+                                            "errors": [
+                                                {
+                                                    "status": "400",
+                                                    "code": "XYZ",
+                                                    "title": "Bad Request",
+                                                    "detail": "Request payload exceeds maxiumum count"
+                                                }
+                                            ]
+                                        }
                                     }
                                 }
                             }
@@ -1297,25 +453,6 @@
                     },
                     "400": {
                         "description": "Bad request. Request body does not match the required format."
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "Default": {
-                                        "description": "401 Access Denied",
-                                        "value": {
-                                            "statusCode": "401",
-                                            "message": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Resource not found"
                     },
                     "429": {
                         "description": "Too Many Requests. The status code indicates the user has sent too many requests in a given amount of time 'rate limiting'."
@@ -1345,10 +482,626 @@
         {
             "apiKeyQuery": []
         }
+    ]
+}
+
+
+Bulk Upload
+
+{
+    "openapi": "3.0.1",
+    "info": {
+        "title": "EA Bulk upload API",
+        "description": "The API for performing bulk uploads. Note that TLS 1.3 should be disabled for all endpoints.\nFile Preparation.\nThis API requires a file to be submitted with the appropriate schema. The details of that file's schema can be found at <a href='../../../../etl/docs/csv/import-schema.json'>File schema</a>\n",
+        "version": "v3"
+    },
+    "servers": [
+        {
+            "url": "https://api-train.nac.fns.usda.gov/bulk/ea/v3"
+        }
+    ],
+    "paths": {
+        "/upload_all_participants/{filename}": {
+            "put": {
+                "tags": [
+                    "Bulk Upload"
+                ],
+                "summary": "Upload a CSV file of bulk participant data",
+                "description": "Upload a CSV file of bulk participant data. Each state is allowed a maximum of 60 requests per minute.",
+                "operationId": "Upload-All-Participants",
+                "parameters": [
+                    {
+                        "name": "filename",
+                        "in": "path",
+                        "description": "Name of file being uploaded",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "Content-Length",
+                        "in": "header",
+                        "description": "Size in bytes of your file to be uploaded. A curl request will add this header by default when including a data or file parameter.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "example": 6413
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "text/plain": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            },
+                            "examples": {
+                                "uploadAllParticipants": {
+                                    "description": "Example of a uploading state participants. Body must be binary.",
+                                    "value": "string of data"
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "File uploaded",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "required": [
+                                                "upload_id"
+                                            ],
+                                            "type": "object",
+                                            "properties": {
+                                                "upload_id": {
+                                                    "type": "string",
+                                                    "description": "A unique upload_id for the successful upload."
+                                                }
+                                            },
+                                            "description": "The response payload. Will contain a data property with upload details.",
+                                            "nullable": true
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "An upload of a single CSV file of all the participants",
+                                        "value": {
+                                            "data": {
+                                                "upload_id": "0x8DA2EA86C4C2089"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Access denied",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "The status code for the upload response"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "A message describing the status code"
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "401 Access Denied",
+                                        "value": {
+                                            "statusCode": "401",
+                                            "message": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "The status code for the upload response"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "A message describing the status code"
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "403 Forbidden",
+                                        "value": {
+                                            "statusCode": "403",
+                                            "message": "Unauthorized Sender"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "The status code for the upload response"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "A message describing the status code"
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "404 Not Found",
+                                        "value": {
+                                            "statusCode": "404",
+                                            "message": "Resource not found"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "411": {
+                        "description": "Content-Length not provided",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "The status code for the upload response"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "A message describing the status code"
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "411 Length Required",
+                                        "value": {
+                                            "statusCode": "411",
+                                            "message": "The server refuses to accept the request without a defined Content-Length"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Payload Too Large",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "The status code for the upload response"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "A message describing the status code"
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "413 Payload Too Large Response",
+                                        "value": {
+                                            "statusCode": "413",
+                                            "message": "Maximum allowed size for the POST requests is 2147483648 bytes (2 GB). This request has size of ___ bytes"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "415": {
+                        "description": "Unknown file type",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "The status code for the upload response"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "A message describing the status code"
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "415 Unknown File Type",
+                                        "value": {
+                                            "statusCode": "415",
+                                            "message": "Allowed file type is csv. This request has file type of ___"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Upload response",
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "The status code for the upload response"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "A message describing the status code"
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Default": {
+                                        "description": "429 Too Many Requests Response",
+                                        "value": {
+                                            "statusCode": "429",
+                                            "message": "Rate limit is exceeded. Try again in X seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/uploads/{upload_identifier}": {
+            "get": {
+                "tags": [
+                    "Bulk Upload"
+                ],
+                "summary": "Get Upload Details",
+                "description": "Get details regarding a bulk upload. Each state is allowed a maximum of 120 requests per minute.",
+                "operationId": "Get-Upload-Details",
+                "parameters": [
+                    {
+                        "name": "upload_identifier",
+                        "in": "path",
+                        "description": "The Upload ID retrieved from a bulk upload",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "From",
+                        "in": "header",
+                        "description": "As in the HTTP/1.1 RFC, used for logging purposes as a means for identifying the source of invalid or unwanted requests. The interpretation of this field is that the request is being performed on behalf of the state government-affiliated person whose email address (or username) is specified here. It is not used for authentication or authorization.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "required": [
+                                                "upload_identifier",
+                                                "created_at",
+                                                "status"
+                                            ],
+                                            "type": "object",
+                                            "properties": {
+                                                "state": {
+                                                    "type": "string",
+                                                    "description": "The state the upload of participants belongs to",
+                                                    "example": "ea"
+                                                },
+                                                "totalCountParticipants": {
+                                                    "type": "integer",
+                                                    "description": "The number of participants uploaded in the entire file",
+                                                    "example": 100000
+                                                },
+                                                "deletionStartTime": {
+                                                    "type": "string",
+                                                    "description": "The time at which the participants that were previously in the database started to be deleted",
+                                                    "format": "date",
+                                                    "example": "2022-07-11"
+                                                },
+                                                "deletionEndTime": {
+                                                    "type": "string",
+                                                    "description": "The time at which the participants that were previously in the database finished being deleted",
+                                                    "format": "date",
+                                                    "example": "2022-07-11"
+                                                },
+                                                "deletionStatus": {
+                                                    "type": "string",
+                                                    "description": "The deletion status of the previously uploaded participants. Options are: DELETING, COMPLETED, FAILED",
+                                                    "example": "COMPLETED"
+                                                },
+                                                "deletionErrors": {
+                                                    "type": "string",
+                                                    "description": "The errors encountered while attempting to delete the old participants",
+                                                    "example": "<String of comma separated errors>"
+                                                },
+                                                "totalDeletedOldParticipantsCount": {
+                                                    "type": "integer",
+                                                    "description": "The number of participants that were deleted in order to upload the new participants",
+                                                    "example": 100000
+                                                },
+                                                "upload_identifier": {
+                                                    "type": "string",
+                                                    "description": "The unique identifier for the upload",
+                                                    "example": "0x8DA63770FEF1551"
+                                                },
+                                                "created_at": {
+                                                    "type": "string",
+                                                    "description": "The timestamp when the requested upload was performed.",
+                                                    "format": "date",
+                                                    "example": "2022-07-11"
+                                                },
+                                                "participants_uploaded": {
+                                                    "type": "integer",
+                                                    "description": "The number of participants uploaded into the NAC. If the status is PARTIALLY_COMPLETED, the error message will contain the total number of participants in the file.",
+                                                    "example": 50
+                                                },
+                                                "completed_at": {
+                                                    "type": "string",
+                                                    "description": "The timestamp when the requested upload was completed.",
+                                                    "format": "date",
+                                                    "example": "2022-07-11"
+                                                },
+                                                "error_message": {
+                                                    "type": "string",
+                                                    "description": "Error details as to why an upload failed",
+                                                    "example": "Exception of type 'CsvHelper.FieldValidationException' was thrown."
+                                                },
+                                                "status": {
+                                                    "type": "string",
+                                                    "description": "COMPLETE - when successful\nFAILED - The upload was unsuccessful. The NAC will continue to match against records of active participants from your previous successful upload\nUPLOADING - The file is uploading to the NAC, or the file has uploaded but is still being validated\nPARTIALLY_COMPLETED - The upload was partially successful. Only valid rows will be uploaded if the csv document contains them; any invalid rows will be skipped",
+                                                    "example": "COMPLETE"
+                                                }
+                                            },
+                                            "description": "The response payload representing upload data."
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Successul upload 200": {
+                                        "description": "200 Response to successful upload",
+                                        "value": {
+                                            "data": {
+                                                "state": "ea",
+                                                "totalCountParticipants": 1000,
+                                                "deletionStartTime": "2022-07-11",
+                                                "deletionEndTime": "2022-07-11",
+                                                "deletionStatus": "COMPLETED",
+                                                "deletionErrors": "",
+                                                "totalDeletedOldParticipantsCount": 1000,
+                                                "upload_identifier": "0x8DA63770FEF1551",
+                                                "created_at": "2022-07-11",
+                                                "participants_uploaded": "40",
+                                                "completed_at": "2022-07-11",
+                                                "status": "COMPLETE"
+                                            }
+                                        }
+                                    },
+                                    "Failed Upload '200'": {
+                                        "description": "200 response on an upload that failed",
+                                        "value": {
+                                            "data": {
+                                                "state": "ea",
+                                                "totalCountParticipants": 1000,
+                                                "deletionStartTime": "2022-07-11",
+                                                "deletionEndTime": "2022-07-11",
+                                                "deletionStatus": "FAILED",
+                                                "deletionErrors": "<String of comma separated errors>",
+                                                "totalDeletedOldParticipantsCount": 1000,
+                                                "upload_identifier": "0x8DA63770FEF1551",
+                                                "created_at": "2022-07-11",
+                                                "participants_uploaded": "40",
+                                                "error_message": "Exception of type 'CsvHelper.FieldValidationException' was thrown.",
+                                                "completed_at": "2022-07-11",
+                                                "status": "FAILED"
+                                            }
+                                        }
+                                    },
+                                    "Not Found": {
+                                        "description": "404 Not found exception",
+                                        "value": {
+                                            "errors": [
+                                                {
+                                                    "status": "404",
+                                                    "title": "NotFoundException",
+                                                    "detail": "not found"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "Status of the upload",
+                                            "example": "400"
+                                        },
+                                        "title": {
+                                            "type": "string",
+                                            "description": "The title of the error",
+                                            "example": "Bad Request Exception"
+                                        },
+                                        "detail": {
+                                            "type": "string",
+                                            "description": "The detailed description of the error",
+                                            "example": "Request was not valid"
+                                        }
+                                    }
+                                },
+                                "example": {
+                                    "statusCode": "400",
+                                    "title": "Bad Request Exception",
+                                    "detail": "Request was not valid"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Access denied",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "string",
+                                            "description": "Status of the upload",
+                                            "example": "401"
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "description": "The message explaining the reason for access denied",
+                                            "example": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription"
+                                        }
+                                    }
+                                },
+                                "example": {
+                                    "statusCode": "401",
+                                    "message": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "errors": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "status": {
+                                                        "type": "string",
+                                                        "description": "The error that occured during upload",
+                                                        "example": "404"
+                                                    },
+                                                    "title": {
+                                                        "type": "string",
+                                                        "description": "The title of the error",
+                                                        "example": "NotFoundException"
+                                                    },
+                                                    "detail": {
+                                                        "type": "string",
+                                                        "description": "The detailed description of the error",
+                                                        "example": "not found"
+                                                    }
+                                                }
+                                            },
+                                            "description": "The array of errors when getting the upload."
+                                        }
+                                    }
+                                },
+                                "example": {
+                                    "errors": [
+                                        {
+                                            "status": "404",
+                                            "title": "NotFoundException",
+                                            "detail": "not found"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "apiKeyHeader": {
+                "type": "apiKey",
+                "name": "Ocp-Apim-Subscription-Key",
+                "in": "header"
+            },
+            "apiKeyQuery": {
+                "type": "apiKey",
+                "name": "subscription-key",
+                "in": "query"
+            }
+        }
+    },
+    "security": [
+        {
+            "apiKeyHeader": []
+        },
+        {
+            "apiKeyQuery": []
+        }
     ],
     "tags": [
         {
-            "name": "MatchResolution"
+            "name": "UploadAllParticipants"
         }
     ]
 }
