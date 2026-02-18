@@ -1,1107 +1,135 @@
-DUPlicant Participation
+CREATE TABLE NAC_BULK_PARTICIPANT_STG (
+    RUN_DATE                 DATE           NOT NULL,
+    UPI                      VARCHAR(20)    NOT NULL,
+    ICI                      VARCHAR(20)    NOT NULL,
+    LAST_NAME_NORM           VARCHAR(50)    NOT NULL,
+    DOB_NORM                 DATE           NOT NULL,
+    SSN_NORM                 VARCHAR(11)    NOT NULL,
+    VULNERABLE_FLAG          CHAR(1)        NOT NULL,
+    PARTICIPANT_CLOSE_DATE   DATE,
+    RECENT_CERT_MONTHS       VARCHAR(50),
+    LDS_HASH                 VARCHAR(128),
+    FILE_NAME                VARCHAR(200),
+    PROCESS_STATUS           VARCHAR(20),
+    ERROR_MESSAGE            VARCHAR(2000),
+    CREATED_TS               TIMESTAMP      NOT NULL DEFAULT CURRENT TIMESTAMP,
+    PRIMARY KEY (RUN_DATE, UPI)
+);
 
-{
-    "openapi": "3.0.1",
-    "info": {
-        "title": "Duplicate participation API",
-        "description": "The API where matching will occur",
-        "version": "v2"
-    },
-    "servers": [
-        {
-            "url": "https://api-train.nac.fns.usda.gov/match/v2"
-        }
-    ],
-    "paths": {
-        "/find_matches": {
-            "post": {
-                "tags": [
-                    "Match"
-                ],
-                "summary": "Search for all matching participant records using de-identified data",
-                "description": "Searches all state databases for any participant records that are an exact match to the `lds_hash` of persons provided in the request. Does not search the database for the state initiating the request. Each state is allowed a maximum of 1,050 requests per minute.",
-                "operationId": "Find-matches",
-                "parameters": [
-                    {
-                        "name": "From",
-                        "in": "header",
-                        "description": "As in the HTTP/1.1 RFC, used for logging purposes as a means for identifying the source of invalid or unwanted requests. The interpretation of this field is that the request is being performed on behalf of the state government-affiliated person whose email address (or username) is specified here. It is not used for authentication or authorization.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "data"
-                                ],
-                                "type": "object",
-                                "properties": {
-                                    "data": {
-                                        "maxItems": 50,
-                                        "minItems": 1,
-                                        "type": "array",
-                                        "items": {
-                                            "required": [
-                                                "lds_hash",
-                                                "search_reason",
-                                                "participant_id"
-                                            ],
-                                            "type": "object",
-                                            "properties": {
-                                                "lds_hash": {
-                                                    "pattern": "^[0-9a-f]{128}$",
-                                                    "type": "string",
-                                                    "description": "SHA-512 digest of participant's last name, DoB, and SSN. See docs/pprl.md for details"
-                                                },
-                                                "participant_id": {
-                                                    "pattern": "^[A-Za-z0-9-_]+$",
-                                                    "type": "string",
-                                                    "description": "Participant's state-specific identifier. Unique to the participant. Must not include social security number or other identifying information used outside of the benefits eligibility context."
-                                                },
-                                                "case_id": {
-                                                    "pattern": "^[A-Za-z0-9-_]+$",
-                                                    "type": "string",
-                                                    "description": "Participant's state-specific case number"
-                                                },
-                                                "search_reason": {
-                                                    "type": "string",
-                                                    "description": "The case action or other valid reason for performing the NAC search.  Valid options are 'application', 'recertification', 'new_household_member', or 'other'"
-                                                },
-                                                "vulnerable_individual": {
-                                                    "type": "boolean",
-                                                    "description": "Location protection flag for vulnerable individuals. True values indicate that the individual’s location must be protected from disclosure to avoid harm to the individual. Apply the same protections to true and null values."
-                                                }
-                                            }
-                                        },
-                                        "description": "An array containing 1 to 50 individuals to match against records of active participants in other States"
-                                    }
-                                }
-                            },
-                            "examples": {
-                                "Single person": {
-                                    "description": "An example request to query a single person, with values for all fields",
-                                    "value": {
-                                        "data": [
-                                            {
-                                                "lds_hash": "eaa834c957213fbf958a5965c46fa50939299165803cd8043e7b1b0ec07882dbd5921bce7a5fb45510670b46c1bf8591bf2f3d28d329e9207b7b6d6abaca5458",
-                                                "case_id": "CaseNumber12345",
-                                                "participant_id": "ParticipantId12345",
-                                                "search_reason": "application",
-                                                "vulnerable_individual": true
-                                            }
-                                        ]
-                                    }
-                                },
-                                "Single required person": {
-                                    "description": "An example request to query a single person, with values for all required fields",
-                                    "value": {
-                                        "data": [
-                                            {
-                                                "lds_hash": "eaa834c957213fbf958a5965c46fa50939299165803cd8043e7b1b0ec07882dbd5921bce7a5fb45510670b46c1bf8591bf2f3d28d329e9207b7b6d6abaca5458",
-                                                "participant_id": "ParticipantId12345",
-                                                "search_reason": "other"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "Multiple persons": {
-                                    "description": "A request with multiple persons",
-                                    "value": {
-                                        "data": [
-                                            {
-                                                "lds_hash": "eaa834c957213fbf958a5965c46fa50939299165803cd8043e7b1b0ec07882dbd5921bce7a5fb45510670b46c1bf8591bf2f3d28d329e9207b7b6d6abaca5458"
-                                            },
-                                            {
-                                                "lds_hash": "97719c32bb3c6a5e08c1241a7435d6d7047e75f40d8b3880744c07fef9d586954f77dc93279044c662d5d379e9c8a447ce03d9619ce384a7467d322e647e5d95"
-                                            }
-                                        ]
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful response. Returns match response items.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Match response",
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "required": [
-                                                "results",
-                                                "errors"
-                                            ],
-                                            "type": "object",
-                                            "properties": {
-                                                "results": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "required": [
-                                                            "index",
-                                                            "matches"
-                                                        ],
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "index": {
-                                                                "type": "integer",
-                                                                "description": "The index of the person that the result corresponds to, starting from 0. Index is derived from the implicit order of persons provided in the request."
-                                                            },
-                                                            "matches": {
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "required": [
-                                                                        "state",
-                                                                        "participant_id",
-                                                                        "case_id",
-                                                                        "match_id",
-                                                                        "match_url",
-                                                                        "lds_hash"
-                                                                    ],
-                                                                    "type": "object",
-                                                                    "properties": {
-                                                                        "match_id": {
-                                                                            "type": "string",
-                                                                            "description": "Unique identifier for the match. Generated by the NAC system when a match is found."
-                                                                        },
-                                                                        "state": {
-                                                                            "type": "string",
-                                                                            "description": "State/territory two-letter postal abbreviation"
-                                                                        },
-                                                                        "case_id": {
-                                                                            "type": "string",
-                                                                            "description": "Participant's state-specific case identifier. Can be the same for multiple participants."
-                                                                        },
-                                                                        "participant_id": {
-                                                                            "type": "string",
-                                                                            "description": "Participant's state-specific identifier. Unique to the participant. Must not include social security number or other identifying information used outside of the benefits eligibility context."
-                                                                        },
-                                                                        "participant_closing_date": {
-                                                                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                                                                            "type": "string",
-                                                                            "description": "Date when the Participant's case will close. This will be the last date the participate is eligible to receive benefits.",
-                                                                            "example": "2021-01-31"
-                                                                        },
-                                                                        "vulnerable_individual": {
-                                                                            "type": "boolean",
-                                                                            "description": "Location protection flag for vulnerable individuals. True values indicate that the individual’s location must be protected from disclosure to avoid harm to the individual. Apply the same protections to true and null values.",
-                                                                            "nullable": true,
-                                                                            "example": true
-                                                                        },
-                                                                        "recent_certification_months": {
-                                                                            "maxLength": 3,
-                                                                            "minLength": 0,
-                                                                            "type": "array",
-                                                                            "items": {
-                                                                                "type": "string",
-                                                                                "description": "default to start of the month and year"
-                                                                            },
-                                                                            "description": "Collection of up to 3 date that participant has been certified at the time the match was found."
-                                                                        },
-                                                                        "match_url": {
-                                                                            "type": "string",
-                                                                            "description": "URL to visit to view details about this match."
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    },
-                                                    "description": "Array of query results. For every person provided in the request, a result is returned, even if no matches are found. If a query fails, the failure data will be in the errors array."
-                                                },
-                                                "errors": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "required": [
-                                                            "index"
-                                                        ],
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "index": {
-                                                                "type": "integer",
-                                                                "description": "The index of the person that the result corresponds to, starting from 0. Index is derived from the implicit order of persons provided in the request."
-                                                            },
-                                                            "code": {
-                                                                "type": "string",
-                                                                "description": "The application-specific error code"
-                                                            },
-                                                            "title": {
-                                                                "type": "string",
-                                                                "description": "The short, human-readable summary of the error, consistent across all occurrences of the error"
-                                                            },
-                                                            "detail": {
-                                                                "type": "string",
-                                                                "description": "The human-readable explanation specific to this occurrence of the error"
-                                                            }
-                                                        }
-                                                    },
-                                                    "description": "Array of error objects corresponding to a person in the request. If a query for a single person fails, the failure data will display here. Note that a single person in a request could have multiple error items."
-                                                }
-                                            },
-                                            "description": "The response payload. Either an errors or data property will be present in the response, but not both.",
-                                            "nullable": true
-                                        },
-                                        "errors": {
-                                            "type": "array",
-                                            "items": {
-                                                "required": [
-                                                    "status"
-                                                ],
-                                                "type": "object",
-                                                "properties": {
-                                                    "status": {
-                                                        "type": "string",
-                                                        "description": "The HTTP status code"
-                                                    },
-                                                    "code": {
-                                                        "type": "string",
-                                                        "description": "The application-specific error code"
-                                                    },
-                                                    "title": {
-                                                        "type": "string",
-                                                        "description": "The short, human-readable summary of the error, consistent across all occurrences of the error"
-                                                    },
-                                                    "detail": {
-                                                        "type": "string",
-                                                        "description": "The human-readable explanation specific to this occurrence of the error"
-                                                    }
-                                                }
-                                            },
-                                            "description": "Holds HTTP and other top-level errors. Either an errors or data property will be present in the response, but not both.",
-                                            "nullable": true
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Single match": {
-                                        "description": "A query for a single person returning a single match",
-                                        "value": {
-                                            "data": {
-                                                "results": [
-                                                    {
-                                                        "index": 0,
-                                                        "matches": [
-                                                            {
-                                                                "match_id": "BCD2345",
-                                                                "state": "ea",
-                                                                "case_id": "string",
-                                                                "participant_id": "string",
-                                                                "participant_closing_date": "2021-10-13",
-                                                                "vulnerable_individual": true,
-                                                                "recent_certification_months": [
-                                                                    "2021-06-01",
-                                                                    "2022-09-01",
-                                                                    "2023-01-01"
-                                                                ],
-                                                                "match_url": "https://nac.example/match/BCD2345"
-                                                            }
-                                                        ]
-                                                    }
-                                                ],
-                                                "errors": []
-                                            }
-                                        }
-                                    },
-                                    "No matches": {
-                                        "description": "A query for a single person returning no matches",
-                                        "value": {
-                                            "data": {
-                                                "results": [
-                                                    {
-                                                        "index": 0,
-                                                        "matches": []
-                                                    }
-                                                ],
-                                                "errors": []
-                                            }
-                                        }
-                                    },
-                                    "Multiple matches": {
-                                        "description": "A query for one person returning multiple matches",
-                                        "value": {
-                                            "data": {
-                                                "results": [
-                                                    {
-                                                        "index": 0,
-                                                        "matches": [
-                                                            {
-                                                                "match_id": "XYZ9876",
-                                                                "state": "eb",
-                                                                "case_id": "string",
-                                                                "participant_id": "string",
-                                                                "participant_closing_date": "2021-10-13",
-                                                                "vulnerable_individual": true,
-                                                                "recent_certification_months": [
-                                                                    "2021-06-01",
-                                                                    "2022-09-01",
-                                                                    "2023-01-01"
-                                                                ],
-                                                                "match_url": "https://nac.example/match/XYZ9876"
-                                                            },
-                                                            {
-                                                                "match_id": "4567CDF",
-                                                                "state": "ec",
-                                                                "case_id": "string",
-                                                                "participant_id": "string",
-                                                                "participant_closing_date": null,
-                                                                "vulnerable_individual": null,
-                                                                "match_url": "https://nac.example/match/4567CDF"
-                                                            }
-                                                        ]
-                                                    }
-                                                ],
-                                                "errors": []
-                                            }
-                                        }
-                                    },
-                                    "Multiple persons with matches": {
-                                        "description": "A query for two persons returning one match for each person",
-                                        "value": {
-                                            "data": {
-                                                "results": [
-                                                    {
-                                                        "index": 0,
-                                                        "matches": [
-                                                            {
-                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Multiple%20matches/value/data/results/0/matches/1"
-                                                            }
-                                                        ]
-                                                    },
-                                                    {
-                                                        "index": 1,
-                                                        "matches": [
-                                                            {
-                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Single%20match/value/data/results/0/matches/0"
-                                                            }
-                                                        ]
-                                                    }
-                                                ],
-                                                "errors": []
-                                            }
-                                        }
-                                    },
-                                    "Multiple persons with one match": {
-                                        "description": "A query for two persons returning no matches for one person and a match for the other",
-                                        "value": {
-                                            "data": {
-                                                "results": [
-                                                    {
-                                                        "index": 0,
-                                                        "matches": []
-                                                    },
-                                                    {
-                                                        "index": 1,
-                                                        "matches": [
-                                                            {
-                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Multiple%20matches/value/data/results/0/matches/1"
-                                                            }
-                                                        ]
-                                                    }
-                                                ],
-                                                "errors": []
-                                            }
-                                        }
-                                    },
-                                    "Multiple persons with errors": {
-                                        "description": "A query for two persons returning a successful result for one person and an error for the other person",
-                                        "value": {
-                                            "data": {
-                                                "results": [
-                                                    {
-                                                        "index": 1,
-                                                        "matches": [
-                                                            {
-                                                                "$ref": "#/paths/~1find_matches/post/responses/200/content/application~1json/examples/Multiple%20matches/value/data/results/0/matches/1"
-                                                            }
-                                                        ]
-                                                    }
-                                                ],
-                                                "errors": [
-                                                    {
-                                                        "index": 0,
-                                                        "code": "XYZ",
-                                                        "title": "Internal Server Exception",
-                                                        "detail": "Unexpected Server Error. Please try again."
-                                                    }
-                                                ]
-                                            }
-                                        }
-                                    },
-                                    "Top-level error": {
-                                        "description": "An example response for an invalid request",
-                                        "value": {
-                                            "errors": [
-                                                {
-                                                    "status": "400",
-                                                    "code": "XYZ",
-                                                    "title": "Bad Request",
-                                                    "detail": "Request payload exceeds maxiumum count"
-                                                }
-                                            ]
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad request. Request body does not match the required format."
-                    },
-                    "429": {
-                        "description": "Too Many Requests. The status code indicates the user has sent too many requests in a given amount of time 'rate limiting'."
-                    }
-                }
-            }
-        }
-    },
-    "components": {
-        "securitySchemes": {
-            "apiKeyHeader": {
-                "type": "apiKey",
-                "name": "Ocp-Apim-Subscription-Key",
-                "in": "header"
-            },
-            "apiKeyQuery": {
-                "type": "apiKey",
-                "name": "subscription-key",
-                "in": "query"
-            }
-        }
-    },
-    "security": [
-        {
-            "apiKeyHeader": []
-        },
-        {
-            "apiKeyQuery": []
-        }
-    ]
-}
+CREATE TABLE NAC_BULK_UPLOAD_RUN (
+    UPLOAD_ID                 VARCHAR(200) NOT NULL,
+    RUN_DATE                  DATE         NOT NULL,
+    FILE_NAME                 VARCHAR(200),
+    INITIAL_STATUS            VARCHAR(20),
+    INITIAL_MESSAGE           VARCHAR(2000),
+    INITIAL_ERROR_MESSAGE     VARCHAR(2000),
+    FINAL_STATUS              VARCHAR(20),
+    TOTAL_PARTICIPANTS        INTEGER,
+    PARTICIPANTS_UPLOADED     INTEGER,
+    DELETION_START_TIME       TIMESTAMP,
+    DELETION_END_TIME         TIMESTAMP,
+    DELETION_STATUS           VARCHAR(50),
+    TOTAL_DELETED_COUNT       INTEGER,
+    DELETION_ERRORS           VARCHAR(2000),
+    HTTP_STATUS_CODE          VARCHAR(10),
+    TRANSPORT_ERROR_MESSAGE   VARCHAR(2000),
+    CREATED_TS                TIMESTAMP DEFAULT CURRENT TIMESTAMP,
+    UPDATED_TS                TIMESTAMP,
+    PRIMARY KEY (UPLOAD_ID)
+);
+
+CREATE TABLE NAC_DP_REQUEST (
+    ICI                    VARCHAR(20)    NOT NULL,
+    EVENT_TYPE             VARCHAR(30)    NOT NULL,
+    EVENT_TS               TIMESTAMP      NOT NULL,
+    UPI                    VARCHAR(20)    NOT NULL,
+    SEARCH_REASON          VARCHAR(50),
+    LAST_NAME_NORM         VARCHAR(50),
+    DOB_NORM               DATE,
+    SSN_NORM               VARCHAR(11),
+    VULNERABLE_FLAG        CHAR(1),
+    LDS_HASH               VARCHAR(128),
+    NAC_VERIFY_FLAG        CHAR(1),
+    VERIFY_FAIL_REASON     VARCHAR(500),
+    PROCESS_STATUS         VARCHAR(20),
+    MATCH_FOUND_FLAG       CHAR(1),
+    RETRY_COUNT            INTEGER DEFAULT 0,
+    ERROR_TYPE             VARCHAR(20),
+    HTTP_STATUS_CODE       VARCHAR(10),
+    TRANSPORT_ERROR_MSG    VARCHAR(2000),
+    CREATED_TS             TIMESTAMP DEFAULT CURRENT TIMESTAMP,
+    UPDATED_TS             TIMESTAMP,
+    PRIMARY KEY (ICI, EVENT_TYPE, EVENT_TS, UPI)
+);
+
+CREATE TABLE NAC_DP_RESPONSE_MATCH (
+    ICI                       VARCHAR(20) NOT NULL,
+    EVENT_TYPE                VARCHAR(30) NOT NULL,
+    EVENT_TS                  TIMESTAMP   NOT NULL,
+    UPI                       VARCHAR(20) NOT NULL,
+    MATCH_ID                  VARCHAR(200) NOT NULL,
+    MATCH_STATE               VARCHAR(2),
+    MATCH_CASE_ID             VARCHAR(50),
+    MATCH_PARTICIPANT_ID      VARCHAR(50),
+    PARTICIPATION_CLOSE_DATE  DATE,
+    RECENT_CERT_MONTHS        VARCHAR(200),
+    CREATED_TS                TIMESTAMP DEFAULT CURRENT TIMESTAMP,
+    PRIMARY KEY (ICI, EVENT_TYPE, EVENT_TS, UPI, MATCH_ID)
+);
 
 
-Bulk Upload
+CREATE TABLE NAC_DP_RESPONSE_ERROR (
+    ICI            VARCHAR(20) NOT NULL,
+    EVENT_TYPE     VARCHAR(30) NOT NULL,
+    EVENT_TS       TIMESTAMP   NOT NULL,
+    UPI            VARCHAR(20) NOT NULL,
+    HTTP_STATUS    VARCHAR(20),
+    ERROR_CODE     VARCHAR(100),
+    ERROR_TITLE    VARCHAR(500),
+    ERROR_DETAIL   VARCHAR(2000),
+    CREATED_TS     TIMESTAMP DEFAULT CURRENT TIMESTAMP,
+    PRIMARY KEY (ICI, EVENT_TYPE, EVENT_TS, UPI, ERROR_CODE)
+);
 
-{
-    "openapi": "3.0.1",
-    "info": {
-        "title": "EA Bulk upload API",
-        "description": "The API for performing bulk uploads. Note that TLS 1.3 should be disabled for all endpoints.\nFile Preparation.\nThis API requires a file to be submitted with the appropriate schema. The details of that file's schema can be found at <a href='../../../../etl/docs/csv/import-schema.json'>File schema</a>\n",
-        "version": "v3"
-    },
-    "servers": [
-        {
-            "url": "https://api-train.nac.fns.usda.gov/bulk/ea/v3"
-        }
-    ],
-    "paths": {
-        "/upload_all_participants/{filename}": {
-            "put": {
-                "tags": [
-                    "Bulk Upload"
-                ],
-                "summary": "Upload a CSV file of bulk participant data",
-                "description": "Upload a CSV file of bulk participant data. Each state is allowed a maximum of 60 requests per minute.",
-                "operationId": "Upload-All-Participants",
-                "parameters": [
-                    {
-                        "name": "filename",
-                        "in": "path",
-                        "description": "Name of file being uploaded",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "Content-Length",
-                        "in": "header",
-                        "description": "Size in bytes of your file to be uploaded. A curl request will add this header by default when including a data or file parameter.",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        },
-                        "example": 6413
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "text/plain": {
-                            "schema": {
-                                "type": "string",
-                                "format": "binary"
-                            },
-                            "examples": {
-                                "uploadAllParticipants": {
-                                    "description": "Example of a uploading state participants. Body must be binary.",
-                                    "value": "string of data"
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "File uploaded",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "required": [
-                                                "upload_id"
-                                            ],
-                                            "type": "object",
-                                            "properties": {
-                                                "upload_id": {
-                                                    "type": "string",
-                                                    "description": "A unique upload_id for the successful upload."
-                                                }
-                                            },
-                                            "description": "The response payload. Will contain a data property with upload details.",
-                                            "nullable": true
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "An upload of a single CSV file of all the participants",
-                                        "value": {
-                                            "data": {
-                                                "upload_id": "0x8DA2EA86C4C2089"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Access denied",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "The status code for the upload response"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "A message describing the status code"
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "401 Access Denied",
-                                        "value": {
-                                            "statusCode": "401",
-                                            "message": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "The status code for the upload response"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "A message describing the status code"
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "403 Forbidden",
-                                        "value": {
-                                            "statusCode": "403",
-                                            "message": "Unauthorized Sender"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "The status code for the upload response"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "A message describing the status code"
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "404 Not Found",
-                                        "value": {
-                                            "statusCode": "404",
-                                            "message": "Resource not found"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "411": {
-                        "description": "Content-Length not provided",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "The status code for the upload response"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "A message describing the status code"
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "411 Length Required",
-                                        "value": {
-                                            "statusCode": "411",
-                                            "message": "The server refuses to accept the request without a defined Content-Length"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "413": {
-                        "description": "Payload Too Large",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "The status code for the upload response"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "A message describing the status code"
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "413 Payload Too Large Response",
-                                        "value": {
-                                            "statusCode": "413",
-                                            "message": "Maximum allowed size for the POST requests is 2147483648 bytes (2 GB). This request has size of ___ bytes"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "415": {
-                        "description": "Unknown file type",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "The status code for the upload response"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "A message describing the status code"
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "415 Unknown File Type",
-                                        "value": {
-                                            "statusCode": "415",
-                                            "message": "Allowed file type is csv. This request has file type of ___"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "429": {
-                        "description": "Too Many Requests Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Upload response",
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "The status code for the upload response"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "A message describing the status code"
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Default": {
-                                        "description": "429 Too Many Requests Response",
-                                        "value": {
-                                            "statusCode": "429",
-                                            "message": "Rate limit is exceeded. Try again in X seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/uploads/{upload_identifier}": {
-            "get": {
-                "tags": [
-                    "Bulk Upload"
-                ],
-                "summary": "Get Upload Details",
-                "description": "Get details regarding a bulk upload. Each state is allowed a maximum of 120 requests per minute.",
-                "operationId": "Get-Upload-Details",
-                "parameters": [
-                    {
-                        "name": "upload_identifier",
-                        "in": "path",
-                        "description": "The Upload ID retrieved from a bulk upload",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "From",
-                        "in": "header",
-                        "description": "As in the HTTP/1.1 RFC, used for logging purposes as a means for identifying the source of invalid or unwanted requests. The interpretation of this field is that the request is being performed on behalf of the state government-affiliated person whose email address (or username) is specified here. It is not used for authentication or authorization.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "required": [
-                                                "upload_identifier",
-                                                "created_at",
-                                                "status"
-                                            ],
-                                            "type": "object",
-                                            "properties": {
-                                                "state": {
-                                                    "type": "string",
-                                                    "description": "The state the upload of participants belongs to",
-                                                    "example": "ea"
-                                                },
-                                                "totalCountParticipants": {
-                                                    "type": "integer",
-                                                    "description": "The number of participants uploaded in the entire file",
-                                                    "example": 100000
-                                                },
-                                                "deletionStartTime": {
-                                                    "type": "string",
-                                                    "description": "The time at which the participants that were previously in the database started to be deleted",
-                                                    "format": "date",
-                                                    "example": "2022-07-11"
-                                                },
-                                                "deletionEndTime": {
-                                                    "type": "string",
-                                                    "description": "The time at which the participants that were previously in the database finished being deleted",
-                                                    "format": "date",
-                                                    "example": "2022-07-11"
-                                                },
-                                                "deletionStatus": {
-                                                    "type": "string",
-                                                    "description": "The deletion status of the previously uploaded participants. Options are: DELETING, COMPLETED, FAILED",
-                                                    "example": "COMPLETED"
-                                                },
-                                                "deletionErrors": {
-                                                    "type": "string",
-                                                    "description": "The errors encountered while attempting to delete the old participants",
-                                                    "example": "<String of comma separated errors>"
-                                                },
-                                                "totalDeletedOldParticipantsCount": {
-                                                    "type": "integer",
-                                                    "description": "The number of participants that were deleted in order to upload the new participants",
-                                                    "example": 100000
-                                                },
-                                                "upload_identifier": {
-                                                    "type": "string",
-                                                    "description": "The unique identifier for the upload",
-                                                    "example": "0x8DA63770FEF1551"
-                                                },
-                                                "created_at": {
-                                                    "type": "string",
-                                                    "description": "The timestamp when the requested upload was performed.",
-                                                    "format": "date",
-                                                    "example": "2022-07-11"
-                                                },
-                                                "participants_uploaded": {
-                                                    "type": "integer",
-                                                    "description": "The number of participants uploaded into the NAC. If the status is PARTIALLY_COMPLETED, the error message will contain the total number of participants in the file.",
-                                                    "example": 50
-                                                },
-                                                "completed_at": {
-                                                    "type": "string",
-                                                    "description": "The timestamp when the requested upload was completed.",
-                                                    "format": "date",
-                                                    "example": "2022-07-11"
-                                                },
-                                                "error_message": {
-                                                    "type": "string",
-                                                    "description": "Error details as to why an upload failed",
-                                                    "example": "Exception of type 'CsvHelper.FieldValidationException' was thrown."
-                                                },
-                                                "status": {
-                                                    "type": "string",
-                                                    "description": "COMPLETE - when successful\nFAILED - The upload was unsuccessful. The NAC will continue to match against records of active participants from your previous successful upload\nUPLOADING - The file is uploading to the NAC, or the file has uploaded but is still being validated\nPARTIALLY_COMPLETED - The upload was partially successful. Only valid rows will be uploaded if the csv document contains them; any invalid rows will be skipped",
-                                                    "example": "COMPLETE"
-                                                }
-                                            },
-                                            "description": "The response payload representing upload data."
-                                        }
-                                    }
-                                },
-                                "examples": {
-                                    "Successul upload 200": {
-                                        "description": "200 Response to successful upload",
-                                        "value": {
-                                            "data": {
-                                                "state": "ea",
-                                                "totalCountParticipants": 1000,
-                                                "deletionStartTime": "2022-07-11",
-                                                "deletionEndTime": "2022-07-11",
-                                                "deletionStatus": "COMPLETED",
-                                                "deletionErrors": "",
-                                                "totalDeletedOldParticipantsCount": 1000,
-                                                "upload_identifier": "0x8DA63770FEF1551",
-                                                "created_at": "2022-07-11",
-                                                "participants_uploaded": "40",
-                                                "completed_at": "2022-07-11",
-                                                "status": "COMPLETE"
-                                            }
-                                        }
-                                    },
-                                    "Failed Upload '200'": {
-                                        "description": "200 response on an upload that failed",
-                                        "value": {
-                                            "data": {
-                                                "state": "ea",
-                                                "totalCountParticipants": 1000,
-                                                "deletionStartTime": "2022-07-11",
-                                                "deletionEndTime": "2022-07-11",
-                                                "deletionStatus": "FAILED",
-                                                "deletionErrors": "<String of comma separated errors>",
-                                                "totalDeletedOldParticipantsCount": 1000,
-                                                "upload_identifier": "0x8DA63770FEF1551",
-                                                "created_at": "2022-07-11",
-                                                "participants_uploaded": "40",
-                                                "error_message": "Exception of type 'CsvHelper.FieldValidationException' was thrown.",
-                                                "completed_at": "2022-07-11",
-                                                "status": "FAILED"
-                                            }
-                                        }
-                                    },
-                                    "Not Found": {
-                                        "description": "404 Not found exception",
-                                        "value": {
-                                            "errors": [
-                                                {
-                                                    "status": "404",
-                                                    "title": "NotFoundException",
-                                                    "detail": "not found"
-                                                }
-                                            ]
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "Status of the upload",
-                                            "example": "400"
-                                        },
-                                        "title": {
-                                            "type": "string",
-                                            "description": "The title of the error",
-                                            "example": "Bad Request Exception"
-                                        },
-                                        "detail": {
-                                            "type": "string",
-                                            "description": "The detailed description of the error",
-                                            "example": "Request was not valid"
-                                        }
-                                    }
-                                },
-                                "example": {
-                                    "statusCode": "400",
-                                    "title": "Bad Request Exception",
-                                    "detail": "Request was not valid"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Access denied",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "statusCode": {
-                                            "type": "string",
-                                            "description": "Status of the upload",
-                                            "example": "401"
-                                        },
-                                        "message": {
-                                            "type": "string",
-                                            "description": "The message explaining the reason for access denied",
-                                            "example": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription"
-                                        }
-                                    }
-                                },
-                                "example": {
-                                    "statusCode": "401",
-                                    "message": "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "errors": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "status": {
-                                                        "type": "string",
-                                                        "description": "The error that occured during upload",
-                                                        "example": "404"
-                                                    },
-                                                    "title": {
-                                                        "type": "string",
-                                                        "description": "The title of the error",
-                                                        "example": "NotFoundException"
-                                                    },
-                                                    "detail": {
-                                                        "type": "string",
-                                                        "description": "The detailed description of the error",
-                                                        "example": "not found"
-                                                    }
-                                                }
-                                            },
-                                            "description": "The array of errors when getting the upload."
-                                        }
-                                    }
-                                },
-                                "example": {
-                                    "errors": [
-                                        {
-                                            "status": "404",
-                                            "title": "NotFoundException",
-                                            "detail": "not found"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    },
-    "components": {
-        "securitySchemes": {
-            "apiKeyHeader": {
-                "type": "apiKey",
-                "name": "Ocp-Apim-Subscription-Key",
-                "in": "header"
-            },
-            "apiKeyQuery": {
-                "type": "apiKey",
-                "name": "subscription-key",
-                "in": "query"
-            }
-        }
-    },
-    "security": [
-        {
-            "apiKeyHeader": []
-        },
-        {
-            "apiKeyQuery": []
-        }
-    ],
-    "tags": [
-        {
-            "name": "UploadAllParticipants"
-        }
-    ]
-}
+CREATE TABLE NAC_MATCH_HEADER (
+    MATCH_ID                       VARCHAR(200) NOT NULL,
+    INITIATOR_STATE                VARCHAR(50),
+    CREATED_AT                     TIMESTAMP,
+    STATUS                         VARCHAR(50),
+    MBM_CREATED_AT                 TIMESTAMP,
+    INIT_STATE_PRIMARY_EMAIL       VARCHAR(200),
+    INIT_STATE_PHONE               VARCHAR(50),
+    MATCH_STATE_PRIMARY_EMAIL      VARCHAR(200),
+    MATCH_STATE_PHONE              VARCHAR(50),
+    LAST_UPDATED_AT                TIMESTAMP,
+    CREATED_TS                     TIMESTAMP DEFAULT CURRENT TIMESTAMP,
+    PRIMARY KEY (MATCH_ID)
+);
+
+CREATE TABLE NAC_MATCH_PARTICIPANT (
+    MATCH_ID                  VARCHAR(200) NOT NULL,
+    STATE_CODE                VARCHAR(2)   NOT NULL,
+    ICI                       VARCHAR(50),
+    UPI                       VARCHAR(50),
+    PARTICIPANT_CLOSE_DATE    DATE,
+    VULNERABLE_FLAG           CHAR(1),
+    CREATED_TS                TIMESTAMP DEFAULT CURRENT TIMESTAMP,
+    PRIMARY KEY (MATCH_ID, STATE_CODE, ICI, UPI)
+);
+
+
+CREATE TABLE NAC_MATCH_DISPOSITION (
+    MATCH_ID                        VARCHAR(200) NOT NULL,
+    STATE_CODE                      VARCHAR(2)   NOT NULL,
+    INITIAL_ACTION_AT               TIMESTAMP,
+    INITIAL_ACTION_TAKEN            VARCHAR(100),
+    INVALID_MATCH_FLAG              CHAR(1),
+    INVALID_MATCH_REASON            VARCHAR(200),
+    OTHER_INVALID_REASON            VARCHAR(200),
+    FINAL_DISPOSITION               VARCHAR(100),
+    FINAL_DISPOSITION_DATE          DATE,
+    RESOLUTION_STATUS               VARCHAR(100),
+    VULNERABLE_FLAG                 CHAR(1),
+    CREATED_TS                      TIMESTAMP DEFAULT CURRENT TIMESTAMP,
+    PRIMARY KEY (MATCH_ID, STATE_CODE)
+);
