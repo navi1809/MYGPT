@@ -1,1322 +1,1712 @@
-	// method to store Help With Application
-	public void storeHelpWithApplications(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-		try {
-			log(ILog.INFO,
-					"RegistrationEJBBean::storeHelpWithApplications:Start");
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-			int[] driverArray = null;
-			String appNumber = null;
-			Map beforeColl = null;
-			int currentPageStatus = 0;
-			String pageId = null;
-			APP_FILE_HELP_Collection appHelpBeforeColl = null;
-			APP_FILE_HELP_Collection appHelpColl = null;
-			APP_FILE_HELP_Cargo appHelpCargo = null;
-			APP_FILE_HELP_Cargo appHelpBeforeCargo = null;
-			FwMessageList validateInfo = null;
+package gov.illinois.access.business.services;
 
-			// Get the status of the Driver from Session
-			driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
-			// Get the current Page Id from the Request
-			pageId = (String) request.get(FwConstants.CURRENT_PAGE_ID);
-			// Get the APP_NUM from the Session
-			appNumber = (String) session.get(AppConstants.APP_NUMBER);
-			// Get the before Collection from the Session
-			beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
-			// Get the Status of the page from driver manager
-			currentPageStatus = driverManager.getAFBStatus(
-					FwConstants.AFB_DRIVER, pageId, driverArray);
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.GregorianCalendar;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.StringTokenizer;
 
-			if (beforeColl.containsKey("APP_FILE_HELP_Collection")) {
-				appHelpBeforeColl = (APP_FILE_HELP_Collection) beforeColl
-						.get("APP_FILE_HELP_Collection");
-			}
-			if (pageCollection.containsKey("APP_FILE_HELP_Collection")) {
-				appHelpColl = (APP_FILE_HELP_Collection) pageCollection
-						.get("APP_FILE_HELP_Collection");
-			}
+import javax.ejb.EJBException;
 
-			HelpWithApplicationBO helpBo = new HelpWithApplicationBO();
-			ABHWAValidator helpValidatorObj = new ABHWAValidator();
-			if (appHelpColl != null && !appHelpColl.isEmpty()) {
-				appHelpCargo = appHelpColl.getCargo(0);
-				// Now calling the validate method
-				validateInfo = helpValidatorObj
-						.validateHelpWithApplication(appHelpCargo);
-				if (validateInfo != null && validateInfo.hasMessages()) {
-					String reqWarningMsgs = (String) request
-							.get(FwConstants.WARNING_MSG_DETAILS);
-					if (!this.checkForWarningMesgs(reqWarningMsgs,
-							helpBo.getMessageList())) {
-						request.put(FwConstants.MESSAGE_LIST, validateInfo);
-						pageCollection.put("APP_FILE_HELP_Collection",
-								appHelpColl);
-						return;
-					}
-				}
-				// check and set default values
-				appHelpCargo.setApp_num(appNumber);
+import gov.illinois.access.business.customEntities.APP_ABS_PRNT_Cust_Collection;
+import gov.illinois.access.business.customEntities.APP_TAX_RLT_Cargo;
+import gov.illinois.access.business.customEntities.APP_TAX_RLT_Collection;
+import gov.illinois.access.business.customEntities.INDIVIDUAL_Custom_Cargo;
+import gov.illinois.access.business.customEntities.INDIVIDUAL_Custom_Collection;
+import gov.illinois.access.business.entities.APP_AUTH_REP_Collection;
+import gov.illinois.access.business.entities.APP_HSHL_RLT_Cargo;
+import gov.illinois.access.business.entities.APP_HSHL_RLT_Collection;
+import gov.illinois.access.business.entities.APP_INDV_Cargo;
+import gov.illinois.access.business.entities.APP_INDV_Collection;
+import gov.illinois.access.business.entities.APP_IN_ABSNP_Collection;
+import gov.illinois.access.business.entities.APP_IN_DABL_Cargo;
+import gov.illinois.access.business.entities.APP_IN_DABL_Collection;
+import gov.illinois.access.business.entities.APP_IN_INST_Cargo;
+import gov.illinois.access.business.entities.APP_IN_INST_Collection;
+import gov.illinois.access.business.entities.APP_IN_NEWB_Cargo;
+import gov.illinois.access.business.entities.APP_IN_NEWB_Collection;
+import gov.illinois.access.business.entities.APP_IN_PREG_Cargo;
+import gov.illinois.access.business.entities.APP_IN_PREG_Collection;
+import gov.illinois.access.business.entities.APP_IN_PRFL_Cargo;
+import gov.illinois.access.business.entities.APP_IN_PRFL_Collection;
+import gov.illinois.access.business.entities.APP_IN_SPS_IMPOV_Cargo;
+import gov.illinois.access.business.entities.APP_IN_SPS_IMPOV_Collection;
+import gov.illinois.access.business.entities.APP_NURSING_ADDRESS_Cargo;
+import gov.illinois.access.business.entities.APP_NURSING_ADDRESS_Collection;
+import gov.illinois.access.business.entities.APP_PGM_RQST_Cargo;
+import gov.illinois.access.business.entities.APP_PGM_RQST_Collection;
+import gov.illinois.access.business.entities.APP_RETRO_RQST_Cargo;
+import gov.illinois.access.business.entities.APP_RETRO_RQST_Collection;
+import gov.illinois.access.business.entities.APP_RGST_Cargo;
+import gov.illinois.access.business.entities.APP_RGST_Collection;
+import gov.illinois.access.business.entities.APP_RQST_Cargo;
+import gov.illinois.access.business.entities.APP_RQST_Collection;
+import gov.illinois.access.business.entities.HSHL_RLT_Collection;
+import gov.illinois.access.business.entities.NO_ONE_Cargo;
+import gov.illinois.access.business.entities.NO_ONE_Collection;
+import gov.illinois.access.business.rules.ABAbsentParentBO;
+import gov.illinois.access.business.rules.ABHouseHoldMemberBO;
+import gov.illinois.access.business.rules.ABHouseHoldRelationshipBO;
+import gov.illinois.access.business.rules.ABHouseholdMembersSummaryBO;
+import gov.illinois.access.business.rules.ABMedicalDetailsBO;
+import gov.illinois.access.business.rules.ABMedicareBO;
+import gov.illinois.access.business.rules.ABOtherExpensesQuestionsBO;
+import gov.illinois.access.business.rules.ABProgramInformationBO;
+import gov.illinois.access.business.rules.ABRegistrationBO;
+import gov.illinois.access.business.rules.ABRegistrationSummaryBO;
+import gov.illinois.access.business.rules.ABRelevanceBO;
+import gov.illinois.access.business.rules.ABSaveAndExitBO;
+import gov.illinois.access.business.rules.ABSchoolEnrollmentBO;
+import gov.illinois.access.business.rules.AFBHouseHoldMemberQuestionsBO;
+import gov.illinois.access.business.rules.AFBHouseHoldPregnancyQuestionsBO;
+import gov.illinois.access.business.rules.SecurityHelperBO;
+import gov.illinois.access.business.rules.household.DisabilityBO;
+import gov.illinois.access.business.rules.household.InstitutionBO;
+import gov.illinois.access.business.rules.household.PregnancyBO;
+import gov.illinois.access.business.utility.StringUtils;
+import gov.illinois.access.business.validation.afb.details.ABDISValidator;
+import gov.illinois.access.business.validation.afb.details.ABINDValidator;
+import gov.illinois.access.management.applications.ApplicationManager;
+import gov.illinois.access.management.applications.IAppProfileManager;
+import gov.illinois.access.management.applications.IApplicationManager;
+import gov.illinois.access.management.constants.AppConstants;
+import gov.illinois.access.management.individuals.PeopleHandler;
+import gov.illinois.access.management.programs.FwProgramManager;
+import gov.illinois.access.management.programs.IProgramManager;
+import gov.illinois.access.management.rules.PeopleRulesBO;
+import gov.illinois.access.management.util.DateRoutine;
+import gov.illinois.access.management.util.IndivTypeSeqBean;
+import gov.illinois.access.management.util.IndividualAge;
+import gov.illinois.access.navigation.AFBNavigationBO;
+import gov.illinois.access.presentation.entities.listview.ABHouseHoldMembersBlindDisableListview;
+import gov.illinois.access.presentation.entities.listview.ABHouseHoldMembersInstitutionListview;
+import gov.illinois.access.presentation.entities.listview.ABHouseHoldMembersListview;
+import gov.illinois.access.presentation.entities.listview.ABHouseHoldMembersPregnancyListview;
+import gov.illinois.access.presentation.entities.listview.ABHouseHoldMembersRelationshipsListview;
+import gov.illinois.access.presentation.entities.listview.ABHouseHoldOutsideHomeMembersListview;
+import gov.illinois.framework.business.entities.FwTransaction;
+import gov.illinois.framework.business.entities.ICargo;
+import gov.illinois.framework.business.entities.ICargoCollection;
+import gov.illinois.framework.driver.FwPageManager;
+import gov.illinois.framework.driver.IPage;
+import gov.illinois.framework.exceptions.FwException;
+import gov.illinois.framework.exceptions.FwWrappedException;
+import gov.illinois.framework.management.constants.FwConstants;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.management.messages.FwMessage;
+import gov.illinois.framework.management.messages.FwMessageList;
+import gov.illinois.framework.management.references.IReferenceTableManager;
+import gov.illinois.framework.management.references.ReferenceTableManager;
+import gov.illinois.framework.management.util.FwDataCriteria;
+import gov.illinois.framework.management.util.FwDate;
+import gov.illinois.framework.presentation.entities.listview.IListviewFormatter;
 
-				if (appHelpCargo.getHelp_indv_ind() == null)
-					appHelpCargo.setHelp_indv_ind("0");
-				
-				//By Anwar
-				if(appHelpCargo.getApply_for_yourself_resp() == null){
-					appHelpCargo.setApply_for_yourself_resp("N");
-				}
-
-				// by sushma
-				/* appHelpCargo.setHelp_indv_ind("3"); */
-				// by sushma
-
-				// new change by Yogendra
-				// (!appHelpCargo.getHelp_indv_ind().equalsIgnoreCase( "2"))
-				
-				if (appHelpCargo.getCase_access_rqst_sw() == null ) {
-				   appHelpCargo.setCase_access_rqst_sw(" "); 
-				  }
-				 
-
-				String agencyNumberEntered = appHelpCargo.getAgcy_num();
-
-				if (agencyNumberEntered == null
-						|| agencyNumberEntered.equals("")){
-					appHelpCargo.setAgcy_num("0");
-				}
-
-				// Checking the Before Collection is Null or Not
-				if (appHelpBeforeColl != null) {
-					appHelpBeforeCargo = appHelpBeforeColl.getCargo(0);
-
-					// Now I am comparing the Cargos
-					appHelpCargo = (APP_FILE_HELP_Cargo) isChanged(
-							appHelpBeforeCargo, appHelpCargo);
-					if (appHelpCargo.isDirty()) {
-						appHelpCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-						helpBo.storeHelpWithApplication(appHelpColl);
-						helpBo.checkContactInfo(appHelpCargo,
-								appHelpBeforeCargo);// yogendra
-					}
-				} else {
-
-					APP_FILE_HELP_Cargo appFileHelpCargo = helpBo
-							.loadHelpWithApplication(appNumber);
-
-					if (appFileHelpCargo.getApp_num() != null) {
-						appHelpCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-						helpBo.storeHelpWithApplication(appHelpColl);
-					} else {
-						// We need to insert new record to the data base
-						appHelpCargo.setRowAction(FwConstants.ROWACTION_INSERT);
-						helpBo.storeHelpWithApplication(appHelpColl);
-					}
-				}
-			}
-			// check selected option for driver flow only on click of next
-			// Changed by Rashmi for Driver Flow in Access Page
-			String checkOptionStr = null;
-			if (appHelpCargo != null && appHelpCargo.getHelp_indv_ind() != null)
-				checkOptionStr = appHelpCargo.getHelp_indv_ind().trim();
-
-			// if(checkOptionStr.equals("1") || checkOptionStr.equals("2") ||
-			// checkOptionStr.equals("3") || checkOptionStr.equals("4") ||
-			// checkOptionStr.equals("5")){
-			if (checkOptionStr != null && checkOptionStr.equals("3")) {
-				driverManager.makeRequired(FwConstants.AFB_DRIVER, "ABCON",
-						driverArray, appNumber);
-			} else {
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,
-						"ABCON", driverArray, appNumber);
-			}
-			txnBean.setPageCollection(pageCollection);
-			// set current page as completed - C to driver
-			driverManager.makeComplete(FwConstants.AFB_DRIVER, "ABHWA",
-					driverArray, appNumber);
-
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("storeHelpWithApplications");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"storeHelpWithApplications", e);
-			throw fe;
-		}
-	}// end of storeHelpWithApplications
+/**
+* HouseHoldInfoEJBBean - SessionFacade Object
+* skeleton auto generated - Architecture Team
+* @Creation Date :Tue Nov 22 09:53:55 CST 2005
+* Modified By:
+* Modified on:
+*/
+public class HouseHoldInfoEJBBean extends AppSessionBean {
 
 	/**
-	 * @param txnBean
-	 * @throws javax.ejb.EJBException
-	 */
-	public void addHelpWithApplications(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-		try {
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-			// String helpIndicator = "0";
-			int[] driverArray = null;
-			String appNumber = (String) session.get(AppConstants.APP_NUMBER);
-			APP_FILE_HELP_Collection helpColl = (APP_FILE_HELP_Collection) pageCollection
-					.get("APP_FILE_HELP_Collection");
-			APP_FILE_HELP_Cargo helpCargo = new APP_FILE_HELP_Cargo();
-			HelpWithApplicationBO helpBO = new HelpWithApplicationBO();
-			FwMessageList validateInfo = null;
-			if (!helpColl.isEmpty()) {
-				helpCargo = helpColl.getCargo(0);
-			}
-			// Added by sushma
-			helpCargo.setHelp_indv_ind("3");
-			// Added by sushma
-			// helpIndicator = helpCargo.getHelp_indv_ind();
-			ABHWAValidator helpValidator = new ABHWAValidator();
-			validateInfo = helpValidator
-					.validateAddHelpWithApplication(helpCargo);
-			if (validateInfo != null && validateInfo.hasMessages()) {
-				request.put(FwConstants.MESSAGE_LIST, validateInfo);
-				pageCollection.put("APP_FILE_HELP_Collection", helpColl);
-				txnBean.setPageCollection((Map) session
-						.get(FwConstants.BEFORE_COLLECTION));
-				return;
-			}
-
-			helpCargo.setApp_num(appNumber);
-			helpCargo.setAgcy_num("0");
-			helpCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-			helpBO.storeHelpWithApplication(helpColl);
-
-			driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
-			driverManager.makeRequired(FwConstants.AFB_DRIVER, "ABCON",
-					driverArray, appNumber);
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("addHelpWithApplications");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"addHelpWithApplications", e);
-			throw fe;
-		}
-
-	}// end of addHelpWithApplications
-
-	/**
-	 * @param txnBean
-	 * @throws javax.ejb.EJBException
-	 */
-	public void changeHelpWithApplications(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-		try {
-			Map session = txnBean.getSession();
-			Map pageCollection = txnBean.getPageCollection();
-			int[] driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
-
-			APP_FILE_HELP_Collection helpColl = new APP_FILE_HELP_Collection();
-			HelpWithApplicationBO helpBO = new HelpWithApplicationBO();
-			String appNumber = (String) session.get(AppConstants.APP_NUMBER);
-			helpColl.addCargo(helpBO.loadHelpWithApplication(appNumber));
-			pageCollection.put("APP_FILE_HELP_Collection", helpColl);
-
-			driverManager.makeRequired(FwConstants.AFB_DRIVER, "ABHMS",
-					driverArray, appNumber);
-
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("changeHelpWithApplications");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"changeHelpWithApplications", e);
-			throw fe;
-		}
-
-	}// end of changeHelpWithApplications
-
-	/**
-	 * @param txnBean
-	 * @throws javax.ejb.EJBException
-	 */
-	public void deleteHelpWithApplications(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-		try {
-			Map session = txnBean.getSession();
-			// String helpOptionSelected = "";
-			String helpOptionSelected = "3";
-			// helpOptionSelected = session.get("INFO_TYPE").toString();
-			String appNumber = (String) session.get(AppConstants.APP_NUMBER);
-			ABHWAValidator helpValidator = new ABHWAValidator();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-			APP_FILE_HELP_Collection helpColl = (APP_FILE_HELP_Collection) pageCollection
-					.get("APP_FILE_HELP_Collection");
-			APP_FILE_HELP_Cargo helpCargo = new APP_FILE_HELP_Cargo();
-			// added june 26
-			helpCargo.setHelp_indv_ind("3");
-			// added june 26
-			String applName = "Your";
-			String repType = "";
-			HelpWithApplicationBO helpBO = new HelpWithApplicationBO();
-
-			/*
-			 * if(helpOptionSelected.equals("1")) repType = "Friend and Family";
-			 * else if(helpOptionSelected.equals("2")) repType =
-			 * "Staff person or Volunteer"; else
-			 * if(helpOptionSelected.equals("3"))
-			 */
-			repType = "Authorized Representative";
-			/*
-			 * else if(helpOptionSelected.equals("4")) repType =
-			 * "Legal Guardian"; else if(helpOptionSelected.equals("5")) repType
-			 * = "Power of Attorney";
-			 */
-
-			PeopleHandler peopleHandler = (PeopleHandler) session
-					.get(AppConstants.INDIV_MASTER_HANDLER);
-			applName = peopleHandler.getFirstName("1");
-			helpValidator.validateEraseRepresentativeInfo(applName, repType);
-			if (helpValidator.hasMessages()) {
-				// request.put(FwConstants.MESSAGE_LIST,
-				// programInformationBO.getMessageList());
-				boolean warningMsgFlag = false;
-				String reqWarningMsgs = (String) request
-						.get(FwConstants.WARNING_MSG_DETAILS);
-				warningMsgFlag = this.checkForWarningMesgs(reqWarningMsgs,
-						helpValidator.getMessageList());
-				if (!this.checkForWarningMesgs(reqWarningMsgs,
-						helpValidator.getMessageList())) {
-					request.put(FwConstants.MESSAGE_LIST,
-							helpValidator.getMessageList());
-					pageCollection.put("APP_FILE_HELP_Collection", helpColl);
-					session.put("INFO_TYPE", helpOptionSelected);
-					txnBean.setPageCollection((Map) session
-							.get(FwConstants.BEFORE_COLLECTION));
-					setValuesForCard(request,session,appNumber,peopleHandler);
-					return;
-				}
-			}
-			helpBO.deleteHelpWithApplications(appNumber, helpOptionSelected);
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("deleteHelpWithApplications");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"deleteHelpWithApplications", e);
-			throw fe;
-		}
-
-	}// end of deleteHelpWithApplications
-
-	/**
-	 * Comment here
-	 */
-	public void getContactInformation(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-
-		try {
-			Map pageColl = txnBean.getPageCollection();
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			String optSelected = null;
-			String optType = null;
-			APP_AUTH_REP_Collection arColl = null;
-			APP_FILE_HELP_Collection helpColl = new APP_FILE_HELP_Collection();
-			APP_FILE_HELP_Cargo helpCargo = null;
-			ContactInformationBO objBO = new ContactInformationBO();
-
-			String currentPageID = (String) request
-					.get(FwConstants.CURRENT_PAGE_ID);
-			int[] driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
-			int driverStatus = (int) driverManager.getAFBStatus(
-					FwConstants.AFB_DRIVER, currentPageID, driverArray);
-			String appNum = (String) session.get(AppConstants.APP_NUMBER);
-
-			HelpWithApplicationBO helpBO = new HelpWithApplicationBO();
-			helpCargo = helpBO.loadHelpWithApplication(appNum);
-
-			optSelected = helpCargo.getHelp_indv_ind();
-
-			if (optSelected.equals("1"))
-				optType = "FF";
-			if (optSelected.equals("2"))
-				optType = "SPAV";
-			if (optSelected.equals("3"))
-				optType = "FR";
-			else if (optSelected.equals("4"))
-				optType = "LG";
-			else if (optSelected.equals("5"))
-				optType = "POA";
-
-			pageColl.put("INFO_TYPE", optType);
-			helpColl.addCargo(helpCargo);
-			pageColl.put("APP_FILE_HELP_Collection", helpColl);
-
-			if (driverStatus == FwConstants.DRIVER_COMPLETE
-					|| driverStatus == FwConstants.DRIVER_VISIT_AGAIN) {
-				// lgColl = objBO.getLGContactInfo(appNum);
-				// pageColl.put("APP_AR_LG_CNTC_Collection",lgColl);
-
-				if (optSelected.equals("3")) {
-					arColl = objBO.getARContactInfo(appNum);
-					pageColl.put("APP_AUTH_REP_Collection", arColl);
-				}
-			}
-			txnBean.setPageCollection(pageColl);
-			session.put(FwConstants.BEFORE_COLLECTION, pageColl);
-
-			// to deal with Program Key in session - at this stage Program Key
-			// Array contais Zero values.
-			// make any one value in the array to 1 and set it back to original
-			// one after calling getComponents()
-			short[] orgProgramKeyArray = (short[]) session
-					.get(FwConstants.AFB_PROGRAM_KEY);
-			int size = 5;
-			short[] tempProgramKeyArray = new short[size];
-			tempProgramKeyArray[0] = 1;
-			session.put(FwConstants.AFB_PROGRAM_KEY, tempProgramKeyArray);
-			componentManager.getComponents(
-					(String) (request.get(FwConstants.CURRENT_PAGE_ID)),
-					txnBean);
-			session.put(FwConstants.AFB_PROGRAM_KEY, orgProgramKeyArray);
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("getContactInformation");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"getContactInformation", e);
-			throw fe;
-		}
-	}
-
-	/**
-	 * Comment here
-	 */
-	public void storeContactInformation(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-
-		try {
-
-			String appNumber = "";
-			boolean authRepPersistFlag = false;
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-			FwMessageList validateInfo = null;
-			// FwMessageList validateInfoAR = null;
-			boolean componentFlag = false;
-			// String optSelected = (String)session.get("INFO_TYPE");
-			String optSelected = (String) pageCollection.get("INFO_TYPE");
-
-			// Common Collection & Cargo
-			// APP_AR_LG_CNTC_Collection appLGColl = new
-			// APP_AR_LG_CNTC_Collection();
-			APP_AR_LG_CNTC_Cargo appLGCargo = new APP_AR_LG_CNTC_Cargo();
-
-			// APP_AR_LG_CNTC_Collection appLGBeforeColl = new
-			// APP_AR_LG_CNTC_Collection();
-
-			// Auth Rep Carog and Collection
-			APP_AUTH_REP_Collection appAuthRepColl = new APP_AUTH_REP_Collection();
-			APP_AUTH_REP_Cargo appAuthRepCargo = new APP_AUTH_REP_Cargo();
-
-			APP_AUTH_REP_Collection appAuthRepBeforeColl = new APP_AUTH_REP_Collection();
-
-			Map beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
-			ContactInformationBO contInfoBO = new ContactInformationBO();
-			ABCONValidator conValidatorObj = new ABCONValidator();
-			optSelected = (String) beforeColl.get("INFO_TYPE");
-
-			/*
-			 * if(beforeColl.containsKey("APP_AR_LG_CNTC_Collection")){
-			 * appLGBeforeColl =(APP_AR_LG_CNTC_Collection)beforeColl.get(
-			 * "APP_AR_LG_CNTC_Collection"); }
-			 * if(pageCollection.containsKey("APP_AR_LG_CNTC_Collection")){
-			 * appLGColl =(APP_AR_LG_CNTC_Collection)pageCollection.get(
-			 * "APP_AR_LG_CNTC_Collection"); }
-			 */
-			// Spouse details Before Collection
-			if (beforeColl.containsKey("APP_AUTH_REP_Collection")) {
-				appAuthRepBeforeColl = (APP_AUTH_REP_Collection) beforeColl
-						.get("APP_AUTH_REP_Collection");
-			}
-			if (pageCollection.containsKey("APP_AUTH_REP_Collection")) {
-				appAuthRepColl = (APP_AUTH_REP_Collection) pageCollection
-						.get("APP_AUTH_REP_Collection");
-			}
-
-			appNumber = (String) session.get(AppConstants.APP_NUMBER);
-
-			List componentList = (ArrayList) beforeColl
-					.get(FwConstants.PAGE_COMPONENT_LIST);
-
-			if (componentList.contains("365")) {
-				componentFlag = true;
-			}
-
-			if (appAuthRepColl != null && appAuthRepColl.size() > 0) {
-				appAuthRepCargo = appAuthRepColl.getCargo(0);
-				appAuthRepCargo.setPhn_num(concatenatePhoneNumber(request,
-						"phoneNumber"));
-			}
-
-			if (componentFlag) {
-				if (appAuthRepColl != null && appAuthRepColl.size() > 0) {
-					appAuthRepCargo = appAuthRepColl.getCargo(0);
-					boolean isAddress = false;
-					if ((appAuthRepCargo.getL1_adr() != null && !appAuthRepCargo
-							.getL1_adr().trim().equals(""))
-							|| (appAuthRepCargo.getL2_adr() != null && !appAuthRepCargo
-									.getL2_adr().trim().equals(""))) {
-						isAddress = true;
-					}
-					boolean isRecCpltInd = false;
-					if (appAuthRepCargo.getCity_adr() != null
-							&& !appAuthRepCargo.getCity_adr().trim().equals("")
-							&& appAuthRepCargo.getEmail_adr() != null
-							&& !appAuthRepCargo.getEmail_adr().trim()
-									.equals("")
-							&& appAuthRepCargo.getZip_adr() != null
-							&& !appAuthRepCargo.getZip_adr().trim().equals("")
-							&& appAuthRepCargo.getFiling_rep_fst_nam() != null
-							&& !appAuthRepCargo.getFiling_rep_fst_nam().trim()
-									.equals("")
-							&& appAuthRepCargo.getFiling_rep_last_nam() != null
-							&& !appAuthRepCargo.getFiling_rep_last_nam().trim()
-									.equals("")
-							&& appAuthRepCargo.getAppl_fst_nam() != null
-							&& !appAuthRepCargo.getAppl_fst_nam().trim()
-									.equals("")
-							&& appAuthRepCargo.getAuth_rep_fst_nam() != null
-							&& !appAuthRepCargo.getAuth_rep_fst_nam().trim()
-									.equals("")
-							&& appAuthRepCargo.getAuth_rep_last_nam() != null
-							&& !appAuthRepCargo.getAuth_rep_last_nam().trim()
-									.equals("")) {
-						isRecCpltInd = true;
-					}
-					if (isRecCpltInd && isAddress) {
-						appLGCargo.setRec_cplt_ind("1");
-					} else {
-						appLGCargo.setRec_cplt_ind("0");
-					}
-					appAuthRepCargo.setApp_num(appNumber);
-					if (appAuthRepCargo.getAppl_esign_ind() == null)
-						appAuthRepCargo.setAppl_esign_ind("0");
-					if (appAuthRepCargo.getAuth_rep_esign_ind() == null)
-						appAuthRepCargo.setAuth_rep_esign_ind("0");
-					if (appAuthRepCargo.getWitn_esign_ind() == null)
-						appAuthRepCargo.setWitn_esign_ind("0");
-				}
-				// }
-				// Now calling the validate method
-				Map httpSessionMap = (Map) session
-						.get(FwConstants.HTTP_SESSION);
-				String language = (String) httpSessionMap
-						.get(AppConstants.LANGUAGE);
-				validateInfo = conValidatorObj.validateLGContactInfo(
-						appAuthRepCargo, componentFlag, optSelected, language);
-				if (validateInfo != null && validateInfo.hasMessages()) {
-					request.put(FwConstants.MESSAGE_LIST, validateInfo);
-					// pageCollection.put("APP_AR_LG_CNTC_Collection",appLGColl);
-					pageCollection.put("APP_AUTH_REP_Collection",
-							appAuthRepColl);
-					pageCollection.put("INFO_TYPE", optSelected);
-					pageCollection.put(FwConstants.PAGE_COMPONENT_LIST,
-							beforeColl.get(FwConstants.PAGE_COMPONENT_LIST));
-					return;
-				}
-
-				if (componentFlag) {
-					if (appAuthRepBeforeColl != null
-							&& appAuthRepBeforeColl.size() > 0) {
-
-						// compare cargos
-						appAuthRepCargo = (APP_AUTH_REP_Cargo) isChanged(
-								appAuthRepBeforeColl.getCargo(0),
-								appAuthRepCargo);
-						if (appAuthRepCargo.isDirty()) {
-							appAuthRepCargo
-									.setRowAction(FwConstants.ROWACTION_UPDATE);
-							authRepPersistFlag = true;
-						}
-					} else {
-						appAuthRepCargo
-								.setRowAction(FwConstants.ROWACTION_INSERT);
-						authRepPersistFlag = true;
-					}
-					if (appAuthRepCargo.getAppl_fst_nam() == null
-							|| appAuthRepCargo.getAppl_fst_nam().trim()
-									.length() == 0) {
-						appAuthRepCargo.setAppl_fst_nam(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getAppl_last_nam() == null
-							|| appAuthRepCargo.getAppl_last_nam().trim()
-									.length() == 0) {
-						appAuthRepCargo.setAppl_last_nam(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getAppl_mid_init() == null
-							|| appAuthRepCargo.getAppl_mid_init().trim()
-									.length() == 0) {
-						appAuthRepCargo.setAppl_mid_init(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getAuth_rep_fst_nam() == null
-							|| appAuthRepCargo.getAuth_rep_fst_nam().trim()
-									.length() == 0) {
-						appAuthRepCargo.setAuth_rep_fst_nam(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getAuth_rep_last_nam() == null
-							|| appAuthRepCargo.getAuth_rep_last_nam().trim()
-									.length() == 0) {
-						appAuthRepCargo.setAuth_rep_last_nam(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getAuth_rep_mid_init() == null
-							|| appAuthRepCargo.getAuth_rep_mid_init().trim()
-									.length() == 0) {
-						appAuthRepCargo.setAuth_rep_mid_init(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getMa_fs_auth_rep_nam() == null
-							|| appAuthRepCargo.getMa_fs_auth_rep_nam().trim()
-									.length() == 0) {
-						appAuthRepCargo
-								.setMa_fs_auth_rep_nam(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getWitn_fst_nam() == null
-							|| appAuthRepCargo.getWitn_fst_nam().trim()
-									.length() == 0) {
-						appAuthRepCargo.setWitn_fst_nam(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getWitn_last_nam() == null
-							|| appAuthRepCargo.getWitn_last_nam().trim()
-									.length() == 0) {
-						appAuthRepCargo.setWitn_last_nam(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getWitn_mid_init() == null
-							|| appAuthRepCargo.getWitn_mid_init().trim()
-									.length() == 0) {
-						appAuthRepCargo.setWitn_mid_init(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getBrg_crd_rcv_ind() == null
-							|| appAuthRepCargo.getBrg_crd_rcv_ind().trim()
-									.length() == 0) {
-						appAuthRepCargo.setBrg_crd_rcv_ind(FwConstants.SPACE);
-					}
-					if (appAuthRepCargo.getRep_code() == null
-							|| appAuthRepCargo.getRep_code().trim().length() == 0) {
-						appAuthRepCargo.setRep_code(optSelected);
-					}
-
-					if (appAuthRepCargo.getSta_adr() == null
-							|| appAuthRepCargo.getSta_adr().trim().length() == 0) {
-						appAuthRepCargo.setSta_adr("WI");
-					}
-				}
-
-				//
-				/*
-				 * appLGCargo.setApp_num(appNumber);
-				 * 
-				 * if(appLGCargo.getLtr_rcv_ind() == null ||
-				 * appLGCargo.getLtr_rcv_ind().length() == 0 )
-				 * appLGCargo.setLtr_rcv_ind(FwConstants.SPACE);
-				 * if(appLGCargo.getLtr_lang_cd() == null ||
-				 * appLGCargo.getLtr_lang_cd().length() == 0)
-				 * appLGCargo.setLtr_lang_cd(FwConstants.SPACE);
-				 * 
-				 * if(optSelected.equals("AR") || optSelected.equals("POA")){
-				 * if(appLGCargo.getLtr_rcv_ind().trim().length() == 0){
-				 * appLGCargo.setRec_cplt_ind("0"); }else{
-				 * appLGCargo.setRec_cplt_ind("1"); } }else{
-				 * appLGCargo.setRec_cplt_ind("1"); }
-				 * 
-				 * if(appLGCargo.getEmail_adr() == null ||
-				 * appLGCargo.getEmail_adr().length() == 0){
-				 * appLGCargo.setEmail_adr(FwConstants.SPACE); }
-				 * if(appLGCargo.getL2_adr() == null ||
-				 * appLGCargo.getL2_adr().length() == 0){
-				 * appLGCargo.setL2_adr(FwConstants.SPACE); }
-				 * if(appLGCargo.getLtr_lang_cd() == null ||
-				 * appLGCargo.getLtr_lang_cd().length() == 0){
-				 * appLGCargo.setLtr_lang_cd(FwConstants.SPACE); }
-				 * if(appLGCargo.getLtr_rcv_ind() == null ||
-				 * appLGCargo.getLtr_rcv_ind().length() == 0){
-				 * appLGCargo.setLtr_rcv_ind(FwConstants.SPACE); }
-				 * if(appLGCargo.getMid_init() == null ||
-				 * appLGCargo.getMid_init().length() == 0){
-				 * appLGCargo.setMid_init(FwConstants.SPACE); }
-				 * if(appLGCargo.getPhn_extn_num() == null ||
-				 * appLGCargo.getPhn_extn_num().length() == 0){
-				 * appLGCargo.setPhn_extn_num(FwConstants.SPACE); }
-				 * 
-				 * //Checking the Before Collection is Null or Not
-				 * if(appLGBeforeColl != null && appLGBeforeColl.size()>0){
-				 * appLGBeforeCargo = appLGBeforeColl.getCargo(0); //Now I am
-				 * comparing the Cargos appLGCargo =
-				 * (APP_AR_LG_CNTC_Cargo)isChanged(appLGBeforeCargo,appLGCargo);
-				 * if(appLGCargo.isDirty()){
-				 * appLGCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-				 * lGuardRersistFlag = true; } } else{ //We need to insert new
-				 * record to the data base
-				 * appLGCargo.setRowAction(FwConstants.ROWACTION_INSERT);
-				 * lGuardRersistFlag = true; }
-				 */
-
-				// call persist method
-				// Commented by Rashmi
-				/*
-				 * if(lGuardRersistFlag && !authRepPersistFlag)//persist only
-				 * APP_AR_LG_CNTC_Collection
-				 * contInfoBO.storeContactInfo(appLGColl, appAuthRepColl, 1);
-				 * else if(authRepPersistFlag && !lGuardRersistFlag)//persist
-				 * only APP_AUTH_REP_Collection
-				 * contInfoBO.storeContactInfo(appLGColl, appAuthRepColl, 2);
-				 * else if(lGuardRersistFlag && authRepPersistFlag)//persist
-				 * both contInfoBO.storeContactInfo(appLGColl, appAuthRepColl,
-				 * 3);
-				 */
-				if (authRepPersistFlag)// persist only APP_AR_LG_CNTC_Collection
-					contInfoBO.storeContactInfo(appAuthRepColl);
-			}
-			int[] driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
-			// set current page as completed - C to driver
-			driverManager.makeComplete(FwConstants.AFB_DRIVER, "ABCON",
-					driverArray, appNumber);
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("storeContactInformation");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"storeContactInformation", e);
-			throw fe;
-		}
-	}
-
-	public void getMailingAddressDetail(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-
-		Map session = txnBean.getSession();
-		Map pageCollection = txnBean.getPageCollection();
-
-		Map addressmailingMap = null;
-		String countyno = (String) session.get("CountyNum");
-		ABRegistrationBO abregistrationbo = new ABRegistrationBO();
-
-		addressmailingMap = abregistrationbo.getofficeaddress(countyno);
-		pageCollection.put("OFFICE_ADDRESSES", addressmailingMap);
-
-	}
-
-	public void storeMailingAddressDetail(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-		try {
-			// APP_RGST_Cargo appRgstCargo = new APP_RGST_Cargo();
-			// Map sqlMap = new HashMap();
-			// Map addressmailingMap = new HashMap();
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			// Map pageCollection = txnBean.getPageCollection();
-			int[] driverArray = null;
-			String appNumber = null;
-			driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
-
-			// Get the APP_NUM from the Session
-			appNumber = (String) session.get(AppConstants.APP_NUMBER);
-			String tsrcAppInd = AppConstants.SRC_APP_IND_AFB;
-			// added july 10
-			ABRegistrationBO abregistrationbo = new ABRegistrationBO();
-			String selectedofficenum = (String) request.get("OFFICE_ADDR");
-
-			// String radioselect1 = (String)session.get("RadioSelect");
-			session.put("RadioSelect", selectedofficenum);
-			// Modified by Vikram <WR-BRGUS00315703>
-			String countynum = (String) session.get("CountyNum");
-			abregistrationbo.getselectedofficeaddress(selectedofficenum,
-					appNumber, tsrcAppInd, countynum);
-			// End
-			// added july 10
-			String currentPageId = (String) request
-					.get(FwConstants.CURRENT_PAGE_ID);
-			// driverManager.makeComplete(FwConstants.AFB_DRIVER,"ABEFD",driverArray,appNumber);
-			driverManager.makeComplete(FwConstants.AFB_DRIVER, currentPageId,
-					driverArray, appNumber);
-
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("storeMailingAddressDetail");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"storeMailingAddressDetail", e);
-			throw fe;
-		}
-	}
-
-	/**
-	 * This method is used to store MA Short Form Information
-	 * 
-	 * @param txnBean
-	 * @throws javax.ejb.EJBException
-	 */
-	public void storeMedicalShortFormInformation(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-		Map session = txnBean.getSession();
-		Map request = txnBean.getRequest();
-		Map pageCollection = txnBean.getPageCollection();
-
-		APP_IN_PRFL_Collection appInPrflSession = (APP_IN_PRFL_Collection) session
-				.get(AppConstants.APP_IN_PRFL_MASTER);
-
-		FwMessageList validateInfo = null;
-		int[] driverArray = null;
-		String appNumber = null;
-		Map beforeMap = null;
-
-		APP_RQST_Collection appRqstColl = null;
-		APP_RQST_Cargo appRqstCargo = null;
-
-		try {
-			driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
-			appNumber = (String) session.get(AppConstants.APP_NUMBER);
-
-			if (pageCollection.containsKey("APP_RQST_Collection")) {
-				appRqstColl = (APP_RQST_Collection) pageCollection
-						.get("APP_RQST_Collection");
-				appRqstCargo = appRqstColl.getCargo(0);
-			}
-
-			ABProgramInformationBO programInfoBo = new ABProgramInformationBO();
-			// here we are validating the user has selected a short form
-			validateInfo = programInfoBo
-					.validateShortFormSelection(appRqstCargo);
-			if (validateInfo != null && validateInfo.hasMessages()) {
-				String reqWarningMsgs = (String) request
-						.get(FwConstants.WARNING_MSG_DETAILS);
-				if (!this.checkForWarningMesgs(reqWarningMsgs,
-						programInfoBo.getMessageList())) {
-					request.put(FwConstants.MESSAGE_LIST, validateInfo);
-					appRqstColl = new APP_RQST_Collection();
-					appRqstColl.add(appRqstCargo);
-					pageCollection.put("APP_RQST_Collection", appRqstColl);
-					return;
-				}
-			}
-
-			APP_RQST_Collection rqstRecordColl = programInfoBo
-					.loadProgramInformation(appNumber);
-			APP_RQST_Cargo rqstRecordCargo = rqstRecordColl.getCargo(0);
-
-			// when change the MA request
-			boolean isMaRqstChanged = false;
-			String beforeMAType = null;
-			if(rqstRecordCargo != null)
-				beforeMAType = rqstRecordCargo.getMa_short_form_cd();
-			if (beforeMAType != null
-					&& !beforeMAType.equals(appRqstCargo.getMa_short_form_cd())) {
-
-				isMaRqstChanged = true;
-			}
-            if(appRqstCargo != null){
-            	rqstRecordCargo.setMa_short_form_cd(appRqstCargo
-    					.getMa_short_form_cd());
-            }
-
-			rqstRecordCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-			rqstRecordColl.add(rqstRecordCargo);
-			rqstRecordColl.persist(FwConstants.DAO);
-			String[] hkPages = { "ABHKQ", "ABHKE", "ABMDS" };
-			// Adde by uma BRGUS00288181
-			String[] pfPages = { "ABPFQ", "ABHKE", "ABMDS" };
-			String[] nfPages = { "ABNFI" };
-			String[] maPages = { "ABMDQ", "ABMDS" };
-			// Added by Indrani - for Assets getting included for PF and healthy
-			// kids.
-			// String[] assetPages = {"ABLAQ","ABLAS","ABOAQ","ABOAS"};
-			String[] assetPages = { "ABLAQ", "ABLAD", "ABLAT", "ABLAS",
-					"ABLIT", "ABLID", "ABBAT", "ABBAD", "ABAAT", "ABPPD",
-					"ABVAT", "ABVAD", "ABRPT", "ABRPD", "ABOAQ", "ABOAS" };
-			// Added by Uma for MA Short Forms BRGUS00288048
-			String[] otherBills = { "ABOEQ" };
-			// Modified by Sai Katta #BRGUS00288688
-			String[] housingBills = { "ABHEQ", "ABHES" };
-
-			// schedule the MA request
-			if (appRqstCargo.getMa_short_form_cd().equals(
-					AppConstants.MA_HEALTHY_KIDS)) {
-				driverManager.makeRequired(FwConstants.AFB_DRIVER, hkPages,
-						driverArray, appNumber);
-				// Added by Uma for MA Short Forms BRGUS00288048
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,
-						assetPages, driverArray, appNumber);
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,
-						otherBills, driverArray, appNumber);
-			} else if (appRqstCargo.getMa_short_form_cd().equals(
-					AppConstants.MA_PLAN_FIRST)) {
-				driverManager.makeRequired(FwConstants.AFB_DRIVER, pfPages,
-						driverArray, appNumber);
-				// Added by Uma for MA Short Forms BRGUS00288048
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,
-						assetPages, driverArray, appNumber);
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,
-						otherBills, driverArray, appNumber);
-			} else if (appRqstCargo.getMa_short_form_cd().equals(
-					AppConstants.MA_NURSING_FACILITY)) {
-				driverManager.makeRequired(FwConstants.AFB_DRIVER, nfPages,
-						driverArray, appNumber);
-				// start of BRGUS00287295 by rotanak
-				// make the registration infromation page not required
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,
-						"ABRGI", driverArray, appNumber);
-				// end of BRGUS00287295 by rotanak
-				// Added by Uma for MA Short Forms BRGUS00288048
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,
-						otherBills, driverArray, appNumber);
-				driverManager.makeRequired(FwConstants.AFB_DRIVER,
-						housingBills, driverArray, appNumber);
-
-			} else if (appRqstCargo.getMa_short_form_cd().equals(
-					AppConstants.ONLY_MA)) {
-				driverManager.makeRequired(FwConstants.AFB_DRIVER, maPages,
-						driverArray, appNumber);
-				// Added by Uma for MA Short Forms BRGUS00288048
-				driverManager.makeRequired(FwConstants.AFB_DRIVER,
-						housingBills, driverArray, appNumber);
-			}
-
-			short[] programKey = (short[])session.get(FwConstants.AFB_PROGRAM_KEY);
-			if(programManager.isMSPOnlyProgramRequested(programKey)){
-				driverManager.makeAbsoluteNotRequired(FwConstants.AFB_DRIVER,new String[]{"ABMDQ","ABMDS"},driverArray,appNumber);
-			}
-			// unschedule the before ma request
-			if (isMaRqstChanged) {
-				if (beforeMAType.equals(AppConstants.MA_HEALTHY_KIDS)) {
-					// Changed by Sanjeeva Nemani WR BRGUS00288830- Start
-					String[] notRequiredPages = null;
-					if (appRqstCargo.getMa_short_form_cd().equals(
-							AppConstants.MA_PLAN_FIRST)) {
-						notRequiredPages = new String[] { "ABHKQ" };
-					} else {
-
-						notRequiredPages = new String[] { "ABHKQ", "ABHKE",
-								"ABHKC", "ABHKG", "ABHKR", "ABHCC" };
-					}
-					// Changed by Sanjeeva Nemani WR BRGUS00288830 - End
-					driverManager.makeAbsoluteNotRequired(
-							FwConstants.AFB_DRIVER, notRequiredPages,
-							driverArray, appNumber);
-					ABMAHealthyKidsBO healthyKidsBO = new ABMAHealthyKidsBO();
-
-					APP_IN_MI_CHILD_EXPENSE_Collection appInMiChExpCC = healthyKidsBO
-							.loadHealthyKidsDetails(appNumber);
-					if (appInMiChExpCC != null && appInMiChExpCC.size() > 0) {
-						healthyKidsBO
-								.deleteAllHealthyKidsDetails(appInMiChExpCC);
-					}
-
-					short[] fieldName = { IApplicationManager.CHILD_SUPPORT_SW,
-							IApplicationManager.CHILD_CARE_SW,
-							IApplicationManager.PAST_HEALTH_INSURANCE_SW,
-							IApplicationManager.SPECIAL_HEALTH_CARE_SW,
-							IApplicationManager.RENTAL_PROPERTY_EXP_SW,
-							IApplicationManager.HEALTH_INSURANCE_SW,
-							IApplicationManager.COURT_ORDERED_GUARDIAN_SW,
-							IApplicationManager.STATE_HEALTH_INSURANCE_SW,
-							IApplicationManager.PAST_CASH_MEDICAL_SW, };
-
-					if (appInPrflSession != null && appInPrflSession.size() > 0) {
-						for (int i = 0; i < appInPrflSession.size(); i++) {
-							APP_IN_PRFL_Cargo cargo = appInPrflSession
-									.getCargo(i);
-
-							cargo.setHealth_insurance_sw("N");
-							cargo.setPast_health_insurance_sw("N");
-							cargo.setState_health_insurance_sw("N");
-							cargo.setSpecial_health_care_sw("N");
-							cargo.setPast_cash_medical_sw("N");
-							cargo.setChild_support_sw("N");
-							cargo.setCourt_ordered_guardian_sw("N");
-							cargo.setChild_care_sw("N");
-							cargo.setRental_property_exp_sw("N");
-
-							applicationManager.persist(appNumber,
-									cargo.getIndv_seq_num(), fieldName,
-									new String[] { "N", "N", "N", "N", "N",
-											"N", "N", "N", "N" });
-						}
-					}
-				} else if (beforeMAType.equals(AppConstants.MA_PLAN_FIRST)) {
-					// Changed by Sanjeeva Nemani WR BRGUS00288830 - Start
-					String[] notRequiredPages = null;
-					if (appRqstCargo.getMa_short_form_cd().equals(
-							AppConstants.MA_HEALTHY_KIDS)) {
-						notRequiredPages = new String[] { "ABPFQ" };
-					} else {
-						notRequiredPages = new String[] { "ABPFQ", "ABHKE",
-								"ABHKC", "ABHKG", "ABHKR", "ABHCC" };
-					}
-					// Changed by Sanjeeva Nemani WR BRGUS00288830- End
-					driverManager.makeAbsoluteNotRequired(
-							FwConstants.AFB_DRIVER, notRequiredPages,
-							driverArray, appNumber);
-					// Adde by Uma for BRGUS00288181
-					ABMAHealthyKidsBO healthyKidsBO = new ABMAHealthyKidsBO();
-
-					APP_IN_MI_CHILD_EXPENSE_Collection appInMiChExpCC = healthyKidsBO
-							.loadHealthyKidsDetails(appNumber);
-					if (appInMiChExpCC != null && appInMiChExpCC.size() > 0) {
-						healthyKidsBO
-								.deleteAllHealthyKidsDetails(appInMiChExpCC);
-					}
-					short[] fieldName = {
-							IApplicationManager.PLAN_FIRST_MEDICAL_SW,
-							IApplicationManager.PLAN_FIRST_MEDICARE_SW,
-							IApplicationManager.PLAN_FIRST_MEDICAID_SW,
-							IApplicationManager.PLAN_FIRST_OTHER_HEALTH_SW,
-							IApplicationManager.CHILD_SUPPORT_SW,
-							IApplicationManager.CHILD_CARE_SW,
-							IApplicationManager.COURT_ORDERED_GUARDIAN_SW,
-							IApplicationManager.RENTAL_PROPERTY_EXP_SW };
-
-					if (appInPrflSession != null && appInPrflSession.size() > 0) {
-						for (int i = 0; i < appInPrflSession.size(); i++) {
-							APP_IN_PRFL_Cargo cargo = appInPrflSession
-									.getCargo(i);
-
-							cargo.setPlan_first_medicaid_sw("N");
-							cargo.setPlan_first_medical_sw("N");
-							cargo.setPlan_first_medicare_sw("N");
-							cargo.setPlan_first_other_health_sw("N");
-							cargo.setChild_support_sw("N");
-							cargo.setCourt_ordered_guardian_sw("N");
-							cargo.setChild_care_sw("N");
-							cargo.setRental_property_exp_sw("N");
-
-							applicationManager.persist(appNumber,
-									cargo.getIndv_seq_num(), fieldName,
-									new String[] { "N", "N", "N", "N", "N",
-											"N", "N", "N" });
-						}
-					}
-
-				} else if (beforeMAType
-						.equals(AppConstants.MA_NURSING_FACILITY)) {
-
-					String[] notRequiredPages = { "ABNFI" };
-					driverManager.makeAbsoluteNotRequired(
-							FwConstants.AFB_DRIVER, notRequiredPages,
-							driverArray, appNumber);
-					driverManager.makeRequired(FwConstants.AFB_DRIVER, "ABRGI",
-							driverArray, appNumber);
-
-					// leaving for nursing facility
-				} else if (beforeMAType.equals(AppConstants.ONLY_MA)) {
-					// Modified by Sai Katta #BRGUS00288688
-					String[] notRequiredPages = { "ABMDQ", "ABMEA", "ABMRE",
-							"ABMDD", "ABMCD", "ABMDT", "ABMDA", "ABHEQ",
-							"ABHES" };
-					driverManager.makeAbsoluteNotRequired(
-							FwConstants.AFB_DRIVER, notRequiredPages,
-							driverArray, appNumber);
-
-					ABMedicalDetailsBO appInMedDetBO = new ABMedicalDetailsBO();
-					ABMedicalCoverageDetailsBO appInMedCvgBO = new ABMedicalCoverageDetailsBO();
-					ABMedicalDisabilityApplicationDetailsBO appInMedDblBO = new ABMedicalDisabilityApplicationDetailsBO();
-
-					APP_IN_MEDICAL_DETAIL_Collection earlyOnColl = appInMedDetBO
-							.loadMedicalDetailsAFB(appNumber,
-									AppConstants.EARLY_ON);
-					if (earlyOnColl != null && earlyOnColl.size() > 0) {
-						appInMedDetBO.deleteMedicalDetails(earlyOnColl,
-								AppConstants.EARLY_ON);
-					}
-					APP_IN_MEDICAL_DETAIL_Collection speEduColl = appInMedDetBO
-							.loadMedicalDetailsAFB(appNumber,
-									AppConstants.SPECIAL_EDUCATION);
-					if (speEduColl != null && speEduColl.size() > 0) {
-						appInMedDetBO.deleteMedicalDetails(speEduColl,
-								AppConstants.SPECIAL_EDUCATION);
-					}
-					APP_IN_MEDICAL_DETAIL_Collection rehabColl = appInMedDetBO
-							.loadMedicalDetailsAFB(appNumber,
-									AppConstants.REHAB_SERVICE);
-					if (rehabColl != null && rehabColl.size() > 0) {
-						appInMedDetBO.deleteMedicalDetails(rehabColl,
-								AppConstants.REHAB_SERVICE);
-					}
-					APP_IN_MEDICAL_COVERAGE_Collection medCvgColl = appInMedCvgBO
-							.loadMedicalCoverageDetails(appNumber);
-					if (medCvgColl != null && medCvgColl.size() > 0) {
-						appInMedCvgBO.deleteMedicalCoverage(medCvgColl);
-					}
-					APP_IN_MEDICAL_DISABILITY_Collection medDblColl = appInMedDblBO
-							.loadDisabilityApplicationDetails(appNumber);
-					if (medDblColl != null && medDblColl.size() > 0) {
-						appInMedDblBO.deleteDisabilityApplication(medDblColl);
-					}
-
-					short[] fieldName = {
-							IApplicationManager.DOMESTIC_VIOLENCE_VICTIM_RESP,
-							IApplicationManager.IMMUNIZATION_RESP,
-							IApplicationManager.SPECIAL_HEALTH_SERVICE_RESP,
-							IApplicationManager.EARLY_ON_RESP,
-							IApplicationManager.SPECIAL_EDUCATION_CLASS_RESP,
-							IApplicationManager.ALCOHOL_DRUG_TREATMENT_RESP,
-							IApplicationManager.MI_REHAB_RESP,
-							IApplicationManager.CARETAKER_RESP,
-							IApplicationManager.MEDICAL_COVERAGE_RESP,
-							IApplicationManager.APPLIED_FOR_DISABILITY_RESP,
-							IApplicationManager.SOCIAL_SECURITY_RESP,
-							IApplicationManager.SUPPLEMENTAL_INCOME_RESP,
-							IApplicationManager.OTHER_DISABILITY_RESP };
-
-					if (appInPrflSession != null && appInPrflSession.size() > 0) {
-						for (int i = 0; i < appInPrflSession.size(); i++) {
-							APP_IN_PRFL_Cargo currentCargo = appInPrflSession
-									.getCargo(i);
-
-							applicationManager.persist(appNumber,
-									currentCargo.getIndv_seq_num(), fieldName,
-									new String[] { "N", "N", "N", "N", "N",
-											"N", "N", "N", "N", "N", "N", "N",
-											"N" });
-
-							currentCargo.setDomestic_violence_victim_resp("N");
-							currentCargo.setImmunization_resp("N");
-							currentCargo.setSpecial_health_service_resp("N");
-							currentCargo.setEarly_on_resp("N");
-							currentCargo.setSpecial_education_class_resp("N");
-							currentCargo.setOp_aoda_tmt_rcv_sw("N");
-							currentCargo.setMi_rehab_resp("N");
-							currentCargo.setCaretaker_resp("N");
-							currentCargo.setMedical_coverage_resp("N");
-							currentCargo.setApplied_for_disability_resp("N");
-							currentCargo.setSocial_security_resp("N");
-							currentCargo.setSupplemental_income_resp("N");
-							currentCargo.setOther_disability_resp("N");
-						}
-					}
-
-				}
-			}
-
-			String currentPageId = (String) request
-					.get(FwConstants.CURRENT_PAGE_ID);
-			// driverManager.makeComplete(FwConstants.AFB_DRIVER,"ABEFD",driverArray,appNumber);
-			driverManager.makeComplete(FwConstants.AFB_DRIVER, currentPageId,
-					driverArray, appNumber);
-
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("storeMedicalShortFormInformation");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"storeMedicalShortFormInformation", e);
-			throw fe;
-		}
-	}
-
-	/**
-	 * This method is used to get MA Short Form Information
-	 * 
-	 * @param txnBean
-	 * @throws javax.ejb.EJBException
-	 */
-	public void getMedicalShortFormInformation(FwTransaction txnBean)
-			throws javax.ejb.EJBException {
-		Map session = txnBean.getSession();
-		Map request = txnBean.getRequest();
-		Map pageCollection = txnBean.getPageCollection();
-
-		int[] driverArray = null;
-		String appNumber = null;
-
-		try {
-			appNumber = (String) session.get(AppConstants.APP_NUMBER);
-			ABProgramInformationBO programInfoBo = new ABProgramInformationBO();
-			APP_RQST_Collection appRqstColl = programInfoBo
-					.loadProgramInformation(appNumber);
-			pageCollection.put("APP_RQST_Collection", appRqstColl);
-			txnBean.setPageCollection(pageCollection);
-		} catch (FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("getMedicalShortFormInformation");
-			we.setFwException(fe);
-			throw we;
-		} catch (Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),
-					"getMedicalShortFormInformation", e);
-			throw fe;
-		}
-
-	}
-	
-	private void setValuesForCard(Map request,Map session,String appNumber,PeopleHandler peopleHandler){
-		//Loading and merging APP_RGST in ABHMD (ILIES-174329)
-		ABRegistrationBO registrationBo = new ABRegistrationBO();
-		ABHouseHoldMemberBO houseHoldBo = new ABHouseHoldMemberBO();
-		ABAbsentParentBO absentParentBo = new ABAbsentParentBO();
-		ABHouseholdMembersSummaryBO householdMembersSummaryBO = new ABHouseholdMembersSummaryBO();
-		Map httpSession = (Map) session.get(FwConstants.HTTP_SESSION);
-		String languageCd = (String)httpSession.get(AppConstants.LANGUAGE);
-		// Forming individual sequence array 		
-		INDIVIDUAL_Custom_Collection indvColl = peopleHandler.getSortedIndividualsByIndvSeqNum();
-		int indvCollSize = indvColl.size();
-		String[] indvSeq = new String[indvCollSize]; 			
-		// Getting all indv seq numbers
-		for(int i=0;i<indvCollSize;i++){ 
-			indvSeq[i] = indvColl.getResult(i).getIndv_seq_num();
-		}
-		// Calling business object to load the household relationship information list view
-		INDIVIDUAL_Custom_Collection indvAllColl = peopleHandler.sortIndividuals(peopleHandler.getInAndOutOfHomeIndividuals(appNumber));
-		int indvAllCollSize = indvAllColl.size();
-		String[] indvAllSeq = new String[indvAllCollSize]; 
-		for(int i=0;i<indvAllCollSize;i++){ 
-			indvAllSeq[i] = indvAllColl.getResult(i).getIndv_seq_num();
-		}
-		APP_HSHL_RLT_Collection appHshlRltCollection = householdMembersSummaryBO.loadHouseholdRelationshipsSummary(appNumber, indvAllSeq);
-		appHshlRltCollection = this.sortRelationshipCargoOnIndvSeq(appHshlRltCollection);
-		//Absent parent info
-		APP_IN_ABSNP_Collection appInAbsnpCollection = absentParentBo.loadAppInAbsnpDetail(appNumber);
-		
-		Map registration_map = registrationBo.loadAddressContactInformation(appNumber);
-		APP_RGST_Collection rgst_collection = registration_map.size() > 0 ? (APP_RGST_Collection) registration_map.get("APP_RGST_Collection") : new APP_RGST_Collection();
-		APP_RGST_Cargo registration_info = rgst_collection.size() > 0 ? (APP_RGST_Cargo) rgst_collection.get(0) : new APP_RGST_Cargo();
-		APP_INDV_Collection appIndvColl = houseHoldBo.loadAppIndvColl(appNumber);
-		short[] programKeyArray = (short[])session.get(FwConstants.AFB_PROGRAM_KEY);
-		Map<String,String> program_array = new HashMap<String,String>();
-		IPage pageManager = FwPageManager.createInstance();
-		program_array.put("2",programKeyArray[2]== 1 ? pageManager.getDisplayText(30377, languageCd) : FwConstants.EMPTY_STRING);
-		program_array.put("3",programKeyArray[3]== 1 ? pageManager.getDisplayText(80187, languageCd) : FwConstants.EMPTY_STRING);
-		program_array.put("7",programKeyArray[7]== 1 ? pageManager.getDisplayText(98710, languageCd) : FwConstants.EMPTY_STRING);
-		program_array.put("0",programKeyArray[0]== 1 ? pageManager.getDisplayText(80134, languageCd) : FwConstants.EMPTY_STRING);
-		program_array.put("8",programKeyArray[8]== 1 ? pageManager.getDisplayText(1800087, languageCd) : FwConstants.EMPTY_STRING);
-
-		//Approved representative info 
-		APP_AUTH_REP_Collection rprInfoColl = new APP_AUTH_REP_Collection();
-		ABRegistrationSummaryBO registrationSummaryBO = new ABRegistrationSummaryBO();
-		String helpOptionSelected = "0";
-		String[] options = { "3", "4", "5" }; // 3->Auth Rep ; 4->Legal
-												// Guardian ; 5->Power of
-												// Attorney
-		List optionTypeList = Arrays.asList(options);
-		helpOptionSelected = registrationSummaryBO.loadHelpWithApplSummary(appNumber);
-		if (optionTypeList.contains(helpOptionSelected)) {// call BO to get
-															// Contact Info
-															// Colleation
-			rprInfoColl = registrationSummaryBO.getContactInfoSummary(appNumber);
-		}
-		request.put("APP_AUTH_REP_COLLECTION",rprInfoColl);
-		//Absent parent info
-		APP_ABS_PRNT_Cust_Collection appAbsPrntCustCollection = householdMembersSummaryBO.loadOtherParentSummary(appNumber, indvSeq);
-		request.put("APP_ABS_PRNT_Cust_COLLECTION",appAbsPrntCustCollection);
-		
-		request.put("registration_info",registration_info);
-		request.put("appIndvColl", appIndvColl);
-		request.put("appHshlRltCollection", appHshlRltCollection);
-		request.put("program_array",program_array);
-		request.put("appInAbsnpCollection",appInAbsnpCollection);
-		request.put("indvAllColl", indvAllColl);
-	
-	}
-	
-	/**
-	* Method sort the relationship cargos in a sequence order of indv seq num
-	*@param appHshlRltColl gov.wisconsin.access.business.entities.APP_HSHL_RLT_Collection
-	*@param sortedRetionshipColl gov.wisconsin.access.business.entities.APP_HSHL_RLT_Collection
-	*@author govinpr 
+	* Constructor
 	*/
-	private APP_HSHL_RLT_Collection sortRelationshipCargoOnIndvSeq(APP_HSHL_RLT_Collection appHshlRltColl) throws javax.ejb.EJBException {
+	 public HouseHoldInfoEJBBean() {}
 
-		try {
-			APP_HSHL_RLT_Collection sortedRetionshipColl = new APP_HSHL_RLT_Collection();
-			APP_HSHL_RLT_Cargo tempCargo = null; 
-			boolean found = false;			
-			if(appHshlRltColl != null ){
-				if(appHshlRltColl.size() > 1){
-					int appHshlRltCollSize = appHshlRltColl.size();
-					for(int i=0;i<appHshlRltCollSize;i++){
-						int indSeq = Integer.parseInt(appHshlRltColl.getCargo(i).getSrc_indv_seq_num());
-						for(int j=0;j<appHshlRltCollSize;j++){
-							int tempSeq = Integer.parseInt(appHshlRltColl.getCargo(j).getSrc_indv_seq_num());
-							if(indSeq > tempSeq){
-								indSeq = tempSeq;
-								tempCargo = appHshlRltColl.getCargo(j);
-								found = true;
+	
+	 	/**
+		 * Comment here
+			*/
+			public void getHouseHoldMembersDetail(FwTransaction txnBean) throws javax.ejb.EJBException {
+				Map session = txnBean.getSession();
+				Map request = txnBean.getRequest();
+				Map pageCollection = txnBean.getPageCollection();
+				//FwMessageList validateInfo = null;
+				String appNumber = null;
+				Map beforeColl = null;
+				int indvSeqNumber =1;
+				ABHouseHoldMemberBO houseHoldBo = null;
+				APP_IN_PRFL_Collection  appInPrflSessioncoll = null;
+				APP_IN_PRFL_Cargo appInPrflSessionCargo = null;
+				APP_IN_PRFL_Collection appInPrflColl  = null;
+				APP_IN_PRFL_Collection appInPrflCloneColl = null;
+				APP_INDV_Collection appIndvColl = null;
+				PeopleHandler peopleHandler = null;
+				INDIVIDUAL_Custom_Collection indvCustColl = null;
+				String pageId = null;
+				int pageStatus = 0;
+				int[] driverArray = null;
+				int peopleCount = 0;
+				int childCount=0;
+				
+				boolean detailKeyFlag = false;
+				ABMedicalDetailsBO medDetailsBO = new ABMedicalDetailsBO();
+				APP_NURSING_ADDRESS_Collection appNursingColl = null;
+				try 
+				{
+					pageId = (String)request.get(FwConstants.CURRENT_PAGE_ID);
+					if(session!=null){
+						session.remove("twilioMap");
+					}
+					
+					driverArray = (int[]) session.get(FwConstants.AFB_DRIVER);
+					pageStatus = driverManager.getAFBStatus(FwConstants.AFB_DRIVER,pageId,driverArray);
+					peopleHandler = (PeopleHandler)session.get(AppConstants.INDIV_MASTER_HANDLER);
+					//Modified by Priyanka Baddam for ILIES-282237 : Added Null fix.
+					if(peopleHandler == null){
+						peopleHandler=new PeopleHandler();
+						peopleHandler.loadPeopleHandler(appNumber);
+						 session.put(AppConstants.INDIV_MASTER_HANDLER,peopleHandler);
+						}
+					//ILIES-282237 changes end
+					houseHoldBo = new ABHouseHoldMemberBO();
+					String previousPageId = (String)request.get(FwConstants.PREVIOUS_PAGE_ID);
+					if(!pageId.equals(previousPageId)){
+						//we need to remove the vallues from the session
+						session.remove(FwConstants.BEFORE_COLLECTION);
+						if(!previousPageId.equals("ABHMS")){
+							pageCollection.remove(FwConstants.DETAIL_KEY_BEAN);
+						}
+						beforeColl = new HashMap();
+					}
+					appNumber =(String) session.get(AppConstants.APP_NUMBER);
+					//Added by uma for nursing facility on 10/21 BRGUS00287296
+					log(ILog.DEBUG, "HouseHoldInfoEJBBean::Entered getHouseHoldMembersDetail::appNumber::"+appNumber);
+					String shortForm = medDetailsBO.checkMAShortFormType(appNumber);
+					String maritalStatus = houseHoldBo.getPrimPrsnMaritalStatus(appNumber);
+					beforeColl =(Map) session.get(FwConstants.BEFORE_COLLECTION);
+					
+					
+					if(beforeColl != null){
+						if(beforeColl.containsKey(AppConstants.PEOPLE_COUNT)){
+							peopleCount = Integer.parseInt(String.valueOf(beforeColl.get(AppConstants.PEOPLE_COUNT)));
+						}
+
+						if(beforeColl.containsKey(AppConstants.CHILD_COUNT)){
+							childCount = Integer.parseInt(String.valueOf(beforeColl.get(AppConstants.CHILD_COUNT)));
+						}
+						//
+						if(beforeColl.containsKey(AppConstants.INDV_SEQUENCE_NUMBERS)){
+							indvSeqNumber = Integer.parseInt(String.valueOf(beforeColl.get(AppConstants.INDV_SEQUENCE_NUMBERS)));
+						}
+					}
+					
+					
+					
+					if(pageCollection.containsKey(FwConstants.DETAIL_KEY_BEAN)){
+						IndivTypeSeqBean indvSeqBean =(IndivTypeSeqBean)pageCollection.get(FwConstants.DETAIL_KEY_BEAN);
+						indvSeqNumber = Integer.parseInt(indvSeqBean.getIndivSeqNum());
+						detailKeyFlag = true;
+					}
+					else if(pageStatus == FwConstants.DRIVER_COMPLETE){
+						int maxSeqNum = houseHoldBo.loadMaxSeqNum(appNumber);
+						
+						peopleHandler=new PeopleHandler();
+						peopleHandler.getInAndOutOfHomeIndividuals(appNumber);
+						session.put(AppConstants.INDIV_MASTER_HANDLER,peopleHandler);
+						
+						for(int i=1; i <=maxSeqNum; i++)
+						{
+							//if driver status is complete reload the peoplehandler with
+							if(peopleHandler.getIndividual(String.valueOf(i)) != null){
+								populateRecordArray(new IndivTypeSeqBean(String.valueOf(i),"",""),session);
+								indvSeqNumber = i;
 							}
 						}
-						if(!found){
-							tempCargo = appHshlRltColl.getCargo(i);
-							found = false;
+					}
+					
+					
+					pageCollection = new HashMap();
+					
+					// Added for the ILIES project
+					// When the program, for whatever reason, closes during people registration
+					// It will now load the most recent individual
+					if ( request.containsKey( "radioGroup" ) && request.get( "radioGroup" ).equals( "30339" )
+							&& request.get( "CURRENT_PAGE_ID" ).equals(AppConstants.ABHMD_PAGE_ID) )
+					{
+						session.put( "restoreApplication", "Y" );
+					}
+					
+					if ( session.containsKey( "restoreApplication" ) && session.get( "restoreApplication" ).equals( "Y" ) )
+					{
+						indvCustColl = peopleHandler.getInAndOutOfHomeIndividuals( appNumber );
+						peopleCount = houseHoldBo.loadHouseholdCount( appNumber );
+						int newestIndividual = houseHoldBo.loadMaxSeqNum( appNumber );
+						
+						if ( indvCustColl.size() == 1 && peopleCount <= 1 )
+						{
+							indvSeqNumber = 1;
 						}
-						if(tempCargo != null) {
-							sortedRetionshipColl.addCargo(tempCargo);
-							appHshlRltColl.remove(tempCargo);
-							i--;
-							appHshlRltCollSize--;
-							tempCargo = null;
-							found = false;
+						else
+						{
+							indvSeqNumber = indvCustColl.size() + 1;
+							indvSeqNumber = request.get("TARGET_INDV_SEQ_NUM") != null && Integer.parseInt((String) request.get("TARGET_INDV_SEQ_NUM")) > 0 ? Integer.parseInt((String) request.get("TARGET_INDV_SEQ_NUM")) : indvSeqNumber;
+							if(peopleCount == newestIndividual){
+								indvSeqNumber = 1;
+							}
+							
+						}
+						
+						if ( indvSeqNumber > 1 )
+						{
+							pageCollection.put( "CURRENT_RECORD_INDEX", String.valueOf( indvSeqNumber - 1 ) );
+						}
+						
+						indvCustColl.clear();
+						
+						if ( indvSeqNumber == peopleCount || peopleCount == newestIndividual)
+						{
+							session.remove( "restoreApplication" );
+						}
+
+						newestIndividual = houseHoldBo.loadMaxSeqNum( appNumber );
+						
+						if ( newestIndividual > 1 )
+						{
+							for ( int i = 1; i <= newestIndividual; i++ )
+							{
+								if ( peopleHandler.getIndividual( String.valueOf( i ) ) != null )
+								{
+									populateRecordArray( new IndivTypeSeqBean( String.valueOf( i ), "", ""), session );
+								}
+							}
 						}
 					}
-					if(appHshlRltColl.size() > 0) {
-						sortedRetionshipColl.addAll(appHshlRltColl);
+					
+					//if page status is visit again or driver required or if we found any detail key bean then we need to go throug the logic
+					if(pageStatus == FwConstants.DRIVER_COMPLETE || pageStatus == FwConstants.DRIVER_VISIT_AGAIN || pageStatus == FwConstants.DRIVER_REQUIRED || detailKeyFlag)
+					{
+						//first i am checking that individual exit in the people handler	
+						if(peopleHandler.getIndividual(String.valueOf(indvSeqNumber)) != null){
+						
+							//now i am getting the individual information
+							appIndvColl = houseHoldBo.loadHouseholdMemberDetail(appNumber,indvSeqNumber);
+							
+							pageCollection.put("APP_INDV_Collection",appIndvColl);
+						}
+							//Added by Uma for Nursing Facility BRGUS00287296
+						if(shortForm!=null && AppConstants.MA_NURSING_FACILITY.equalsIgnoreCase(shortForm)&& indvSeqNumber==2){
+							appNursingColl=medDetailsBO.loadSpouseAddress(appNumber,AppConstants.NF_SPOUSE_ADDRESS_TYPE);
+							pageCollection.put("APP_NURSING_ADDRESS_Collection",appNursingColl);
+						}
+						if(!detailKeyFlag && pageStatus != FwConstants.DRIVER_COMPLETE){
+							//now i am storing this seq number to the record array 
+							populateRecordArray(new IndivTypeSeqBean(String.valueOf(indvSeqNumber),"",""),session);
+						}
+						//if people count is zero then we are going to the data base to get the people count 
+						if(peopleCount == 0)
+						{
+							//now we are loading the number of people in the house hold 
+							peopleCount = houseHoldBo.loadHouseholdCount(appNumber);
+						}
+						
+						
+						if(childCount == 0)
+						{
+							//now we are loading the number of people in the house hold 
+							childCount = houseHoldBo.loadChildOutOfHomeCount(appNumber);
+						}
+						//Added by Uma for Nursing Facility BRGUS00287296
+						
+						if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0 && AppConstants.NF_IS_MARRIED.equalsIgnoreCase(maritalStatus)&&peopleCount>0){
+							pageCollection.put("PEOPLE_WITH_SPOUSE_COUNT", String.valueOf(peopleCount-1));
+						}else if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0 && AppConstants.NF_IS_MARRIED.equalsIgnoreCase(maritalStatus)&&peopleCount==0){
+							pageCollection.put("PEOPLE_WITH_SPOUSE_COUNT", String.valueOf(peopleCount));
+						}
+						else if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0&&peopleCount>0)
+							pageCollection.put("CHILD_IN_HOME_COUNT", String.valueOf(peopleCount-1));
+						else if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0&&peopleCount==0)
+							pageCollection.put("CHILD_IN_HOME_COUNT", String.valueOf(peopleCount));
+						
+						pageCollection.put(AppConstants.PEOPLE_COUNT,String.valueOf(peopleCount));
+						pageCollection.put(AppConstants.CHILD_COUNT,String.valueOf(childCount));
+					
+						pageCollection.put(AppConstants.INDV_SEQUENCE_NUMBERS,String.valueOf(indvSeqNumber));
+
+						indvCustColl = peopleHandler.getInAndOutOfHomeIndividuals(appNumber);
+						pageCollection.put("INDIVIDUAL_Custom_Collection",indvCustColl);
+			
+						//now i am checking the app in prfl master is null or not 
+						if(!session.containsKey(AppConstants.APP_IN_PRFL_MASTER))
+					    { 
+							//now i am loading the app_in_prfl collection to the session 
+							//now we are checking is they any previous information
+							//if we found any previous information then only we are loading the application manager
+							if(appIndvColl != null && !appIndvColl.getCargo(0).getBrth_dt().equals(AppConstants.HIGH_DATE))
+							{
+								appInPrflSessioncoll = applicationManager.loadAppIndividualProfile(appNumber);
+								session.put(AppConstants.APP_IN_PRFL_MASTER,appInPrflSessioncoll);
+							}
+					     }
+
+						//now i am getting the appin profile coll from the session 
+						if(session.containsKey(AppConstants.APP_IN_PRFL_MASTER))
+						{
+							appInPrflSessioncoll = (APP_IN_PRFL_Collection)session.get(AppConstants.APP_IN_PRFL_MASTER);
+							//now i am need to check for this seq number i have any information the app in prfl coll
+							int appInPrflCollSize = appInPrflSessioncoll.size();
+							for(int i=0;i< appInPrflCollSize;i++)
+							{
+								appInPrflSessionCargo = appInPrflSessioncoll.getCargo(i);
+								if(appInPrflSessionCargo.getIndv_seq_num().equals(String.valueOf(indvSeqNumber)))
+								{
+									//now i am colling the collection and then after 
+									//i am setting this collection to the page collection  
+									appInPrflColl = new APP_IN_PRFL_Collection();
+									appInPrflColl.add(appInPrflSessionCargo);
+									appInPrflCloneColl = new APP_IN_PRFL_Collection();
+									appInPrflCloneColl.setResults(appInPrflColl.cloneResults());
+									pageCollection.put("APP_IN_PRFL_Collection",appInPrflCloneColl);
+									break;
+								}
+							}
+						}
 					}
-				}else{
-					sortedRetionshipColl = appHshlRltColl;
+//					Check to see if it is coming from Addclick button from summary page
+					String addCheck=null;
+					if(session.get(AppConstants.PERSON_ADD)!=null){
+						addCheck=(String)session.get(AppConstants.PERSON_ADD);
+					}
+					if(pageStatus == FwConstants.DRIVER_ADD_NEW)
+					{
+						peopleCount = houseHoldBo.loadHouseholdCount(appNumber);
+						childCount = houseHoldBo.loadChildOutOfHomeCount(appNumber);
+						int maxSeqNum = houseHoldBo.loadMaxSeqNum(appNumber);
+						indvSeqNumber= maxSeqNum + 1;
+						// PCR# 34463 -- call method to check which type of individual we are adding
+						//appIndvColl
+						if(addCheck == null){
+							addCheck = houseHoldBo.getIndividualTypeForAdd(appNumber, peopleCount, childCount);
+						}
+						//Added by Uma for Nursing Facility BRGUS00287296
+						if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0 && AppConstants.NF_IS_MARRIED.equalsIgnoreCase(maritalStatus)&&peopleCount>0){
+							pageCollection.put("PEOPLE_WITH_SPOUSE_COUNT", String.valueOf(peopleCount-1));
+						}else if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0 && AppConstants.NF_IS_MARRIED.equalsIgnoreCase(maritalStatus)&&peopleCount==0){
+							pageCollection.put("PEOPLE_WITH_SPOUSE_COUNT", String.valueOf(peopleCount));
+						}
+						else if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0&&peopleCount>0)
+							pageCollection.put("CHILD_IN_HOME_COUNT", String.valueOf(peopleCount-1));
+						else if(indvSeqNumber==1 && maritalStatus!=null && maritalStatus.length()>0&&peopleCount==0)
+							pageCollection.put("CHILD_IN_HOME_COUNT", String.valueOf(peopleCount-1));										
+						pageCollection.put(AppConstants.PEOPLE_COUNT,String.valueOf(peopleCount));
+						pageCollection.put(AppConstants.CHILD_COUNT,String.valueOf(childCount));
+						pageCollection.put(AppConstants.INDV_SEQUENCE_NUMBERS,String.valueOf(indvSeqNumber));
+					}
+					int inHomeCount=0;
+					int outHomeCount=0;
+					String fstChildOutIndvSeq=null;
+					
+					if(pageStatus==FwConstants.DRIVER_COMPLETE)
+					{
+						int size= 0;
+						if(indvCustColl != null)
+							size=indvCustColl.size();
+						for(int i=0;i<size;i++)
+						{
+							INDIVIDUAL_Custom_Cargo indvCargo=indvCustColl.getResult(i);
+							if(indvCargo.getOut_of_home_ind().equals("N"))
+								inHomeCount=inHomeCount+1;
+							else if(indvCargo.getOut_of_home_ind().equals("Y") && outHomeCount==0)
+							{
+								fstChildOutIndvSeq=indvCargo.getIndv_seq_num();
+								outHomeCount=outHomeCount+1;
+							}
+							else if(indvCargo.getOut_of_home_ind().equals("Y") && outHomeCount>0)
+								outHomeCount=outHomeCount+1;
+						}
+						pageCollection.put("IN_HOME_COUNT",String.valueOf(inHomeCount));
+						pageCollection.put("OUT_HOME_COUNT",String.valueOf(outHomeCount));
+						pageCollection.put("FST_CHILD_OUT_INDV_SEQ",String.valueOf(fstChildOutIndvSeq));
+						
+					}					
+					//smejiaibarra ILIES-174329
+					if(indvCustColl == null || indvCustColl.isEmpty())
+					{indvCustColl = peopleHandler.getInAndOutOfHomeIndividuals(appNumber);}
+					//ILIES-186178 Starts
+					if(session.get("personFromSummary") != null){
+						int personTempCount = ((Integer)session.get("personFromSummary")).intValue();
+						buildNavigationArray(session,indvCustColl,pageCollection,personTempCount);
+					}else{
+						buildNavigationArray(session,indvCustColl,pageCollection,houseHoldBo.loadHouseholdCount(appNumber));
+					}
+					//ILIES-186178 Ends
+					//DOC MH
+					getDocMHValue(session, pageCollection);
+					//Added by uma for Nursing facility BRGUS00287296
+					pageCollection.put("MARITAL_STATUS", maritalStatus);
+					pageCollection.put("SHORT_FORM", shortForm);
+					pageCollection.put(AppConstants.PERSON_ADD,addCheck);
+					pageCollection.put("CurrentPageStatus",String.valueOf(pageStatus));
+					//Loading and merging APP_RGST in ABHMD (ILIES-174329)
+					ABRegistrationBO registrationBo = new ABRegistrationBO();
+					pageCollection.putAll(registrationBo.loadAddressContactInformation(appNumber));
+					txnBean.setPageCollection(pageCollection);
+					componentManager.getComponents(pageId,txnBean);
+					beforeColl = (Map)session.get(FwConstants.BEFORE_COLLECTION);
+					if(beforeColl == null)
+						beforeColl = new HashMap();
+					//ILIES-273207 - storing backdated months in session
+					pageCollection.put(FwConstants.MA_BACK_DTD_MTS, dateRoutine.getBackDatedMonths(fwDate.getDate()));
+					beforeColl.putAll(pageCollection);
+					session.put(FwConstants.BEFORE_COLLECTION, beforeColl);
+					
+					//Added by Varshi Kasarla for ILIES-282240 : Removing the values from session.
+					registrationBo.clearSessionOfWarningMsgOnSaveAndExitFunc(session);
+					//ILIES-282240 changes end here
+				} 
+				catch(FwException fe) 
+				{
+					ctx.setRollbackOnly();
+					FwWrappedException we = new FwWrappedException();
+					we.setCallingClassID(this.getClass().getName());
+					we.setCallingMethodID(AppConstants.GET_HOUSEHOLD_MEMBER_DEATILS);
+					we.setFwException(fe);
+					throw we;
+				} 
+				catch(Exception e) 
+				{
+					log(ILog.ERROR, "HouseHoldInfoEJBBean::Exception in getHouseHoldMembersDetail::appNumber::"+appNumber+"::exception message::"+e.getMessage()
+					+"::cause::"+e.getCause()+"::stackTrace::"+e.getStackTrace());
+					ctx.setRollbackOnly();
+					throw createFwException(this.getClass().getName(), AppConstants.GET_HOUSEHOLD_MEMBER_DEATILS, e);
 				}
 			}
-			return sortedRetionshipColl;
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("sortRelationshipCargoOnIndvSeq");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "sortRelationshipCargoOnIndvSeq", e);
-			throw fe;
+
+
+		private void getDocMHValue(Map session, Map pageCollection){
+			log(ILog.DEBUG, "HouseHoldInfoEJBBean.getDocMHValue - start");
+			Map httpSessionMap = null;
+			Map securedSessionMap = null;
+			String appNumber = null;
+			
+		try{
+			
+			if(null != session)
+			{
+				httpSessionMap = (Map) session.get(FwConstants.HTTP_SESSION);
+				appNumber = (String) session.get(AppConstants.APP_NUMBER);
+			}
+			if(null != httpSessionMap)
+			{
+				securedSessionMap = (Map) httpSessionMap.get(FwConstants.SECURED_SESSION);
+				
+			}
+			if(session == null || httpSessionMap == null ||  securedSessionMap == null)
+			{
+				log(ILog.DEBUG, "HouseHoldInfoEJBBean::getDocMHValue returning due to null in the maps session::"+session+"::httpSessionMap::"
+						+httpSessionMap+"::securedSessionMap::"+securedSessionMap);
+				return;
+			}
+			
+			ABHouseHoldMemberBO abHouseHoldMemberBO = new ABHouseHoldMemberBO();
+			List docMhProviders = abHouseHoldMemberBO.getDocMhProviders(appNumber); 
+			if(null == docMhProviders || docMhProviders.size() == 0){
+				log(ILog.DEBUG, "HouseHoldInfoEJBBean.getDocMHValue - database query to get providers returned no results");
+				return;
+			}
+			
+			List<String> jlFacilityCodes = new ArrayList();
+			List<String> jlFacilityDescriptions = new ArrayList();
+			List<String> smFacilityCodes = new ArrayList();
+			List<String> smFacilityDescriptions = new ArrayList();
+			List<String> psFacilityCodes = new ArrayList();
+			List<String> psFacilityDescriptions = new ArrayList();
+			
+			String loggedInProvider = session.get(AppConstants.APP_PRVD_ID) != null ? (String) session.get(AppConstants.APP_PRVD_ID) : null;
+			
+			Map provider = new HashMap();
+			String facilityName = null;
+			String facilityCd = null;
+			String privilegeCd = null;
+			String providerId = null;
+			String providerLivingArrangementType = null;
+			for(int i = 0; i < docMhProviders.size(); i++){
+				provider = (Map) docMhProviders.get(i);
+				facilityName = (String) provider.get("LOC_NAM");
+				facilityCd = (String) provider.get("FACILITY_CD");
+				privilegeCd = (String) provider.get("PVLG_CD");
+				providerId = (String) provider.get("PRVD_ID");
+				
+				if(null == facilityName || null == facilityCd || null == privilegeCd || null == providerId){
+					log(ILog.DEBUG, "HouseHoldInfoEJBBean.getDocMHValue - facility information is not present from database - "
+							+ " - facilityName - " + facilityName + " - facilityCd - " + facilityCd + " - privilegeCd - " + privilegeCd + " - providerId - " + providerId);
+					continue;
+				}
+				
+				if(AppConstants.STATE_MENTAL_HEALTH_FACILITY.equalsIgnoreCase(privilegeCd) || AppConstants.STATE_MENTAL_HEALTH_FACILITY_DD.equalsIgnoreCase(privilegeCd)){
+					smFacilityCodes.add(facilityCd);
+					smFacilityDescriptions.add(facilityName);
+					providerLivingArrangementType = AppConstants.LIVING_ARRANGEMENT_STATE_MENTAL_HEALTH;
+				}else if(AppConstants.STATE_CORRECTIONAL_FACILITY.equalsIgnoreCase(privilegeCd) || AppConstants.DEPARTMENT_JUVENILE_JUSTICE_FACILITY.equalsIgnoreCase(privilegeCd)){
+					psFacilityCodes.add(facilityCd);
+					psFacilityDescriptions.add(facilityName);
+					providerLivingArrangementType = AppConstants.LIVING_ARRANGEMENT_CORRECTIONAL_FACILITY;
+				}else if(AppConstants.COUNTY_JAIL_FACILITY.equalsIgnoreCase(privilegeCd)){
+					jlFacilityCodes.add(facilityCd);
+					jlFacilityDescriptions.add(facilityName);
+					providerLivingArrangementType = AppConstants.LIVING_ARRANGEMENT_COUNTY_JAIL;
+				}
+				
+				if(null != loggedInProvider && loggedInProvider.equalsIgnoreCase(providerId) && null != providerLivingArrangementType){
+					pageCollection.put("LIV_ARR_PROV", providerLivingArrangementType);
+					pageCollection.put("FAC_PROV", facilityCd);
+				}
+			}
+			
+			Map docMhFacilities = new HashMap();
+			docMhFacilities.put("JL_FACILITY_CODES", jlFacilityCodes);
+			docMhFacilities.put("JL_FACILITY_DESCRIPTIONS", jlFacilityDescriptions);
+			docMhFacilities.put("SM_FACILITY_CODES", smFacilityCodes);
+			docMhFacilities.put("SM_FACILITY_DESCRIPTIONS", smFacilityDescriptions);
+			docMhFacilities.put("PS_FACILITY_CODES", psFacilityCodes);
+			docMhFacilities.put("PS_FACILITY_DESCRIPTIONS", psFacilityDescriptions);
+			
+			pageCollection.put("DOC_MH_FACILITIES", docMhFacilities);
+			pageCollection.put("DOC_MH_PROVIDER", (String) session.get(AppConstants.DOC_MH_PROVIDER));
+			
+			log(ILog.DEBUG, "HouseHoldInfoEJBBean::getHouseHoldMembersDetail::docMhProvider");
+		 }catch(Exception e) {
+				log(ILog.ERROR, "Exception HouseHoldInfoEJBBean::getDocMHValue - appNumber - " + appNumber + " - stackTrace - " + 
+						e.getStackTrace() + " - message - " + e.getMessage() + " - cause - " + e.getCause());
+				throw createFwException(this.getClass().getName(), "getDocMHValue", e);
 		}
 	}
 
+			/**
+			 * This method is used to store House hold members details 
+			 * 
+			 * @param txnBean  The FwTransaction bean to store the input values and page action details
+			 * @throws javax.ejb.EJBException
+			 */
+			
+			public void storeHouseHoldMembersDetail(FwTransaction txnBean) throws javax.ejb.EJBException {
+				log(ILog.INFO, "HouseHoldInfoEJBBean::storeHouseHoldMembersDetail::Start");
+				Map session = txnBean.getSession();
+				Map request = txnBean.getRequest();
+				Map pageCollection =txnBean.getPageCollection();
+				int[] driverArray = null;
+				String appNumber = null;
+				Map beforeColl = null;	
+				APP_INDV_Collection appIndvColl = null;
+				APP_INDV_Collection appIndvBeforeColl = null;
+				APP_INDV_Cargo appIndvCargo = null;
+				APP_INDV_Cargo appIndvBeforeCargo = null;
+				APP_IN_PRFL_Collection appInPrflColl = null;
+				APP_IN_PRFL_Collection appInPrflBeforeColl = null;
+				APP_IN_PRFL_Cargo appInPrflCargo = null;
+				APP_IN_PRFL_Cargo appInPrflBeforeCargo = null;
+				APP_IN_PRFL_Collection appInPrflSessionColl = null;
+				APP_IN_PRFL_Cargo appInPrflSessionCargo = null;
+				INDIVIDUAL_Custom_Collection indvCustBeforeColl = null;
+				INDIVIDUAL_Custom_Collection indvCustColl = null;
+				INDIVIDUAL_Custom_Cargo indvCustCargo = null;
+				FwMessageList validateInfo = null;
+				String indvSeqNumber = null;
+				String peopleInYourHome = null;
+				String childOutofYourhome=null;
+				PeopleHandler peopleHandler = null;
+				ABHouseHoldMemberBO houseHoldBo = null;
+				//Changes Made by Varshi Kasarla for ILIES-282111. Removed unused declaration. Sonar Issue.
+				String childOutofYourhomeBeforeCount = null;
+				int currentPageStatus = 0;
+				APP_HSHL_RLT_Collection appRelationBeforeColl = null;
+				APP_HSHL_RLT_Cargo appRelationBeforeCargo = null;
+				boolean scheduleABHMS = false;
+				
+				String pageId = null;
+				//Added by Uma For Nursing Facility BRGUS00287296
+				String peopleAlongWithSpouse = null;
+				String beforeCollPeopleAlongWithSpouse = null;
+				String beforeCollChildrenAtHome = null;
+				String childrenAtHome = null;
+				APP_NURSING_ADDRESS_Collection appNursingColl = null;
+				APP_NURSING_ADDRESS_Collection appNursingBeforeColl = null;
+				APP_NURSING_ADDRESS_Cargo appNursingCargo = null;			
+				ABMedicalDetailsBO medicalBO = new ABMedicalDetailsBO();
+				INDIVIDUAL_Custom_Collection tempColl = null;
+				String isHpe= (String)session.get(FwConstants.HPE_APPLICATION);
+				int target_indv_seq_num = 0;
+				//Get program key
+				short programKey[] = (short[])session.get(FwConstants.AFB_PROGRAM_KEY);
+				//Changes Made by Varshi Kasarla for ILIES-282111. Removed unused declaration. Sonar Issue.
+				//Changes made by Varshi Kasarla for ILIES-282111 -- START
+				APP_INDV_Cargo appIndvCargo_indv1 = null;
+				//Modified by Varshi Kasarla for ILIES-282240:Save and Exit functionality
+				APP_INDV_Cargo[] clonedIndvCollArray = null;
+				APP_INDV_Collection indvColl = new APP_INDV_Collection();
+				
+				try {
+					boolean docMhProvider = null != session.get(AppConstants.DOC_MH_PROVIDER) && AppConstants.YES.equalsIgnoreCase((String)session.get(AppConstants.DOC_MH_PROVIDER)) ? true : false;
+					target_indv_seq_num = request.get("TARGET_INDV_SEQ_NUM") != null ? Integer.parseInt((String) request.get("TARGET_INDV_SEQ_NUM")) : 0;
+					pageId = (String)request.get(FwConstants.CURRENT_PAGE_ID);
+					appNumber =(String) session.get(AppConstants.APP_NUMBER);
+					log(ILog.DEBUG, "HouseHoldInfoEJBBean::storeHouseHoldMembersDetail::appNumber" +appNumber);
+					driverArray = driverManager.loadDriver(FwConstants.AFB_DRIVER, appNumber);
+					session.put(FwConstants.AFB_DRIVER, driverArray);
+					ABHouseHoldRelationshipBO houseHoldRelationBo = new  ABHouseHoldRelationshipBO();
+										
+					beforeColl =(Map) session.get(FwConstants.BEFORE_COLLECTION);
+					
+					appIndvColl =(APP_INDV_Collection)pageCollection.get("APP_INDV_Collection");
+					appInPrflColl =(APP_IN_PRFL_Collection)pageCollection.get("APP_IN_PRFL_Collection");
+					peopleHandler = (PeopleHandler)session.get(AppConstants.INDIV_MASTER_HANDLER);
+					currentPageStatus = driverManager.getAFBStatus(FwConstants.AFB_DRIVER,pageId,driverArray);
+					//Changes Made by Varshi Kasarla for ILIES-282111. Removed unused declaration. Sonar Issue.
+					
+					//Added by Uma for Nursing Facilitty BRGUS00287296
+					ABMedicalDetailsBO medDetailsBO = new ABMedicalDetailsBO();
+					String shortForm = medDetailsBO.checkMAShortFormType(appNumber);
+					boolean nursingFlag = false;
+					appNursingColl = (APP_NURSING_ADDRESS_Collection)pageCollection.get("APP_NURSING_ADDRESS_Collection");
+					houseHoldBo = new ABHouseHoldMemberBO();
+					String maritalStatus = houseHoldBo.getPrimPrsnMaritalStatus(appNumber);
+					if(shortForm!=null && shortForm.length()>0 && shortForm.equalsIgnoreCase(AppConstants.MA_NURSING_FACILITY)){
+						nursingFlag= true;
+					}
+					
+					//Changes Made by Varshi Kasarla for ILIES-282111.Sonar Issue.
+					if(appIndvColl != null && !(appIndvColl.isEmpty())){
+						appIndvCargo = appIndvColl.getCargo(0);
+					}  
+					if(appInPrflColl  != null && !(appInPrflColl.isEmpty())){
+						appInPrflCargo = appInPrflColl.getCargo(0);
+					}
+					
+					//Changes made by Varshi Kasarla for ILIES-282111. To retrive primary individual details.
+					indvSeqNumber = (String)beforeColl.get(AppConstants.INDV_SEQUENCE_NUMBERS);					
+					if(indvSeqNumber != null && indvSeqNumber.equals("1")){
+						Map criteriaMap = null;
+						FwDataCriteria[] criteria1 = null;
+							APP_INDV_Collection appIndvColl1 = null;
+							appIndvColl1 = new APP_INDV_Collection();
+							criteriaMap = new HashMap();
+							criteria1 = new FwDataCriteria[2];
+							criteria1[0] = new FwDataCriteria();
+							criteria1[0].setColumn_name(AppConstants.APP_NUM);
+							criteria1[0].setColumn_value(appNumber);
+							criteria1[1] = new FwDataCriteria();
+							criteria1[1].setColumn_name("INDV_SEQ_NUM");
+							criteria1[1].setColumn_value(String.valueOf(indvSeqNumber));
+							criteriaMap.put(FwConstants.CRITERIA, criteria1);
+							APP_INDV_Cargo[] appIndvCargo_arr =	(APP_INDV_Cargo[]) appIndvColl1.select(FwConstants.DAO, criteriaMap);
+							
+							appIndvCargo_indv1 = appIndvCargo_arr[0];
+					}
+					
+					if(indvSeqNumber != null && indvSeqNumber.equals("1")){
+						appIndvColl.getCargo(0).setIndv_seq_num("1");
+					}
+																								
+					//ILIES-273207 - defualt values for benifits
+					if("N".equalsIgnoreCase(appInPrflCargo.getIndv_fs_rqst_ind()) ){
+						appInPrflCargo.setIndv_fs_rqst_ind("0");
+					}
+					else if("Y".equalsIgnoreCase(appInPrflCargo.getIndv_fs_rqst_ind()) ) {
+						appInPrflCargo.setIndv_fs_rqst_ind("1");
+					}
+					if(appInPrflCargo.getIndv_hpe_rqst_ind() == null ){
+						appInPrflCargo.setIndv_hpe_rqst_ind("0");
+					}
+					else {
+						appInPrflCargo.setIndv_hpe_rqst_ind("1");
+					}
+					if(appInPrflCargo.getIndv_fpw_rqst_ind() == null ){
+						appInPrflCargo.setIndv_fpw_rqst_ind("0");
+					}
+					else {
+						appInPrflCargo.setIndv_fpw_rqst_ind("1");
+					}
+					if("N".equalsIgnoreCase(appInPrflCargo.getIndv_fma_rqst_ind()) ){
+						appInPrflCargo.setIndv_fma_rqst_ind("0");
+					}
+					else if("Y".equalsIgnoreCase(appInPrflCargo.getIndv_fma_rqst_ind()) ){
+						appInPrflCargo.setIndv_fma_rqst_ind("1");
+					}
+					if("N".equalsIgnoreCase(appInPrflCargo.getIndv_hc_rqst_ind())){
+						appInPrflCargo.setIndv_hc_rqst_ind("0");
+					}
+					else if("Y".equalsIgnoreCase(appInPrflCargo.getIndv_hc_rqst_ind())){
+						appInPrflCargo.setIndv_hc_rqst_ind("1");
+					}
+					if("N".equalsIgnoreCase(appInPrflCargo.getIndv_msp_rqst_ind())){
+						appInPrflCargo.setIndv_msp_rqst_ind("0");
+					}
+					else if("Y".equalsIgnoreCase(appInPrflCargo.getIndv_msp_rqst_ind())){
+						appInPrflCargo.setIndv_msp_rqst_ind("1");
+					}
+					if("N".equalsIgnoreCase(appInPrflCargo.getIndv_fpp_pgm())){
+						appInPrflCargo.setIndv_fpp_pgm("0");
+					}
+					else if("Y".equalsIgnoreCase(appInPrflCargo.getIndv_fpp_pgm())){
+						appInPrflCargo.setIndv_fpp_pgm("1");
+					}
+					//ILIES-273207- backdated months
+					if(appInPrflCargo!=null && appInPrflCargo.getIndv_fma_rqst_ind()!=null && appInPrflCargo.getIndv_fma_rqst_ind().equals("1")) {
+						if ("N".equalsIgnoreCase(appInPrflCargo.getBackdt_med_app())) {
+							appInPrflCargo.setBackdt_med_app("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getBackdt_med_app())) {
+							appInPrflCargo.setBackdt_med_app("1");
+						} else {
+							appInPrflCargo.setBackdt_med_app("3");
+						}
+						if ("N".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_1())) {
+							appInPrflCargo.setMa_backdt_mo_1("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_1())) {
+							appInPrflCargo.setMa_backdt_mo_1("1");
+						} else {
+							appInPrflCargo.setMa_backdt_mo_1("3");
+						}
+						if ("N".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_2())) {
+							appInPrflCargo.setMa_backdt_mo_2("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_2())) {
+							appInPrflCargo.setMa_backdt_mo_2("1");
+						} else {
+							appInPrflCargo.setMa_backdt_mo_2("3");
+						}
+						if ("N".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_3())) {
+							appInPrflCargo.setMa_backdt_mo_3("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_3())) {
+							appInPrflCargo.setMa_backdt_mo_3("1");
+						} else {
+							appInPrflCargo.setMa_backdt_mo_3("3");
+						}
+					}
+					
+					///FPP 
+					if(appInPrflCargo!=null && appInPrflCargo.getIndv_fpp_pgm()!=null && appInPrflCargo.getIndv_fpp_pgm().equals("1")) {
+						if ("N".equalsIgnoreCase(appInPrflCargo.getBackdt_fpp_app()) || "0".equalsIgnoreCase(appInPrflCargo.getBackdt_med_app())) {
+							appInPrflCargo.setBackdt_fpp_app("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getBackdt_fpp_app()) || "1".equalsIgnoreCase(appInPrflCargo.getBackdt_med_app())) {
+							appInPrflCargo.setBackdt_fpp_app("1");
+						} else {
+							appInPrflCargo.setBackdt_fpp_app("3");
+						}
+						if ("N".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_1()) || "0".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_1())) {
+							appInPrflCargo.setMa_backdt_mo_1("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_1()) || "1".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_1()) ) {
+							appInPrflCargo.setMa_backdt_mo_1("1");
+						} else {
+							appInPrflCargo.setMa_backdt_mo_1("3");
+						}
+						if ("N".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_2()) || "0".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_2())) {
+							appInPrflCargo.setMa_backdt_mo_2("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_2())|| "1".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_2())) {
+							appInPrflCargo.setMa_backdt_mo_2("1");
+						} else {
+							appInPrflCargo.setMa_backdt_mo_2("3");
+						}
+						if ("N".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_3()) || "0".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_3())) {
+							appInPrflCargo.setMa_backdt_mo_3("0");
+						} else if ("Y".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_3()) || "1".equalsIgnoreCase(appInPrflCargo.getMa_backdt_mo_3())) {
+							appInPrflCargo.setMa_backdt_mo_3("1");
+						} else {
+							appInPrflCargo.setMa_backdt_mo_3("3");
+						}
+					}else {
+						if ("N".equalsIgnoreCase(appInPrflCargo.getBackdt_fpp_app()) || "0".equalsIgnoreCase(appInPrflCargo.getBackdt_med_app())) {
+							appInPrflCargo.setBackdt_fpp_app("0");
+						} 
+						if ("N".equalsIgnoreCase(appInPrflCargo.getIndv_fpp_pgm())) {
+							appInPrflCargo.setIndv_fpp_pgm("0");
+							appInPrflCargo.setBackdt_fpp_app("0");
+						} 
+						if (appInPrflCargo.getIndv_fpp_pgm() == null) {
+							appInPrflCargo.setIndv_fpp_pgm("3");
+							appInPrflCargo.setBackdt_fpp_app("3");
+						} 
+					 }
+					
+					
+					//Added by Uma For Nursing Facility BRGUS00287296
+					if(appNursingColl !=null && !(appNursingColl.isEmpty())){
+						appNursingCargo = appNursingColl.getCargo(0);
+						appNursingCargo.setPhone_num(concatenatePhoneNumber(request,
+						"spousePhone"));
+					}
+					
+					
+					if(request.get(AppConstants.PEOPLE_IN_HOME) != null){
+						peopleInYourHome =(String)request.get(AppConstants.PEOPLE_IN_HOME);
+					}
+					
+					if(request.get(AppConstants.CHILD_OUT_OF_HOME) != null){
+						childOutofYourhome =(String)request.get(AppConstants.CHILD_OUT_OF_HOME);
+					}
+					//Added by Uma For Nursing Facility BRGUS00287296
+					if(request.get(AppConstants.PEOPLE_WITH_SPOUSE)!=null){
+						peopleAlongWithSpouse = (String)request.get(AppConstants.PEOPLE_WITH_SPOUSE);
+					}
+					if(request.get(AppConstants.CHILD_IN_HOME)!=null){
+						childrenAtHome = (String)request.get(AppConstants.CHILD_IN_HOME);
+					}
+					
+					//now i am getting the before collections  
+					if(beforeColl != null){
+						indvSeqNumber = (String)beforeColl.get(AppConstants.INDV_SEQUENCE_NUMBERS);
+						appIndvBeforeColl = (APP_INDV_Collection)beforeColl.get("APP_INDV_Collection");
+						appInPrflBeforeColl = (APP_IN_PRFL_Collection)beforeColl.get("APP_IN_PRFL_Collection");
+						indvCustBeforeColl = (INDIVIDUAL_Custom_Collection)beforeColl.get("INDIVIDUAL_Custom_Collection");
+						//Added by Uma For Nursing Facility BRGUS00287296
+						if(beforeColl.containsKey("APP_NURSING_ADDRESS_Collection") && beforeColl.get("APP_NURSING_ADDRESS_Collection")!=null) {
+							appNursingBeforeColl = (APP_NURSING_ADDRESS_Collection)beforeColl.get("APP_NURSING_ADDRESS_Collection");
+						}
+						
+						//BRGUS00287916
+						if(beforeColl.containsKey("PEOPLE_WITH_SPOUSE_COUNT")&& beforeColl.get("PEOPLE_WITH_SPOUSE_COUNT")!=null) {
+							beforeCollPeopleAlongWithSpouse = (String)beforeColl.get("PEOPLE_WITH_SPOUSE_COUNT");
+						}
+						
+						if(beforeColl.containsKey("CHILD_IN_HOME_COUNT")&& beforeColl.get("CHILD_IN_HOME_COUNT")!=null) {
+							beforeCollChildrenAtHome = (String)beforeColl.get("CHILD_IN_HOME_COUNT");
+						}
+						
+					}
+					
+					if(appIndvCargo != null){
+					appIndvCargo.setSsn_num(concatenateSsnNumber(request,"socialSecurity"));
+					// Santosh added below line for BRGUS00215447 
+					// In Firefox and Chrome the Confirm SSN is asking to enter again.
+					appIndvCargo.setConfm_ssn_num(concatenateSsnNumber(request,"confirmSocialSecurity"));
+					
+					//Added by Kumar Karuppanan to make mm/dd/yyyy as separate boxes WR#BRGUS00308248 - Start
+					if((indvSeqNumber !=null) && !("1".equals(indvSeqNumber))){
+						appIndvCargo.setBrth_dt(concatenateDate(request,"groupDateOfBirth"));
+						appIndvCargo.setConfm_brth_dt(concatenateDate(request,"confirmGroupDateOfBirth"));
+					}
+					
+					//Added by Kumar Karuppanan to make mm/dd/yyyy as separate boxes WR#BRGUS00308248 - End
+					
+					//Added by Sanjeeva Nemani BRGUS00288477
+					appIndvCargo.setCase_worker_phone_num(concatenatePhoneNumber(request,"cwPhoneNumber"));
+					
+					
+					if(appIndvCargo.getCase_worker_phone_num()!=null && appIndvCargo.getCase_worker_phone_num().trim().equals("")){
+						appIndvCargo.setCase_worker_phone_num(null);
+					 }	
+					
+					//DOC MH
+					setDocDefaultValues(request, appIndvCargo, appNumber);	
+					}
+					
+						
+					//Changes made by Varshi Kasarla for ILIES-282111. Removing the below code since Address validation is not required on this page
 
-}
+					//validating the data for Household member details 
+					//now takes totalPeople instead of peopleInYourHome
+					//Added appIndvCargo_indv1 as part of ILIES-299721 changes.
+					validateInfo= houseHoldBo.validateHouseholdMemberDetail(txnBean, appIndvCargo,appIndvCargo_indv1,peopleInYourHome,childOutofYourhome,
+							currentPageStatus,indvSeqNumber,appIndvBeforeColl,beforeColl,childrenAtHome,peopleAlongWithSpouse,nursingFlag,appNursingCargo,appInPrflCargo,isHpe,programKey);
+					
+					//Modified by Varshi Kasarla for ILIES-282240:Save and Exit functionality
+					int srcSeqNum = 0;
+					if(indvSeqNumber != null && indvSeqNumber.equals("1")){
+						clonedIndvCollArray = appIndvColl.cloneResults();
+						if(clonedIndvCollArray != null && clonedIndvCollArray.length > 0){
+							for(int i=1; i<= clonedIndvCollArray.length; i++){
+								for(APP_INDV_Cargo cargo : clonedIndvCollArray){
+									if(cargo.getIndv_seq_num() != null  && !cargo.getIndv_seq_num().isEmpty())
+										srcSeqNum = Integer.valueOf(cargo.getIndv_seq_num());
+									if(srcSeqNum == i){
+										if(cargo.getMa_bnft_choice() == null || cargo.getMa_bnft_choice().trim().equals("")){
+											cargo.setMa_bnft_choice("NP");
+										}
+										cargo.setIndv_seq_num(indvSeqNumber);
+										indvColl.add(cargo);
+										break;
+									}
+								}
+							}
+						}
+					}
+					//Modified by Varshi Kasarla for ILIES-282240:Save and Exit functionality
+					FwMessageList  twilioMsg = null;
+					
+					//Changes made by Varshi Kasarla for ILIES-282111. Removing the below code since Contact information details are not required on this page
+					if((validateInfo != null && validateInfo.hasMessages()) || (twilioMsg!=null && twilioMsg.hasMessages()) ){
+						String reqWarningMsgs = (String) request.get(FwConstants.WARNING_MSG_DETAILS);
+						if (!checkForDocWarningMesgs(reqWarningMsgs, houseHoldBo.getMessageList())) {
+							if(validateInfo == null){
+								validateInfo = twilioMsg;
+							}else{
+								if(twilioMsg!=null && twilioMsg.hasMessages()){
+									validateInfo.addMessageToList(twilioMsg.getMessageAtIndex(0));
+								}
+							}
+							//Modified by Varshi Kasarla for ILIES-282240:including Save and Exit functionality
+							appIndvColl.getCargo(0).setIndv_seq_num(indvSeqNumber);
+							if(indvSeqNumber != null && indvSeqNumber.equals("1")){
+								request.put(FwConstants.PAGE_COLL_0, indvColl);
+								request.put(FwConstants.PAGE_COLL_1, appInPrflColl);
+								request.put(FwConstants.NUMBER_OF_COLLECTIONS_FOR_WARNING_MSG, 2);
+							} else{
+								request.put(FwConstants.PAGE_COLL_0, appIndvColl);
+								request.put(FwConstants.PAGE_COLL_1, appInPrflColl);
+								request.put(FwConstants.NUMBER_OF_COLLECTIONS_FOR_WARNING_MSG, 2);
+							}
+							
+							//ILIES-282240: change ends here
+							
+							request.put(FwConstants.MESSAGE_LIST, validateInfo);
+							pageCollection.put("SHORT_FORM", shortForm);
+							pageCollection.put("APP_INDV_Collection",appIndvColl);
+							//ILIES-273207 - if nothing selected for backdated months, keep value as 3 in session so that it helps preserving backdated months selection on the screen 
+							if(appInPrflCargo!=null && (appInPrflCargo.getIndv_fma_rqst_ind()!=null && appInPrflCargo.getIndv_fma_rqst_ind().equals("1") 
+									&& appInPrflCargo.getBackdt_med_app()!=null && "1".equals(appInPrflCargo.getBackdt_med_app()) 
+									|| ("1".equals(appInPrflCargo.getIndv_fpp_pgm()) && "1".equals(appInPrflCargo.getBackdt_fpp_app())))
+									&& (appInPrflCargo.getMa_backdt_mo_1().equals("3") || appInPrflCargo.getMa_backdt_mo_2().equals("3") || appInPrflCargo.getMa_backdt_mo_3().equals("3") )) 
+						    {
+								appInPrflColl.clear();
+								appInPrflColl.addCargo(appInPrflCargo);
+								pageCollection.put("APP_IN_PRFL_Collection",appInPrflColl);
+							}
+							else {
+								pageCollection.put("APP_IN_PRFL_Collection",appInPrflColl);
+							}
+							pageCollection.put(AppConstants.INDV_SEQUENCE_NUMBERS,indvSeqNumber);
+							pageCollection.put("CurrentPageStatus",String.valueOf(currentPageStatus));
+							pageCollection.put(FwConstants.PAGE_COMPONENT_LIST, beforeColl.get(FwConstants.PAGE_COMPONENT_LIST));
+							if(peopleInYourHome != null){
+								//pcr33872
+								if( !(houseHoldBo.peopleInHomeValidation(peopleInYourHome)))
+									peopleInYourHome = "1";
+								
+								pageCollection.put(AppConstants.PEOPLE_COUNT,String.valueOf(peopleInYourHome));
+							}
+							if(beforeColl.get(AppConstants.PEOPLE_COUNT) != null){
+							    pageCollection.put("BEFORE_PEOPLE_COUNT",beforeColl.get(AppConstants.PEOPLE_COUNT));
+							}
+							//Added by Uma For Nursing Facility BRGUS00287296
+							pageCollection.put("APP_NURSING_ADDRESS_Collection", appNursingColl);
+							if(childrenAtHome!=null && !childrenAtHome.trim().equals("")){
+								pageCollection.put("CHILD_IN_HOME_COUNT",childrenAtHome);
+							}
+							if(peopleAlongWithSpouse!=null && !peopleAlongWithSpouse.trim().equals("")){
+								pageCollection.put("PEOPLE_WITH_SPOUSE_COUNT",peopleAlongWithSpouse);
+							}
+							
+	//						*************Code for child count
+							if(childOutofYourhome != null){
+								pageCollection.put(AppConstants.CHILD_COUNT,String.valueOf(childOutofYourhome));
+							}
+							if(beforeColl.get(AppConstants.CHILD_COUNT) != null){
+							    pageCollection.put("BEFORE_CHILD_COUNT",beforeColl.get(AppConstants.CHILD_COUNT));
+							}
+							if(indvCustBeforeColl != null){
+								pageCollection.put("INDIVIDUAL_Custom_Collection",indvCustBeforeColl);
+							}
+							    pageCollection.put("MARITAL_STATUS",maritalStatus);
+							    
+							INDIVIDUAL_Custom_Collection indvCustColl_temp = peopleHandler.getInAndOutOfHomeIndividuals(appNumber);
+							//ILIES-186178 Starts
+							if(session.get("personFromSummary") != null){
+								int personTempCount = ((Integer)session.get("personFromSummary")).intValue();
+								buildNavigationArray(session, indvCustColl_temp, pageCollection, personTempCount);
+							}else{
+								buildNavigationArray(session, indvCustColl_temp, pageCollection, houseHoldBo.loadHouseholdCount(appNumber));
+							}
+							//ILIES-186178 Ends
+							//Changes Made by Varshi Kasarla for ILIES-282111. Removed Commented code. Sonar Issue.
+							
+							pageCollection.put("MA_BACK_DTD_MTS",beforeColl.get("MA_BACK_DTD_MTS"));
+							getDocMHValue(session, pageCollection);
+							return;
+					}	
+				}
+					//ILIES-186178 Starts
+					int pplCount = 0;
+					int pplInCount = 0;
+					int pplOutCount = 0;
+					String personAdd = (String)beforeColl.get(AppConstants.PERSON_ADD);
+					if(personAdd != null){
+						if(personAdd.equalsIgnoreCase("I")){
+							//In Home
+							pplCount = houseHoldBo.loadHouseholdCount(appNumber);
+							//ILIES-311729 start
+							pplInCount = houseHoldBo.loadHouseholdInCount(appNumber);
+							pplOutCount = houseHoldBo.loadHouseholdOutCount(appNumber);
+							String lvngArrangType = appIndvCargo.getLive_arng_typ();
+							if("SU".equalsIgnoreCase(lvngArrangType)){ //ILIES- 318944 -Removed OH and added SU-Other
+								pplOutCount = pplOutCount + 1;
+							}else{
+								pplInCount = pplInCount + 1;
+							}
+							houseHoldBo.storeHouseholdMemberCounts(appNumber, String.valueOf(pplCount + 1), String.valueOf(pplInCount), String.valueOf(pplOutCount));
+							//ILIES-311729 END
+						} else if(personAdd.equalsIgnoreCase("O")){
+							// Outside Home
+							pplCount = houseHoldBo.loadChildOutOfHomeCount(appNumber);
+							houseHoldBo.storeChildOutofHomeDetail(appNumber, String.valueOf(pplCount + 1));
+						}
+					}
+					session.remove("personFromSummary");
+					//ILIES-186178 Ends
+					if (null != appIndvCargo) {
+						if (StringUtils.isEmpty(appIndvCargo.getProj_discharge_dt())) { // DOC MH
+							appIndvCargo.setProj_discharge_dt(AppConstants.HIGH_TIMESTAMP);
+						} else {
+							appIndvCargo.setProj_discharge_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getProj_discharge_dt()));
+						}
+					}
+					log(ILog.DEBUG, "HouseHoldInfoEJBBean::storeHouseHoldMembersDetail::inmateNumber::" +appIndvCargo.getInmate_num()+"::projectedDischargeDt::"+appIndvCargo.getProj_discharge_dt());
+					////Code for ILIES-306909 
+					if(indvSeqNumber!= null && (AppConstants.ONE).equals(indvSeqNumber) ){
+						String capitalizeName = StringUtils.capitalizeName(appIndvCargo_indv1.getFst_nam());
+						appIndvCargo.setFst_nam(capitalizeName);
+					}else{
+						if(appIndvCargo.getFst_nam()!=null){
+							String capitalizeName = StringUtils.capitalizeName(appIndvCargo.getFst_nam());
+							appIndvCargo.setFst_nam(capitalizeName);
+						}else{
+							appIndvCargo.setFst_nam(FwConstants.SPACE);
+						}
+					}
+					
+					//Code for ILIES-306909 -- Ends
+					if(nursingFlag){
+						if(appIndvCargo.getMrtl_stat_cd()!=null && appIndvCargo.getMrtl_stat_cd().equalsIgnoreCase(AppConstants.YES)
+								&&indvSeqNumber!=null &&indvSeqNumber.equals(AppConstants.ONE)){
+							peopleInYourHome=String.valueOf(Integer.parseInt(peopleAlongWithSpouse)+1);
+						}
+						else if(appIndvCargo.getMrtl_stat_cd()!=null && appIndvCargo.getMrtl_stat_cd().equalsIgnoreCase(AppConstants.NO)
+								&&indvSeqNumber!=null &&indvSeqNumber.equals(AppConstants.ONE)){
+							peopleInYourHome=String.valueOf(Integer.parseInt(childrenAtHome)+1);
+						}
+						// Modified by Uma -- #BRGUS00288511
+						if(appNursingCargo != null && maritalStatus!=null && maritalStatus.equalsIgnoreCase(AppConstants.NF_IS_MARRIED) && indvSeqNumber!=null && indvSeqNumber.equalsIgnoreCase("2")){							
+							if(currentPageStatus!=FwConstants.DRIVER_ADD_NEW && currentPageStatus!=FwConstants.DRIVER_REQUIRED ){
+								appNursingCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
+							}else if(appNursingBeforeColl!=null && !(appNursingBeforeColl.isEmpty())){
+								appNursingCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
+							}
+							else
+								appNursingCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+							if(appNursingCargo.getAddr_line1()==null || appNursingCargo.getAddr_line1().trim().length()==0)
+								appNursingCargo.setAddr_line1(AppConstants.SPACE);
+							if(appNursingCargo.getAddr_line2()==null || appNursingCargo.getAddr_line2().trim().length()==0)
+								appNursingCargo.setAddr_line2(AppConstants.SPACE);
+							if(appNursingCargo.getAddr_state_cd()==null || appNursingCargo.getAddr_state_cd().trim().length()==0)
+								appNursingCargo.setAddr_state_cd(AppConstants.SPACE);
+							if(appNursingCargo.getAddr_city()==null || appNursingCargo.getAddr_city().trim().length()==0)
+								appNursingCargo.setAddr_city(AppConstants.SPACE);
+							if(appNursingCargo.getAddr_zip()==null || appNursingCargo.getAddr_zip().trim().length()==0)
+								appNursingCargo.setAddr_zip(AppConstants.SPACE);
+							if(appNursingCargo.getPhone_num()==null || appNursingCargo.getPhone_num().trim().length()==0)
+								appNursingCargo.setPhone_num(AppConstants.SPACE);
+							appNursingCargo.setApp_num(appNumber);
+							appNursingCargo.setAddr_type_cd("SP");
+							appNursingCargo.setSrc_app_ind(AppConstants.SRC_APP_IND_AFB);
+								medicalBO.storeSpouseAddress(appNursingColl);
+						}
+					}
+					
+
+					
+					if(childOutofYourhome != null){
+						if(beforeColl.containsKey(AppConstants.CHILD_COUNT)){
+							childOutofYourhomeBeforeCount = (String)beforeColl.get(AppConstants.CHILD_COUNT);
+							//now i am comparing before and after 
+							if(!childOutofYourhome.equals(childOutofYourhomeBeforeCount)){
+								//then we need to updated
+								houseHoldBo.storeChildOutofHomeDetail(appNumber,childOutofYourhome);
+								beforeColl.put(AppConstants.CHILD_COUNT,childOutofYourhome);	
+							}
+						}
+					}
+					
+
+					int childCount =Integer.parseInt((String) beforeColl.get(AppConstants.CHILD_COUNT));
+					int peopleCountForLooping=0;
+					if(currentPageStatus==FwConstants.DRIVER_REQUIRED && peopleInYourHome!=null)
+						peopleCountForLooping=Integer.parseInt(peopleInYourHome);
+					else
+						peopleCountForLooping =Integer.parseInt((String) beforeColl.get(AppConstants.PEOPLE_COUNT));
+
+					//setting the childOutHomeRes
+					String addCheck=null;
+					String childOutRes=null;
+					if(currentPageStatus == FwConstants.DRIVER_REQUIRED )
+					{
+						if(Integer.parseInt(indvSeqNumber)<=peopleCountForLooping)
+							appIndvCargo.setChld_out_home_resp("N");
+						else
+							appIndvCargo.setChld_out_home_resp("Y");
+						
+						childOutRes=appIndvCargo.getChld_out_home_resp();
+					}else if(currentPageStatus == FwConstants.DRIVER_COMPLETE || currentPageStatus == FwConstants.DRIVER_VISIT_AGAIN)
+					{
+						if(appIndvBeforeColl != null)
+							childOutRes=appIndvBeforeColl.getCargo(0).getChld_out_home_resp();
+						appIndvCargo.setChld_out_home_resp(childOutRes);
+					}else if(currentPageStatus == FwConstants.DRIVER_ADD_NEW && beforeColl.get(AppConstants.PERSON_ADD)!=null )
+					{
+						addCheck=(String)beforeColl.get(AppConstants.PERSON_ADD);
+						if(addCheck.equals("I"))
+							appIndvCargo.setChld_out_home_resp("N");
+						else
+							appIndvCargo.setChld_out_home_resp("Y");
+						
+						childOutRes=appIndvCargo.getChld_out_home_resp();
+						appIndvCargo.setChld_out_home_resp(childOutRes);
+					}
+					//Changes Made by Varshi Kasarla for ILIES-282111. Removed commented code. Sonar Issue.
+					
+					//now i am getting the app in profile session collection 
+					if(session.containsKey(AppConstants.APP_IN_PRFL_MASTER)){
+						appInPrflSessionColl = (APP_IN_PRFL_Collection)session.get(AppConstants.APP_IN_PRFL_MASTER);
+					}
+					List componentList =(ArrayList) beforeColl.get(FwConstants.PAGE_COMPONENT_LIST);
+					
+					boolean completeFlag = true;
+						
+					//for the null fields i am setting the default values
+					//setting the default values for the individual information
+					 if(appIndvColl != null && !(appIndvColl.isEmpty())){
+						appIndvCargo.setApp_num(appNumber);
+						appIndvCargo.setChld_trb_mbr_resp(" ");
+						appIndvCargo.setTrb_mbr_resp(" ");
+
+						appIndvCargo.setIndv_seq_num(indvSeqNumber);
+						if(appIndvCargo.getAln_sponser_sw() == null){
+							appIndvCargo.setAln_sponser_sw(FwConstants.SPACE);
+							if(componentList.contains("26"))
+								completeFlag = false;
+						}
+						if(appIndvCargo.getIntn_res_resp() == null){
+							appIndvCargo.setIntn_res_resp(FwConstants.SPACE);
+							if(componentList.contains("36"))
+								completeFlag = false;
+						}
+						//Modified by Gauresh for ILIES-282110: setting lang_cd
+						if(appIndvCargo.getLang_cd()==null || appIndvCargo.getLang_cd().equals("SEL")){
+							if(appIndvCargo_indv1!=null && appIndvCargo_indv1.getLang_cd()!=null){
+							appIndvCargo.setLang_cd(appIndvCargo_indv1.getLang_cd());
+							}else{
+								appIndvCargo.setLang_cd("0"); // as per ILIES-292129
+							}//ILIES-282110: change ends here
+							if(componentList.contains("34"))
+								completeFlag = false;
+						}
+						//Changes made by Varshi Kasarla for ILIES-282111. Added condition for primary indv data.
+						if((indvSeqNumber !=null) && ("1".equals(indvSeqNumber))){
+								appIndvCargo.setBrth_dt(appIndvCargo_indv1.getBrth_dt());
+						}else{
+							appIndvCargo.setBrth_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getBrth_dt()));
+						}
+						
+						//Changes made by Varshi Kasarla for ILIES-282111. Added condition for primary indv data.
+						if((indvSeqNumber !=null) && ("1".equals(indvSeqNumber))){
+							//Changes for ILIES-306909 
+							String capitalizeName = StringUtils.capitalizeName(appIndvCargo_indv1.getLast_nam());
+								appIndvCargo.setLast_nam(capitalizeName);
+						}else{
+							appIndvCargo.setLast_nam(StringUtils.capitalizeName(appIndvCargo.getLast_nam()));
+							//Changes for ILIES-306909 -- Ends
+						}
+						//Changes made by Varshi Kasarla for ILIES-282111. Added condition for primary indv data.
+						if((indvSeqNumber !=null) && ("1".equals(indvSeqNumber))){
+							appIndvCargo.setSex_ind(appIndvCargo_indv1.getSex_ind());
+						}else{
+							appIndvCargo.setSex_ind(appIndvCargo.getSex_ind());
+						}
+						
+						if(appIndvCargo.getLive_arng_typ() == null){
+							appIndvCargo.setLive_arng_typ(FwConstants.SPACE);
+							completeFlag = false;
+						}
+						if(appIndvCargo.getMig_farm_wrkr_sw() == null){
+							appIndvCargo.setMig_farm_wrkr_sw(FwConstants.SPACE);
+							if(componentList.contains("39"))
+								completeFlag = false;
+						}
+						//Update by Uma for Nursing facility BRGUS00287296
+						//Changes made by Varshi Kasarla for ILIES-284392. Added condition for primary indv data.
+						if((indvSeqNumber !=null) && ("1".equals(indvSeqNumber))){
+							appIndvCargo.setMrtl_stat_cd(appIndvCargo_indv1.getMrtl_stat_cd());
+						}else if(appIndvCargo.getMrtl_stat_cd()==null || appIndvCargo.getMrtl_stat_cd().equals("SEL")){
+							appIndvCargo.setMrtl_stat_cd(FwConstants.SPACE);
+							if(componentList.contains("35"))
+								completeFlag = false;
+						}else if(appIndvCargo.getMrtl_stat_cd().equals(AppConstants.YES)){
+							appIndvCargo.setMrtl_stat_cd(AppConstants.NF_IS_MARRIED);							
+						}else if(appIndvCargo.getMrtl_stat_cd().equals(AppConstants.NO)){
+							appIndvCargo.setMrtl_stat_cd("OT");
+						}
+						if(appIndvCargo.getLive_arng_typ().equals("SEL") && appIndvCargo.getChld_out_home_resp().trim().equals(FwConstants.NO)){
+							appIndvCargo.setLive_arng_typ(FwConstants.SPACE);
+							if(componentList.contains("38"))
+								completeFlag = false;
+						}else{//if child out of home we dont ask living arrangement question - PCR# 33628
+							String childOutOfHomeFalg = appIndvCargo.getChld_out_home_resp();
+							if(appIndvCargo.getChld_out_home_resp().trim().equals(FwConstants.YES)){
+								appIndvCargo.setLive_arng_typ(FwConstants.SPACE);
+								completeFlag = true;
+							}
+						}
+						
+						if(appIndvCargo.getPreg_resp() == null){
+							appIndvCargo.setPreg_resp(FwConstants.SPACE);
+						}
+						if(appIndvCargo.getPrim_prsn_sw() == null){
+							if(indvSeqNumber.equals("1")){
+								appIndvCargo.setPrim_prsn_sw(FwConstants.YES);
+							}
+							else{
+								appIndvCargo.setPrim_prsn_sw(FwConstants.NO);
+							}
+						}
+						
+						if((indvSeqNumber !=null) && ("1".equals(indvSeqNumber))){
+							//Changes for ILIES-306909 
+							String capitalizeName = StringUtils.capitalizeName(appIndvCargo_indv1.getMid_init());
+								appIndvCargo.setMid_init(capitalizeName);
+						}else{
+							if(appIndvCargo.getMid_init() == null || appIndvCargo.getMid_init().length() == 0){
+								appIndvCargo.setMid_init(FwConstants.SPACE);
+							}else{
+								appIndvCargo.setMid_init(StringUtils.capitalizeName(appIndvCargo.getMid_init()));
+							}
+						}
+						
+						if(appIndvCargo.getRes_wi_sw() == null){
+							appIndvCargo.setRes_wi_sw(FwConstants.SPACE);
+							if(componentList.contains("37"))
+								completeFlag = false;
+						}
+						if((appIndvCargo.getRlvn_ind() == null)){
+							appIndvCargo.setRlvn_ind("0");
+						}
+						if(appIndvCargo.getSs_num_app_dt()== null || appIndvCargo.getSs_num_app_dt().trim().length() == 0){
+							appIndvCargo.setSs_num_app_dt(AppConstants.HIGH_TIMESTAMP);
+						}
+						else{
+							//Changes done by Uma Rani reverting code changes as part of ILIES-282111
+							appIndvCargo.setSs_num_app_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getSs_num_app_dt()));
+						}
+						
+						if(appIndvCargo.getSsn_num() == null || appIndvCargo.getSsn_num().trim().length() == 0){
+							appIndvCargo.setSsn_num("0");
+							if(appIndvCargo.getSs_num_app_dt().equals(AppConstants.HIGH_TIMESTAMP)){
+								if(componentList.contains("25"))
+									completeFlag = false;
+							}
+						}
+						//ILIES-133642 - ravrajendran - ABE - SSA Edits (State List)/ Race & Ethnicity - Complete Application Development - Start 
+						// This code is added to check for race and ethinicity
+						
+						
+						if(appIndvCargo.getOther_race_ind() == null){
+							appIndvCargo.setOther_race_ind("0");
+						}
+						//ILIES-133642 - ravrajendran - ABE - SSA Edits (State List)/ Race & Ethnicity - Complete Application Development - END
+						if(appIndvCargo.getUs_ctzn_sw() == null){
+							appIndvCargo.setUs_ctzn_sw(FwConstants.SPACE);
+							if(componentList.contains("33"))
+								completeFlag = false;
+						}
+						//Race
+						setDefaultValuesForRaceEthnicity(appIndvCargo);
+						//Added for ILIES-126722
+						if(appIndvCargo.getDocument_type()==null || appIndvCargo.getDocument_type().equals("SEL")){
+							appIndvCargo.setDocument_type(FwConstants.SPACE);
+						}
+						//Non-Citizen
+						if(StringUtils.isEmpty(appIndvCargo.getRecv_torture_svc_sw())){
+							appIndvCargo.setRecv_torture_svc_sw(FwConstants.SPACE);
+						}
+						if(StringUtils.isEmpty(appIndvCargo.getNon_citizen_type()) || "SEL".equalsIgnoreCase(appIndvCargo.getNon_citizen_type())){
+							appIndvCargo.setNon_citizen_type(FwConstants.SPACE);
+						}
+						if(StringUtils.isEmpty(appIndvCargo.getBattered_sw())){
+							appIndvCargo.setBattered_sw(FwConstants.SPACE);
+						}
+						if(StringUtils.isEmpty(appIndvCargo.getBattered_indv_liv_apart_sw())){
+							appIndvCargo.setBattered_indv_liv_apart_sw(FwConstants.SPACE);
+						}
+						if(StringUtils.isEmpty(appIndvCargo.getIns_id_substantially_rel_sw())){
+							appIndvCargo.setIns_id_substantially_rel_sw(FwConstants.SPACE);
+						}
+						if(StringUtils.isEmpty(appIndvCargo.getBattery_spouse_family_sw())){
+							appIndvCargo.setBattery_spouse_family_sw(FwConstants.SPACE);
+						}
+						//added by ggr
+						//personal information section
+						boolean isPersonalInformation=false;
+						if(appIndvCargo.getLang_cd()!=null && !appIndvCargo.getLang_cd().trim().equals("")){
+							isPersonalInformation=true;
+						}
+						//Added by uma to fix section complete issue in final submit page BRGUS00289908
+						if(nursingFlag && !isPersonalInformation)
+							isPersonalInformation= true;
+						// end of BRGUS00289908
+						Map value = new HashMap();
+	                    FwDataCriteria[] criteria = new FwDataCriteria[1];
+	                    criteria[0] = new FwDataCriteria();
+	                    criteria[0].setColumn_name(AppConstants.APP_NUM);
+	                    criteria[0].setColumn_value(appNumber);
+	                    value.put(FwConstants.CRITERIA, criteria);
+	                    APP_PGM_RQST_Cargo[] nrResults = null;
+	                    APP_PGM_RQST_Collection pgmRqstCollection = new APP_PGM_RQST_Collection();
+	                    nrResults = (APP_PGM_RQST_Cargo[]) pgmRqstCollection.select(FwConstants.DAO, value);
+	                   
+	                    boolean fsProgram = false;
+	                    if(nrResults != null && nrResults[0].getFs_rqst_ind().equals("1")){
+	                    	
+	                    	fsProgram = true;
+	                    }
+	                    
+	                    boolean cashProgram = false;
+	                    if(nrResults != null && nrResults[0].getHc_rqst_ind().equals("1")){	                    	
+	                    	cashProgram = true;
+	                    }
+	                    
+	                    boolean maProgram = false;
+	                    if(nrResults != null && nrResults[0].getFma_rqst_ind().equals("1")){	                    	
+	                    	maProgram = true;
+	                    }
+	                    
+	                    boolean cdcProgram = false;
+	                    if(nrResults != null && nrResults[0].getFpw_rqst_ind().equals("1")){	                    	
+	                    	cdcProgram = true;
+	                    }
+	                    boolean medicareSP = false;
+	                    if (nrResults!=null && nrResults[0].getMedicare_rqst_ind().equals("1")){
+	                    	medicareSP = true;
+	                    }
+	                    boolean fppProgram = false;
+	                    if (nrResults!=null && nrResults[0].getFpp_rqst_ind().equals("1")){
+	                    	fppProgram = true;
+	                    }
+	                    
+	                    
+	                    //vet_ind
+	                    if (appIndvCargo.getVet_ind() == null
+	        					|| appIndvCargo.getVet_ind().equals("")) {
+	        				appIndvCargo.setVet_ind(AppConstants.SPACE);
+	        			}	        				                    
+						
+						//Program Selection
+						boolean isPrgSelected=false;
+						
+						// Indrani - program selection changed with additional options
+						
+						if(!fsProgram || !maProgram || !cashProgram || !cdcProgram || !medicareSP || !fppProgram){
+							
+							isPrgSelected = true;
+						}
+						else if (appInPrflCargo != null && ((appInPrflCargo.getIndv_fs_rqst_ind()!=null&&appInPrflCargo.getIndv_fs_rqst_ind().trim().equals("1"))
+								|| (appInPrflCargo.getIndv_hc_rqst_ind()!=null&&appInPrflCargo.getIndv_hc_rqst_ind().trim().equals("1"))
+								|| (appInPrflCargo.getIndv_fma_rqst_ind()!=null&&appInPrflCargo.getIndv_fma_rqst_ind().trim().equals("1"))
+								|| (appInPrflCargo.getIndv_fpw_rqst_ind()!=null&&appInPrflCargo.getIndv_fpw_rqst_ind().trim().equals("1"))
+								|| (appInPrflCargo.getIndv_msp_rqst_ind()!=null&&appInPrflCargo.getIndv_msp_rqst_ind().trim().equals("1"))
+								|| (appInPrflCargo.getIndv_hpe_rqst_ind()!=null&&appInPrflCargo.getIndv_hpe_rqst_ind().trim().equals("1")) )
+								|| (appInPrflCargo.getIndv_fpp_pgm()!=null&&appInPrflCargo.getIndv_fpp_pgm().trim().equals("1")) ){
+							isPrgSelected=true;
+						}
+						//	Citizenship Information 
+						boolean isCitizenshipInfo=false;
+						if(appIndvCargo.getSsn_num()!=null&&!appIndvCargo.getSsn_num().trim().equals("")||
+						appIndvCargo.getSs_num_app_dt()!=null&&!appIndvCargo.getSs_num_app_dt().trim().equals("")||
+						appIndvCargo.getUs_ctzn_sw()!=null&&!appIndvCargo.getUs_ctzn_sw().trim().equals("")||
+						appIndvCargo.getAln_sponser_sw()!=null&&!appIndvCargo.getAln_sponser_sw().trim().equals("")){
+							isCitizenshipInfo=true;
+						}
+						//Race  section
+						boolean isRace=false;
+						if(appIndvCargo.getAi_ind()!=null&&!appIndvCargo.getAi_ind().trim().equals(FwConstants.SPACE)
+						){
+							isRace=true;
+						}
+						//	Ethnicity section
+						boolean isEthnicity=false;
+						if(appIndvCargo.getHspc_ind()!=null && appIndvCargo.getNon_hspc_ind()!=null&&!appIndvCargo.getNon_hspc_ind().trim().equals(FwConstants.SPACE)){
+							isEthnicity=true;
+						}
+						//	Residence Information 
+						boolean isResidenceInfo=false;
+						if(appIndvCargo.getRes_wi_sw()!=null&&!appIndvCargo.getRes_wi_sw().trim().equals("")&&
+						appIndvCargo.getMig_farm_wrkr_sw()!=null&&!appIndvCargo.getMig_farm_wrkr_sw().trim().equals("")&&
+						appIndvCargo.getLive_arng_typ()!=null&&!appIndvCargo.getLive_arng_typ().trim().equals(""))
+						{
+							isResidenceInfo=true;
+						}
+						//Veteran Information  
+						boolean isVeteraninfo=false;
+						if(appIndvCargo.getVet_resp()!=null&&!appIndvCargo.getVet_resp().trim().equals("")&&
+						appIndvCargo.getVet_act_duty_resp()!=null&&!appIndvCargo.getVet_act_duty_resp().trim().equals("")&&
+						appIndvCargo.getSps_deceased_vet_resp()!=null&&!appIndvCargo.getSps_deceased_vet_resp().trim().equals("")&&
+						appIndvCargo.getChld_deceased_vet_resp()!=null&&!appIndvCargo.getChld_deceased_vet_resp().trim().equals("")&&
+						appIndvCargo.getDisable_vet_resp()!=null&&!appIndvCargo.getDisable_vet_resp().trim().equals("")){
+							isVeteraninfo=true;
+						}
+						//Nursing Facility Medical Information added by Uma BRGUS00287296
+						boolean isNursingfacilityInfo=false;
+						//Changed by uma to fix section complete issue in final submit page BRGUS00289908
+						if(nursingFlag && 
+								((appIndvCargo.getIndv_seq_num()!=null && appIndvCargo.getIndv_seq_num().trim().length()>0 && AppConstants.ONE.equals(appIndvCargo.getIndv_seq_num()))
+										||(indvSeqNumber!=null && indvSeqNumber.trim().length()>0 && AppConstants.ONE.equals(indvSeqNumber)))){						
+						if(appIndvCargo.getUnpaid_medical_expense_sw()!=null && !appIndvCargo.getUnpaid_medical_expense_sw().trim().equals("")&&
+								appIndvCargo.getHealth_ins_premium_pay_sw()!=null && !appIndvCargo.getHealth_ins_premium_pay_sw().trim().equals("")&&
+								appIndvCargo.getMedicare_coverage_sw()!=null && !appIndvCargo.getMedicare_coverage_sw().trim().equals("")&&
+								appIndvCargo.getLtc_insurance_coverage_sw()!=null && !appIndvCargo.getLtc_insurance_coverage_sw().trim().equals("")&&
+								appIndvCargo.getCourt_ordered_med_cvrg_sw()!=null && !appIndvCargo.getCourt_ordered_med_cvrg_sw().trim().equals("")&&
+								appIndvCargo.getInjury_related_med_cvrg_sw()!=null && !appIndvCargo.getInjury_related_med_cvrg_sw().trim().equals("")&&
+								appIndvCargo.getPlan_contract_sw()!=null && !appIndvCargo.getPlan_contract_sw().trim().equals("")){
+							isNursingfacilityInfo=true;
+						}
+						}
+						else if(nursingFlag){
+							isNursingfacilityInfo = true;
+						}
+						//Added by uma to fix section complete issue in final submit page BRGUS00289908
+						if(nursingFlag && ((indvSeqNumber!=null && !AppConstants.ONE.equals(indvSeqNumber)) || (appIndvCargo.getIndv_seq_num()!=null && !AppConstants.ONE.equals(appIndvCargo.getIndv_seq_num())))){
+							isVeteraninfo = true;
+							isPersonalInformation = true;
+							isRace = true;
+							isEthnicity = true;
+							isResidenceInfo = true;
+						}else
+							isNursingfacilityInfo=true;
+							
+						// end ofBRGUS00289908
+						//Changes made by Varshi Kasarla for ILIES-282111. Removed commented code. Sonar issue.
+							appIndvCargo.setRec_cplt_ind("1");				
+						
+								 
+								 if(appIndvCargo.getDt_leave_facty()== null || appIndvCargo.getDt_leave_facty().trim().length() == 0){
+										appIndvCargo.setDt_leave_facty(AppConstants.HIGH_TIMESTAMP);
+									}
+									else{
+										//Changes done by Uma Rani reverting code changes as part of ILIES-282111
+										appIndvCargo.setDt_leave_facty(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getDt_leave_facty()));	
+									}
+								 
+								 if(appIndvCargo.getVet_resp() == null){
+										appIndvCargo.setVet_resp("0");
+									}
+								 
+								 if(appIndvCargo.getVet_act_duty_resp() == null){
+										appIndvCargo.setVet_act_duty_resp("0");
+									}
+								 
+								 if(appIndvCargo.getChld_deceased_vet_resp() == null){
+										appIndvCargo.setChld_deceased_vet_resp("0");
+									}
+								 
+								 if(appIndvCargo.getSps_deceased_vet_resp() == null){
+										appIndvCargo.setSps_deceased_vet_resp("0");
+									}
+								 
+								 if(appIndvCargo.getDisable_vet_resp() == null){
+										appIndvCargo.setDisable_vet_resp("0");
+									}
+								 //New Code Fix
+								 if("SEL".equalsIgnoreCase(appIndvCargo.getLive_arng_typ()) || "SEL".equalsIgnoreCase(appIndvCargo.getFacility_cd())){ //DOC MH
+										appIndvCargo.setLive_arng_typ(FwConstants.SPACE);
+										appIndvCargo.setFacility_cd(FwConstants.SPACE);
+								 }
+								 if(appIndvCargo.getJob_commitment_resp() == null){
+										appIndvCargo.setJob_commitment_resp("0");
+									}
+								 
+								 // Indrani - Self Service Expansion
+								 if(appIndvCargo.getAlien_entry_dt()== null ||
+										 appIndvCargo.getAlien_entry_dt().trim().length() == 0){
+										appIndvCargo.setAlien_entry_dt(AppConstants.HIGH_TIMESTAMP);
+									}
+									else{
+										//Changes done by Uma Rani reverting code changes as part of ILIES-282111
+										appIndvCargo.setAlien_entry_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getAlien_entry_dt()));
+									}
+								 
+								 //To store Alien_status_begin_dt
+								 if(appIndvCargo.getAlien_status_begin_dt()== null ||
+										 appIndvCargo.getAlien_status_begin_dt().trim().length() == 0){
+										appIndvCargo.setAlien_status_begin_dt(AppConstants.HIGH_TIMESTAMP);
+									}
+									else{
+										//Changes done by Uma Rani reverting code changes as part of ILIES-282111
+										appIndvCargo.setAlien_status_begin_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getAlien_status_begin_dt()));
+									}
+								 
+								 if(appIndvCargo.getTribe_name() == null){
+										appIndvCargo.setTribe_name(FwConstants.SPACE);
+									}
+									//Added by Uma for Nursing Facility BRGUS00287296
+								 if(appIndvCargo.getUnpaid_medical_expense_sw()==null){
+									 appIndvCargo.setUnpaid_medical_expense_sw(FwConstants.SPACE);
+								 }
+								 if(appIndvCargo.getHealth_ins_premium_pay_sw() == null){
+									 appIndvCargo.setHealth_ins_premium_pay_sw(FwConstants.SPACE);
+								 }
+								 if(appIndvCargo.getMedicare_coverage_sw()== null){
+									 appIndvCargo.setMedicare_coverage_sw(FwConstants.SPACE);
+								 }
+								 if(appIndvCargo.getLtc_insurance_coverage_sw()==null){
+									 appIndvCargo.setLtc_insurance_coverage_sw(FwConstants.SPACE);
+								 }
+								 if(appIndvCargo.getCourt_ordered_med_cvrg_sw()==null){
+									 appIndvCargo.setCourt_ordered_med_cvrg_sw(FwConstants.SPACE);
+								 }
+								 if(appIndvCargo.getInjury_related_med_cvrg_sw()==null){
+									 appIndvCargo.setInjury_related_med_cvrg_sw(FwConstants.SPACE);
+								 }
+								 if(appIndvCargo.getPlan_contract_sw()==null){
+									 appIndvCargo.setPlan_contract_sw(FwConstants.SPACE);
+									}
+								 
+								// Added for the ILIES project
+								//set dates to timestamps--smulpuru 
+								if(appIndvCargo.getMoved_to_mi_dt() == null || appIndvCargo.getMoved_to_mi_dt().trim().length() == 0) {
+									appIndvCargo.setMoved_to_mi_dt(AppConstants.HIGH_TIMESTAMP);
+								}
+								else{
+									appIndvCargo.setMoved_to_mi_dt(
+											displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getMoved_to_mi_dt()));	
+								}
+								if(appIndvCargo.getOther_state_dt() == null || appIndvCargo.getOther_state_dt().trim().length() == 0) {
+									appIndvCargo.setOther_state_dt(AppConstants.HIGH_TIMESTAMP);
+								}
+								else{
+									//Changes done by Uma Rani reverting code changes as part of ILIES-282111
+									appIndvCargo.setOther_state_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getOther_state_dt()));
+								}
+								if(appIndvCargo.getMove_in_dt() == null || appIndvCargo.getMove_in_dt().trim().length() == 0) {
+									appIndvCargo.setMove_in_dt(AppConstants.HIGH_TIMESTAMP);
+								}
+								else{
+									//Changes done by Uma Rani reverting code changes as part of ILIES-282111
+									appIndvCargo.setMove_in_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getMove_in_dt()));
+								}
+								 
+								if(appIndvCargo.getDays_child_sleeps_in_home_num() == null || appIndvCargo.getDays_child_sleeps_in_home_num().trim().length() == 0) {
+									appIndvCargo.setDays_child_sleeps_in_home_num(AppConstants.ZERO);
+								}
+									
+								if(appIndvCargo.getAlien_reg_num() == null || appIndvCargo.getAlien_reg_num().trim().length() == 0){
+									appIndvCargo.setAlien_reg_num(AppConstants.ZERO);
+								}
+								
+								if(appIndvCargo.getFclty_nm() == null || appIndvCargo.getFclty_nm().trim().length() == 0){
+									appIndvCargo.setFclty_nm(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getFclty_strt_dt() == null || appIndvCargo.getFclty_strt_dt().trim().length() == 0){
+									appIndvCargo.setFclty_strt_dt(AppConstants.HIGH_TIMESTAMP);
+								}
+								else{
+									//Changes done by Uma Rani reverting code changes as part of ILIES-282111
+									appIndvCargo.setFclty_strt_dt(displayFormatter.getYYYYMMDDTimestamp(appIndvCargo.getFclty_strt_dt()));
+								}
+								
+								if(appIndvCargo.getTyp_of_assist() == null){
+									appIndvCargo.setTyp_of_assist(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getAssistance_other_state_sw() == null){
+									appIndvCargo.setAssistance_other_state_sw(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getMi_assistance_sw() == null){
+									appIndvCargo.setMi_assistance_sw(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getFile_taxes_sw() == null){
+									appIndvCargo.setFile_taxes_sw(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getVet_ind() == null){
+									appIndvCargo.setVet_ind(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getSsn_num_prev() == null || appIndvCargo.getSsn_num_prev().trim().length() == 0){
+									appIndvCargo.setSsn_num_prev("0");
+								}
+								
+								if(appIndvCargo.getApplied_va_benefits_sw() == null){
+									appIndvCargo.setApplied_va_benefits_sw(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getReceiving_va_benefits_sw() == null){
+									appIndvCargo.setReceiving_va_benefits_sw(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getDisability_claim_sw() == null){
+									appIndvCargo.setDisability_claim_sw(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getCase_worker_phone_num() == null){
+									appIndvCargo.setCase_worker_phone_num(AppConstants.ZERO);
+								}
+								
+								//setDefaultValuesForRaceEthnicity(appIndvCargo);
+								setValuesForSexGender(appIndvCargo_indv1, appIndvCargo, indvSeqNumber);
+								if(appIndvCargo.getIndigenous_status() == null){
+									appIndvCargo.setIndigenous_status(FwConstants.SPACE);
+								}
+
+								if(appIndvCargo.getDocumented_alien_sw() == null){
+									appIndvCargo.setDocumented_alien_sw(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getUndoc_noncitizen_asylum_sw()== null){
+									appIndvCargo.setUndoc_noncitizen_asylum_sw(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getUndoc_noncitizen_t_visa_sw() == null){
+									appIndvCargo.setUndoc_noncitizen_t_visa_sw(FwConstants.SPACE);
+								}
+								
+								if(appIndvCargo.getUndoc_noncitizen_u_visa_sw()== null){
+									appIndvCargo.setUndoc_noncitizen_u_visa_sw(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getDocument_type().equals("SEL")){
+									appIndvCargo.setDocument_type(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getVet_ind() ==  null){
+									appIndvCargo.setVet_ind(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getEmer_med_non_cit() ==  null){
+									appIndvCargo.setEmer_med_non_cit(FwConstants.SPACE);
+								}
+								java.util.Date date= new java.util.Date();
+								Timestamp today = new Timestamp(date.getTime());
+								if(appIndvCargo.getAptc_eligible() ==  null){
+									appIndvCargo.setAptc_eligible(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getCase_worker_name() == null){
+									appIndvCargo.setCase_worker_name(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getMi_assistance_name() == null){
+									appIndvCargo.setMi_assistance_name(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getOther_county() == null){
+									appIndvCargo.setOther_county(FwConstants.SPACE);
+								}
+								if(appIndvCargo.getOther_state_cd() == null){
+									appIndvCargo.setOther_state_cd(FwConstants.SPACE);
+								}
+					 }
+					 
+//					setting the default values for the profile information 
+					 if(appIndvColl!=null && !(appIndvColl.isEmpty()) && !(("Y").equals(appIndvColl.getCargo(0).getChld_out_home_resp())))
+					 {
+						if(appInPrflCargo != null && appInPrflColl  != null && !(appInPrflColl.isEmpty())){
+							appInPrflCargo.setApp_num(appNumber);
+							appInPrflCargo.setIndv_seq_num(indvSeqNumber);
+							//if values are null setting the default values
+							
+							//changed by Indrani
+							if(appInPrflCargo.getIndv_fs_rqst_ind() == null 
+									&& appInPrflCargo.getIndv_fpw_rqst_ind() == null
+										&& appInPrflCargo.getIndv_fma_rqst_ind() == null
+											&& appInPrflCargo.getIndv_hc_rqst_ind() == null
+											&& appInPrflCargo.getIndv_msp_rqst_ind()==null
+											&& appInPrflCargo.getIndv_hpe_rqst_ind()==null
+											&& appInPrflCargo.getIndv_fpp_pgm()==null){
+								completeFlag =false; 	
+							}
