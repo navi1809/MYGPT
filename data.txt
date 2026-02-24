@@ -1,1059 +1,549 @@
-package gov.illinois.access.business.rules;
-
-import gov.illinois.access.business.entities.APP_DSNAP_RQST_Collection;
-import gov.illinois.access.business.entities.APP_INDV_Cargo;
-import gov.illinois.access.business.entities.APP_INDV_Collection;
-import gov.illinois.access.business.entities.APP_RGST_Cargo;
-import gov.illinois.access.business.entities.APP_RGST_Collection;
-import gov.illinois.access.business.entities.DIST_SCHOOL_MAP_Cargo;
-import gov.illinois.access.business.entities.DIST_SCHOOL_MAP_Collection;
-import gov.illinois.access.business.entities.PEBT_APP_DEMOGRAPHICS_Cargo;
-import gov.illinois.access.business.entities.PEBT_APP_DEMOGRAPHICS_Collection;
-import gov.illinois.access.business.entities.PEBT_APP_INDV_Cargo;
-import gov.illinois.access.business.entities.PEBT_APP_INDV_Collection;
-import gov.illinois.access.business.entities.PEBT_APP_RQST_Cargo;
-import gov.illinois.access.business.entities.PEBT_APP_RQST_Collection;
-import gov.illinois.access.business.entities.PE_PRVD_LOC_Cargo;
-import gov.illinois.access.business.entities.PE_PRVD_LOC_Collection;
-import gov.illinois.access.business.utility.CallWebService;
-import gov.illinois.access.business.utility.StringUtils;
-import gov.illinois.access.management.constants.AppConstants;
-import gov.illinois.framework.business.rules.PMDRules;
-import gov.illinois.framework.exceptions.FwException;
-import gov.illinois.framework.exceptions.FwExceptionManager;
-import gov.illinois.framework.exceptions.FwWrappedException;
-import gov.illinois.framework.exceptions.IException;
-import gov.illinois.framework.factories.FwServiceFactory;
-import gov.illinois.framework.management.configuration.FwConfigurationManager;
-import gov.illinois.framework.management.configuration.IConfiguration;
-import gov.illinois.framework.management.constants.FwConstants;
-import gov.illinois.framework.management.logging.ILog;
-import gov.illinois.framework.management.logging.business.entities.WEB_EXCP_Cargo;
-import gov.illinois.framework.management.logging.business.entities.WEB_EXCP_Collection;
-import gov.illinois.framework.management.messages.FwMessageList;
-import gov.illinois.framework.management.messages.FwMessageTextLabel;
-import gov.illinois.framework.management.util.FwDataCriteria;
-import gov.illinois.framework.management.util.FwDate;
-import gov.illinois.framework.management.util.FwPropertyLoader;
-import gov.illinois.ies.business.rules.pebt.vo.PEBTAppCreationRequest;
-import gov.illinois.ies.business.rules.pebt.vo.PEBTAppCreationResponseSet;
-import gov.illinois.ies.business.rules.pebt.vo.PEBTAppDemographics;
-import gov.illinois.ies.business.rules.pebt.vo.PEBTAppIndv;
-import gov.illinois.ies.business.rules.pebt.vo.PEBTAppRequest;
-
-import java.net.URL;
-import java.sql.Date;
-import java.sql.Timestamp;
-import java.text.SimpleDateFormat;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.regex.Pattern;
-
-import com.businessobjects.Realtime_ServicesProxy;
-import com.businessobjects.service.il_addrbridges.input.ILAddrCleanseIn;
-import com.businessobjects.service.il_addrbridges.output.ILAddrCleanseOut;
-
-public class ABRegistrationBO extends AFBBO
-{
-	private boolean addrValServiceExp = false;
-	private long pebtOfficeNumber;
-	
-  public void storeRegistrationInformation(APP_RGST_Collection appRgstColl)
-  {
-    try
-    {
-      if ((appRgstColl != null) && (appRgstColl.size() > 0))
-        appRgstColl.persist("dao");
-    }
-    catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) {
-      FwException fe = createFwException(getClass().getName(), "storeRegistrationInformation", e);
-
-      throw fe;
-    }
-  }
- /*Modified by Gauresh for ILIES-282110: Adding APP_INDV_Cargo to Contact Registration page*/
-  public void storeRegistrationInformationIndv(APP_INDV_Collection appIndvColl)
-  {
-    try
-    {
-      if ((appIndvColl != null) && (!appIndvColl.isEmpty()))
-        appIndvColl.persist("dao");
-    }
-    catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) { 
-      throw createFwException(getClass().getName(), AppConstants.STORE_REG_INFORMATION, e);
-    }
-  }
-//ILIES-282110:change ends here
-
-  public Map loadRegistrationInformation(String appNumber)
-  {
-    Map pageCollection = null;
-    APP_RGST_Collection appRgstColl = null;
-    APP_INDV_Collection appIndvColl = null;
-    Map criteriaMap = null;
-    FwDataCriteria[] criteria = null;
-    try
-    {
-      pageCollection = new HashMap();
-
-      appRgstColl = new APP_RGST_Collection();
-      criteriaMap = new HashMap();
-      criteria = new FwDataCriteria[1];
-      criteria[0] = new FwDataCriteria();
-      criteria[0].setColumn_name("APP_NUM");
-      criteria[0].setColumn_value(appNumber);
-
-      criteriaMap.put("select_criteria", criteria);
-      APP_RGST_Cargo[] appRgstCargoArray = (APP_RGST_Cargo[])appRgstColl.select("dao", criteriaMap);
-
-      if (appRgstCargoArray.length > 0) {
-        appRgstColl.setResults(appRgstCargoArray);
-        pageCollection.put("APP_RGST_Collection", appRgstColl);
-
-        appIndvColl = new APP_INDV_Collection();
-        criteriaMap = new HashMap();
-        criteria = new FwDataCriteria[2];
-        criteria[0] = new FwDataCriteria();
-        criteria[0].setColumn_name("APP_NUM");
-        criteria[0].setColumn_value(appNumber);
-        criteria[1] = new FwDataCriteria();
-        criteria[1].setColumn_name("INDV_SEQ_NUM");
-        criteria[1].setColumn_value("1");
-
-        criteriaMap.put("select_criteria", criteria);
-        APP_INDV_Cargo[] appIndvCargoArray = (APP_INDV_Cargo[])appIndvColl.select("dao", criteriaMap);
-
-        if (appIndvCargoArray.length > 0) {
-          appIndvColl.setResults(appIndvCargoArray);
-          pageCollection.put("APP_INDV_Collection", appIndvColl);
-        }
-      }
-
-      return pageCollection;
-    } catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) {
-      FwException fe = createFwException(getClass().getName(), "loadRegistrationInformation", e);
-
-      throw fe;
-    }
-  }
-
-  public FwMessageList validateRegistrationInformation(APP_RGST_Cargo appRgstCargo, APP_INDV_Cargo appIndvCargo, String ageGenderInd, String ageRequiredFlag, String curPageId, String prePageId)
-  {
-    try
-    {
-      char[] specialChars = { '#', '/', '\'', '-', '(', ')', '@', '_', ',', '.', ' ' };
-      //added in order to accept '-' '\'' Hyphen & Apostrophe for First Name and Last Name on the Registration Page JIRA #129702
-      char[] specialCharsfirstandlastname = { '-','\'' };
-      //to see if user has entered a physical address or mailing address (for homeless check) ILIES-69318
-      boolean enteredPhysicalAddr = true;
-      boolean enteredMailingAddr = true;
-
-      if (this.appMgr.isFieldEmpty(appIndvCargo.getFst_nam())) {
-    	/*Modified by Gauresh for ILIES-282110: SONAR fixes- declaring constants for all message/error ids*/
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30000) };
-        addMessageWithFieldValues(AppConstants.ID_10000, error);
-      } else if (!this.appMgr.isInvalidFirstChar(appIndvCargo.getFst_nam())) {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30000) };
-        addMessageWithFieldValues(AppConstants.ID_20000, error);
-      } else if (!this.appMgr.isSpecialAlphaNumeric(appIndvCargo.getFst_nam(),specialCharsfirstandlastname))
+if ((this.appMgr.isFieldEmpty(appRgstCargo.getAlt_sta_adr())) || (appRgstCargo.getAlt_sta_adr().equals("AA")))
       {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30000) };
-        addMessageWithFieldValues(AppConstants.ID_10012, error);
-      }
+          Object[] error = { new FwMessageTextLabel("31287") };
+          //Please choose your State in the Another Mailing Address section.          
+          addMessageWithFieldValues("10008", error);
+      } 
 
-      if ((!this.appMgr.isFieldEmpty(appIndvCargo.getMid_init())) && (!this.appMgr.isAlpha(appIndvCargo.getMid_init())))
-      {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30087) };
-        addMessageWithFieldValues(AppConstants.ID_20064, error);
-      }
-
-      if (this.appMgr.isFieldEmpty(appIndvCargo.getLast_nam())) {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30022) };
-        addMessageWithFieldValues(AppConstants.ID_10000, error);
-      } else if (!this.appMgr.isInvalidFirstChar(appIndvCargo.getLast_nam())) {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30022) };
-        addMessageWithFieldValues(AppConstants.ID_20000, error);
-      } else if (!this.appMgr.isSpecialAlphaNumeric(appIndvCargo.getLast_nam(),specialCharsfirstandlastname))
-      {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30022) };
-        addMessageWithFieldValues(AppConstants.ID_10012, error);
-      }
-
-      //mvanlenten - validation on birth date making it required for this page
-      String blankDate = "  /  /    ";
-      if (this.appMgr.isFieldEmpty(appIndvCargo.getBrth_dt()) || appIndvCargo.getBrth_dt().equals(blankDate)) {
-    	  Object[] error = {new FwMessageTextLabel(AppConstants.ID_30020)};
-    	  addMessageWithFieldValues(AppConstants.ID_10000, error);
-      }
-      else if (!this.appMgr.validateDate(appIndvCargo.getBrth_dt())) {
-    	  Object[] error = { new FwMessageTextLabel(AppConstants.ID_30020) };
-    	  addMessageWithFieldValues(AppConstants.ID_20009, error);
-      }
-      else if (!this.appMgr.futureDate(appIndvCargo.getBrth_dt())) {
-    	  Object[] error = { new FwMessageTextLabel(AppConstants.ID_30020) };
-    	  addMessageWithFieldValues(AppConstants.ID_20010, error);
-      }
-      else if (this.appMgr.isDateBeforeDate(appIndvCargo.getBrth_dt(), Date.valueOf(AppConstants.BEFORE_DATE)))
-      {
-    	  Object[] error = { new FwMessageTextLabel(AppConstants.ID_30020) };
-    	  addMessageWithFieldValues(AppConstants.ID_20011, error);
-      }
-      if (this.appMgr.isFieldEmpty(appIndvCargo.getConfm_brth_dt()) || appIndvCargo.getConfm_brth_dt().equals(blankDate)){
-    	  addMessageCode(AppConstants.ID_90405);
-      }
-      else if (!appIndvCargo.getConfm_brth_dt().equals(appIndvCargo.getBrth_dt())) {
-    	  addMessageCode(AppConstants.ID_90406);
-      }
-      
-      //added for IL IES. checks for valid ssn if user enters one ILIES-69318
-      if ((!this.appMgr.isFieldEmpty(appIndvCargo.getSsn_num())) && ((!this.appMgr.validateSSN(appIndvCargo.getSsn_num())) || (!this.appMgr.isInteger(appIndvCargo.getSsn_num())))){
-    	  Object [] error = { new FwMessageTextLabel("30023")};
-    	  addMessageWithFieldValues("20005", error);
-      }
-
-      if ((this.appMgr.isFieldEmpty(appRgstCargo.getCnty_num())) || (appRgstCargo.getCnty_num().equals("SEL")))
-      {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30003) };
-        addMessageWithFieldValues(AppConstants.ID_20032, error);
-      }
-
-      boolean homeLessflag = false;
-      if ((appRgstCargo.getHless_sw() != null) && (appRgstCargo.getHless_sw().equals("Y")))
-      {
-        homeLessflag = true;
-      }
-
-      if ((this.appMgr.isFieldEmpty(appRgstCargo.getHshl_l1_adr())) && (this.appMgr.isFieldEmpty(appRgstCargo.getHshl_l2_adr())))
-      {
-    	  enteredPhysicalAddr = false;
-        if (!homeLessflag) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31279) };
-
+      if (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_zip_adr())) {
+          Object[] error = { new FwMessageTextLabel("31288") };
+        //Please fill in your Zip Code in the Mailing Address section.    
           addMessageWithFieldValues(AppConstants.ID_10000, error);
-        }
       }
-      else if ((!this.appMgr.validateAddress(appRgstCargo.getHshl_l1_adr())) || (!this.appMgr.validateAddress(appRgstCargo.getHshl_l2_adr())))
-      {
-    	  enteredPhysicalAddr = false;
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31279) };
-        addMessageWithFieldValues(AppConstants.ID_20046, error);
-      }
-
-      if (this.appMgr.isFieldEmpty(appRgstCargo.getHshl_city_adr())) {
-    	  enteredPhysicalAddr = false;
-        if (!homeLessflag) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31281) };
-
-          addMessageWithFieldValues(AppConstants.ID_10000, error);
-        }
-      } else if (!this.appMgr.isAlphaWithSpace(appRgstCargo.getHshl_city_adr()))
-      {
-    	  enteredPhysicalAddr = false;
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31281) };
-        addMessageWithFieldValues(AppConstants.ID_20064, error);
-      }
-
-      //needs to be changed to only allow IL state
-      if ((this.appMgr.isFieldEmpty(appRgstCargo.getHshl_sta_adr())) || (appRgstCargo.getHshl_sta_adr().equals("SEL")))
-      {
-    	  enteredPhysicalAddr = false;
-        if (!homeLessflag) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31282) };
-
-          addMessageWithFieldValues(AppConstants.ID_10008, error);
-        }
-      } else if (!appRgstCargo.getHshl_sta_adr().equals("IL")) {
-    	  if (!homeLessflag){
-        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_31282) };
-        	addMessageWithFieldValues(AppConstants.ID_35000, error);
-    	  }
-      }
-
-      if (this.appMgr.isFieldEmpty(appRgstCargo.getHshl_zip_adr())) {
-    	  enteredPhysicalAddr = false;
-        if (!homeLessflag) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31283) };
-
-          addMessageWithFieldValues(AppConstants.ID_10000, error);
-        }
-      }
-      else if (!this.appMgr.isInteger(appRgstCargo.getHshl_zip_adr())) {
-    	  enteredPhysicalAddr = false;
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31283) };
-
+      else if (!this.appMgr.isInteger(appRgstCargo.getAlt_zip_adr())) {
+        Object[] error = { new FwMessageTextLabel("31288") };
+      //Please be sure to type in only numbers for ~.    
         addMessageWithFieldValues(AppConstants.ID_10010, error);
       }
-      else if ((appRgstCargo.getHshl_zip_adr().length() != 5) && (appRgstCargo.getHshl_zip_adr().length() != 9))
+      else if ((appRgstCargo.getAlt_zip_adr().length() != 5) && (appRgstCargo.getAlt_zip_adr().length() != 9))
       {
-    	  enteredPhysicalAddr = false;
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31283) };
-
-        addMessageWithFieldValues(AppConstants.ID_20071, error);
-      }else if (!this.appMgr.isZero(appRgstCargo.getHshl_zip_adr()))
+        Object[] error = { new FwMessageTextLabel("31288") };
+        //Please make sure that the ~ has numbers only and is 5 or 9 digits long. 
+        //For example, 53705. If you want to give us your nine-digit Zip Code (for example, 53705-3847), you should type it in without a hyphen: 537053847.
+        addMessageWithFieldValues("20071", error);
+      }else if (!this.appMgr.isZero(appRgstCargo.getAlt_zip_adr()))
       {
-    	  enteredPhysicalAddr = false;
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31283) };
-
-        addMessageWithFieldValues(AppConstants.ID_40119, error);
+        Object[] error = { new FwMessageTextLabel("31288") };
+        //Please be sure to enter a valid zip code.
+        addMessageWithFieldValues("40119", error);
       }
-
-      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getAlt_st_adr())) || (!this.appMgr.isFieldEmpty(appRgstCargo.getAlt_l2_adr())))
-      {
-        if ((!this.appMgr.validateAddress(appRgstCargo.getAlt_st_adr())) || (!this.appMgr.validateAddress(appRgstCargo.getAlt_l2_adr())))
-        {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31284) };
-
-          addMessageWithFieldValues(AppConstants.ID_20046, error);
-        }
-      }
-
-      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getAlt_city_adr())) && 
-        (!this.appMgr.isAlphaWithSpace(appRgstCargo.getAlt_city_adr()))) {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31286) };
-
-        addMessageWithFieldValues(AppConstants.ID_20064, error);
-      }
-
-      if (null !=appRgstCargo.getAlt_sta_adr() &&  appRgstCargo.getAlt_sta_adr().equals("SEL")) {
-        appRgstCargo.setAlt_sta_adr(" ");
-      }
-
-      if (!this.appMgr.isFieldEmpty(appRgstCargo.getAlt_zip_adr()))
-      {
-        if (!this.appMgr.isInteger(appRgstCargo.getAlt_zip_adr())) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31288) };
-
-          addMessageWithFieldValues(AppConstants.ID_10010, error);
-        }
-        else if ((appRgstCargo.getAlt_zip_adr().length() != 5) && (appRgstCargo.getAlt_zip_adr().length() != 9))
-        {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31288) };
-
-          addMessageWithFieldValues(AppConstants.ID_20071, error);
-        }else if (!this.appMgr.isZero(appRgstCargo.getAlt_zip_adr()))
-        {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_31288) };
-
-          addMessageWithFieldValues(AppConstants.ID_40119, error);
-        }
-
-      }
-
-      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_email_adr())) && 
-        (!this.appMgr.isEmail(appRgstCargo.getHshl_email_adr()))) {
-        addMessageCode(AppConstants.PERSON_LARGE_ALT);
-      }
-      /*Modified by Gauresh for ILIES-282110: Verifying email and confirm email address entered by the user*/
-      if ((!this.appMgr.isFieldEmpty(appRgstCargo.gethshlConfirmemailAdr())) && 
-    	        (!this.appMgr.isEmail(appRgstCargo.gethshlConfirmemailAdr()))) {
-    	        addMessageCode(AppConstants.PERSON_LARGE_ALT);
-      }
-      /* ILIES-282110: change ends here */
-      if (!this.appMgr.isFieldEmpty(appRgstCargo.getDays_at_address_num())) {
-        if (!this.appMgr.isInteger(appRgstCargo.getDays_at_address_num()))
-        {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_36125) };
-
-          addMessageWithFieldValues(AppConstants.ID_10010, error);
-        }
-        else
-        {
-          long longdays = Long.parseLong(appRgstCargo.getDays_at_address_num());
-
-          if (longdays > 31L)
-          {
-            Object[] error = { new FwMessageTextLabel(AppConstants.ID_36125) };
-
-            addMessageWithFieldValues("36300", error);
-          }
-
-        }
-
-      }
-
-      if (!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_home_phn_num())) {
-        if (!this.appMgr.isInteger(appRgstCargo.getHshl_home_phn_num().trim())) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-
-          addMessageWithFieldValues(AppConstants.ID_90402, error);
-        } else if (!this.appMgr.validatePhone(appRgstCargo.getHshl_home_phn_num()))
-        {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-
-          addMessageWithFieldValues(AppConstants.ID_20048, error);
-          //added to validate that area code is not zero ILIES-69318
-        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_home_phn_num().substring(0,3))){
-        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-        }
-      }
-
-      if (!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_cell_phn_num())) {
-        if (!this.appMgr.isInteger(appRgstCargo.getHshl_cell_phn_num().trim())) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
-
-          addMessageWithFieldValues(AppConstants.ID_90402, error);
-        } else if (!this.appMgr.validatePhone(appRgstCargo.getHshl_cell_phn_num()))
-        {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
-
-          addMessageWithFieldValues(AppConstants.ID_20048, error);
-          //added to validate that area code is not zero ILIES-69318
-        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_cell_phn_num().substring(0,3))){
-        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
-        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-        }
-      }
-
-      if (!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_work_phn_num())) {
-        if (!this.appMgr.isInteger(appRgstCargo.getHshl_work_phn_num().trim())) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
-
-          addMessageWithFieldValues(AppConstants.ID_90402, error);
-        } else if (!this.appMgr.validatePhone(appRgstCargo.getHshl_work_phn_num()))
-        {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
-
-          addMessageWithFieldValues(AppConstants.ID_20048, error);
-          //added to validate that area code is not zero ILIES-69318
-        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_work_phn_num().substring(0,3))){
-        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
-        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-        }
-
-      }
-
-      if (!this.appMgr.isFieldEmpty(appRgstCargo.getMsg_phn_num())) {
-        if (!this.appMgr.isInteger(appRgstCargo.getMsg_phn_num().trim())) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30545) };
-
-          addMessageWithFieldValues(AppConstants.ID_90402, error);
-        } else if (!this.appMgr.validatePhone(appRgstCargo.getMsg_phn_num())) {
-          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30545) };
-
-          addMessageWithFieldValues(AppConstants.ID_20048, error);
-          //added to validate that area code is not zero ILIES-69318
-          //added new validation as per ILIES - 119713
-        } else if (!this.appMgr.isZero(appRgstCargo.getMsg_phn_num().substring(0,3))){
-        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-        }
-      }
-
-      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getWork_phn_extn_num())) && 
-        (!this.appMgr.isInteger(appRgstCargo.getWork_phn_extn_num()))) {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30553) };
-
-        addMessageWithFieldValues(AppConstants.ID_90402, error);
-      }
-
-      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getMsg_phn_extn_num())) && 
-        (!this.appMgr.isInteger(appRgstCargo.getMsg_phn_extn_num()))) {
-        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30554) };
-
-        addMessageWithFieldValues(AppConstants.ID_90402, error);
-      }
-      
-      //old homeless check
-      //mailing address check
-      if ((this.appMgr.isFieldEmpty(appRgstCargo.getAlt_st_adr())) || (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_city_adr())) || (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_sta_adr())) ||
-    		  (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_zip_adr()))){
-    	  enteredMailingAddr = false;
-      }
-      //New homeless check for IL ILIES-69318
-      if (homeLessflag){
-    	  if (!enteredMailingAddr && !enteredPhysicalAddr){
-    		  addMessageCode(AppConstants.ID_20074);
-    	  }
-      }
-
-      boolean isPhysicalAddressValid = false;
-      boolean isMailingAddressValid = false;
-
-      String physicaladdrempty = "novalue";
-      String mailaddrempty = "novalue";
-      //Modified by Gauresh for ILIES-282110: SONAR fixes- renaming variables
-      boolean physAddrL1 = this.appMgr.isFieldEmpty(appRgstCargo.getHshl_l1_adr());
-      boolean physAddrL2 = this.appMgr.isFieldEmpty(appRgstCargo.getHshl_l2_adr());
-      boolean physAddrCity = this.appMgr.isFieldEmpty(appRgstCargo.getHshl_city_adr());
-      boolean physAddrZip = this.appMgr.isFieldEmpty(appRgstCargo.getHshl_zip_adr());
-
-      if (((physAddrL1) || (physAddrL2)) && (physAddrCity) && (physAddrZip))
-      {
-        physicaladdrempty = "empty";
-      } else if (!this.appMgr.isSpecialAlphaNumeric(appRgstCargo.getHshl_zip_adr(), specialChars))
-      {
-        physicaladdrempty = "empty";
-      }
-      else {
-        physicaladdrempty = "notempty";
-
-        isPhysicalAddressValid = isAddressValid(appRgstCargo, true, curPageId, prePageId);
-        if ((homeLessflag) && (physicaladdrempty.equals("notempty")))
-        {
-          addMessageCode(AppConstants.ID_36201);
-        }
-        else if (!isPhysicalAddressValid)
-        {
-          addMessageCode(AppConstants.ID_36200);
-        }
-
-      }
-
-      if ((homeLessflag) && (!this.appMgr.isFieldEmpty(appRgstCargo.getDays_at_address_num())) && (!appRgstCargo.getDays_at_address_num().equals("0"))) {
-        addMessageCode(AppConstants.ID_90401);
-      }
-      //Modified by Gauresh for ILIES-282110: SONAR fixes- renaming variables
-      boolean mailAddrL1 = this.appMgr.isFieldEmpty(appRgstCargo.getAlt_st_adr());
-      boolean mailAddrL2 = this.appMgr.isFieldEmpty(appRgstCargo.getAlt_l2_adr());
-      boolean mailAddrCity = this.appMgr.isFieldEmpty(appRgstCargo.getAlt_city_adr());
-      boolean mailAddrZip = this.appMgr.isFieldEmpty(appRgstCargo.getAlt_zip_adr());
-
-      if (((mailAddrL1) || (mailAddrL2)) && (mailAddrCity) && (mailAddrZip))
-      {
-        mailaddrempty = "empty";
-      }
-      else if (!this.appMgr.isSpecialAlphaNumeric(appRgstCargo.getAlt_zip_adr(), specialChars))
-      {
-        mailaddrempty = "empty";
-      }
-      else
-      {
-        mailaddrempty = "notempty";
-        // Added for ILIES-131882
-        if (!addrValServiceExp){
-          isMailingAddressValid = isAddressValid(appRgstCargo, false, curPageId, prePageId);
-          if (!isMailingAddressValid)
-          {
-          addMessageCode(AppConstants.ID_36202);
-          }
-       }
-      }
-
-      return getMessageList();
-    } catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) {
-      //Modified by Gauresh for ILIES-282110: SONAR fixes- declaring constant
-      throw createFwException(getClass().getName(), AppConstants.VALIDATE_REG_INFORMATION, e);
-    }
-  }
-
-  public boolean isAddressValid(APP_RGST_Cargo addressCargo, boolean isPhysicalAddress, String curPageId, String prePageId)
-  {
-    IConfiguration configuration = FwConfigurationManager.getInstance();
-    Properties properties = configuration.getIq8Properties();
-
-    HashMap propertiesMap = new HashMap();
-    Enumeration values = properties.elements();
-    Enumeration keys = properties.keys();
-    while (values.hasMoreElements()) {
-      propertiesMap.put(keys.nextElement(), values.nextElement());
-    }
-
-    String endPointURL = (String)propertiesMap.get("endPointURL");
-    String tempNameOfDozerXML;
-    if (isPhysicalAddress)
-    {
-      tempNameOfDozerXML = FwPropertyLoader.getProperties("/properties/config/framework.properties").getProperty("PhysicalAddressMapping");
-    }
-    else
-    {
-      tempNameOfDozerXML = FwPropertyLoader.getProperties("/properties/config/framework.properties").getProperty("MailingAddressMapping");
-    }
-    boolean transformObject = false;
-    Map inputData = new HashMap();
-
-    String loggerLevel = (String)propertiesMap.get("LoggerLevel");
-    int logLevel = 0;
-    if ((loggerLevel != null) && (!"".equalsIgnoreCase(loggerLevel.trim()))) {
-      logLevel = Integer.parseInt(loggerLevel);
-    }
-    //FwAddressValidator addrValidator = new FwAddressValidator(logLevel);
-   // Map returnedMap = addrValidator.validateAddress(addressCargo, mappingFileDir, transformObject, inputData, endPointURL);
-    String errorCode = "";
-    Realtime_ServicesProxy proxy = new Realtime_ServicesProxy();
-    String ENDPOINT_URL = FwPropertyLoader.getProperties("/properties/config/env.properties").getProperty("ENDPOINT_URL");
-    proxy._getDescriptor().setEndpoint(ENDPOINT_URL);
-    String dataServiceConnectionTimeout = "10";
-    String dataServiceResponseTimeout = "10";
-    
-    String dataServiceConnectionTimeoutPropVal  = FwPropertyLoader.getProperties("/properties/config/env.properties").getProperty("DATASERVICES_RESPONSE_TIMEOUT");
-    String dataServiceResponseTimeoutPropVal = FwPropertyLoader.getProperties("/properties/config/env.properties").getProperty("DATASERVICES_CONNECTION_TIMEOUT");
-    if(dataServiceConnectionTimeoutPropVal!=null)
-    	dataServiceConnectionTimeout = dataServiceConnectionTimeoutPropVal;
-    if(dataServiceResponseTimeoutPropVal!=null)
-    	dataServiceResponseTimeoutPropVal = dataServiceResponseTimeout;
-    
-    ((javax.xml.ws.BindingProvider) proxy._getDescriptor().getProxy()).getRequestContext().put(com.ibm.wsspi.webservices.Constants.CONNECTION_TIMEOUT_PROPERTY, dataServiceConnectionTimeout); 
-    ((javax.xml.ws.BindingProvider) proxy._getDescriptor().getProxy()).getRequestContext().put(com.ibm.wsspi.webservices.Constants.RESPONSE_TIMEOUT_PROPERTY, dataServiceResponseTimeout); 
-
-    ILAddrCleanseIn inputBody = new  ILAddrCleanseIn();
-    if(isPhysicalAddress){
-    	inputBody.setAddr1(addressCargo.getHshl_l1_adr());
-    	inputBody.setAddr2(addressCargo.getHshl_l2_adr());
-    	inputBody.setCountry("us");
-    	inputBody.setLocality(addressCargo.getHshl_city_adr());
-    	inputBody.setRegion(addressCargo.getHshl_sta_adr());
-    	inputBody.setPostCode(addressCargo.getHshl_zip_adr());
-    }else{
-    	inputBody.setAddr1(addressCargo.getAlt_st_adr());
-    	inputBody.setAddr2(addressCargo.getAlt_l2_adr());
-    	inputBody.setCountry("us");
-    	inputBody.setLocality(addressCargo.getAlt_city_adr());
-    	inputBody.setRegion(addressCargo.getAlt_sta_adr());
-    	inputBody.setPostCode(addressCargo.getAlt_zip_adr());
-    }
-	
-	// Added for ILIES-131882 - Starts
-	ILAddrCleanseOut output = null;
-	Long time = System.currentTimeMillis();
-	try {
-	output = proxy.addressCleanse(inputBody);
-	}
-	catch (Exception objExp){
-		  /* PMD - R6 Overwrite If this error message is not found it's been returned to the screen
-		  * Saying that the error MSG was not found*/
-		  PMDRules.markApprovedCatchBlock("R6");
-//		  addMessageCode("95002");
-		  FwException fe = createFwException(getClass().getName(), "isAddressValid-ServiceUnavailable", objExp);
-	      FwWrappedException we = new FwWrappedException();
-	      we.setCallingClassID(getClass().getName());
-	      we.setCallingMethodID("isAddressValid-ServiceUnavailable");
-	      we.setStackTrace(objExp.getStackTrace());
-	      we.setCurrentPageID(curPageId);
-	      we.setPreviousPageID(prePageId);
-	      we.setFwException(fe);
-	      persistException(we);
-	      addrValServiceExp = true;
-	      return true;
-	}
-	log(ILog.ERROR, "INFO: Address Cleanse Web Service: "+(System.currentTimeMillis()-time));
-	addrValServiceExp = false;
-	// Added for ILIES-131882 - Ends
-	
-   /* if (output.getStatus().equals("A")) {
-      errorCode = output.getStatus();
-    }*/
-      if("N".equals(output.getStatus()) || "U".equals(output.getStatus())) {
-    	  return true;
-      } return false;
-    }
-	
-     /* Exception excpFromDataService = null;
-      FwException fe = createFwException(getClass().getName(), "isAddressValid", excpFromDataService);
-      FwWrappedException we = new FwWrappedException();
-      we.setCallingClassID(getClass().getName());
-      we.setCallingMethodID("isAddressValid");
-      we.setStackTrace(excpFromDataService.getStackTrace());
-
-      we.setCurrentPageID(curPageId);
-      we.setPreviousPageID(prePageId);
-      we.setFwException(fe);
-      persistException(we);
-      return true;*/
-    
-   /* if (returnedMap.get("EXCEPTION_MSG") != null)
-    {
-     
-    }*/
-   /*   else{
-    if (output.getStatus().equals("A"))
-    {
-      return false;
-    }
-    return true;
-  }*/
-  
-
-  private void persistException(FwWrappedException aFwe)
-  {
-    FwException fe = aFwe.getFwException();
-    WEB_EXCP_Collection coll = new WEB_EXCP_Collection();
-    WEB_EXCP_Cargo cargo = new WEB_EXCP_Cargo();
-    cargo.setCall_cls_id(aFwe.getCallingClassID());
-    cargo.setCall_mthd_id(aFwe.getCallingMethodID());
-    cargo.setCls_id(fe.getClassID());
-    cargo.setCur_page_id(aFwe.getCurrentPageID());
-    cargo.setExcp_id(aFwe.getExceptionID());
-    cargo.setExcp_tms(aFwe.getExceptionTime());
-    cargo.setExcp_txt(fe.getExceptionText());
-    cargo.setExcp_typ(fe.getExceptionType());
-    cargo.setIp_adr(aFwe.getIpAddress());
-    cargo.setMsg_id(fe.getMessageCode());
-    cargo.setMthd_id(fe.getMethodID());
-    cargo.setParm_txt(fe.getParameterText());
-    cargo.setPrev_page_id(aFwe.getPreviousPageID());
-    cargo.setPrim_key_txt(aFwe.getPrimaryKeyText());
-    cargo.setSrvc_dsc(fe.getServiceDescription());
-    cargo.setSrvc_msg_txt(fe.getServiceMessage());
-    cargo.setSrvc_nam(fe.getServiceName());
-    cargo.setSrvc_mthd_typ(fe.getServiceMethod());
-    cargo.setSrvr_nam(aFwe.getServerName());
-    cargo.setStak_trc_txt(fe.getStackTraceValue().substring(0, 200));
-    cargo.setUser_id(aFwe.getUserID());
-    cargo.setWams_logon_id(aFwe.getWamsLoginID());
-    cargo.setFull_excp_sw(fe.getShowFullExp().charAt(0));
-    coll.setCargo(cargo);
-    try {
-      if ((coll != null) && (coll.size() > 0)) {
-        coll.getCargo().setRowAction("I");
-        coll.persist("dao");
-      }
-    } catch (FwException ne) {
-      throw ne;
-    } catch (Exception e3) {
-      FwException ne = createFwException(getClass().getName(), "saveDataServicesException", e3);
-      throw ne;
-    }
-  }
-
-  public Map getofficeaddress(String cno)
-  {
-    List result = null;
-
-    String[] temp1address = new String[10];
-    Map addressmailingMap = new HashMap();
-
-    result = getAddresses(cno, "MA");
-    int resultsize = result.size();
-    if (resultsize == 0)
-    {
-      result = getAddresses(cno, "PA");
-      resultsize = result.size();
-    }
-    if (resultsize == 0)
-    {
-      result = getAddresses(cno, "BA");
-      resultsize = result.size();
-    }
-    if (resultsize > 0) {
-      for (int i = 0; i < resultsize; i++) {
-        Map temp = (Map)result.get(i);
-        String toffice_num = (String)temp.get("OFFICE_NUM");
-        String taddr_apt_num = (String)temp.get("ADDR_APT_NUM");
-        StringBuffer tempaddress = new StringBuffer(" ");
-
-        String taddr_st_num = (String)temp.get("ADDR_ST_NUM");
-        if (taddr_st_num != null)
-        {
-          tempaddress.append(taddr_st_num.trim());
-        }
-
-        String taddr_st_num_frac = (String)temp.get("ADDR_ST_NUM_FRAC");
-        if (taddr_st_num_frac != null)
-        {
-          tempaddress.append(" ");
-          tempaddress.append(taddr_st_num_frac.trim());
-        }
-
-        String taddr_st_nm = (String)temp.get("ADDR_ST_NM");
-        if (taddr_st_nm != null)
-        {
-          tempaddress.append(" ");
-          tempaddress.append(taddr_st_nm.trim());
-        }
-
-        String taddr_line = (String)temp.get("ADDR_LINE");
-        if (taddr_line != null)
-        {
-          tempaddress.append(" ");
-          tempaddress.append(taddr_line.trim());
-        }
-
-        String taddr_city = (String)temp.get("ADDR_CITY");
-        if (taddr_city != null)
-        {
-          tempaddress.append("<BR>");
-          tempaddress.append(taddr_city.trim());
-        }
-
-        String taddr_state_cd = (String)temp.get("ADDR_STATE_CD");
-        if (taddr_state_cd != null)
-        {
-          tempaddress.append(" ");
-          tempaddress.append(taddr_state_cd);
-        }
-
-        String taddr_zip5 = (String)temp.get("ADDR_ZIP5");
-        if (taddr_zip5 != null)
-        {
-          tempaddress.append(" ");
-          tempaddress.append(taddr_zip5.trim());
-        }
-
-        String taddr_zip4 = (String)temp.get("ADDR_ZIP4");
-        if (taddr_zip4 != null)
-        {
-          tempaddress.append("-");
-          tempaddress.append(taddr_zip4.trim());
-        }
-
-        if (!addressmailingMap.containsValue(tempaddress.toString()))
-        {
-          addressmailingMap.put(toffice_num, tempaddress.toString());
-        }
-
-      }
-
-    }
-
-    return addressmailingMap;
-  }
-
-  public void getselectedofficeaddress(String tselectedofficenum, String tappnum, String tsrcappind, String countynum)
-  {
-    APP_RGST_Cargo appRgstCargo = new APP_RGST_Cargo();
-    Map sqlMap = new HashMap();
-    Map sqlMap1 = new HashMap();
-    if (tselectedofficenum != null)
-    {
-      FwDataCriteria[] criteria = new FwDataCriteria[2];
-      criteria[0] = new FwDataCriteria();
-      criteria[0].setColumn_name("OFFICE_NUM");
-      criteria[0].setColumn_value(tselectedofficenum);
-      criteria[0].setData_type("java.lang.String");
-      criteria[1] = new FwDataCriteria();
-      criteria[1].setColumn_name("ADDR_COUNTY_CD");
-      criteria[1].setColumn_value(countynum);
-      criteria[1].setData_type("java.lang.String");
-      sqlMap.put("select_criteria", criteria);
-      sqlMap.put("Sql_Indicator", "sql-1077");
-      List tresult = executeSQL(sqlMap);
-      StringBuffer tempmailaddress = new StringBuffer(" ");
-
-      FwDataCriteria[] criteria1 = new FwDataCriteria[2];
-      criteria1[0] = new FwDataCriteria();
-      criteria1[0].setColumn_name("APP_NUM");
-      criteria1[0].setColumn_value(tappnum);
-      criteria1[0].setData_type("java.lang.String");
-      criteria1[1] = new FwDataCriteria();
-      criteria1[1].setColumn_name("SRC_APP_IND");
-      criteria1[1].setColumn_value(tsrcappind);
-      criteria1[1].setData_type("java.lang.String");
-      sqlMap1.put("select_criteria", criteria1);
-
-      APP_RGST_Collection appRgstCollection = new APP_RGST_Collection();
-      APP_RGST_Cargo[] resAppRgstCargos = (APP_RGST_Cargo[])appRgstCollection.select("dao", sqlMap1);
-
-      if ((resAppRgstCargos != null) && (resAppRgstCargos.length > 0)) {
-        appRgstCargo = resAppRgstCargos[0];
-      }
-      if (tresult.size() > 0) {
-        Map tempaddMap = (Map)tresult.get(0);
-        String tempaddrstnum = (String)tempaddMap.get("ADDR_ST_NUM");
-        if (tempaddrstnum != null)
-        {
-          tempmailaddress.append(" ");
-          tempmailaddress.append(tempaddrstnum);
-        }
-        String taddrstnumfrac = (String)tempaddMap.get("ADDR_ST_NUM_FRAC");
-        if (taddrstnumfrac != null)
-        {
-          tempmailaddress.append(" ");
-          tempmailaddress.append(taddrstnumfrac);
-        }
-        String taddrstnm = (String)tempaddMap.get("ADDR_ST_NM");
-        if (taddrstnm != null)
-        {
-          tempmailaddress.append(" ");
-          tempmailaddress.append(taddrstnm);
-        }
-        String strtemp = tempmailaddress.toString();
-        if (strtemp != null)
-        {
-          appRgstCargo.setAlt_st_adr(strtemp);
-        }
-        String taddrline = (String)tempaddMap.get("ADDR_LINE");
-        if (taddrline != null)
-        {
-          appRgstCargo.setAlt_l2_adr(taddrline);
-        }
-        String taddzip = (String)tempaddMap.get("ADDR_ZIP5");
-        if (taddzip != null)
-        {
-          appRgstCargo.setAlt_zip_adr(taddzip);
-        }
-        String taddrcity = (String)tempaddMap.get("ADDR_CITY");
-        if (taddrcity != null)
-        {
-          appRgstCargo.setAlt_city_adr(taddrcity);
-        }
-        appRgstCollection.clear();
-        appRgstCollection.addCargo(appRgstCargo);
-        appRgstCollection.persist("dao", "update");
-      }
-    }
-  }
-
-  List getAddresses(String cno, String addtype)
-  {
-    Map sqlMap = new HashMap();
-
-    FwDataCriteria[] criteria = new FwDataCriteria[2];
-    criteria[0] = new FwDataCriteria();
-    criteria[0].setColumn_name("ADDR_COUNTY_CD");
-
-    int intcno = Integer.parseInt(cno);
-    cno = String.valueOf(intcno);
-
-    criteria[0].setColumn_value(cno);
-
-    criteria[0].setData_type("java.lang.String");
-    criteria[1] = new FwDataCriteria();
-    criteria[1].setColumn_name("ADDRESS_TYPE_CD");
-
-    criteria[1].setColumn_value(addtype);
-
-    criteria[1].setData_type("java.lang.String");
-
-    sqlMap.put("select_criteria", criteria);
-    sqlMap.put("Sql_Indicator", "sql-1076");
-    List result = executeSQL(sqlMap);
-
-    return result;
-  }
-  //ILIES-164555: smejiaibarra - To validate ABRGI page
-  public FwMessageList validatePersonalInformation(APP_RGST_Cargo appRgstCargo, APP_INDV_Cargo appIndvCargo, String ageGenderInd, String ageRequiredFlag, String curPageId, String prePageId)
-  {
-    try
-    {
-      //added in order to accept '-' '\'' Hyphen & Apostrophe for First Name and Last Name on the Registration Page JIRA #129702
-      char[] specialCharsfirstandlastname = { '-','\'',' ' };//ILIES-303580 added in order to accept space 
-      //to see if user has entered a physical address or mailing address (for homeless check) ILIES-69318
-      if (this.appMgr.isFieldEmpty(appIndvCargo.getFst_nam())) {
-        Object[] error = { new FwMessageTextLabel("30000") };
-        addMessageWithFieldValues(AppConstants.ID_10000, error);
-      } else if (!this.appMgr.isInvalidFirstChar(appIndvCargo.getFst_nam())) {
-        Object[] error = { new FwMessageTextLabel("30000") };
-        addMessageWithFieldValues("20000", error);
-      } else if (!this.appMgr.isSpecialAlphaNumeric(appIndvCargo.getFst_nam(),specialCharsfirstandlastname))
-      {
-        Object[] error = { new FwMessageTextLabel("30000") };
-        addMessageWithFieldValues("20000", error);//ILIES-302228 error code changes to display updated validation message
-      }
-
-      if ((!this.appMgr.isFieldEmpty(appIndvCargo.getMid_init())) && (!this.appMgr.isAlpha(appIndvCargo.getMid_init())))
-      {
-        Object[] error = { new FwMessageTextLabel("30087") };
-        addMessageWithFieldValues("20064", error);
-      }
-
-      if (this.appMgr.isFieldEmpty(appIndvCargo.getLast_nam())) {
-        Object[] error = { new FwMessageTextLabel("30022") };
-        addMessageWithFieldValues(AppConstants.ID_10000, error);
-      } else if (!this.appMgr.isInvalidFirstChar(appIndvCargo.getLast_nam())) {
-        Object[] error = { new FwMessageTextLabel("30022") };
-        addMessageWithFieldValues("20000", error);
-      } else if (!this.appMgr.isSpecialAlphaNumeric(appIndvCargo.getLast_nam(),specialCharsfirstandlastname))
-      {
-        Object[] error = { new FwMessageTextLabel("30022") };
-        addMessageWithFieldValues("20000", error);//ILIES-302228 error code changes to display updated validation message
-      }
-
-      //Individual cargo validations
-      String blankDate = "  /  /    ";
-      /*if (this.appMgr.isFieldEmpty(appIndvCargo.getBrth_dt()) || appIndvCargo.getBrth_dt().equals(blankDate)) {
-    	  Object[] error = {new FwMessageTextLabel("30020")};
-    	  addMessageWithFieldValues(AppConstants.ID_10000, error);
-      }*/
-      //ILIES-282108 Changes made by Uma Rani for ABRGI DOB check
-      if (!appIndvCargo.getBrth_dt().equals(blankDate) && !this.appMgr.validateDate(appIndvCargo.getBrth_dt())&& !((AppConstants.HIGH_DATE_MMDDYYYY).equals(appIndvCargo.getBrth_dt()))) {
-    	  Object[] error = { new FwMessageTextLabel("30020") };
-    	  addMessageWithFieldValues("20009", error);
-      }
-      //ILIES-282108 Changes made by Uma Rani for ABRGI DOB check
-      else if (!appIndvCargo.getBrth_dt().equals(blankDate) && !this.appMgr.futureDate(appIndvCargo.getBrth_dt()) && !((AppConstants.HIGH_DATE_MMDDYYYY).equals(appIndvCargo.getBrth_dt()))) {
-    	  Object[] error = { new FwMessageTextLabel("30020") };
-    	  addMessageWithFieldValues("20010", error);
-      }
-      else if (!appIndvCargo.getBrth_dt().equals(blankDate) && this.appMgr.isDateBeforeDate(appIndvCargo.getBrth_dt(), Date.valueOf("1900-01-01")))
-      {
-    	  Object[] error = { new FwMessageTextLabel("30020") };
-    	  addMessageWithFieldValues("20011", error);
-      }
-      /*if (this.appMgr.isFieldEmpty(appIndvCargo.getConfm_brth_dt()) || appIndvCargo.getConfm_brth_dt().equals(blankDate)){
-    	  addMessageCode("90405");
-      }
-      else if (!appIndvCargo.getConfm_brth_dt().equals(appIndvCargo.getBrth_dt())) {
-    	  addMessageCode("90406");
-      }*/
-      
-       //ERJA validations
-		 Map validationsMap = new HashMap();
-		 if(appIndvCargo.getSex_at_birth_details() != null && !"".equalsIgnoreCase(appIndvCargo.getSex_at_birth_details())){
-			 validationsMap.put("sexAssignedAtBirthText", appIndvCargo.getSex_at_birth_details());
-		 }
-		 if(appIndvCargo.getGender_identity_details() != null && !"".equalsIgnoreCase(appIndvCargo.getGender_identity_details())){
-			 validationsMap.put("genderIdentityText", appIndvCargo.getGender_identity_details());
-		 }
-		 if(appIndvCargo.getSexual_orientation_details() != null && !"".equalsIgnoreCase(appIndvCargo.getSexual_orientation_details())){
-			 validationsMap.put("sexualOrientationText", appIndvCargo.getSexual_orientation_details());
-		 }
-		 
-		 if(!validationsMap.isEmpty()){
-			validateTextFields(validationsMap);
-		 }
-      
-      
-      return getMessageList();
-    } catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) {
-      FwException fe = createFwException(getClass().getName(), "validateRegistrationInformation", e);
-
-      throw fe;
-    }
   }
   
-private void validateTextFields(Map<String,String> validationMap) {
-	  for(Map.Entry<String,String> entry : validationMap.entrySet()){
-			String fieldType = entry.getKey();
-			String validationString = entry.getValue();
-			for(int i = 0; i < validationString.length(); i++){
-				char ch = validationString.charAt(i);
-				 if(!(Character.isLetter(ch) || Character.isSpaceChar(ch) || ch == ',' || ch == '\'')){
-					if("sexAssignedAtBirthText".equalsIgnoreCase(fieldType)){
-						if(this.getMessageList()==null){
-							this.addMessageCode("99268");
-						}else if(!this.getMessageList().containsMessage("99268")){
-							this.addMessageCode("99268");
-						}
-					}else if("genderIdentityText".equalsIgnoreCase(fieldType)){
-						if(this.getMessageList()==null){
-							this.addMessageCode("99269");
-						}else if(!this.getMessageList().containsMessage("99269")){
-							this.addMessageCode("99269");
-						}
-					}else if("sexualOrientationText".equalsIgnoreCase(fieldType)){
-						if(this.getMessageList()==null){
-							this.addMessageCode("99270");
-						}else if(!this.getMessageList().containsMessage("99270")){
-							this.addMessageCode("99270");
-						}
+  public boolean isAddressChanged(APP_RGST_Cargo beforeCargo, APP_RGST_Cargo afterCargo){
+	  if(beforeCargo == null && afterCargo != null){
+		  return true;
+	  }
+	  if(beforeCargo != null && afterCargo != null){
+		  if(   ((beforeCargo.getAlt_st_adr() != null && afterCargo.getAlt_st_adr() != null && beforeCargo.getAlt_st_adr().trim().equals(afterCargo.getAlt_st_adr().trim())) || ( beforeCargo.getAlt_st_adr() == null && afterCargo.getAlt_st_adr() == null)) 
+				  && ((beforeCargo.getAlt_l2_adr() != null && afterCargo.getAlt_l2_adr() != null && beforeCargo.getAlt_l2_adr().trim().equals(afterCargo.getAlt_l2_adr().trim())) || ( beforeCargo.getAlt_l2_adr() == null && afterCargo.getAlt_l2_adr() == null)) 
+				  && ((beforeCargo.getAlt_city_adr() != null && afterCargo.getAlt_city_adr() != null && beforeCargo.getAlt_city_adr().trim().equals(afterCargo.getAlt_city_adr().trim())) || ( beforeCargo.getAlt_city_adr() == null && afterCargo.getAlt_city_adr() == null))
+				  && ((beforeCargo.getAlt_sta_adr() != null && afterCargo.getAlt_sta_adr() != null && beforeCargo.getAlt_sta_adr().trim().equals(afterCargo.getAlt_sta_adr().trim())) || ( beforeCargo.getAlt_sta_adr() == null && afterCargo.getAlt_sta_adr() == null))
+				  && ((beforeCargo.getAlt_zip_adr() != null && afterCargo.getAlt_zip_adr() != null && beforeCargo.getAlt_zip_adr().trim().equals(afterCargo.getAlt_zip_adr().trim())) || ( beforeCargo.getAlt_zip_adr() == null && afterCargo.getAlt_zip_adr() == null))
+				  && ((beforeCargo.getHshl_l1_adr() != null && afterCargo.getHshl_l1_adr() != null && beforeCargo.getHshl_l1_adr().trim().equals(afterCargo.getHshl_l1_adr().trim())) || ( beforeCargo.getHshl_l1_adr() == null && afterCargo.getHshl_l1_adr() == null)) 
+				  && ((beforeCargo.getHshl_l2_adr() != null && afterCargo.getHshl_l2_adr() != null && beforeCargo.getHshl_l2_adr().trim().equals(afterCargo.getHshl_l2_adr().trim())) || ( beforeCargo.getHshl_l2_adr() == null && afterCargo.getHshl_l2_adr() == null)) 
+				  && ((beforeCargo.getHshl_city_adr() != null && afterCargo.getHshl_city_adr() != null && beforeCargo.getHshl_city_adr().trim().equals(afterCargo.getHshl_city_adr().trim())) || ( beforeCargo.getHshl_city_adr() == null && afterCargo.getHshl_city_adr() == null))
+				  && ((beforeCargo.getHshl_sta_adr() != null && afterCargo.getHshl_sta_adr() != null && beforeCargo.getHshl_sta_adr().trim().equals(afterCargo.getHshl_sta_adr().trim())) || ( beforeCargo.getHshl_sta_adr() == null && afterCargo.getHshl_sta_adr() == null))
+				  && ((beforeCargo.getHshl_zip_adr() != null && afterCargo.getHshl_zip_adr() != null && beforeCargo.getHshl_zip_adr().trim().equals(afterCargo.getHshl_zip_adr().trim())) || ( beforeCargo.getHshl_zip_adr() == null && afterCargo.getHshl_zip_adr() == null))){
+			  return false;
+		  }
+	  }
+	  return true;
+  }
+  
+  /**
+   * To insert record into PEbtAppRqst table. ILIES-261766.
+  */
+	public void insertPEbtAppRqstRecord(String appNumber, Map session) throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::insertPEbtAppRqstRecord::Start");
+		try {
+			String acsId = null;
+			Map httpSession = (Map) session.get(FwConstants.HTTP_SESSION);
+			acsId = (String)((Map)httpSession.get(FwConstants.SECURED_SESSION)).get(FwConstants.ACS_ID);
+			
+			if(acsId == null || acsId.trim().length() == 0 || Long.parseLong(acsId) <= 0){
+				String ACS_ID_MAX_VALUE = FwPropertyLoader.getProperties("/properties/config/env.properties").getProperty("ACS_ID_MAX_VALUE");
+				acsId = ACS_ID_MAX_VALUE != null ? ACS_ID_MAX_VALUE : "-1";
+				log(ILog.ERROR, "ABRegistrationBO::insertPEbtAppRqstRecord:: Acs_Id:"+acsId+" for AppNum:" + appNumber);
+				
+				FwWrappedException we = new FwWrappedException();
+	            we.setCallingClassID(this.getClass().getName());
+	            we.setCallingMethodID("ABRegistrationBO::insertPEbtAppRqstRecord:");
+	            we.setPreviousPageID("N/A");
+                we.setCurrentPageID("ABWEL - PEBT");
+                FwException fe = new FwException();
+                fe.setParameterText("Exception occured while inserting App Num:: "+ appNumber );
+                FwExceptionManager exceptionMgr = (FwExceptionManager) FwServiceFactory.getInstance().create(IException.class);
+	            exceptionMgr.log(we);
+			}
+			
+						
+			if("0".equalsIgnoreCase(acsId) || acsId == null){
+				log(ILog.ERROR, "ABRegistrationBO::insertPEbtAppRqstRecord:: Invalid Acs_Id:acsId"+" for AppNum:" + appNumber);
+				throw new Exception(" Invalid Acs_Id for AppNum:" + appNumber);
+			}
+			
+			FwDate fwDate = FwDate.getInstance();
+			String todayDate = fwDate.getTimestamp().toString();
+			PEBT_APP_RQST_Collection pEbtAppRqstCollection = new PEBT_APP_RQST_Collection();
+			PEBT_APP_RQST_Cargo pEbtAppRqstCargo = new PEBT_APP_RQST_Cargo();
+			
+			pEbtAppRqstCargo.setApp_num(appNumber);
+			pEbtAppRqstCargo.setApp_end_dt(dateRoutine.getValidTimestampFormatForDB(null));
+			pEbtAppRqstCargo.setEcf_stat_cd("");
+			pEbtAppRqstCargo.setHtml_p_id("");
+			pEbtAppRqstCargo.setP_id("");
+			pEbtAppRqstCargo.setRetry_tms(dateRoutine.getValidTimestampFormatForDB(null));
+			pEbtAppRqstCargo.setSbms_tms(dateRoutine.getValidTimestampFormatForDB(null));
+			pEbtAppRqstCargo.setStat_cd("PE");
+			pEbtAppRqstCargo.setStrt_tms(todayDate);
+			pEbtAppRqstCargo.setAcs_id(acsId);
+			pEbtAppRqstCargo.setCreate_dt(todayDate);
+			pEbtAppRqstCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+			
+			pEbtAppRqstCollection.add(pEbtAppRqstCargo);
+			pEbtAppRqstCollection.persist(FwConstants.DAO);
+		log(ILog.INFO, "ABRegistrationBO::insertPEbtAppRqstRecord::End");
+		} catch (FwException fe) {
+			throw fe;
+		} catch (Exception e) {
+			FwException fe = createFwException(getClass().getName(),
+					"insertPEbtAppRqstRecord", e);
+
+			throw fe;
+		}
+	}
+	
+	
+	/**
+	 * Insert Individual Details to PEBT_APP_INDV ILIES-261766.
+	 * 
+	 * @param indvColl
+	 */
+	public void insertPebtAppIndvDetails(PEBT_APP_INDV_Collection indvColl) {
+		log(ILog.INFO, "ABRegistrationBO::insertPebtAppIndvDetails::Start");
+		try {
+			if (indvColl != null && indvColl.size() > 0) {
+				indvColl.persist(FwConstants.DAO);
+			}
+		log(ILog.INFO, "ABRegistrationBO::insertPebtAppIndvDetails::End");
+		} catch (FwException fe) {
+			throw fe;
+		} catch (Exception e) {
+			FwException fe = createFwException(this.getClass().getName(),
+					"insertPebtAppIndvDetails", e);
+			throw fe;
+		}
+	}
+	
+	
+	/**
+	 * Insert Demographic Details to PEBT_APP_DEMOGRAPHICS ILIES-261766.
+	 * 
+	 * @param livingColl
+	 */
+	public void insertPebtAppDemographicDetails(PEBT_APP_DEMOGRAPHICS_Collection livingColl) {
+		log(ILog.INFO, "ABRegistrationBO::insertPebtAppDemographicDetails::Start");
+		try {
+			if (livingColl != null && livingColl.size() > 0) {
+				livingColl.persist(FwConstants.DAO);
+			}
+		log(ILog.INFO, "ABRegistrationBO::insertPebtAppDemographicDetails::End");
+		} catch (FwException fe) {
+			throw fe;
+		} catch (Exception e) {
+			FwException fe = createFwException(this.getClass().getName(),
+					"insertPebtAppDemographicDetails", e);
+			throw fe;
+		}
+	}
+	
+	/**
+	 * Convert mm/dd/yyyy to time stamp
+	*/
+	public Timestamp convertMMDDYYYYDateToTimestamp(String date){
+		log(ILog.INFO, "ABRegistrationBO::convertMMDDYYYYDateToTimestamp::Start");
+		SimpleDateFormat  dateFormatter = new SimpleDateFormat("MMddyyyy");
+		Timestamp timeStampDate = null;
+		try {
+			if(StringUtils.isNotEmpty(date)){
+			timeStampDate = new Timestamp(dateFormatter.parse(date).getTime());
+			}else {
+				timeStampDate = Timestamp.valueOf("9999-12-31 00:00:00.0");
+			}
+			log(ILog.INFO, "ABRegistrationBO::convertMMDDYYYYDateToTimestamp::End");
+		} catch (FwException fe) {
+			throw fe;
+		} catch (Exception e) {
+			FwException fe = createFwException(this.getClass().getName(),
+					"convertMMDDYYYYDateToTimestamp", e);
+			throw fe;
+		}
+		return timeStampDate;
+	}
+	
+	public PEBTAppCreationRequest[] buildPEBTAppCreationRequest(String pebtAppNum, String bridgesPEBTAppNum) throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppCreationRequest::Start " + pebtAppNum);
+		PEBTAppCreationRequest[] pebtAppCreationRequestArray = null;
+		try{
+			PEBTAppCreationRequest pebtAppCreationRequest = new PEBTAppCreationRequest();
+			pebtAppCreationRequest.setPebtAppDemographics(buildPEBTAppDemographics(pebtAppNum, bridgesPEBTAppNum));
+			pebtAppCreationRequest.setPebtAppRequest(buildPEBTAppRequest(pebtAppNum, bridgesPEBTAppNum));
+		//	pebtAppCreationRequest.setPebtAppDemographics(buildPEBTAppDemographics(pebtAppNum, bridgesPEBTAppNum));
+			pebtAppCreationRequest.setPebtAppIndviduals(buildPEBTAppIndvs(pebtAppNum, bridgesPEBTAppNum));
+			
+			pebtAppCreationRequestArray = new PEBTAppCreationRequest[1];
+			pebtAppCreationRequestArray[0] = pebtAppCreationRequest;
+		}catch(Exception ex){
+			log(ILog.ERROR, "Exception in ABRegistrationBO.buildPEBTAppCreationRequest:: "+ pebtAppNum +" "+ ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppCreationRequest::End "+ pebtAppNum);
+		return pebtAppCreationRequestArray;
+	}
+	
+	public PEBTAppRequest buildPEBTAppRequest (String pebtAppNum, String bridgesPEBTAppNum) throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppRequest::Start");
+		PEBTAppRequest pebtAppRequest = null;
+		try{
+			PEBT_APP_RQST_Cargo pebtAppRqstCargo = getPEBTAppRequest(pebtAppNum);
+			if(pebtAppRqstCargo != null) {
+				pebtAppRequest = new PEBTAppRequest();
+				pebtAppRequest.setAppNum(bridgesPEBTAppNum);
+				pebtAppRequest.setHtmlPid(pebtAppRqstCargo.getHtml_p_id());
+				pebtAppRequest.setPid(pebtAppRqstCargo.getP_id());
+				pebtAppRequest.setRetryTms(pebtAppRqstCargo.getRetry_tms());
+				pebtAppRequest.setSbmsTms(pebtAppRqstCargo.getSbms_tms());
+				pebtAppRequest.setStatCd(pebtAppRqstCargo.getStat_cd());
+				pebtAppRequest.setOfcNum(pebtOfficeNumber);
+			}
+		}catch(Exception ex){
+			log(ILog.ERROR, "Exception in ABRegistrationBO.buildPEBTAppRequest:: " + pebtAppNum + ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppRequest::End");
+		return pebtAppRequest;
+	}
+	
+	public PEBT_APP_RQST_Cargo getPEBTAppRequest(String pebtAppNum)
+			throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::getPEBTAppRequest::Start");
+		PEBT_APP_RQST_Cargo retCargo = null;
+		try {
+			PEBT_APP_RQST_Cargo cargo = new PEBT_APP_RQST_Cargo();
+			cargo.setApp_num(pebtAppNum);
+			PEBT_APP_RQST_Collection requestDetailsCollection = new PEBT_APP_RQST_Collection();
+			requestDetailsCollection.add(cargo);
+			PEBT_APP_RQST_Cargo[] cargos = (PEBT_APP_RQST_Cargo[]) requestDetailsCollection
+					.select(FwConstants.DAO, "findByAppNumber");
+			if (cargos.length > 0) {
+				retCargo = cargos[0];
+			}
+		} catch (Exception ex) {
+			log(ILog.ERROR, "Exception in ABRegistrationBO.getPEBTAppRequest:: "
+					+ ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::getPEBTAppRequest::End");
+		return retCargo;
+	}
+	
+	
+	public DIST_SCHOOL_MAP_Cargo[] readSchoolInfo(Map session) throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::readSchoolInfo::Start");
+		
+		Map<String, String> districtMap = new HashMap<String, String>();
+		HashMap<String, String> schoolMap = new HashMap<String, String>();
+		
+		try {
+			DIST_SCHOOL_MAP_Cargo cargo1 = new DIST_SCHOOL_MAP_Cargo();
+			DIST_SCHOOL_MAP_Collection coll = new DIST_SCHOOL_MAP_Collection();
+			coll.add(cargo1);
+			DIST_SCHOOL_MAP_Cargo[] cargos = (DIST_SCHOOL_MAP_Cargo[]) coll.select(FwConstants.DAO, "findSChoolDistInfoBySeqNum");
+			
+			if (null != cargos && cargos.length > 0) {
+				for(DIST_SCHOOL_MAP_Cargo cargo : cargos){
+					if(!districtMap.containsKey(cargo.getDistrict_code())){
+						districtMap.put(cargo.getDistrict_code(), cargo.getDist_name());
+					}
+					
+					if(!schoolMap.containsKey(cargo.getSchool_cd())){
+						schoolMap.put(cargo.getDistrict_code()+"~"+cargo.getSchool_cd(), cargo.getSchool_name());
 					}
 				}
+				
+				session.put("DIST_MAP", sortHashMapByValues(districtMap));
+				session.put("SCH_MAP", sortHashMapByValues(schoolMap));
 			}
-	  }
-}
-//ILIES-164555: smejiaibarra - To validate ABRGA page
-  public FwMessageList validateAddressInformation(APP_RGST_Cargo appRgstCargo, String ageGenderInd, String ageRequiredFlag, String curPageId, String prePageId, Map request)
-  {
-	  try
-	    {
+		} catch (Exception ex) {
+			log(ILog.ERROR,
+					"Exception in ABRegistrationBO.readSchoolInfo:: "+ ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::getPEBTAppRequest::End");
+		return null;
+	}
+	
+	private Map<String, String> sortHashMapByValues(Map<String, String> map) { 
+		
+       List<Map.Entry<String, String>> list = new LinkedList<Map.Entry<String, String>>(map.entrySet());
+       // Defined Custom Comparator here
+       // Sort the list 
+        Collections.sort(list, new Comparator<Map.Entry<String, String> >() { 
+            public int compare(Map.Entry<String, String> o1,  
+                               Map.Entry<String, String> o2) 
+            { 
+                return (o1.getValue()).compareTo(o2.getValue()); 
+            } 
+        });
+
+     // put data from sorted list to hashmap  
+        HashMap<String, String> temp = new LinkedHashMap<String, String>(); 
+        for (Map.Entry<String, String> aa : list) { 
+            temp.put(aa.getKey(), aa.getValue()); 
+        } 
+       return temp;
+  }
+	
+	
+	public PEBTAppDemographics buildPEBTAppDemographics (String pebtAppNum, String bridgesPEBTAppNum) throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppDemographics::Start");
+		PEBTAppDemographics pebtAppDemographics = null;
+		try{
+			pebtOfficeNumber = 0;
+			PEBT_APP_DEMOGRAPHICS_Cargo pebtAppDemoCargo = getPEBTAppDemographics(pebtAppNum);
+			if(pebtAppDemoCargo != null){
+				AgencyAddressBO AABO = new AgencyAddressBO();
+				if(pebtAppDemoCargo.getZip()!=null  && !pebtAppDemoCargo.getZip().trim().isEmpty() 
+						&& pebtAppDemoCargo.getZip().trim().length()>=5 && pebtAppDemoCargo.getZip().trim().length()<10){
+					pebtOfficeNumber = Long. parseLong(AABO.getOfficeNumberByZip(pebtAppDemoCargo.getZip().trim().substring(0, 5)));
+				}else if(pebtAppDemoCargo.getMail_zip()!=null  && !pebtAppDemoCargo.getMail_zip().trim().isEmpty()
+						&& pebtAppDemoCargo.getMail_zip().trim().length()>=5 && pebtAppDemoCargo.getMail_zip().trim().length()<10){
+					pebtOfficeNumber = Long. parseLong(AABO.getOfficeNumberByZip(pebtAppDemoCargo.getMail_zip().trim().substring(0, 5)));
+				}
+				pebtAppDemographics = new PEBTAppDemographics();
+				pebtAppDemographics.setAppNum(bridgesPEBTAppNum);
+				pebtAppDemographics.setAddrLine(pebtAppDemoCargo.getAddr_line());
+				pebtAppDemographics.setAddrLine2(pebtAppDemoCargo.getAddr_line_2());
+				if(pebtAppDemoCargo.getCell_ph_num() != null && !"".equalsIgnoreCase(pebtAppDemoCargo.getCell_ph_num().trim()))
+					pebtAppDemographics.setCellPhNum(Long.valueOf(pebtAppDemoCargo.getCell_ph_num()));
+				pebtAppDemographics.setCity(pebtAppDemoCargo.getCity());
+				if(pebtAppDemoCargo.getAddr_line()!=null && pebtAppDemoCargo.getAddr_line().trim().length()>0){
+					pebtAppDemographics.setCounty(pebtAppDemoCargo.getCounty());
+					pebtAppDemographics.setState(pebtAppDemoCargo.getState());
+				}
+				else{
+					pebtAppDemographics.setCounty("0");
+					pebtAppDemographics.setState(null);
+				}
+				pebtAppDemographics.setHomelessSw(pebtAppDemoCargo.getHomeless_sw());
+				pebtAppDemographics.setMailAddrLine(pebtAppDemoCargo.getMail_addr_line());
+				pebtAppDemographics.setMailAddrLine2(pebtAppDemoCargo.getMail_addr_line_2());
+				pebtAppDemographics.setMailCity(pebtAppDemoCargo.getMail_city());
+				pebtAppDemographics.setMailState(pebtAppDemoCargo.getMail_state());
+				pebtAppDemographics.setMailZip(pebtAppDemoCargo.getMail_zip());
+				if(pebtAppDemoCargo.getMsg_ph_num() != null && !"".equalsIgnoreCase(pebtAppDemoCargo.getMsg_ph_num().trim()))
+					pebtAppDemographics.setMsgPhNum(Long.valueOf(pebtAppDemoCargo.getMsg_ph_num()));
+				if(pebtAppDemoCargo.getPh_num() != null && !"".equalsIgnoreCase(pebtAppDemoCargo.getPh_num().trim()))
+					pebtAppDemographics.setPhNum(Long.valueOf(pebtAppDemoCargo.getPh_num()));
+				if(pebtAppDemoCargo.getWork_extn_num() != null && !"".equalsIgnoreCase(pebtAppDemoCargo.getWork_extn_num().trim()))
+					pebtAppDemographics.setWorkExtnNum(Long.valueOf(pebtAppDemoCargo.getWork_extn_num()));
+				if(pebtAppDemoCargo.getWork_ph_num() != null && !"".equalsIgnoreCase(pebtAppDemoCargo.getWork_ph_num().trim()))
+					pebtAppDemographics.setWorkPhNum(Long.valueOf(pebtAppDemoCargo.getWork_ph_num()));
+				pebtAppDemographics.setZip(pebtAppDemoCargo.getZip());
+				pebtAppDemographics.setEmail(pebtAppDemoCargo.getEmail());
+			}
+		}catch(Exception ex){
+			log(ILog.ERROR, "Exception in ABRegistrationBO.buildPEBTAppDemographics:: " + ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppDemographics::End");
+		return pebtAppDemographics;
+	}
+	
+	public PEBT_APP_DEMOGRAPHICS_Cargo getPEBTAppDemographics(String pebtAppNum)
+			throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::getPEBTAppDemographics::Start");
+		PEBT_APP_DEMOGRAPHICS_Cargo retCargo = null;
+		try {
+			PEBT_APP_DEMOGRAPHICS_Cargo cargo = new PEBT_APP_DEMOGRAPHICS_Cargo();
+			cargo.setApp_num(pebtAppNum);
+			PEBT_APP_DEMOGRAPHICS_Collection requestDetailsCollection = new PEBT_APP_DEMOGRAPHICS_Collection();
+			requestDetailsCollection.add(cargo);
+			PEBT_APP_DEMOGRAPHICS_Cargo[] cargos = (PEBT_APP_DEMOGRAPHICS_Cargo[]) requestDetailsCollection
+					.select(FwConstants.DAO, "findByAppNumber");
+			if (cargos.length > 0) {
+				retCargo = cargos[0];
+			}
+		} catch (Exception ex) {
+			log(ILog.ERROR, "Exception in ABRegistrationBO.getPEBTAppDemographics:: "
+					+ ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::getPEBTAppDemographics::End");
+		return retCargo;
+	}
+	
+	public PEBTAppIndv[] buildPEBTAppIndvs (String pebtAppNum, String bridgesPEBTAppNum) throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppDemographics::Start");
+		PEBTAppIndv[] pebtAppIndvs = null;
+		try{
+			PEBT_APP_INDV_Cargo[] pebtAppDemoCargos = getPEBTAppINDVs(pebtAppNum);
+			if(pebtAppDemoCargos != null && pebtAppDemoCargos.length > 0){
+				pebtAppIndvs = new PEBTAppIndv[pebtAppDemoCargos.length];
+				for(int i = 0; i < pebtAppDemoCargos.length; i++){
+					PEBTAppIndv pebtAppIndv =  new PEBTAppIndv();
+					pebtAppIndv.setAppNum(bridgesPEBTAppNum);
+					pebtAppIndv.setApplicantSw(pebtAppDemoCargos[i].getApplicant_sw());
+					pebtAppIndv.setDob(pebtAppDemoCargos[i].getDob());
+					pebtAppIndv.setFirstName(pebtAppDemoCargos[i].getFirst_name());
+					pebtAppIndv.setFreeLunchSw(pebtAppDemoCargos[i].getFree_lunch_sw().charAt(0));
+					pebtAppIndv.setGenderCd(pebtAppDemoCargos[i].getGender_cd().charAt(0));
+					if(pebtAppDemoCargos[i].getIndv_seq() != null && !"".equalsIgnoreCase(pebtAppDemoCargos[i].getIndv_seq().trim())){
+						pebtAppIndv.setIndvSeq(Long.parseLong(pebtAppDemoCargos[i].getIndv_seq()));
+					}else{
+						pebtAppIndv.setIndvSeq(0L);
+					}
+					pebtAppIndv.setLastName(pebtAppDemoCargos[i].getLast_name());
+					pebtAppIndv.setMidName(pebtAppDemoCargos[i].getMid_name());
+					pebtAppIndv.setSchoolCd(pebtAppDemoCargos[i].getSchool_cd());
+					pebtAppIndv.setSchoolDistrictCd(pebtAppDemoCargos[i].getSchool_district_cd());
+					pebtAppIndv.setSsn(pebtAppDemoCargos[i].getSsn());
+					pebtAppIndv.setSuffix(pebtAppDemoCargos[i].getSuffix());
+					pebtAppIndvs[i] = pebtAppIndv;
+				}
+			}
+		}catch(Exception ex){
+			log(ILog.ERROR, "Exception in ABRegistrationBO.buildPEBTAppDemographics:: " + ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::buildPEBTAppDemographics::End");
+		return pebtAppIndvs;
+	}
+	
+	public PEBT_APP_INDV_Cargo[] getPEBTAppINDVs(String pebtAppNum)
+			throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::getPEBTAppINDVs::Start");
+		PEBT_APP_INDV_Cargo[] retCargo = null;
+		try {
+			PEBT_APP_INDV_Cargo cargo = new PEBT_APP_INDV_Cargo();
+			cargo.setApp_num(pebtAppNum);
+			PEBT_APP_INDV_Collection requestDetailsCollection = new PEBT_APP_INDV_Collection();
+			requestDetailsCollection.add(cargo);
+			PEBT_APP_INDV_Cargo[] cargos = (PEBT_APP_INDV_Cargo[]) requestDetailsCollection
+					.select(FwConstants.DAO, "findByAppNumber");
+			if (cargos.length > 0) {
+				retCargo = cargos;
+			}
+		} catch (Exception ex) {
+			log(ILog.ERROR, "Exception in ABRegistrationBO.getPEBTAppINDVs:: "
+					+ ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::getPEBTAppINDVs::End");
+		return retCargo;
+	}
+	
+	public PEBTAppCreationResponseSet constructRequestAndCallPEBTWebService(String pebtAppNum, String bridgesPEBTAppNum) throws Exception {
+		log(ILog.INFO, "ABRegistrationBO::constructRequestAndCallPEBTWebService::Start"+ pebtAppNum);
+		PEBTAppCreationResponseSet webServiceResponseSet = null;
+		try{
+			String webServiceURL = FwConfigurationManager.getInstance().getEnvironmentProperty(AppConstants.PEBT_IES_WEBSERVICE_URL);
+			PEBTAppCreationRequest[] pebtAppCreationReqeustArray = buildPEBTAppCreationRequest(pebtAppNum, bridgesPEBTAppNum);
+			webServiceResponseSet = CallWebService.callPEBTAppCreationWebService(webServiceURL, pebtAppCreationReqeustArray);
+		}catch (Exception ex){
+			log(ILog.ERROR, "Exception in ABRegistrationBO.constructRequestAndCallPEBTWebService:: "
+					+ ex.getMessage());
+			throw ex;
+		}
+		log(ILog.INFO, "ABRegistrationBO::constructRequestAndCallPEBTWebService::End" + pebtAppNum);
+		return webServiceResponseSet;
+	}
+	
+	public void updatePEBTAppRqstStatus(PEBT_APP_RQST_Collection pebtAppRqstColl) throws Exception {
+		try{
+			log(ILog.INFO, "ABRegistrationBO::updatePEBTAppRqstStatus::Start");
+			if(pebtAppRqstColl != null && pebtAppRqstColl.size() > 0){
+				pebtAppRqstColl.persist(FwConstants.DAO);
+			}
+			log(ILog.INFO, "ABRegistrationBO::updatePEBTAppRqstStatus::End");
+		} catch(Exception ex) {
+			log(ILog.ERROR, "Exception in ABRegistrationBO.updatePEBTAppRqstStatus:: " + ex.getMessage());
+			throw ex;
+		}
+	}
+	
+	public void updateECFStatusForPEBTApp(String aAppNum, String aStatus) {
+		try {
+			log(ILog.INFO, "ABRegistrationBO::updateECFStatusForPEBTApp::Start");
+			Map criteria = new HashMap();
+			criteria.put(FwConstants.SQL_IND, "sql-PEBT04");
+			FwDataCriteria[] dataCriteria = new FwDataCriteria[2];
+			dataCriteria[0] = new FwDataCriteria();
+			dataCriteria[0].setColumn_value(aStatus);
+			dataCriteria[0].setData_type(FwConstants.STRING);
+			dataCriteria[1] = new FwDataCriteria();
+			dataCriteria[1].setColumn_value(aAppNum);
+			dataCriteria[1].setData_type(FwConstants.STRING);
+			criteria.put(FwConstants.CRITERIA, dataCriteria);
+			List result = executeSQL(criteria);
+			int updateCount = Integer.parseInt((String)result.get(0));
+			if(updateCount==0){
+				FwException fe = createFwException(this.getClass().getName(), "updateECFStatusForPEBTApp", new Exception("No records updated"));
+				throw fe;	
+			}
+			log(ILog.INFO, "ABRegistrationBO::updateECFStatusForPEBTApp::End");
+		} catch(Exception ex){
+			log(ILog.ERROR, "Exception in ABRegistrationBO.updateECFStatusForPEBTApp:: " + ex.getMessage());
+			FwException objFwExp = createFwException(this.getClass().getName(),"Exception in ABRegistrationBO - updateECFStatusForPEBTApp()", ex);
+			objFwExp.setMethodID("updateECFStatusForPEBTApp()");
+			objFwExp.setStackTrace(ex.getStackTrace());
+			objFwExp.setExceptionText("Exception occurred while updating PEBT ECF Status "+aAppNum);			
+			throw objFwExp;
+		}
+	}
+	
+	//Added by Nancy Jain for ILIES-282238 : Remove values from session.
+	public void clearSessionOfWarningMsgOnSaveAndExitFunc(Map session){
+		if (session.get(FwConstants.WARNING_MESAGE_BEFORE_SAVE_AND_EXIT) != null) {
+			session.remove(FwConstants.WARNING_MESAGE_BEFORE_SAVE_AND_EXIT);
+		}
+		if (session.get(FwConstants.BEFORE_FIRST_COLLECTION_TO_COMPARE) != null) {
+			session.remove(FwConstants.BEFORE_FIRST_COLLECTION_TO_COMPARE);
+		}
+		if (session.get(FwConstants.BEFORE_SECOND_COLLECTION_TO_COMPARE) != null) {
+			session.remove(FwConstants.BEFORE_SECOND_COLLECTION_TO_COMPARE);
+		}
+		if (session.get(FwConstants.BEFORE_THIRD_COLLECTION_TO_COMPARE) != null) {
+			session.remove(FwConstants.BEFORE_THIRD_COLLECTION_TO_COMPARE);
+		}
+		if (session.get(FwConstants.BEFORE_FOURTH_COLLECTION_TO_COMPARE) != null) {
+			session.remove(FwConstants.BEFORE_FOURTH_COLLECTION_TO_COMPARE);
+		}
+	}
+	//ILIES-282238 changes end here
+	
+	public void updateDsapAppRqstStatus(APP_DSNAP_RQST_Collection dsnapAppRqstColl) throws Exception {
+		try{
+			log(ILog.INFO, "ABRegistrationBO::updateDsapAppRqstStatus::Start");
+			if(dsnapAppRqstColl != null && dsnapAppRqstColl.size() > 0){
+				dsnapAppRqstColl.persist(FwConstants.DAO);
+			}
+			log(ILog.INFO, "ABRegistrationBO::updateDsapAppRqstStatus::End");
+		} catch(Exception ex) {
+			log(ILog.ERROR, "Exception in updateDsapAppRqstStatus:: " + ex.getMessage());
+			throw ex;
+		}
+	}
+	
+public FwMessageList validateAPRDRScreen(APP_RGST_Cargo appRgstCargo, String disChargDt, String curPageId, String prePageId, String indvId) {
+		
+		try
+	    { 
+		  if(StringUtils.isEmpty(indvId) || "0".equalsIgnoreCase(indvId) || indvId.length() <= 2 )
+		  {
+			this.addMessageCode("99266");
+			return getMessageList();
+		  }
 	      char[] specialChars = { '#', '/', '\'', '-', '(', ')', '@', '_', ',', '.', ' ' };
 	      //char[] specialCharsAddress = { '.','/','-','#',' ','\'',',' };
 	      char[] specialCharsAddress = {'.','/','-','#',' ','\''} ;
@@ -1062,8 +552,6 @@ private void validateTextFields(Map<String,String> validationMap) {
 	      boolean enteredPhysicalAddr = true;
 	      boolean enteredMailingAddr = true;  
 	      boolean homeLessflag = false;
-	      
-	      
 	      //HOMELESS
 	      if ((appRgstCargo.getHless_sw() != null) && (appRgstCargo.getHless_sw().equals("Y")))
 	      {
@@ -1078,23 +566,21 @@ private void validateTextFields(Map<String,String> validationMap) {
 	      {
 	    	  enteredPhysicalAddr = false;
 	        if (!homeLessflag) {
-	        	//Added as part of ILIES-315986
-	        	this.addMessageCode("99355");
+	         /* Object[] error = { new FwMessageTextLabel(AppConstants.ID_31279) };
+	          //Street Address in the Where You Live section
+	          addMessageWithFieldValues(AppConstants.ID_10000, error);*/
+	        	this.addMessageCode("99308");
 	        }
 	      }
 	      else if (!this.appMgr.isSpecialAlphaNumeric(appRgstCargo.getHshl_l1_adr(),specialCharsAddress) || !this.appMgr.isSpecialAlphaNumeric(appRgstCargo.getHshl_l2_adr(),specialCharsAddress))
 	      {
 	    	  enteredPhysicalAddr = false;
-	    	//Added as part of ILIES-315986
-	    	  this.addMessageCode("99362");
+	        Object[] error = { new FwMessageTextLabel("180017143") };
+	        //Please be sure to type only letters and/or numbers for the ~. You may also use periods, commas or any of these characters: # / ' and -.
+	        addMessageWithFieldValues("99314", error);
 	      }
 	      
-	      
-	      /*
-	       * ILIES-227052
-	       * Validates street have Street name and Street number for physical address
-	       */
-	      if(!validPhysicalLine1AndLine2(appRgstCargo)){
+	      if(!validPhysicalLine1AndLine2APADR(appRgstCargo)){
 	    	  enteredPhysicalAddr = false;
 	      }
 	      
@@ -1102,60 +588,62 @@ private void validateTextFields(Map<String,String> validationMap) {
 	      if (this.appMgr.isFieldEmpty(appRgstCargo.getHshl_city_adr())) {
 	    	  enteredPhysicalAddr = false;
 	        if (!homeLessflag) {
-	        	//Added as part of ILIES-315986
-	        	 this.addMessageCode("99356");
+	          Object[] error = { new FwMessageTextLabel("180017144") };
+	          //City in the Where You Live section
+	          addMessageWithFieldValues("99318", error);
 	        }
 	      } else if (!this.appMgr.isAlphaWithSpace(appRgstCargo.getHshl_city_adr()))
 	      {
 	    	  enteredPhysicalAddr = false;
-	    	//Added as part of ILIES-315986
-	    	  this.addMessageCode("99358");
+	        Object[] error = { new FwMessageTextLabel("180017144") };
+	        //Please be sure to type only letters or spaces for the ~.
+	        addMessageWithFieldValues(AppConstants.ID_95098, error);
 	      }
-
-	      
 	      //STATE IN THE WHERE YOU LIVE SECTION
 	      //needs to be changed to only allow IL state
 	      if ((this.appMgr.isFieldEmpty(appRgstCargo.getHshl_sta_adr())) || (appRgstCargo.getHshl_sta_adr().equals("AA")))
 	      {
 	    	  enteredPhysicalAddr = false;
 	        if (!homeLessflag) {
-	        	//Added as part of ILIES-315986
-	        	this.addMessageCode("99359");
+	          Object[] error = { new FwMessageTextLabel("180017145") };
+	          //Please choose your State in the Where You Live section.
+	          addMessageWithFieldValues(AppConstants.ID_10008, error);
 	        }
 	      } else if (!appRgstCargo.getHshl_sta_adr().equals("IL")) {
 	    	  if (!homeLessflag){
-	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_31282) };
-	        	addMessageWithFieldValues(AppConstants.ID_35000, error);
+	        	/*Object[] error = { new FwMessageTextLabel(AppConstants.ID_31282) };
+	        	addMessageWithFieldValues(AppConstants.ID_35000, error);*/
 	    	  }
+	    	  this.addMessageCode("99309");
 	      }
 
 	      if (this.appMgr.isFieldEmpty(appRgstCargo.getHshl_zip_adr())) {
 	    	  enteredPhysicalAddr = false;
 	        if (!homeLessflag) {
-	        	//Added as part of ILIES-315986
-	        	this.addMessageCode("99357");
+	          Object[] error = { new FwMessageTextLabel("180017146") };
+
+	          addMessageWithFieldValues("99318", error);
 	        }
 	      }
 	      else if (!this.appMgr.isInteger(appRgstCargo.getHshl_zip_adr())) {
 	    	  enteredPhysicalAddr = false;
-	    	//Added as part of ILIES-315986
-	    	  this.addMessageCode("99361");
+	        Object[] error = { new FwMessageTextLabel("180017146") };
+
+	        addMessageWithFieldValues(AppConstants.ID_10010, error);
 	      }
 	      else if ((appRgstCargo.getHshl_zip_adr().length() != 5) && (appRgstCargo.getHshl_zip_adr().length() != 9))
 	      {
 	    	  enteredPhysicalAddr = false;
-	        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31283) };
+	        Object[] error = { new FwMessageTextLabel("180017146") };
 
 	        addMessageWithFieldValues(AppConstants.ID_20071, error);
 	      }else if (!this.appMgr.isZero(appRgstCargo.getHshl_zip_adr()))
 	      {
 	    	  enteredPhysicalAddr = false;
-	        Object[] error = { new FwMessageTextLabel(AppConstants.ID_31283) };
+	        Object[] error = { new FwMessageTextLabel("180017146") };
 
 	        addMessageWithFieldValues(AppConstants.ID_40119, error);
 	      }
-	      
-
 	      //mailing address check
 	      if ((this.appMgr.isFieldEmpty(appRgstCargo.getAlt_st_adr())) || (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_city_adr())) || (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_sta_adr())) ||
 	    		  (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_zip_adr()))){
@@ -1168,17 +656,11 @@ private void validateTextFields(Map<String,String> validationMap) {
 	    	  addMessageCode("99286");
 	      }
 		  
-	      //New homeless check for IL ILIES-69318
-	    //Modified by Gauresh for ILIES-282110: SONAR fixes-merging 2 if-statements
 	      if (homeLessflag && !enteredMailingAddr && !enteredPhysicalAddr)
 	      {
 	    		  addMessageCode("20074");
 	      }
 
-	      /*
-	       * ILIES-227052
-	       * Validates street have Street name and Street number for mailing address
-	       */
 	      if(!validMailingLine1AndLine2(appRgstCargo)){
 	    	  enteredMailingAddr = false;
 	      }
@@ -1196,7 +678,6 @@ private void validateTextFields(Map<String,String> validationMap) {
 	      }
 	      
 	      if(enteredPhysicalAddr){
-	    	//Modified by Gauresh for ILIES-282110: SONAR fixes renaming variables
 	    	  boolean physAddrL1 = this.appMgr.isFieldEmpty(appRgstCargo.getHshl_l1_adr());
 		      boolean physAddrL2 = this.appMgr.isFieldEmpty(appRgstCargo.getHshl_l2_adr());
 		      boolean physAddrCity = this.appMgr.isFieldEmpty(appRgstCargo.getHshl_city_adr());
@@ -1211,11 +692,10 @@ private void validateTextFields(Map<String,String> validationMap) {
 		      }
 		      else {
 		        physicaladdrempty = "notempty";
-
 		        isPhysicalAddressValid = isAddressValid(appRgstCargo, true, curPageId, prePageId);
 		       if (!isPhysicalAddressValid)
 		        {
-		          addMessageCode(AppConstants.ID_36200);
+		          addMessageCode("36200");
 		        }else{
 		        	if(addrValServiceExp){
 		        		addMessageCode(AppConstants.ID_95002);
@@ -1225,21 +705,7 @@ private void validateTextFields(Map<String,String> validationMap) {
 		      }
 	      }
 
-	      if( !this.appMgr.isFieldEmpty(appRgstCargo.getDays_at_address_num()) ){
-	    	  if( !this.appMgr.isInteger(appRgstCargo.getDays_at_address_num()) ){
-		    	  Object[] error = { new FwMessageTextLabel(AppConstants.ID_36124) };
-			      addMessageWithFieldValues(AppConstants.ID_10010, error);
-	    	  }else if( appRgstCargo.getDays_at_address_num().trim().length() > 18 ||  Long.parseLong(appRgstCargo.getDays_at_address_num()) > 31 ){
-	    		  Object[] error = { new FwMessageTextLabel(AppConstants.ID_36124) };
-			      addMessageWithFieldValues(AppConstants.ID_20075, error);
-	    	  }
-	      }
-	      
-	      if ((homeLessflag) && (!this.appMgr.isFieldEmpty(appRgstCargo.getDays_at_address_num())) && (!appRgstCargo.getDays_at_address_num().equals("0"))) {
-	        addMessageCode("90401");
-	      }
 	      if(enteredMailingAddr){
-	    	//Modified by Gauresh for ILIES-282110: SONAR fixes renaming variables
 	    	  boolean mailAddrL1 = this.appMgr.isFieldEmpty(appRgstCargo.getAlt_st_adr());
 		      boolean mailAddrL2 = this.appMgr.isFieldEmpty(appRgstCargo.getAlt_l2_adr());
 		      boolean mailAddrCity = this.appMgr.isFieldEmpty(appRgstCargo.getAlt_city_adr());
@@ -1256,7 +722,6 @@ private void validateTextFields(Map<String,String> validationMap) {
 		      else
 		      {
 		        mailaddrempty = "notempty";
-		        // Added for ILIES-131882
 		        if (!addrValServiceExp){
 		          isMailingAddressValid = isAddressValid(appRgstCargo, false, curPageId, prePageId);
 		          if (!isMailingAddressValid)
@@ -1276,12 +741,10 @@ private void validateTextFields(Map<String,String> validationMap) {
 	  	        (!this.appMgr.isEmail(appRgstCargo.getHshl_email_adr()))) {
 	  	        addMessageCode(AppConstants.PERSON_LARGE_ALT);
 	  	      }
-	      /*Modified by Gauresh for ILIES-282110: Verifying email and confirm email address entered by the user*/
 			if ((!this.appMgr.isFieldEmpty(appRgstCargo.gethshlConfirmemailAdr())) && 
 		  	        (!this.appMgr.isEmail(appRgstCargo.gethshlConfirmemailAdr()))) {
 		  	        addMessageCode(AppConstants.PERSON_LARGE_ALT);
 			}
-		  /* ILIES-282110: changes ends here*/       
 	  	      if (!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_home_phn_num())) {
 	  	        if (!this.appMgr.isInteger(appRgstCargo.getHshl_home_phn_num().replaceAll("\\s+",""))) {
 	  	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
@@ -1292,7 +755,6 @@ private void validateTextFields(Map<String,String> validationMap) {
 	  	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
 
 	  	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	  	          //added to validate that area code is not zero ILIES-69318
 	  	        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_home_phn_num().substring(0,3))){
 	  	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
 	  	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
@@ -1309,7 +771,6 @@ private void validateTextFields(Map<String,String> validationMap) {
 	  	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
 
 	  	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	  	          //added to validate that area code is not zero ILIES-69318
 	  	        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_cell_phn_num().substring(0,3))){
 	  	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
 	  	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
@@ -1326,7 +787,6 @@ private void validateTextFields(Map<String,String> validationMap) {
 	  	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
 
 	  	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	  	          //added to validate that area code is not zero ILIES-69318
 	  	        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_work_phn_num().substring(0,3))){
 	  	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
 	  	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
@@ -1343,8 +803,6 @@ private void validateTextFields(Map<String,String> validationMap) {
 	  	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_1800060) };
 
 	  	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	  	          //added to validate that area code is not zero ILIES-69318
-	  	          //added new validation as per ILIES - 119713
 	  	        } else if (!this.appMgr.isZero(appRgstCargo.getMsg_phn_num().substring(0,3))){
 	  	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
 	  	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
@@ -1366,8 +824,8 @@ private void validateTextFields(Map<String,String> validationMap) {
 
 	  	        addMessageWithFieldValues(AppConstants.ID_90402, error);
 	  	      }
-	      
-	  	      //ILIES-272877 - validation for Phone for text reminders
+	  	      
+	  	      //- validation for Phone for text reminders
 	  	      String phoneForTextReminders = appRgstCargo.getPhn_txt_typ_cd();
 	  	      if(phoneForTextReminders!=null && !"NN".equalsIgnoreCase(phoneForTextReminders) && phoneForTextReminders.trim().length()>0) {
 	  	    	  if( (phoneForTextReminders.equalsIgnoreCase("HP") && this.appMgr.isFieldEmpty(appRgstCargo.getHshl_home_phn_num())) ||
@@ -1376,443 +834,78 @@ private void validateTextFields(Map<String,String> validationMap) {
 	  	    		  		addMessageCode("99210");
 	  	    	  }
 	  	      }
+	  	    if(!(appRgstCargo.gethshlConfirmemailAdr()).trim().equals(appRgstCargo.getHshl_email_adr().trim())){
+				  this.addMessageCode("97016");
+			  }
+	  	    
+	  	    boolean projValidDate = true;
+	  	  if( !appMgr.validateDate(disChargDt)){
+	  		    projValidDate = false;
+				this.addMessageCode("99306");
+			}
+			SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+			if (projValidDate) {
+				java.util.Date today = dateFormat.parse(dateFormat.format(new java.util.Date()));
+				java.util.Date checkProjDate = (java.util.Date) dateFormat.parse(disChargDt);
+				if (today == null || checkProjDate == null) {
+					log(ILog.DEBUG, "returning due to null in the above dates");
+				} else {
+					log(ILog.DEBUG,
+							"validateAPRDRScreen::checkProjDate::" + checkProjDate + "::today::" + today);
+					if (checkProjDate.after(today)) {
+						this.addMessageCode("99307"); // future date
+					}
+				}
+			}
+	  	  
 	  	      
 	      return getMessageList();
 	    } catch (FwException fe) {
+	    	log(ILog.ERROR,
+					"FwException validateAPRDRScreen failed - stackTrace - " + fe.getStackTrace() + " - message - " + fe.getMessage() + " - cause - " + 
+	    	fe.getCause()+"-FwException-"+fe);
 	      throw fe;
 	    } catch (Exception e) {
-	      //Modified by Gauresh for ILIES-282110: SONAR fixes- trhowing exception directly
-	      throw createFwException(getClass().getName(), AppConstants.VALIDATE_REG_INFORMATION, e);
-	    }  
-  }
-  
-  
-  
-private boolean validPhysicalLine1AndLine2APADR(APP_RGST_Cargo appRgstCargo){
-	  
-	  String addressLine1=appRgstCargo.getHshl_l1_adr();
-	  String addressLine2=appRgstCargo.getHshl_l2_adr();
-	  boolean result=true;
-	  int r1=validNumberString(addressLine1);
-	  int r2=validNumberString(addressLine2);
-	  
-	  if(AppConstants.ADDR_NUMBER_MISSING==r1){		  
-		  addMessageCode("99315");
-		  result=false;
-	  }else if(AppConstants.ADDR_STREET_MISSING==r1){
-		  addMessageCode("99316");
-		  result=false;
-	  }
-	  
-	  if (addressLine2 != null && !addressLine2.isEmpty() && (addressLine1==null || addressLine1.isEmpty()||AppConstants.ADDR_STREET_MISSING==r2)) {
-		  addMessageCode("99317");
-		  result=false;
-	  }
-	  return result;
-  }
-  
-  
-  private boolean validPhysicalLine1AndLine2(APP_RGST_Cargo appRgstCargo){
-	  
-	  String addressLine1=appRgstCargo.getHshl_l1_adr();
-	  String addressLine2=appRgstCargo.getHshl_l2_adr();
-	  boolean result=true;
-	  int r1=validNumberString(addressLine1);
-	  int r2=validNumberString(addressLine2);
-	  
-	  if(AppConstants.ADDR_NUMBER_MISSING==r1){		  
-		  addMessageCode("97050");
-		  result=false;
-	  }else if(AppConstants.ADDR_STREET_MISSING==r1){
-		  addMessageCode("99360");
-		  result=false;
-	  }
-	  
-	  if (addressLine2 != null && !addressLine2.isEmpty() && (addressLine1==null || addressLine1.isEmpty()||AppConstants.ADDR_STREET_MISSING==r2)) {
-		  addMessageCode("97052");
-		  result=false;
-	  }
-	  return result;
-  }
-  
-  private boolean validMailingLine1AndLine2(APP_RGST_Cargo appRgstCargo){
-	  
-	  String addressLine1=appRgstCargo.getAlt_st_adr();
-	  String addressLine2=appRgstCargo.getAlt_l2_adr();
-	  boolean result=true;
-	  int r1=validNumberString(addressLine1);
-	  int r2=validNumberString(addressLine2);
-	  
-	  if(AppConstants.ADDR_NUMBER_MISSING==r1){		  
-		  addMessageCode("97053");
-		  result=false;
-	  }else if(AppConstants.ADDR_STREET_MISSING==r1){
-		  addMessageCode("97054");
-		  result=false;
-	  }
-	  
-	  if (addressLine2 != null && !addressLine2.isEmpty() && (addressLine1==null || addressLine1.isEmpty()||AppConstants.ADDR_STREET_MISSING==r2)) {
-		  addMessageCode("97055");
-		  result=false;
-	  }
-	  return result;
-  }
-  
-	private int validNumberString(String input) {
-		int resultPass = 0;
-		if (input != null && !input.isEmpty()) {
-			Pattern word = Pattern.compile("[A-Za-z]{1,}[\\,\\.\\-\\ ]*");
-			Pattern number = Pattern.compile("\\d");
-			boolean wordB = word.matcher(input).find();
-			boolean numberB = number.matcher(input).find();
-			if (wordB && numberB) {
-				resultPass = AppConstants.ADDR_VALIDATION_SUCCESS;
-			} else if (wordB) {
-				resultPass = AppConstants.ADDR_NUMBER_MISSING;
-			} else if (numberB) {
-				resultPass = AppConstants.ADDR_STREET_MISSING;
+	    	log(ILog.ERROR,
+					"Exception validateAPRDRScreen failed - stackTrace - " + e.getStackTrace() + " - message - " + e.getMessage() + " - cause - " + 
+	    	e.getCause()+"-Exception-"+e);
+	      throw createFwException(getClass().getName(), "validateAPRDRScreen", e);
+	    } 
+   }
+		
+	public boolean checkForAPADRSkipValidation(FwMessageList messageList) {
+		log(ILog.DEBUG, "::checkForSkipValidation::Starts");
+		try {// add loggers.
+			int messageListSize = 0;
+			if (messageList != null)
+				messageListSize = messageList.getMessageListSize();
+			boolean skipvalidation = false;
+			for (int i = 0; i < messageListSize; i++) {
+				if ("36200".equalsIgnoreCase(messageList.getMessageAtIndex(i).getMessageCode())
+						|| "36202".equalsIgnoreCase(messageList.getMessageAtIndex(i).getMessageCode())) {
+					// skipvalidation true only if there is only address
+					// invalidation only
+					skipvalidation = true;
+				} else {
+					skipvalidation = false;
+					break;
+				}
 			}
 
+			log(ILog.DEBUG, "::checkForSkipValidation::Ends");
+			return skipvalidation;
+		} catch (FwException fe) {
+			log(ILog.ERROR,
+					"FwException checkForSkipValidation failed - stackTrace - " + fe.getStackTrace() + " - message - " + fe.getMessage() + " - cause - " + 
+	    	fe.getCause()+"-FwException-"+fe);
+			throw fe;
+		} catch (Exception e) {
+			FwException fe = createFwException(this.getClass().getName(), "checkForSkipValidation", e);
+			log(ILog.ERROR,
+					"Exception checkForSkipValidation failed - stackTrace - " + fe.getStackTrace() + " - message - " + fe.getMessage() + " - cause - " + 
+	    	fe.getCause()+"-Exception-"+e);
+			throw fe;
 		}
-		return resultPass;
-
 	}
-  
-  //ILIES-164555: smejiaibarra - To validate ABRGC page
-  public FwMessageList validateContactInformation(APP_RGST_Cargo appRgstCargo, String curPageId, String prePageId)
-  {
-	  try
-	    {
-	      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_email_adr())) && 
-	        (!this.appMgr.isEmail(appRgstCargo.getHshl_email_adr()))) {
-	        addMessageCode("10054");
-	      }
-	      /*Modified by Gauresh for ILIES-282110: Verifying email and confirm email address entered by the user*/
-		  if(!(appRgstCargo.gethshlConfirmemailAdr()).trim().equals(appRgstCargo.getHshl_email_adr().trim())){
-			  this.addMessageCode("97016");
-		  }
-		  //ILIES-282110: Change ends here
-
-	      if (!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_home_phn_num())) {
-	        if (!this.appMgr.isInteger(appRgstCargo.getHshl_home_phn_num().replaceAll("\\s+",""))) {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-
-	          addMessageWithFieldValues(AppConstants.ID_90402, error);
-	        } else if (!this.appMgr.validatePhone(appRgstCargo.getHshl_home_phn_num()))
-	        {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-
-	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	          //added to validate that area code is not zero ILIES-69318
-	        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_home_phn_num().substring(0,3))){
-	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-	        }
-	      }
-
-	      if (!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_cell_phn_num())) {
-	        if (!this.appMgr.isInteger(appRgstCargo.getHshl_cell_phn_num().replaceAll("\\s+",""))) {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
-
-	          addMessageWithFieldValues(AppConstants.ID_90402, error);
-	        } else if (!this.appMgr.validatePhone(appRgstCargo.getHshl_cell_phn_num()))
-	        {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
-
-	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	          //added to validate that area code is not zero ILIES-69318
-	        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_cell_phn_num().substring(0,3))){
-	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30240) };
-	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-	        }
-	      }
-
-	      if (!this.appMgr.isFieldEmpty(appRgstCargo.getHshl_work_phn_num())) {
-	        if (!this.appMgr.isInteger(appRgstCargo.getHshl_work_phn_num().replaceAll("\\s+",""))) {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
-
-	          addMessageWithFieldValues(AppConstants.ID_90402, error);
-	        } else if (!this.appMgr.validatePhone(appRgstCargo.getHshl_work_phn_num()))
-	        {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
-
-	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	          //added to validate that area code is not zero ILIES-69318
-	        } else if (!this.appMgr.isZero(appRgstCargo.getHshl_work_phn_num().substring(0,3))){
-	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30239) };
-	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-	        }
-
-	      }
-
-	      if (!this.appMgr.isFieldEmpty(appRgstCargo.getMsg_phn_num())) {
-	        if (!this.appMgr.isInteger(appRgstCargo.getMsg_phn_num().replaceAll("\\s+",""))) {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_1800060) };//Modified by Gauresh for ILIES-282110: Changing "Message Phone" to "Alternate Phone"
-
-	          addMessageWithFieldValues(AppConstants.ID_90402, error);
-	        } else if (!this.appMgr.validatePhone(appRgstCargo.getMsg_phn_num())) {
-	          Object[] error = { new FwMessageTextLabel(AppConstants.ID_1800060) };//Modified by Gauresh for ILIES-282110: Changing "Message Phone" to "Alternate Phone"
-
-	          addMessageWithFieldValues(AppConstants.ID_20048, error);
-	          //added to validate that area code is not zero ILIES-69318
-	          //added new validation as per ILIES - 119713
-	        } else if (!this.appMgr.isZero(appRgstCargo.getMsg_phn_num().substring(0,3))){
-	        	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30238) };
-	        	addMessageWithFieldValues(AppConstants.ID_35001, error);
-	        }
-	      }
-
-	      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getWork_phn_extn_num())) && 
-	        (!this.appMgr.isInteger(appRgstCargo.getWork_phn_extn_num()))) {
-	    	  	Object[] error = { new FwMessageTextLabel(AppConstants.ID_30553) };
-	        	addMessageWithFieldValues(AppConstants.ID_90402, error);
-	      }else if(appRgstCargo.getWork_phn_extn_num().length() > 6){
-		        Object[] error = { new FwMessageTextLabel(AppConstants.ID_30553) };
-		        addMessageWithFieldValues("95100", error);	    	  
-	      }
-
-	      if ((!this.appMgr.isFieldEmpty(appRgstCargo.getMsg_phn_extn_num())) && 
-	        (!this.appMgr.isInteger(appRgstCargo.getMsg_phn_extn_num()))) {
-	        Object[] error = { new FwMessageTextLabel("30554") };
-
-	        addMessageWithFieldValues(AppConstants.ID_90402, error);
-	      }
-	    //Modified by Gauresh for ILIES-282110: Adding validation message for Phone for Text Reminder
-  	      String phoneForTextReminders = appRgstCargo.getPhn_txt_typ_cd();
-  	      if(phoneForTextReminders!=null && !"NN".equalsIgnoreCase(phoneForTextReminders) && phoneForTextReminders.trim().length()>0) {
-  	    	  if( (phoneForTextReminders.equalsIgnoreCase("HP") && this.appMgr.isFieldEmpty(appRgstCargo.getHshl_home_phn_num())) ||
-  	    		  (phoneForTextReminders.equalsIgnoreCase("CP") && this.appMgr.isFieldEmpty(appRgstCargo.getHshl_cell_phn_num())) ||
-  	    		  (phoneForTextReminders.equalsIgnoreCase("AP") && this.appMgr.isFieldEmpty(appRgstCargo.getMsg_phn_num()))  ) {
-  	    		  		addMessageCode("99210");
-  	    	  }
-  	      } //ILIES-282110:change ends here
-	      return getMessageList();
-	    } catch (FwException fe) {
-	      throw fe;
-	    } catch (Exception e) {
-	      //Modified by Gauresh for ILIES-282110: SONAR fixes- throwing exception directly	
-	      throw createFwException(getClass().getName(), AppConstants.VALIDATE_REG_INFORMATION, e);
-	    }  
-  }
-  //ILIES-164555: smejiaibarra - To load ABRGI
-  public Map loadPersonalInformation(String appNumber)
-  {
-    Map pageCollection = null;
-    APP_INDV_Collection appIndvColl = null;
-    Map criteriaMap = null;
-    FwDataCriteria[] criteria = null;
-    try
-    {
-		pageCollection = new HashMap();
-		appIndvColl = new APP_INDV_Collection();
-		criteriaMap = new HashMap();
-		criteria = new FwDataCriteria[2];
-		criteria[0] = new FwDataCriteria();
-		criteria[0].setColumn_name("APP_NUM");
-		criteria[0].setColumn_value(appNumber);
-		criteria[1] = new FwDataCriteria();
-		criteria[1].setColumn_name("INDV_SEQ_NUM");
-		criteria[1].setColumn_value("1");
-		criteriaMap.put("select_criteria", criteria);
-		APP_INDV_Cargo[] appIndvCargoArray = (APP_INDV_Cargo[]) appIndvColl
-				.select("dao", criteriaMap);
-		if (appIndvCargoArray.length > 0) {
-			appIndvColl.setResults(appIndvCargoArray);
-			pageCollection.put("APP_INDV_Collection", appIndvColl);
-		}
-		return pageCollection;
-    } catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) {
-      FwException fe = createFwException(getClass().getName(), "loadRegistrationInformation", e);
-
-      throw fe;
-    }
-  }
-  
-  public Map loadProviderFacilityAddress(String providerId, Map pageCollection){
-	    try
-	    {
-	      log(ILog.DEBUG, "Inside ABRegistrationBO.loadProviderFacilityAddress() method with providerId :" + providerId);
-	  
-	      if(StringUtils.isEmpty(providerId)){
-	    	  return pageCollection;
-	      }
-
-	      APP_RGST_Collection appRgstColl = new APP_RGST_Collection();
-	      PE_PRVD_LOC_Collection pePrvdLocColl = new PE_PRVD_LOC_Collection();
-	      Map criteriaMap = new HashMap();
-	      FwDataCriteria[] criteria = new FwDataCriteria[1];
-	      criteria[0] = new FwDataCriteria();
-	      criteria[0].setColumn_name("PRVD_ID");
-	      criteria[0].setColumn_value(providerId);
-
-	      criteriaMap.put("select_criteria", criteria);
-	      PE_PRVD_LOC_Cargo[] pePrvdLocCargoArray = (PE_PRVD_LOC_Cargo[])pePrvdLocColl.select("dao", criteriaMap);
-
-	      if(null == pePrvdLocCargoArray || pePrvdLocCargoArray.length == 0 || null == pePrvdLocCargoArray[0]){
-	    	  return pageCollection;
-	      }
-	      APP_RGST_Cargo appRgstCargo = new APP_RGST_Cargo();
-    	  PE_PRVD_LOC_Cargo pePrvdLocCargo = pePrvdLocCargoArray[0];
-    	  log(ILog.DEBUG, "Inside loadProviderFacilityAddress() Populating physical and mailing address of Facility:  "+ pePrvdLocCargo.getFacility_cd() + " for provider Id : "+providerId);
-    	  // physical address
-    	  appRgstCargo.setHshl_l1_adr(pePrvdLocCargo.getLine1_adr());
-    	  appRgstCargo.setHshl_l2_adr(pePrvdLocCargo.getLine2_adr());
-    	  appRgstCargo.setHshl_city_adr(pePrvdLocCargo.getCity_adr());
-    	  appRgstCargo.setHshl_sta_adr(pePrvdLocCargo.getSt_adr());
-    	  appRgstCargo.setHshl_zip_adr(pePrvdLocCargo.getZip_adr());
-    	  appRgstCargo.setChg_eff_dt(AppConstants.HIGH_TIMESTAMP);
-    	  appRgstCargo.setHome_addr_chg_begin_dt(AppConstants.HIGH_TIMESTAMP);
-    	  appRgstCargo.setMail_addr_chg_begin_dt(AppConstants.HIGH_TIMESTAMP);
-    	  appRgstCargo.setPref_cntc_ind("0");
-    	  appRgstCargo.setSrc_app_ind(AppConstants.SRC_APP_IND_AFB);
-    	  appRgstCargo.setHshl_home_phn_num(FwConstants.SPACE);
-    	  appRgstCargo.setHshl_work_phn_num(FwConstants.SPACE);
-    	  appRgstCargo.setHshl_cell_phn_num(FwConstants.SPACE);	
-    	  appRgstCargo.setMsg_phn_num(FwConstants.SPACE);	
-    	  appRgstCargo.setPref_cntc_ind("0");
-    	  appRgstCargo.setHshl_email_adr(FwConstants.SPACE);
-    	  appRgstCargo.sethshlConfirmemailAdr(FwConstants.SPACE);
-    	  appRgstCargo.setLang_cd(FwConstants.SPACE);
-    	  appRgstCargo.setPhn_txt_typ_cd(FwConstants.SPACE);
-    	  appRgstCargo.setPref_cntc_tm_txt(FwConstants.SPACE);
-    	  appRgstCargo.setPhn_num_typ(FwConstants.SPACE);
-    	  appRgstCargo.setCnty_num("0");
-    	  appRgstCargo.setMsg_phn_extn_num(FwConstants.SPACE);
-    	  appRgstCargo.setWork_phn_extn_num(FwConstants.SPACE);
-    	  
-    	  // Mailing address
-    	  appRgstCargo.setAlt_city_adr(pePrvdLocCargo.getMail_addr_city_name());
-	      appRgstCargo.setAlt_l2_adr(pePrvdLocCargo.getMail_addr_line2());
-	      appRgstCargo.setAlt_st_adr(pePrvdLocCargo.getMail_addr_line());
-	      appRgstCargo.setAlt_sta_adr(pePrvdLocCargo.getMail_addr_state_cd());
-	      appRgstCargo.setAlt_zip_adr(pePrvdLocCargo.getMail_addr_zip_cd());
-	    	  
-    	  appRgstColl.addCargo(appRgstCargo);
-          pageCollection.put("APP_RGST_Collection", appRgstColl);
-          log(ILog.DEBUG, "Inside loadProviderFacilityAddress() :: END");
-	      return pageCollection;
-	    } catch (FwException fe) {
-	      log(ILog.ERROR, "Exception:: ABRegistrationBO.loadProviderFacilityAddress :: FWException :: ProviderId : "+providerId + " :: " + fe.getMessage() + " :: " + fe.getCause() + " :: " + fe.getStackTrace() + fe);
-	      throw fe;
-	    } catch (Exception e) {
-	      log(ILog.ERROR, "Exception:: ABRegistrationBO.loadProviderFacilityAddress :: Exception :: ProviderId : "+providerId + " :: " + e.getMessage() + " :: " + e.getCause() + " :: " + e.getStackTrace() + e);
-	      FwException fe = createFwException(getClass().getName(), "loadProviderFacilityAddress", e);
-	      throw fe;
-	    }
-  }
-  //ILIES-164555: smejiaibarra - To load ABRGA and ABRGC
-  public Map loadAddressContactInformation(String appNumber)
-  {
-    Map pageCollection = null;
-    APP_RGST_Collection appRgstColl = null;
-    Map criteriaMap = null;
-    FwDataCriteria[] criteria = null;
-    try
-    {
-      pageCollection = new HashMap();
-
-      appRgstColl = new APP_RGST_Collection();
-      criteriaMap = new HashMap();
-      criteria = new FwDataCriteria[1];
-      criteria[0] = new FwDataCriteria();
-      criteria[0].setColumn_name("APP_NUM");
-      criteria[0].setColumn_value(appNumber);
-
-      criteriaMap.put("select_criteria", criteria);
-      APP_RGST_Cargo[] appRgstCargoArray = (APP_RGST_Cargo[])appRgstColl.select("dao", criteriaMap);
-
-      if (appRgstCargoArray.length > 0) {
-        appRgstColl.setResults(appRgstCargoArray);
-        pageCollection.put("APP_RGST_Collection", appRgstColl);
-      }
-
-      return pageCollection;
-    } catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) {
-      FwException fe = createFwException(getClass().getName(), "loadRegistrationInformation", e);
-      throw fe;
-    }
-  }
-  
-  //Modified by Gauresh for ILIES-282110: Adding APP_INDV_Collection to the page
-  public Map loadAddressContactInformationABRGC(String appNumber)
-  {
-    Map pageCollection = null;
-    APP_RGST_Collection appRgstColl = null;
-    Map criteriaMap = null;
-    FwDataCriteria[] criteria = null;
-    APP_INDV_Collection appIndvColl = null;//Added by Gauresh for ILIES-282110
-    try
-    {
-      pageCollection = new HashMap();
-      appRgstColl = new APP_RGST_Collection();
-      criteriaMap = new HashMap();
-      criteria = new FwDataCriteria[1];
-      criteria[0] = new FwDataCriteria();
-      criteria[0].setColumn_name("APP_NUM");
-      criteria[0].setColumn_value(appNumber);
-
-      criteriaMap.put("select_criteria", criteria);
-      APP_RGST_Cargo[] appRgstCargoArray = (APP_RGST_Cargo[])appRgstColl.select("dao", criteriaMap);
-
-      if (appRgstCargoArray.length > 0) {
-        appRgstColl.setResults(appRgstCargoArray);
-        pageCollection.put("APP_RGST_Collection", appRgstColl);
-      }
-      
-      appIndvColl = new APP_INDV_Collection();
-		criteriaMap = new HashMap();
-		criteria = new FwDataCriteria[2];
-		criteria[0] = new FwDataCriteria();
-		criteria[0].setColumn_name("APP_NUM");
-		criteria[0].setColumn_value(appNumber);
-		criteria[1] = new FwDataCriteria();
-		criteria[1].setColumn_name("INDV_SEQ_NUM");
-		criteria[1].setColumn_value("1");
-		criteriaMap.put("select_criteria", criteria);
-		APP_INDV_Cargo[] appIndvCargoArray = (APP_INDV_Cargo[]) appIndvColl
-				.select("dao", criteriaMap);
-		if (appIndvCargoArray.length > 0) {
-			appIndvColl.setResults(appIndvCargoArray);
-			pageCollection.put("APP_INDV_Collection", appIndvColl);
-		}
-		//ILIES-282110: Changes ends here
-      return pageCollection;
-    } catch (FwException fe) {
-      throw fe;
-    } catch (Exception e) {
-      FwException fe = createFwException(getClass().getName(), "loadRegistrationInformation", e);
-      throw fe;
-    }
-  }
-  //ILIES-282110: change ends here
-  
-  private void validateMailingAddress(APP_RGST_Cargo appRgstCargo){
-	  char[] specialChars = { '#', '/', '\'', '-', '(', ')', '@', '_', ',', '.', ' ' };
-      char[] specialCharsAddress = { '.','/','-','#',' ','\'',',' };
-	  if ((this.appMgr.isFieldEmpty(appRgstCargo.getAlt_st_adr())) && (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_l2_adr())))
-      {
-          Object[] error = { new FwMessageTextLabel("31284") };
-          //Please fill in your Street Address or P.O. Box number in the Mailing Address section.          
-          addMessageWithFieldValues(AppConstants.ID_10000, error);
-      }
-      else if (!this.appMgr.isSpecialAlphaNumeric(appRgstCargo.getAlt_st_adr(),specialCharsAddress) || !this.appMgr.isSpecialAlphaNumeric(appRgstCargo.getAlt_l2_adr(),specialCharsAddress))
-      {
-        Object[] error = { new FwMessageTextLabel("31284") };
-        //Please be sure to type only letters and/or numbers for the ~. You may also use periods, commas or any of these characters: # / ' and -.
-        addMessageWithFieldValues("95099", error);
-      }
-
-      if (this.appMgr.isFieldEmpty(appRgstCargo.getAlt_city_adr())) {
-          Object[] error = { new FwMessageTextLabel("31286") };
-        //Please fill in your City in the Mailing Address section.    
-          addMessageWithFieldValues(AppConstants.ID_10000, error);
-      } else if (!this.appMgr.isAlphaWithSpace(appRgstCargo.getAlt_city_adr()))
-      {
-        Object[] error = { new FwMessageTextLabel("31286") };
-        //Please be sure to type only letters or spaces for the ~.
-        addMessageWithFieldValues("95098", error);
-      }
+	
+}
