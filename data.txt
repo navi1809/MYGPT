@@ -1,2013 +1,1961 @@
-arAppProgIndvColl.insert(arAppProgIndvColl);
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArAppProgramIndvTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    arAppProgIndvCargo = null;
-	    arAppProgIndvColl = null;
-	    t1004Cargo = null;
-	}
+public class AutoRegistrationBO extends AbstractBO {
+    public static final String Intake = "Intake";
+    public static final String JOBTITLE = "JOBTITLE";
+    public static final String VIRTUALWORKER = "Virtual Worker";
+    public static final String findByOfficeFirstNmJobTitle = "findByOfficeFirstNmJobTitle";
+    public static final String MPE_FPPE_END_DATE = "2999-12-31 0:0:0.0"; //Added for ILIES-278552
+    private DMElectronicDocumentSSVO dmWebserviceVO = null;
+    ShAppointmentsCargo autoRegShAppCargo = null;
+    private String hpe_pid = null;
+    private String hpe_html_pid = null;
+    private String autoReg_SSA_MSP_Sw = null;
+    private String mSPAppStatus = null;
+    private ICoBatch icoBatch = null;
+    boolean appSNAPCategory = false;
+    boolean appCashCategory = false;
+    boolean appCPECategory = false;
+    boolean appHPECategory = false;
+    boolean appMPECategory = false;
+    boolean appFPPECategory = false;
+    boolean appFPCategory = false;
+    boolean appMACategory = false;
+    boolean appMSPCategory = false;
+    boolean appSSAMSPCategory = false;
+    boolean appMaHpeAssociation = false;
+    boolean expeditedSnapWithPhone = false;
+    boolean keepProcessing = true;
+    protected Connection con = null;
+    boolean mpeAppExists = false; //Added for ILIES-192695
+    boolean appFppExists = false;
+    boolean lisMSPAppDuplicate = false;
+    boolean appSSALISMSPCategory = false;
+    String associatedAppNumStr = null;
+    long associatedCaseNumLong = 0L;
+    private static final String[] lisCaseHierarchy = {"MC","MA","TF","FS"};
+    private String autoReg_SSA_LIS_MSP_Sw = null;
+    String mspAddrValidationFail = null;
+    String mspDocId = null;
+    boolean newSSALISMSPApp = false;
+    
+    
+    //ERJA new fields for sex, gender indigenous status
+    public static final Map<String, String> SEX_AT_BIRTH_MAP = new HashMap<String, String>();
+    public static final Map<String, String> GENDER_IDENTITY_MAP = new HashMap<String, String>();
+    public static final Map<String, String> SEXUAL_ORIENTATION_MAP = new HashMap<String, String>();
+    
+    static {
+    	SEX_AT_BIRTH_MAP.put("A", "NL");
+    	SEX_AT_BIRTH_MAP.put("F", "FM");
+    	SEX_AT_BIRTH_MAP.put("M", "ML");
+    	SEX_AT_BIRTH_MAP.put("N", "NS");
+    	SEX_AT_BIRTH_MAP.put("P", "PN");
+    	
+    	GENDER_IDENTITY_MAP.put("A", "NL");
+    	GENDER_IDENTITY_MAP.put("F", "FM");
+    	GENDER_IDENTITY_MAP.put("M", "ML");
+    	GENDER_IDENTITY_MAP.put("N", "NS");
+    	GENDER_IDENTITY_MAP.put("P", "PN");
+    	GENDER_IDENTITY_MAP.put("TF", "TF");
+    	GENDER_IDENTITY_MAP.put("TM", "TM");
+    	
+    	SEXUAL_ORIENTATION_MAP.put("A", "NL");
+    	SEXUAL_ORIENTATION_MAP.put("B", "BS");
+    	SEXUAL_ORIENTATION_MAP.put("L", "LG");
+    	SEXUAL_ORIENTATION_MAP.put("N", "NS");
+    	SEXUAL_ORIENTATION_MAP.put("P", "PN");
+    	SEXUAL_ORIENTATION_MAP.put("S", "ST");    	
     }
-    // ALL CPE,MangiPE, AABDPE
-    public boolean updateArCpeEligDetailTable(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateArCpeEligDetailTable() ");
-	ArCpeEligDetailCargo arCpeEligDetailCargo = null;
-	ArCpeEligDetailCollection arCpeEligDetailColl = new ArCpeEligDetailCollection(connection);
-	ILogger logger = (ILogger) Logger.getInstance();
-	log(4," AutoRegistationBO.updateArCpeEligDetailTable: BEGIN");
-
-	try {
-	    
-	    int count = autoRegT1004CargoArray.length;
-	    if (autoRegT1004CargoArray == null || count == 0) {
-		return false;
-	    }
-		String MAGIPESwitch =  ReferenceTableManager.getValueByColumn(true, "COVID19SW", "MAGIPE", "DESCRIPTION");
-		String AABDSwitch   =  ReferenceTableManager.getValueByColumn(true, "COVID19SW", "AABDPE", "DESCRIPTION");
-		String CPESwitch    =  ReferenceTableManager.getValueByColumn(true, "COVID19SW", "CPEPE", "DESCRIPTION");
-		AppSummaryBO appBO = new AppSummaryBO(connection);
-		int ageCal = 0;
-		boolean incCheck = familyIncCheck(appNum, 0);
-		boolean insertRecords =false;
-		for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-			T1004AppIndvCargo t1004Cargo = autoRegT1004CargoArray[i];
-			T1006AppInPermdCollection t1006AppInPermdColl = new T1006AppInPermdCollection(connection);
-			T1006AppInPermdCargo t1006AppInPermdCargo = new T1006AppInPermdCargo();
-			T1006AppInPermdCargo[] t1006AppInPermdCargoArray = null;
-			t1006AppInPermdCargo.setAppNum(appNum);
-			t1006AppInPermdColl.add(t1006AppInPermdCargo);
-			t1006AppInPermdCargoArray = (T1006AppInPermdCargo[]) t1006AppInPermdColl.select("findByAppNumInboundFFMApps");
-		    arCpeEligDetailCargo = new ArCpeEligDetailCargo();
-		    boolean check12MonthRecord = false;
-			boolean immigrationCheck =  false;
-			if ((t1004Cargo.getMaRqstSw() == 'Y' || t1004Cargo.getFppRqstSw() == 'Y') && t1004Cargo.getBridgesIndvId()>0) {
-				log(4," AutoRegistationBO.updateArCpeEligDetailTable t1004Cargo.getMaRqstSw() is: "+t1004Cargo.getMaRqstSw());
-				log(4," AutoRegistationBO.updateArCpeEligDetailTable t1004Cargo.getFppRqstSw() is: "+t1004Cargo.getFppRqstSw());
-				log(4," AutoRegistationBO.updateArCpeEligDetailTable t1004Cargo.getBridgesIndvId() is: "+t1004Cargo.getBridgesIndvId());
-		    	
-			    java.sql.Timestamp indvdbrthDt = t1004Cargo.getBrthDt();
-			    ageCal = ageCal(indvdbrthDt);
-				char repeatedSw=appBO.twiceinYear(t1004Cargo.getBridgesIndvId());
-				arCpeEligDetailCargo.setPeLast12MonthsSw(repeatedSw);
-			    	//check12MonthRecord =  checkActivePERecord(t1004Cargo.getBridgesIndvId());
-				log(4," AutoRegistationBO.updateArCpeEligDetailTable: ageCal:"+ageCal);
-
-				if (ageCal<19){
-				 try {
-					 log(4," AutoRegistationBO.updateArCpeEligDetailTable: Start CPE calc");
-
-					String FPLValue = "";
-					String additionalFPLValue = "";
-					int additionalPeople = autoRegT1004CargoArray.length - 8;
-					double additionalAmount = 0.00;
-					double additionalAmountFor209 = 0.00;
-					double additionalAmountFor147 = 0.00;
-					double limitAmount = 0.00;
-					double limitAmountFor209 = 0.00;
-					double limitAmountFor147 = 0.00;
-				
-					String reftableOldVerEffEndDt = ARConstants.EDMCMELIMITS_OLDVERSION_EFFENDDT;
-		
-					SimpleDateFormat refTableDateSdf= new SimpleDateFormat("dd-MMM-yyyy");
-				    java.util.Date refTableOldVsEffEndDate = refTableDateSdf.parse(reftableOldVerEffEndDt);
-				    Timestamp oldVerEffEndDtTS= new Timestamp(refTableOldVsEffEndDate.getTime());
-				    Timestamp batchRunAsofDateTs = null;
-				    Timestamp fwCurrDateTs = null;
-	
-				    log(4," AutoRegistationBO.updateArCpeEligDetailTable: reftableOldVerEffEndDt : "+reftableOldVerEffEndDt);
-
-				    //Use FW_BATCH_RUN_CONTROL asOfDate to compare with EDMCMELIMITS_OLDVERSION_EFFENDDT and determine the calc logic
-					if(batchController != null && StringUtils.isNotEmpty(batchController.getAsOfDate())){
-						 log(4," AutoRegistationBO.updateArCpeEligDetailTable: batchController.getAsOfDate() is not null");
-						
-						 batchRunAsofDateTs = appBO.convertDateStrToTimeStampWithNull(batchController.getAsOfDate(), "MM/dd/yyyy", appNum);
-						 if(batchRunAsofDateTs!=null){
-							 fwCurrDateTs = new Timestamp(batchRunAsofDateTs.getTime()); 
-						 	}
-						 
-						 log(4," AutoRegistationBO.updateArCpeEligDetailTable: batchController.getAsOfDate() : "+batchController.getAsOfDate());
-					}else{
-						 //fetch current date using FW 
-						FwCalendar fwCalendar = FwCalendar.getInstance();
-						FwDate fwDate = fwCalendar.getDate();
-						fwCurrDateTs = fwDate.getTimestamp();
-						log(4," AutoRegistationBO.updateArCpeEligDetailTable: batchController.getAsOfDate()" +
-								" is not present using current TS "+fwCurrDateTs+" fwDate"+ fwDate);
-					}
-					log(4," AutoRegistationBO.updateArCpeEligDetailTable: fwCurrDateTs : "+fwCurrDateTs);
-
-					if(fwCurrDateTs!=null  && oldVerEffEndDtTS !=null && fwCurrDateTs.after(oldVerEffEndDtTS) ){
-				    	
-				    	if(arCpeEligDetailCargo.getNumberInStandard() == 0){
-				    		arCpeEligDetailCargo.setNumberInStandard((short) count);
-				    	}
-				    	arCpeEligDetailCargo.setAppNum(appNum);
-				    	
-				    	log(4," In AutoRegistationBO.updateArCpeEligDetailTable oldVerThresholdTS :" +oldVerEffEndDtTS
-				    			+ " fwCurrDateTs" +fwCurrDateTs
-				    			+ " invoking calculateFPLLatestPERCENT for App Num : " + arCpeEligDetailCargo.getAppNum());
-				    	
-				    	Double dblLimitAmount = new Double(0.00); 
-				    	Double dblLimitAmountFor209 = new Double(0.00); 
-				    	Double dblLimitAmountFor147 = new Double(0.00); 
-						
-				    	
-				    	dblLimitAmount = appBO.calculateFPLLatestPercent(arCpeEligDetailCargo,"PERCENT209",fwCurrDateTs);
-				    	if(dblLimitAmount!=null){
-				    		 limitAmount = dblLimitAmount.doubleValue(); 
-				    	 }
-				    	
-				    	dblLimitAmountFor147 = appBO.calculateFPLLatestPercent(arCpeEligDetailCargo,"PERCENT147",fwCurrDateTs);
-				    	if(dblLimitAmountFor147 != null ){
-				    		 limitAmountFor147 = dblLimitAmountFor147.doubleValue(); 
-				    	 }
-				    	
-				    	dblLimitAmountFor209 = appBO.calculateFPLLatestPercent(arCpeEligDetailCargo,"PERCENT209",fwCurrDateTs);
-				    	if(dblLimitAmountFor209 != null){
-				    		limitAmountFor209 = dblLimitAmountFor209.doubleValue(); 
-				    	 }
-
-				    	log(4," AutoRegistationBO.updateArCpeEligDetailTable new version limitAmount is: "+limitAmount);
-				    	log(4," AutoRegistationBO.updateArCpeEligDetailTable new version limitAmountFor209 is: "+limitAmountFor209);
-				    	log(4," AutoRegistationBO.updateArCpeEligDetailTable new version limitAmountFor147 is: "+limitAmountFor147);
-				    }			
-					else{
-						
-						log(4, "Using Old version EDMCMELIMITS calculations for " +
-								"appNum:" +arCpeEligDetailCargo.getAppNum()+" indvId:" +arCpeEligDetailCargo.getIndvId()+
-								"reftableOldVerEffEndDt" +reftableOldVerEffEndDt+" fwCurrDateTs" +fwCurrDateTs
-				    			);
-						if (additionalPeople > 0 && additionalPeople <= 10) {
-						    FPLValue = ReferenceTableManager.getValueByColumn(true, "EDMCMELIMITS", "8", "PERCENT100");
-						    additionalFPLValue = ReferenceTableManager.getValueByColumn(true, "EDMCMELIMITS", "ADDLPERS", "PERCENT100");
-						    additionalAmount = ((Double.valueOf(additionalFPLValue) * 2.09) / 12) * additionalPeople;
-						} else {
-						    FPLValue = ReferenceTableManager.getValueByColumn(true, "EDMCMELIMITS", String.valueOf(autoRegT1004CargoArray.length), "PERCENT100");
-						}
-						
-						if (FPLValue != null && FPLValue.equals("")) {
-						    FPLValue = "0";
-						}
-						if (additionalFPLValue.equals("")) {
-						    additionalFPLValue = "0";
-						}
-						limitAmount = Math.round((Double.valueOf(FPLValue) * 2.09) / 12 + additionalAmount);
-						
-						additionalAmountFor209 = ((Double.valueOf(additionalFPLValue) * 2.09) / 12) * additionalPeople;
-						additionalAmountFor147 = ((Double.valueOf(additionalFPLValue) * 1.47) / 12) * additionalPeople;
-						limitAmountFor209 = Math.round((Double.valueOf(FPLValue) * 2.09) / 12 + additionalAmountFor209);
-						limitAmountFor147 = Math.round((Double.valueOf(FPLValue) * 1.47) / 12 + additionalAmountFor147);
-						
-						log(4," AutoRegistationBO.updateArCpeEligDetailTable old version limitAmount is "+limitAmount);
-						log(4," AutoRegistationBO.updateArCpeEligDetailTable old version limitAmountFor209 is "+limitAmountFor209);
-						log(4," AutoRegistationBO.updateArCpeEligDetailTable old version limitAmountFor147 is "+limitAmountFor147);
-				    	
-						
-					}
-					// Default cargo
-					arCpeEligDetailCargo.setAppNum(appNum);
-					arCpeEligDetailCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-					arCpeEligDetailCargo.setCreateDt(currentTime);
-					// PMD_Override - R10 - The casting of this numeric/byte type does not need to be addressed because it will not exceed the short value.
-					PMDRules.markApprovedStatement("R10");
-					arCpeEligDetailCargo.setNumberInStandard((short) count);
-		 			arCpeEligDetailCargo.setIndvId(t1004Cargo.getBridgesIndvId());
-		 			arCpeEligDetailCargo.setDeclaredFamilyIncAmt(autoRegAppIncome);
-		 			arCpeEligDetailCargo.setPeTypeInd("CP");
-		  		    // Validations
-					/*if(check12MonthRecord){
-						arCpeEligDetailCargo.setPeLast12MonthsSw('Y');
-					}else
-						arCpeEligDetailCargo.setPeLast12MonthsSw('N');*/
-					
-					if(incCheck && autoRegAppIncome<=0.0)
-						arCpeEligDetailCargo.setIncomeAvailableSw('N');
-					else 
-						arCpeEligDetailCargo.setIncomeAvailableSw('Y');
-					
-					for (int j = 0; j < t1006AppInPermdCargoArray.length; j++) {
-				    	if (t1006AppInPermdCargoArray[j] == null || ( t1006AppInPermdCargoArray[j].getIndvSeqNum() == t1004Cargo.getIndvSeqNum() && t1006AppInPermdCargoArray[j].getUsCtznSw() != 'Y' && t1004Cargo.getDocumentedAlienSw() == 'N')) {
-				  			immigrationCheck = true;
-				  			break;
-				         }
-			    	}
-					if(!immigrationCheck)
-						arCpeEligDetailCargo.setImmigrationStatusSw('N');
-					else 
-						arCpeEligDetailCargo.setImmigrationStatusSw('Y');
-
-					// C2 income 
-					 if(incCheck && autoRegAppIncome<=0.0){
-			 			arCpeEligDetailCargo.setDenialReasonCd("C2");
-			         }else if(immigrationCheck){
-					 	arCpeEligDetailCargo.setDenialReasonCd("C4");   //c4 Immigration check	
-			         }else if(autoRegAppIncome > limitAmount){
-			 			arCpeEligDetailCargo.setDenialReasonCd("C5");// C5 over  income 
-			         }else if(arCpeEligDetailCargo.getPeLast12MonthsSw()=='Y'){
-						 arCpeEligDetailCargo.setDenialReasonCd("C7");////Child received PE twice in last year
-					 }else{// c1  Eligible 
-						arCpeEligDetailCargo.setDenialReasonCd("C1");
-						arCpeEligDetailCargo.setPeBeginDt(autoRegT1001Cargo.getAppRcvDt());
-						
-						log(4, "Begin AutoRegistrationBO.updateArCpeEligDetailTable() ::  limitAmountFor147 " + limitAmountFor147);
-						log(4, "Begin AutoRegistrationBO.updateArCpeEligDetailTable() ::  arCpeEligDetailCargo.getDeclaredFamilyIncAmt() " + arCpeEligDetailCargo.getDeclaredFamilyIncAmt());
-						log(4, "Begin AutoRegistrationBO.updateArCpeEligDetailTable() ::  limitAmountFor209 " + limitAmountFor209);
-						if ((limitAmountFor147 < arCpeEligDetailCargo.getDeclaredFamilyIncAmt()) && (arCpeEligDetailCargo.getDeclaredFamilyIncAmt() <= limitAmountFor209)) {
-						    arCpeEligDetailCargo.setMangpCd("PH");
-						} else if (arCpeEligDetailCargo.getDeclaredFamilyIncAmt() <= limitAmountFor147) {
-						    arCpeEligDetailCargo.setMangpCd("PL");
-						}
-			    	}
-			    	arCpeEligDetailColl.add(arCpeEligDetailCargo);
-			    	insertRecords =true;
-			    	
-			    	//ILIES-296616 EDMCMELIMITS 
-				    }catch (Exception e) {
-						logger.Log(LogLevel.ERROR,"In AutoRegistationBO.updateArCpeEligDetailTable method for  EDMCMELIMITS" , e.getMessage() + e  );
-						e.printStackTrace();
-					}
-				    
-				    log(4," AutoRegistationBO.updateArCpeEligDetailTable: Finished CPE calc");
- 
-			    }
-			    
-			    //MAGIPESwitch
-			    if("Y".equalsIgnoreCase(MAGIPESwitch) && ageCal>=19 && ageCal<65){
-			    	arCpeEligDetailCargo.setAppNum(appNum);
-					arCpeEligDetailCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-					arCpeEligDetailCargo.setCreateDt(currentTime);
-					arCpeEligDetailCargo.setNumberInStandard((short) count);
-					arCpeEligDetailCargo.setIndvId(t1004Cargo.getBridgesIndvId());					
-		    		arCpeEligDetailCargo.setDeclaredFamilyIncAmt(autoRegAppIncome);
-		    		arCpeEligDetailCargo.setPeTypeInd("MP");
-		    		arCpeEligDetailCargo.setPeBeginDt(autoRegT1001Cargo.getAppRcvDt());
-					if(incCheck && autoRegAppIncome<=0.0){
-						arCpeEligDetailCargo.setIncomeAvailableSw('N');
-						arCpeEligDetailCargo.setDenialReasonCd("M2");
-					}
-			    	else{
-			    		arCpeEligDetailCargo.setIncomeAvailableSw('Y');
-			    		char medicareSW = appBO.medicareDteails(t1004Cargo.getBridgesIndvId());
-			    		arCpeEligDetailCargo.setImmigrationStatusSw('N');
-			    		for (int j = 0; j < t1006AppInPermdCargoArray.length; j++) {
-			    			if (t1006AppInPermdCargoArray[j] == null || ( t1006AppInPermdCargoArray[j].getIndvSeqNum() == t1004Cargo.getIndvSeqNum() && t1006AppInPermdCargoArray[j].getUsCtznSw() != 'Y' && t1004Cargo.getDocumentedAlienSw() == 'N')) {
-			    				arCpeEligDetailCargo.setImmigrationStatusSw('Y');
-			    				break;
-			    			}
-			    		}
-			    		arCpeEligDetailCargo.setDenialReasonCd("");
-			    		arCpeEligDetailCargo.setMedicareRecvSw(medicareSW);
-			    		String magiAsOfDate = null;
-			    		if(batchController != null && batchController.getAsOfDate()!=null){
-			    			magiAsOfDate = batchController.getAsOfDate();
-			    		}
-			    		arCpeEligDetailCargo = appBO.isPEdenialCd(arCpeEligDetailCargo, false,magiAsOfDate);
-		    		}
-			    		arCpeEligDetailColl.add(arCpeEligDetailCargo);
-			    		insertRecords =true;
-			    }
-			    
-			    //AABD
-			    if("Y".equalsIgnoreCase(AABDSwitch) && ageCal>=65){
-			    	arCpeEligDetailCargo.setAppNum(appNum);
-					arCpeEligDetailCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-					arCpeEligDetailCargo.setCreateDt(currentTime);
-					arCpeEligDetailCargo.setNumberInStandard((short) count);
-					arCpeEligDetailCargo.setIndvId(t1004Cargo.getBridgesIndvId());					
-		    		arCpeEligDetailCargo.setDeclaredFamilyIncAmt(autoRegAppIncome);
-		    		arCpeEligDetailCargo.setPeTypeInd("AP");
-		    		arCpeEligDetailCargo.setPeBeginDt(autoRegT1001Cargo.getAppRcvDt());
-					if(incCheck && autoRegAppIncome<=0.0){
-						arCpeEligDetailCargo.setIncomeAvailableSw('N');
-						arCpeEligDetailCargo.setDenialReasonCd("A2");
-					}
-			    	else{
-			    		arCpeEligDetailCargo.setIncomeAvailableSw('Y');
-			    		arCpeEligDetailCargo.setImmigrationStatusSw('N');
-				    	for (int j = 0; j < t1006AppInPermdCargoArray.length; j++) {
-					    	if (t1006AppInPermdCargoArray[j] == null || ( t1006AppInPermdCargoArray[j].getIndvSeqNum() == t1004Cargo.getIndvSeqNum() && t1006AppInPermdCargoArray[j].getUsCtznSw() != 'Y' && t1004Cargo.getDocumentedAlienSw() == 'N')) {
-					    		arCpeEligDetailCargo.setImmigrationStatusSw('Y');
-					    		break;
-					         }
-				    	}
-			    		char medicareSW = appBO.medicareDteails(t1004Cargo.getBridgesIndvId());
-			    		arCpeEligDetailCargo.setMedicareRecvSw(medicareSW);
-			    		String aabdAsOfDate = null;
-			    		if(batchController != null && batchController.getAsOfDate()!=null){
-			    			aabdAsOfDate = batchController.getAsOfDate();
-			    		}
-			    		arCpeEligDetailCargo = appBO.isPEdenialCd(arCpeEligDetailCargo,false,aabdAsOfDate);
-			    	}
-						arCpeEligDetailColl.add(arCpeEligDetailCargo);
-					    insertRecords =true;
-			    }
-	 		}
-		 }
-		if(insertRecords){
-			arCpeEligDetailColl.insert(arCpeEligDetailColl);
-			updateArCpeIncomeDetailTable(appNum);
-			for(int k=0;k<arCpeEligDetailColl.size();k++){
-				ArCpeEligDetailCargo arCpeEligDetail =arCpeEligDetailColl.getResults(k);
-				if(arCpeEligDetail.getDenialReasonCd()!=null && (!arCpeEligDetail.getDenialReasonCd().equalsIgnoreCase("A1") && !arCpeEligDetail.getDenialReasonCd().equalsIgnoreCase("C1") &&
-						!arCpeEligDetail.getDenialReasonCd().equalsIgnoreCase("M1"))){
-					 generateCorrespondance(appNum, DIConstants.DOC_ID_FXX421, "", this.con);
-					 break;
-				}
-			}
-		}
-		
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArCpeEligDetailTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    arCpeEligDetailCargo = null;
-	    arCpeEligDetailColl = null;
-	   
-	}
+    //ERJA new fields for sex, gender indigenous status
+    /**
+     * default constructor
+     */
+    public AutoRegistrationBO() {
+	super();
     }
     
-    public boolean updateArCpeIncomeDetailTable(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateArCpeIncomeDetailTable() ");
-	ArCpeIncomeDetailCargo arCpeIncomeDetailCargo = new ArCpeIncomeDetailCargo();
-	ArCpeIncomeDetailCollection arCpeIncomeDetailColl = new ArCpeIncomeDetailCollection(connection);
-	
-	try {
-	    arCpeIncomeDetailCargo.setAppNum(appNum);
-	    arCpeIncomeDetailCargo.setIncomeAmt(autoRegAppIncome);
-	    arCpeIncomeDetailCargo.setIncomeFrequencyCd("MO");
-	    arCpeIncomeDetailCargo.setMonthlyAvgIncomeAmt(autoRegAppIncome);
-	    arCpeIncomeDetailCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-	    arCpeIncomeDetailCargo.setCreateDt(currentTime);
-	    
-	    arCpeIncomeDetailColl.setCargo(arCpeIncomeDetailCargo);
-	    arCpeIncomeDetailColl.insert(arCpeIncomeDetailColl);
-	    
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArCpeIncomeDetailTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    arCpeIncomeDetailCargo = null;
-	    arCpeIncomeDetailColl = null;
-	}
+    /**
+     * @param con
+     *            Connection
+     */
+    public AutoRegistrationBO(Connection con) {
+	super(con);
     }
     
-    public boolean updateArHpeEligDetailTable(T1060_APP_IN_HPECargo t1060HPECargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateArHpeEligDetailTable() ");
-	ArHpeEligDetailCargo arHpeEligDetailCargo = new ArHpeEligDetailCargo();
-	ArHpeEligDetailCollection arHpeEligDetailColl = new ArHpeEligDetailCollection(connection);
-	
-	try {
-	    
-	    arHpeEligDetailCargo.setHouseholdSize(autoRegT1004CargoArray.length);
-	    arHpeEligDetailCargo.setHpeProvId(t1060HPECargo.getHpeProvId());
-	    arHpeEligDetailCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-	    arHpeEligDetailCargo.setAdrStateCd(t1060HPECargo.getAdrStateCd());
-	    arHpeEligDetailCargo.setAdrCityName(t1060HPECargo.getAdrCityName());
-	    arHpeEligDetailCargo.setAppNum(t1060HPECargo.getAppNum());
-	    arHpeEligDetailCargo.setAdrTypeCd(t1060HPECargo.getAdrTypeCd());
-	    arHpeEligDetailCargo.setTelNum(t1060HPECargo.getTelNum());
-	    arHpeEligDetailCargo.setCreateDt(currentTime);
-	    arHpeEligDetailCargo.setHpeHospName(t1060HPECargo.getHpeHospName());
-	    arHpeEligDetailCargo.setHpeEmplName(t1060HPECargo.getHpeEmplName());
-	    log(ILog.INFO, "AutoRegistrationBO.updateArHpeEligDetailTable() app Num " + t1060HPECargo.getAppNum());
-	    log(ILog.INFO, "AutoRegistrationBO.updateArHpeEligDetailTable() combinedHpeMaApp" + combinedHpeMaApp(t1060HPECargo.getAppNum()));
-	    if (combinedHpeMaApp(t1060HPECargo.getAppNum())) {
-		arHpeEligDetailCargo.setHpeEndDt(getMaxDate());
-	    } else {
-		arHpeEligDetailCargo.setHpeEndDt(getNextMonthEndDate(t1060HPECargo.getHpeBeginDt()));
-	    }
-	    log(ILog.INFO, "AutoRegistrationBO.updateArHpeEligDetailTable() hpeEndDt" + arHpeEligDetailCargo.getHpeEndDt());
-	    arHpeEligDetailCargo.setAdrZipCd(t1060HPECargo.getAdrZipCd());
-	    arHpeEligDetailCargo.setHpeHsplNmbr(t1060HPECargo.getHpeHsplNmbr());
-	    arHpeEligDetailCargo.setStreetAddr(t1060HPECargo.getStreetAddr());
-	    arHpeEligDetailCargo.setCommentsTxt(t1060HPECargo.getCommentsTxt());
-	    arHpeEligDetailCargo.setHpeBeginDt(t1060HPECargo.getHpeBeginDt());
-	    arHpeEligDetailCargo.setIncomeAmt(t1060HPECargo.getIncomeAmt());
-	    
-	    arHpeEligDetailColl.setCargo(arHpeEligDetailCargo);
-	    arHpeEligDetailColl.insert(arHpeEligDetailColl);
-	    
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArHpeEligDetailTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    arHpeEligDetailCargo = null;
-	    arHpeEligDetailColl = null;
-	}
+    public AutoRegistrationBO(TIERSBatchController batchController, Connection con) {
+	super(con);
+	this.batchController = batchController;
+	this.exceptionBO = new IESExceptionBO(this.batchController);
+	this.con = con;
     }
     
-    public boolean updateArHpeEligDetailIndvTable(T1060_APP_IN_HPECargo[] t1060HPECargoArray) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateArHpeEligDetailIndvTable() ");
-	ArHpeEligDetailIndvCargo arHpeEligDetailIndvCargo = null;
-	ArHpeEligDetailIndvCollection arHpeEligDetailIndvColl = new ArHpeEligDetailIndvCollection(connection);
-	T1004AppIndvCargo t1004Cargo = new T1004AppIndvCargo();
+    public void setCon(Connection con) {
+	this.con = con;
+    }
+    
+    char autoRegScheduledSw = ' ';
+    
+    DcCasesCargo[] dcCaseTempArray = null;
+    T1004AppIndvCargo[] autoRegT1004CargoArray = null;
+    T1002AppDtlCargo autoRegT1002Cargo = null;
+    T1001AppRqstCargo autoRegT1001Cargo = null;
+    T1060_APP_IN_HPECargo[] autoRegT1060HPECargoArray = null;
+    
+    HashMap<Integer, Long> indvMap = new HashMap();
+    HashMap<Long, Double> indvIncomeMap = new HashMap();
+    double autoRegAppIncome = 0.0;
+    AppIncomeCustomCargo[] autoRegCpeEligArray = null;
+    AppIncomeCustomCargo[] autoRegDcCpeEligArray = null;
+    AppIncomeCustomCargo[] autoRegHpeEligArray = null;
+    
+    boolean indvMCIcheck = true;
+    
+    T1001SSAppMpeCargo autoRegT1001SSAppMpeCargo = null;
+    ArAppAddrCargo arAppAddrCargo = null;
+    ArAppAddrCargo arAppMailAddrCargo = null;
+    ArApplicationRepCargo[] arAppAuthRepCargo = null;
+    ArAppAddrCargo[] arAppAuthRepAddrCargo = null;
+    Calendar cal = Calendar.getInstance();
+    java.sql.Timestamp currentTime = new java.sql.Timestamp(cal.getTimeInMillis());
+    
+    Timestamp  mspPgmStatrtDt = new Timestamp(cal.getTimeInMillis());
+    
+    private TIERSBatchController batchController = null;
+    public boolean hasExceptionOccurred = false;
+    IESExceptionBO exceptionBO = null;
+    
+    public AutoRegistrationBO(TIERSBatchController batchController) {
+	this.batchController = batchController;
+	this.exceptionBO = new IESExceptionBO(this.batchController);
+    }
+    
+    public AutoRegistrationBO(Timestamp currentDateIn) {
+	currentTime = currentDateIn;
+    }
+    
+    public boolean autoRegCompletenessCheck(String appNum) throws Exception {
+	log(7, "AutoRegistrationBO.autoRegCompletenessCheck() started appNum:" + appNum);
 	try {
-	    java.sql.Timestamp currentTime = new java.sql.Timestamp(System.currentTimeMillis());
-	    
-	    T1060_APP_IN_HPECargo t1060HPECargo = null;
-	    for (int i = 0; i < t1060HPECargoArray.length; i++) {
-		t1060HPECargo = t1060HPECargoArray[i];
-		// ILIES-194046
-		for (int j = 0; j < autoRegT1004CargoArray.length; j++) {
-		    if (t1060HPECargo.getIndvSeqNum() == autoRegT1004CargoArray[j].getIndvSeqNum()) {
-			t1004Cargo = autoRegT1004CargoArray[j];
-			break;
-		    }
-		}
-		
-		arHpeEligDetailIndvCargo = new ArHpeEligDetailIndvCargo();
-		arHpeEligDetailIndvCargo.setIlResSw(t1060HPECargo.getIlResSw());
-		arHpeEligDetailIndvCargo.setHpeEligGrpCd(t1060HPECargo.getHpeEligGrpCd() == null ? "NA" : t1060HPECargo.getHpeEligGrpCd());
-		arHpeEligDetailIndvCargo.setHpeEligSw(t1060HPECargo.getHpeEligSw());
-		arHpeEligDetailIndvCargo.setPrevMaEligSw(t1060HPECargo.getPrevHpeEligSw());
-		arHpeEligDetailIndvCargo.setUniqueTransId(t1060HPECargo.getUniqueTransId());
-		arHpeEligDetailIndvCargo.setPrevHpeEligSw(t1060HPECargo.getPrevHpeEligSw());
-		arHpeEligDetailIndvCargo.setPrevMpeEligSw('N');
-		arHpeEligDetailIndvCargo.setNatAmerSw(t1060HPECargo.getNatAmerSw());
-		arHpeEligDetailIndvCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		arHpeEligDetailIndvCargo.setDeliveryDt(t1060HPECargo.getDeliveryDt());
-		arHpeEligDetailIndvCargo.setAppNum(t1060HPECargo.getAppNum());
-		arHpeEligDetailIndvCargo.setUsCtznSw(t1060HPECargo.getUsCtznSw());
-		arHpeEligDetailIndvCargo.setHpeApplicantSw(t1060HPECargo.getHpeApplicantSw());
-		arHpeEligDetailIndvCargo.setIrdbStatusDt(currentTime);
-		arHpeEligDetailIndvCargo.setCreateDt(currentTime);
-		log(ILog.INFO, "AutoRegistrationBO.updateArHpeEligDetailIndvTable() app Num " + t1060HPECargo.getAppNum());
-		log(ILog.INFO, "AutoRegistrationBO.updateArHpeEligDetailIndvTable() combinedHpeMaApp" + combinedHpeMaApp(t1060HPECargo.getAppNum()));
-		if (combinedHpeMaApp(t1060HPECargo.getAppNum())) {
-		    arHpeEligDetailIndvCargo.setHpeEndDt(getMaxDate());
+	    if(checkBatProcInd(appNum)){
+		if (completenessCheck(appNum)) {
+		    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
 		} else {
-		    arHpeEligDetailIndvCargo.setHpeEndDt(getNextMonthEndDate(t1060HPECargo.getHpeBeginDt()));
+		    createEDMTask(appNum);
+		    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+		    return false;
 		}
-		log(ILog.INFO, "AutoRegistrationBO.updateArHpeEligDetailTable() hpeEndDt" + arHpeEligDetailIndvCargo.getHpeEndDt());
-		arHpeEligDetailIndvCargo.setLawfulPresSw(t1060HPECargo.getLawfulPresSw());
-		arHpeEligDetailIndvCargo.setPregnancySw(t1060HPECargo.getPregnancySw());
-		arHpeEligDetailIndvCargo.setMedicareSw(t1060HPECargo.getMedicareSw());
-		arHpeEligDetailIndvCargo.setIndvId(t1004Cargo.getBridgesIndvId());
-		//BEGIN: ILIES-226708 - ONLY SET STATUS IF INDIV IS ELIGIBLE
-		if(t1060HPECargo.getHpeEligGrpCd()!= null && !t1060HPECargo.getHpeEligGrpCd().equalsIgnoreCase("NA")){
-			arHpeEligDetailIndvCargo.setIrdbStatusCd('P');
-		}
-		//END: ILIES-226708
-		arHpeEligDetailIndvCargo.setHpeBeginDt(t1060HPECargo.getHpeBeginDt());
-		
-		arHpeEligDetailIndvColl.add(arHpeEligDetailIndvCargo);
-	    }
-	    arHpeEligDetailIndvColl.insert(arHpeEligDetailIndvColl);
-	    
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArHpeEligDetailIndvTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    arHpeEligDetailIndvCargo = null;
-	    arHpeEligDetailIndvColl = null;
-	}
-    }
-    
-    // ILIES-189484
-    public boolean updateArHpeAssociationTable(T1060_APP_IN_HPECargo t1060HPECargo) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateArHpeAssociationTable() ");
-	
-	ArHpeAssociationCargo arHpeAssCargo = new ArHpeAssociationCargo();
-	ArHpeAssociationCollection arHpeAssColl = new ArHpeAssociationCollection(connection);
-	
-	try {
-	    
-	    arHpeAssCargo.setHpeAppNum(t1060HPECargo.getAppNum());
-	    arHpeAssCargo.setHpeBegDt(t1060HPECargo.getHpeBeginDt());
-	    if (combinedHpeMaApp(t1060HPECargo.getAppNum())) {
-		arHpeAssCargo.setHpeEndDt(getMaxDate());
-	    } else {
-		arHpeAssCargo.setHpeEndDt(getNextMonthEndDate(t1060HPECargo.getHpeBeginDt()));
-	    }
-	    
-	    arHpeAssCargo.setCreateDt(currentTime);
-	    arHpeAssCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-	    arHpeAssCargo.setHpeTriggerStatusCd("NM");
-	    arHpeAssCargo.setHpeTriggerDt(currentTime);
-	    
-	    arHpeAssColl.setCargo(arHpeAssCargo);
-	    arHpeAssColl.insert(arHpeAssColl);
-	    
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArHpeAssociationTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    arHpeAssCargo = null;
-	    arHpeAssColl = null;
-	}
-    }
-    
-    public String updateArMpeEligDetailTable() throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateArMpeEligDetailTable() ");
-	ArMpeEligDetailCargo arMpeEligDetailCargo = new ArMpeEligDetailCargo();
-	ArFppeEligDetailCargo arFppeCargo = new ArFppeEligDetailCargo();
-	ArMpeEligDetailCollection arMpeEligDetailColl = new ArMpeEligDetailCollection(connection);
-	ArFppeEligDetailCollection arFppeCollection = new ArFppeEligDetailCollection(connection);
-	boolean isMPEapp = true;
-	AppSummaryBO appBO = new AppSummaryBO(connection);
-	char repeatedSw=' ';
-	
-	try {
-	    //FPPE is a clone of MPE AR table, pre-filling logic needs to be replicated.
-	    if (autoRegT1001SSAppMpeCargo == null) {
-		return null;
-	    }
-	    //MPE apps are only those where APP_TYPE is not FPPE; by default all PM are MPE apps.
-	    isMPEapp = !DMConstants.FP_PRESUMPTIVE_ELIGIBILITY.equals(autoRegT1001SSAppMpeCargo.getAppType());
-	    
-	    if(isMPEapp){
-	    	arMpeEligDetailCargo.setAppNum(autoRegT1001SSAppMpeCargo.getAppNum());
-	    	arMpeEligDetailCargo.setNetIncomeAmt(autoRegT1001SSAppMpeCargo.getMoNetIncAmt());
-		    arMpeEligDetailCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    arMpeEligDetailCargo.setPregnancyTestSw(autoRegT1001SSAppMpeCargo.getPosPrefTestInd());
-		    arMpeEligDetailCargo.setDeductionAmt(autoRegT1001SSAppMpeCargo.getMoCsPymtAmt());
-		    arMpeEligDetailCargo.setDeliveryDt(autoRegT1001SSAppMpeCargo.getExptDlvrDt());
-		    arMpeEligDetailCargo.setGrossAmt(autoRegT1001SSAppMpeCargo.getMoGrEiAmt() + autoRegT1001SSAppMpeCargo.getMoGrUeiAmt());
-		    arMpeEligDetailCargo.setMonthlyUiAmt(autoRegT1001SSAppMpeCargo.getMoGrUeiAmt());
-		    arMpeEligDetailCargo.setMpeEndDt(getNextMonthEndDate(autoRegT1001SSAppMpeCargo.getAppBeginDt()));
-		    arMpeEligDetailCargo.setCreateDt(currentTime);
-		    arMpeEligDetailCargo.setProviderId(autoRegT1001SSAppMpeCargo.getPrvdId());
-		    arMpeEligDetailCargo.setMpeDenialSw('N');
-		    arMpeEligDetailCargo.setUnbornCount(autoRegT1001SSAppMpeCargo.getFetusCt());
-		    arMpeEligDetailCargo.setHouseholdCount(autoRegT1001SSAppMpeCargo.getHshlMbrQty());
-		    arMpeEligDetailCargo.setMonthlyEiAmt(autoRegT1001SSAppMpeCargo.getMoGrEiAmt());
-		    arMpeEligDetailCargo.setMpeBeginDt(autoRegT1001SSAppMpeCargo.getAppBeginDt());
-		    arMpeEligDetailCargo.setMangpCd("MM");
-		    
-		    if (autoRegT1004CargoArray != null && autoRegT1004CargoArray.length > 0) {
-		    	arMpeEligDetailCargo.setIndvId(autoRegT1004CargoArray[0].getBridgesIndvId());
-		    	repeatedSw=appBO.twiceinYear(autoRegT1004CargoArray[0].getBridgesIndvId()); //Used to determine if a denial is needed (N or Y expected).
-		    }
-		    
-		    if(repeatedSw=='Y'){
-		    	arMpeEligDetailCargo.setMpeDenialSw('Y');
-		    	arMpeEligDetailCargo.setPeTwiceInYearSw('Y');
-		    	arMpeEligDetailCargo.setDenialReasonCd("P7");
-		    	arMpeEligDetailCargo.setMpeEndDt(currentTime);
-		    }
-		    else{
-		    	arMpeEligDetailCargo.setPeTwiceInYearSw('N');
-		    }
-		    
-	    	arMpeEligDetailColl.add(arMpeEligDetailCargo);
-	    	arMpeEligDetailColl.insert(arMpeEligDetailColl);
 	    }else{
-	    	arFppeCargo.setAppNum(autoRegT1001SSAppMpeCargo.getAppNum());
-	    	arFppeCargo.setNetIncomeAmt(autoRegT1001SSAppMpeCargo.getMoNetIncAmt());
-	    	arFppeCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-	    	arFppeCargo.setPregnancyTestSw(autoRegT1001SSAppMpeCargo.getPosPrefTestInd());
-	    	arFppeCargo.setDeductionAmt(autoRegT1001SSAppMpeCargo.getMoCsPymtAmt());
-	    	arFppeCargo.setGrossAmt(autoRegT1001SSAppMpeCargo.getMoGrEiAmt() + autoRegT1001SSAppMpeCargo.getMoGrUeiAmt());
-	    	arFppeCargo.setMonthlyUiAmt(autoRegT1001SSAppMpeCargo.getMoGrUeiAmt());
-	    	arFppeCargo.setFppeEndDt(getNextMonthEndDate(autoRegT1001SSAppMpeCargo.getAppBeginDt()));
-	    	arFppeCargo.setCreateDt(currentTime);
-	    	arFppeCargo.setProviderId(autoRegT1001SSAppMpeCargo.getPrvdId());
-	    	arFppeCargo.setFppeDenialSw('N');
-	    	arFppeCargo.setHouseholdCount(autoRegT1001SSAppMpeCargo.getHshlMbrQty());
-	    	arFppeCargo.setMonthlyEiAmt(autoRegT1001SSAppMpeCargo.getMoGrEiAmt());
-	    	arFppeCargo.setFppeBeginDt(autoRegT1001SSAppMpeCargo.getAppBeginDt());
-	    	arFppeCargo.setMangpCd("FG");
-	    	
-	    	if (autoRegT1004CargoArray != null && autoRegT1004CargoArray.length > 0) {
-	    		arFppeCargo.setIndvId(autoRegT1004CargoArray[0].getBridgesIndvId());
-	    		//repeatedSw=appBO.twiceinYear(autoRegT1004CargoArray[0].getBridgesIndvId()); //Used to determine if a denial is needed (N or Y expected).
-	    	}
-	    	
-	    	/*if(repeatedSw=='Y'){
-	    		arFppeCargo.setFppeDenialSw('Y');
-	    		arFppeCargo.setDenialReasonCd("P7");
-	    		arFppeCargo.setFppeEndDt(currentTime);
-	    	}*/
-	    	
-	    	arFppeCollection.add(arFppeCargo);
-	    	arFppeCollection.insert(arFppeCollection);
+	    	log(ILog.ERROR, "AutoRegistrationBO.autoRegCompletenessCheck() Failed auto bat proc Ind:" + appNum);
 	    }
-	    
-	    if(arMpeEligDetailCargo.getMpeDenialSw()=='Y'){
-	    	updateStatusArAppforAidTable(autoRegT1001SSAppMpeCargo.getAppNum());
-	    	return "P7true";
-	    }else{
-	    	return "P7false";
-	    }
-	    
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArMpeEligDetailTable(): " + "\n" + e.getMessage() + "\n", e);
 	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    arMpeEligDetailCargo = null;
-	    arMpeEligDetailColl = null;
-	}
-   }
-    
-    public boolean updateShAppointmentsTable() throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateShAppointmentsTable() ");
-	ShAppointmentsCollection shApptsColl = new ShAppointmentsCollection(connection);
-	
-	try {
-	    if (autoRegShAppCargo != null) {
-		autoRegShAppCargo.setCreateDt(currentTime);
-		
-		shApptsColl.setCargo(autoRegShAppCargo);
-		shApptsColl.update(shApptsColl);
-	    }
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateShAppointmentsTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    shApptsColl = null;
-	}
-    }
-    
-    
-    public boolean updateArAppforAidTable(String appNum) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.updateArAppforAidTable() ");
-    	ArApplicationForAidCargo arappCargo = new ArApplicationForAidCargo();
-    	ArApplicationForAidCollection arappColl = new ArApplicationForAidCollection(connection);
-    	ArApplicationForAidCargo[] arappCargoResult =null;
-    	
-    	try {
-    		   arappCargo.setAppNum(appNum);
-			   arappColl.setCargo(arappCargo);
-			   arappCargoResult = (ArApplicationForAidCargo[]) arappColl.select("findByAppNum");
-			   if (arappCargoResult != null || arappCargoResult.length > 0) {
-				   arappColl.clear();
-				   arappCargo = arappCargoResult[0];
-				   arappCargo.setScheduledSw(autoRegScheduledSw);
-				   arappColl.add(arappCargo);
-				   arappColl.update(arappColl);
-			   }
-    	       return true;
-    	    
-    	} catch (Exception e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArAppforAidTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-    	    hasExceptionOccurred = true;
-    	    throw e;
-    	} finally {
-    		arappColl=null;
-    		arappCargo=null;
-    		arappCargoResult = null;
-    	}
-       }
-    
-    
-    public boolean updateStatusArAppforAidTable(String appNum) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.updateStatusArAppforAidTable() ");
-    	ArApplicationForAidCargo arappCargo = new ArApplicationForAidCargo();
-    	ArApplicationForAidCollection arappColl = new ArApplicationForAidCollection(connection);
-    	ArApplicationForAidCargo[] arappCargoResult =null;
-    	
-    	try {
-    		   arappCargo.setAppNum(appNum);
-			   arappColl.setCargo(arappCargo);
-			   arappCargoResult = (ArApplicationForAidCargo[]) arappColl.select("findByAppNum");
-			   if (arappCargoResult != null || arappCargoResult.length > 0) {
-				   arappColl.clear();
-				   arappCargo = arappCargoResult[0];
-				   arappCargo.setApplicationStatusCd("DN");
-				   arappColl.add(arappCargo);
-				   arappColl.update(arappColl);
-			   }
-    	       return true;
-    	    
-    	} catch (Exception e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateStatusArAppforAidTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-    	    hasExceptionOccurred = true;
-    	    throw e;
-    	} finally {
-    		arappColl=null;
-    		arappCargo=null;
-    		arappCargoResult = null;
-    	}
-       }
-    
-    
-    public boolean updateShAppointmentProgramsTable() throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateShAppointmentProgramsTable() ");
-	ShAppointmentProgramsCollection shApptProgramColl = new ShAppointmentProgramsCollection(connection);
-	ShAppointmentsCargo shApptsCargo = new ShAppointmentsCargo();
-	ShAppointmentProgramsCargo shCargo = null;
-	
-	try {
-	    
-	    if (autoRegShAppCargo != null) {
-		
-		if (autoRegT1002Cargo.getFsRqstSw() == 'Y') {
-		    shCargo = new ShAppointmentProgramsCargo();
-		    shCargo.setApptId(autoRegShAppCargo.getApptId());
-		    shCargo.setExistsSw('Y');
-		    shCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    shCargo.setCreateDt(currentTime);
-		    shCargo.setProgramCd("FS");
-		    shApptProgramColl.add(shCargo);
-		}
-		if (autoRegT1002Cargo.getMaRqstSw() == 'Y') {
-		    shCargo = new ShAppointmentProgramsCargo();
-		    shCargo.setApptId(autoRegShAppCargo.getApptId());
-		    shCargo.setExistsSw('Y');
-		    shCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    shCargo.setCreateDt(currentTime);
-		    shCargo.setProgramCd("MA");
-		    shApptProgramColl.add(shCargo);
-		}
-		if (autoRegT1002Cargo.getMcRqstSw() == 'Y') {
-		    shCargo = new ShAppointmentProgramsCargo();
-		    shCargo.setApptId(autoRegShAppCargo.getApptId());
-		    shCargo.setExistsSw('Y');
-		    shCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    shCargo.setCreateDt(currentTime);
-		    shCargo.setProgramCd("MC");
-		    shApptProgramColl.add(shCargo);
-		}
-		if (autoRegT1002Cargo.getCashRqstSw() == 'Y') {
-		    shCargo = new ShAppointmentProgramsCargo();
-		    shCargo.setApptId(autoRegShAppCargo.getApptId());
-		    shCargo.setExistsSw('Y');
-		    shCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    shCargo.setCreateDt(currentTime);
-		    shCargo.setProgramCd("TF");
-		    shApptProgramColl.add(shCargo);
-		    
-		}
-		shApptProgramColl.insert(shApptProgramColl);
-	    }
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateShAppointmentProgramsTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    shApptProgramColl = null;
-	    shApptsCargo = null;
-	    shCargo = null;
-	}
-    }
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegCompletenessCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
 
-    public boolean updateConflictTables(String appNum) throws Exception {
-	log(7, "AutoRegistrationBO.updateConflictTables() started ");
-	SsBrgConflictStatusCargo ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	SsBrgConflictStatusCollection ssBrgConfStatColl = new SsBrgConflictStatusCollection(connection);
-	
-	try {
-	    /* Insert in conflict status table */
-
-	    ssBrgConfStatCargo.setPageId("AMMAP");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMAD");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMAT");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMII");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMAR");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAP");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAD");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAT");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRII");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAR");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARHCI"); //Contact information page_ID (AR mode)
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMHCI"); //Contact information page_ID (AM mode)
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(currentTime);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    
-	    log(7, "AutoRegistrationBO.updateConflictTables() -- End ");
-	    
-	    return true;
-	} catch (Exception ex) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateConflictTables() appNum: " + appNum + "\n" + ex.getMessage() + "\n", ex);
-	    hasExceptionOccurred = true;
-	    throw ex;
-	} finally {
-	    ssBrgConfStatCargo = null;
-	    ssBrgConfStatColl = null;
-	}
-    }
-    
-    public boolean updateConflictTablesCMBatch(String appNum, Timestamp rcvDt) throws Exception {
-	log(7, "AutoRegistrationBO.updateConflictTablesCMBatch() started ");
-	SsBrgConflictStatusCargo ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	SsBrgConflictStatusCollection ssBrgConfStatColl = new SsBrgConflictStatusCollection(connection);
-	long statusSeqNum;
-	try {
-	    /* Insert in conflict status table */
-
-	    ssBrgConfStatCargo.setPageId("AMMAP");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMAD");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMAT");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMII");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    statusSeqNum = ssBrgConfStatCargo.getSsBrgConflictStatusSeqNum();
-	    insertIntoBrgConflictKeyId(statusSeqNum, "1");
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("AMMAR");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAP");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("P");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAD");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAT");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRII");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    statusSeqNum = ssBrgConfStatCargo.getSsBrgConflictStatusSeqNum();
-	    insertIntoBrgConflictKeyId(statusSeqNum, "1");
-	    ssBrgConfStatColl.clear();
-	    
-	    ssBrgConfStatCargo = new SsBrgConflictStatusCargo();
-	    ssBrgConfStatCargo.setPageId("ARRAR");
-	    ssBrgConfStatCargo.setAppNum(appNum);
-	    ssBrgConfStatCargo.setStatusInd("PC");
-	    ssBrgConfStatCargo.setUpdateDt(rcvDt);
-	    ssBrgConfStatCargo.setUserId(AppRegConstants.AUTO_REG_BATCH);
-	    ssBrgConfStatColl.add(ssBrgConfStatCargo);
-	    ssBrgConfStatColl.insert(ssBrgConfStatColl);
-	    ssBrgConfStatColl.clear();
-	    
-	    log(7, "AutoRegistrationBO.updateConflictTablesCMBatch() -- End ");
-	    
-	    return true;
-	} catch (Exception ex) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateConflictTablesCMBatch() appNum: " + appNum + "\n" + ex.getMessage() + "\n", ex);
-	    hasExceptionOccurred = true;
-	    throw ex;
-	} finally {
-	    ssBrgConfStatCargo = null;
-	    ssBrgConfStatColl = null;
-	}
-    }
-
-    public boolean updateT1053AppProgramTable(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateT1053AppProgramTable() ");
-	
-	T1053AppProgramCollection t1053Coll = new T1053AppProgramCollection(connection);
-	T1053AppProgramCargo t1253Cargo = new T1053AppProgramCargo();
-	T1053AppProgramCargo[] t1253CargoArray = null;
-	
-	try {
-	    t1253Cargo.setAppNum(appNum);
-	    t1053Coll.add(t1253Cargo);
-	    t1253CargoArray = (T1053AppProgramCargo[]) t1053Coll.select("findByAppNum");
-	    if (t1253CargoArray != null || t1253CargoArray.length > 0) {
-		t1053Coll.clear();
-		for (int i = 0; i < t1253CargoArray.length; i++) {
-		    t1253Cargo = t1253CargoArray[i];
-		    t1253Cargo.setRequestStatusInd('Y');
-		    t1053Coll.add(t1253Cargo);
-		}
-		t1053Coll.update(t1053Coll);
-	    }
-	    
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateT1053AppProgramTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    t1053Coll = null;
-	    t1253Cargo = null;
-	    t1253CargoArray = null;
-	}
-    }
-
-    public boolean updateMoEmployeeAppsTable() throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateMoEmployeeAppsTable() ");
-	MoEmployeeAppsCargo moEmpAppsCargo = new MoEmployeeAppsCargo();
-	MoEmployeeAppsCollection moEmpAppsColl = new MoEmployeeAppsCollection(connection);
-	
-	try {
-	    long empId = retrieveIntakeVirtualWkrId(autoRegT1001Cargo.getOfcNum());
-	    if (autoRegT1002Cargo != null) {
-		
-		if (autoRegT1002Cargo.getFsRqstSw() == 'Y') {
-		    moEmpAppsCargo = new MoEmployeeAppsCargo();
-		    moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		    moEmpAppsCargo.setAssignBeginDt(currentTime);
-		    moEmpAppsCargo.setEmpId(empId);
-		    moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setCreateDt(currentTime);
-		    moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setProgramCd("FS");
-		    moEmpAppsColl.add(moEmpAppsCargo);
-		}
-		if (autoRegT1002Cargo.getMaRqstSw() == 'Y') {
-		    moEmpAppsCargo = new MoEmployeeAppsCargo();
-		    moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		    moEmpAppsCargo.setAssignBeginDt(currentTime);
-		    moEmpAppsCargo.setEmpId(empId);
-		    moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setCreateDt(currentTime);
-		    moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setProgramCd("MA");
-		    moEmpAppsColl.add(moEmpAppsCargo);
-		}
-		if (autoRegT1002Cargo.getMaRqstSw() == 'N' && autoRegT1002Cargo.getFppRqstSw() == 'Y') {
-		    moEmpAppsCargo = new MoEmployeeAppsCargo();
-		    moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		    moEmpAppsCargo.setAssignBeginDt(currentTime);
-		    moEmpAppsCargo.setEmpId(empId);
-		    moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setCreateDt(currentTime);
-		    moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setProgramCd("FP");
-		    moEmpAppsColl.add(moEmpAppsCargo);
-		}
-		if (autoRegT1002Cargo.getMcRqstSw() == 'Y') {
-		    moEmpAppsCargo = new MoEmployeeAppsCargo();
-		    moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		    moEmpAppsCargo.setAssignBeginDt(currentTime);
-		    moEmpAppsCargo.setEmpId(empId);
-		    moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setCreateDt(currentTime);
-		    moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setProgramCd("MC");
-		    moEmpAppsColl.add(moEmpAppsCargo);
-		}
-		if (autoRegT1002Cargo.getCashRqstSw() == 'Y') {
-		    moEmpAppsCargo = new MoEmployeeAppsCargo();
-		    moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		    moEmpAppsCargo.setAssignBeginDt(currentTime);
-		    moEmpAppsCargo.setEmpId(empId);
-		    moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setCreateDt(currentTime);
-		    moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setProgramCd("TF");
-		    moEmpAppsColl.add(moEmpAppsCargo);
-		    
-		}
-
-		if (autoRegT1002Cargo.getMaRqstSw() != 'Y' && appHPECategory) {
-		    moEmpAppsCargo = new MoEmployeeAppsCargo();
-		    moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		    moEmpAppsCargo.setAssignBeginDt(currentTime);
-		    moEmpAppsCargo.setEmpId(empId);
-		    moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setCreateDt(currentTime);
-		    moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setProgramCd("HP");
-		    moEmpAppsColl.add(moEmpAppsCargo);
-		}
-	    // for MPE
-	    if (appMPECategory && !appFPPECategory) {
-		moEmpAppsCargo = new MoEmployeeAppsCargo();
-		moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		moEmpAppsCargo.setAssignBeginDt(currentTime);
-		moEmpAppsCargo.setEmpId(empId);
-		moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		moEmpAppsCargo.setCreateDt(currentTime);
-		moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		moEmpAppsCargo.setProgramCd("MA");
-		moEmpAppsColl.add(moEmpAppsCargo);
-	    }
-	    // for FPPE
-		if (appFPPECategory) {
-		    moEmpAppsCargo = new MoEmployeeAppsCargo();
-		    moEmpAppsCargo.setAppNum(autoRegT1001Cargo.getAppNum());
-		    moEmpAppsCargo.setAssignBeginDt(currentTime);
-		    moEmpAppsCargo.setEmpId(empId);
-		    moEmpAppsCargo.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setCreateDt(currentTime);
-		    moEmpAppsCargo.setProcessId(AppRegConstants.AUTO_REG_BATCH);
-		    moEmpAppsCargo.setProgramCd("FP");
-		    moEmpAppsColl.add(moEmpAppsCargo);
-		}
-		moEmpAppsColl.insert(moEmpAppsColl);
-	    }
-	    return true;
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateMoEmployeeAppsTable(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    moEmpAppsColl = null;
-	    moEmpAppsCargo = null;
-	}
-    }
-    
-    public java.sql.Timestamp getNextMonthEndDate(java.sql.Timestamp date) {
-	Calendar c = Calendar.getInstance();
-	c.setTime(new java.util.Date(date.getTime()));
-	c.add(Calendar.MONTH, 2);
-	c.set(Calendar.DAY_OF_MONTH, 1);
-	c.add(Calendar.DATE, -1);
-	
-	java.util.Date nextMonthEndDate = c.getTime();
-	return new java.sql.Timestamp(nextMonthEndDate.getTime());
-	
-    }
-
-    public java.sql.Timestamp getMaxDate() throws TIERSBatchException {
-	
-	java.sql.Timestamp maxDate = null;
-	try {
-	    DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.s");
-	    java.util.Date tempDate = dateFormat.parse("9999-12-12 00:00:00.0");
-	    maxDate = new java.sql.Timestamp(tempDate.getTime());
-	    
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.getMaxDate(): " + "\n" + e.getMessage() + "\n", e);
+	    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
 	    throw new TIERSBatchException(e);
 	}
-	return maxDate;
+	return true;
+    }
+    
+    public Boolean autoRegCompletenessCheck(DcAutoProcessingCargo dcAutoProcessingCargo) throws Exception {
+    	log(7, "AutoRegistrationBO.autoRegCompletenessCheck() started appNum:" + dcAutoProcessingCargo.getAppNum());
+    	Boolean result = true;
+    	mspDocId = null;
+    	if(dcAutoProcessingCargo.getCompletenessSw() == 'Y'){
+    		return result;
+    	}
+    	try{
+    		dcAutoProcessingCargo.setCompletenessSw('Y'); //Completeness check complete
+    		result = completenessCheck(dcAutoProcessingCargo.getAppNum());
+    		if(result) {
+    			updateAutoRegTriggerTable(dcAutoProcessingCargo, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+    		} else {
+    		    createEDMTask(dcAutoProcessingCargo.getAppNum());
+		    updateAutoRegTriggerTable(dcAutoProcessingCargo, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+    		}
+    	}catch (Exception e) {
+    		// PMD_Override - R6 - Exception is not being propagated because the return value indicates if we should continue with the next record
+    		PMDRules.markApprovedCatchBlock("R6");
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegCompletenessCheck()  appNum: " + dcAutoProcessingCargo.getAppNum() + "\n" + e.getMessage() + "\n", e);
+
+    	    dcAutoProcessingCargo.setCompletenessSw('N'); //Completeness check still needed
+    	    updateAutoRegTriggerTable(dcAutoProcessingCargo, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS, AppRegConstants.AUTO_REG_PROCESS_IA, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+    	    result = null;
+    	    hasExceptionOccurred = true;
+    	}
+    	return result;
+    }
+    
+    public void preComplenessCheck(String appNum) throws Exception{
+		try {
+			DcAutoProcessingCollection dcAutoProcColl = new DcAutoProcessingCollection(connection);
+			DcAutoProcessingCargo[] dcAutoProcCargoArray = null;
+			Object dcAutoProcArgs[] = { appNum };
+			dcAutoProcCargoArray = (DcAutoProcessingCargo[]) dcAutoProcColl.select("findByAppNum", dcAutoProcArgs);
+			DcAutoProcessingCargo dcAutoProcCargo = dcAutoProcCargoArray != null && dcAutoProcCargoArray.length > 0 ? dcAutoProcCargoArray[0] : new DcAutoProcessingCargo();
+			dcAutoProcCargo.setAutoRegStatusInd(AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_PROGRASS);
+			dcAutoProcCargo.setAutoRegExceptCd(AppRegConstants.AUTO_REG_EMPTY);
+			dcAutoProcCargo.setAutoRegStatusDt(currentTime);
+			dcAutoProcCargo.setAutoBatProcInd(AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_NEW);
+			dcAutoProcCargo.setCompletenessSw('N'); //Completeness check pending
+			
+			if(dcAutoProcCargoArray == null || dcAutoProcCargoArray.length == 0) {
+				dcAutoProcCargo.setAppNum(appNum);
+				dcAutoProcColl.setCargo(dcAutoProcCargo);					
+				dcAutoProcColl.insert(dcAutoProcColl);
+				log(7, "AutoRegistrationBO.preComplenessCheck() :: Data inserted Successfully");
+			}else if(dcAutoProcCargoArray != null && dcAutoProcCargoArray.length > 0 && dcAutoProcCargoArray[0].getAutoBatProcInd() != null && !dcAutoProcCargoArray[0].getAutoBatProcInd().equals("N")){
+				log(ILog.ERROR, "AutoRegistrationBO.preComplenessCheck() Failed auto bat proc Ind:" + appNum);
+			}else{
+				dcAutoProcColl.setCargo(dcAutoProcCargo);
+				dcAutoProcColl.update(dcAutoProcColl);
+				log(7, "AutoRegistrationBO.preComplenessCheck() :: Data updated Successfully");
+			}
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.preComplenessCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		    throw new TIERSBatchException(e);
+		}
+    }
+    
+    public boolean createEDMTaskForFailedApps(String appNum, String excpCD) throws Exception {
+	log(7, "AutoRegistrationBO.createEDMTaskForFailedApps() started ");
+	boolean autoRegCheck = false;
+	try {
+	    getDataForAutoRegProcess(appNum, autoRegCheck);
+	    createEDMTask(appNum, true);
+	    updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, "AF", AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+	} catch (Exception e) {
+	    hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.preComplenessCheck()  appNum: " + appNum + " excpCD: " + excpCD + "\n" + e.getMessage() + "\n", e);
+	    
+	    throw e;
+	}
+	return true;
+    }
+    
+    public String autoRegistrationCheck(String appNum, Connection conn) throws Exception {
+	log(7, "AutoRegistrationBO.autoRegistrationCheck()started ");
+	System.out.println("Test ****AutoRegistrationBO.autoRegistrationCheck()started ");
+	this.con = conn;
+	boolean autoRegCheck = true;
+	boolean edmTaskFaied = false;
+	newSSALISMSPApp = false ;
+	mspDocId = null;
+	try {
+	    
+	    if (!getDataForAutoRegProcess(appNum, autoRegCheck)) {
+		return "Failed";
+	    }
+	    //ILIES-282116 Changes made by Uma Rani for Auto-Reg batch DOB Check start
+	    if (!dateOfBirthCheck(appNum)) {
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_ND, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
+		}
+	   
+	    //ILIES-282116 Changes made by Uma Rani for Auto-Reg batch DOB Check end
+	    if (!mciFileClearanceCheck(appNum)) { 
+		createEDMTask(appNum);
+		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_FC, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+		return "Failed";
+	    }
+	    // MA Prior months Program Check (This includes also FPAs)
+	    if (!MAPriorProgCheck(appNum)) {
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_CR, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
+		}
+	    log(7, "AutoRegistrationBO.autoRegistrationCheck() : getting data from AUTOREGPROCESS reference table for Active Case check");
+	    RefTableData rtd = ReferenceTableManager.getValueForDescription("AUTOREGPROCESS", "ACTIVE_CASE_SW");
+	    log(7, "AutoRegistrationBO.autoRegistrationCheck() : AUTOREGPROCESS Reference Table data :" + rtd);
+	    String autoRegSw = "";
+	    if (rtd != null) {
+		autoRegSw = rtd.getRefrTableCode();
+	    }
+	    log(7, "AutoRegistrationBO.autoRegistrationCheck() : AUTOREGPROCESS Reference Table ACTIVE_CASE_SW :" + autoRegSw);
+	    if (autoRegSw != null && "Y".equalsIgnoreCase(autoRegSw)) {
+		log(7, "Before starting  AutoRegistrationBO.existingActiveCaseCheck() for IndvMap  : "+ indvMap);
+		System.out.println("Before starting  AutoRegistrationBO.existingActiveCaseCheck() for IndvMap  : "+ indvMap);
+	    		boolean caseCheck = existingActiveCaseCheck(appNum, indvMap);
+	    		System.out.println("Begin AutoRegistrationBO.autoRegPEUpdate() : performMpeExtention :  appNum:: " + appNum + " mpeAppExists:: " + mpeAppExists
+				+ " appFppExists::" + appFppExists+" CaseCheckBoolean::" +caseCheck +"indvMap::"+indvMap);
+	    		log(7, "Begin AutoRegistrationBO.autoRegPEUpdate() : performMpeExtention :  appNum:: " + appNum + " mpeAppExists:: " + mpeAppExists
+						+ " appFppExists::" + appFppExists+" CaseCheckBoolean::" +caseCheck +"indvMap::"+indvMap);
+	    		if (autoRegT1002Cargo != null && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() == 'Y') && (mpeAppExists || appFppExists))
+				{
+					performMpeExtention(appNum,indvMap);
+				}
+				if (caseCheck == true && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y"))
+				{
+					if (this.con != null)
+					{
+						this.con.commit();
+					}
+					return "Success";
+				}
+				if (caseCheck == false)
+				{
+					if (this.con != null)
+					{
+						this.con.commit();
+					}
+					return "Failed";
+					/*
+					 * if(!mpeAppExists){
+					 * return "Failed";
+					 * }else{
+					 * return "Failed and has MPE"; //Added for ILIES-192695
+					 * }
+					 */
+
+				}
+	    }
+	    
+	    if (!validApplicationCheck(appNum, indvMap)) {
+		return "Failed";
+	    }
+	   /* log(7, "AutoRegistrationBO.autoRegistrationCheck() :: calling isStateResidence() ");
+	    if (!isStateResidence(appNum)) {
+		log(7, "AutoRegistrationBO.autoRegistrationCheck() :: inside if(!isStateResidence) ");
+		//return "Failed";
+	    }*/
+	    
+	    if (!interfaceCheck(appNum)) {
+		return "Failed";
+	    }
+	    
+	    if (!checkArAuthRepAddress(appNum)) {
+		return "Failed";
+	    }
+	    
+	    if (!autoRegDataUpdate(appNum, conn)) { //Step to populate AR tables, if fails a task is created.
+		createEDMTask(appNum);
+		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+		return "Failed";
+	    }
+	    
+	  
+	    
+	    //Application includes SNAP or cash then only check scheduling
+	    if (autoRegT1002Cargo.getFsRqstSw() == 'Y' || autoRegT1002Cargo.getCashRqstSw() == 'Y') {
+		    if (!isAppointmentAutoScheduled(appNum)) {
+				autoRegScheduledSw = 'N';
+			} else {
+				autoRegScheduledSw = 'Y';
+		    }
+	    }
+	    
+	    if (!autoRegUpdate(appNum, conn)) {
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
+		}
+	    
+	    if (!autoRegPEUpdate(appNum, conn)) { //Step to populate MPE/FPPE tables, if fails a task is created.
+			createEDMTask(appNum);
+			updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_FAIL, AppRegConstants.AUTO_REG_PROCESS_DB, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+			return "Failed";
+		}
+	    
+	    if (autoRegScheduledSw == 'Y') {
+			if (appSSAMSPCategory) {
+			    if (mSPAppStatus != null && "DP".equalsIgnoreCase(mSPAppStatus)) {
+				generateCorrespondance(appNum, DIConstants.DOC_ID_FXX463, "", this.con);
+			    } else {
+				generateCorrespondance(appNum, DIConstants.DOC_ID_FXX445, "", this.con);
+			    }
+			}
+	    }
+	    if(appSSALISMSPCategory == true){
+		newSSALISMSPApp = true ;
+	    }
+		try {
+		    createEDMTask(appNum);
+		    updateTaskForCaseProcess(appNum);
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+		    edmTaskFaied = true;
+		    throw e;
+		}
+		updateAutoRegTriggerTable(appNum, AppRegConstants.AUTO_REG_PROCESS_APP_STATUS_SUCCESS, AppRegConstants.AUTO_REG_EMPTY, AppRegConstants.AUTO_REG_PROCESS_BATCH_IND_COMPLETED);
+	    if (this.con != null) {
+		this.con.commit();
+	    }
+	    
+	    return "Success";
+	    
+	} catch (FwException e) {
+		log(ILog.ERROR, "Exception [FwException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (FrameworkException e) {
+		log(ILog.ERROR, "Exception [FrameworkException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (TIERSValidationException e) {
+		log(ILog.ERROR, "Exception [TIERSValidationException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (TIERSRunTimeException e) {
+		log(ILog.ERROR, "Exception [TIERSRunTimeException] in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} catch (Exception e) {
+	    // PMD_Override - R6 - Exception is not being propagated because the return value indicates
+	    // the system how to behave depending on reason of failure, i.e. FC_EXP is FATAL.
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.autoRegistrationCheck()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+
+	    PMDRules.markApprovedCatchBlock("R6");
+	    if (this.con != null) {
+		this.con.rollback();
+	    }
+	    if (!keepProcessing) {
+		return "FC_EXP";
+	    } else {
+		return "Failed";
+	    }
+	    
+	} finally {
+	    if (edmTaskFaied) {
+		updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_CT, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+	    }
+	}
+    }
+    
+	// Start: Added for ILIES-192695
+	public void performMpeExtention(String appNum, HashMap<Integer, Long> indvMap) throws Exception {
+		try {
+			if(!appMPECategory && !appFPPECategory){
+				T1004AppIndvCollection t1004AppIndvColl = new T1004AppIndvCollection(connection);
+				T1004AppIndvCargo[] t1004AppIndvCargoArray = (T1004AppIndvCargo[]) t1004AppIndvColl.select("findByAppNumMaMeHbProgram", new Object[] { appNum });
+				if(t1004AppIndvCargoArray != null && t1004AppIndvCargoArray.length > 0){
+					for(T1004AppIndvCargo t1004AppIndvCargo: t1004AppIndvCargoArray){
+						checkMpeExtEligibility(appNum, t1004AppIndvCargo,indvMap);
+					}
+				}
+			}
+			if (this.con != null) {
+				this.con.commit();
+			}
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.performMpeExtention()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	
+			if (this.con != null) {
+				this.con.rollback();
+			}
+			throw e;
+		}
+	}
+
+	private void checkMpeExtEligibility(String appNum, T1004AppIndvCargo t1004AppIndvCargo, HashMap<Integer,Long> indvMap) throws Exception {
+		try
+		{
+			if (mpeAppExists && indvMap.size() > 0)
+			{
+				ArMpeEligDetailCargo arMpeEligDtlCargo = new ArMpeEligDetailCargo();
+				ArMpeEligDetailCollection arMpeEligDtlColl = new ArMpeEligDetailCollection(connection);
+				Integer indvSeqNum = Integer.valueOf((t1004AppIndvCargo.getIndvSeqNum()+""));
+				Long indvId = indvMap.get(indvSeqNum);
+				if (indvId == 0)
+				{
+					return;
+				}
+				arMpeEligDtlCargo.setIndvId(indvId);
+				arMpeEligDtlColl.setCargo(arMpeEligDtlCargo);
+				ArMpeEligDetailCargo[] arMpeEligDtlCargoArray = (ArMpeEligDetailCargo[]) arMpeEligDtlColl.select("findByActiveIndv");
+				if (arMpeEligDtlCargoArray != null && arMpeEligDtlCargoArray.length > 0)
+				{
+					arMpeEligDtlCargo = arMpeEligDtlCargoArray[0];
+					Timestamp mpeBeginDate = getTimestampDateOnly(arMpeEligDtlCargo.getMpeBeginDt());
+					Timestamp mpeEndDate = getTimestampDateOnly(arMpeEligDtlCargo.getMpeEndDt());
+					/*
+					 * CreateDt field in T1004AppIndvCargo is used to store APP_RCV_DT column from T1001_APP_RQST table
+					 * in findByAppNumMaMeHbProgram finder method logic in T1004AppIndvDAO
+					 */
+					Timestamp appRcvdDate = getTimestampDateOnly(t1004AppIndvCargo.getCreateDt());
+					if (t1004AppIndvCargo.getMaRqstSw() == 'Y'
+							&& arMpeEligDtlCargo.getIndvId() == indvId
+							&& arMpeEligDtlCargo.getMpeExtensionSw() != 'Y'
+							&& arMpeEligDtlCargo.getMpeDenialSw() != 'Y'
+							&& ((mpeBeginDate.before(appRcvdDate) || mpeBeginDate.equals(appRcvdDate)) && (mpeEndDate.after(appRcvdDate) || mpeEndDate
+									.equals(appRcvdDate))))
+					{
+						updateArMpeEligDtl(arMpeEligDtlCargo);
+						insertMpeExtTrigger(arMpeEligDtlCargo);
+					}
+				}
+
+			}
+			if (appFppExists && indvMap.size() > 0)
+			{
+				ArFppeEligDetailCargo arFppeEligDtlCargo = new ArFppeEligDetailCargo();
+				ArFppeEligDetailCollection arFppeEligDtlColl = new ArFppeEligDetailCollection(connection);
+				Integer indvSeqNum = Integer.valueOf((t1004AppIndvCargo.getIndvSeqNum()+""));
+				Long indvId = indvMap.get(indvSeqNum);
+				if (indvId == 0)
+				{
+					return;
+				}
+				arFppeEligDtlCargo.setIndvId(indvId);
+				arFppeEligDtlColl.setCargo(arFppeEligDtlCargo);
+				ArFppeEligDetailCargo[] arFppeEligDtlCargoArray = (ArFppeEligDetailCargo[]) arFppeEligDtlColl.select("findByActiveIndv");
+				if (arFppeEligDtlCargoArray != null && arFppeEligDtlCargoArray.length > 0)
+				{
+					arFppeEligDtlCargo = arFppeEligDtlCargoArray[0];
+					Timestamp fppeBeginDate = getTimestampDateOnly(arFppeEligDtlCargo.getFppeBeginDt());
+					Timestamp fppeEndDate = getTimestampDateOnly(arFppeEligDtlCargo.getFppeEndDt());
+					/*
+					 * CreateDt field in T1004AppIndvCargo is used to store APP_RCV_DT column from T1001_APP_RQST table
+					 * in findByAppNumMaMeHbProgram finder method logic in T1004AppIndvDAO
+					 */
+					Timestamp appRcvdDate = getTimestampDateOnly(t1004AppIndvCargo.getCreateDt());
+					if ((t1004AppIndvCargo.getMaRqstSw() == 'Y' || t1004AppIndvCargo.getFppRqstSw() == 'Y')
+							&& arFppeEligDtlCargo.getIndvId() == indvId
+							&& arFppeEligDtlCargo.getFppeExtensionSw() != 'Y'
+							&& arFppeEligDtlCargo.getFppeDenialSw() != 'Y'
+							&& ((fppeBeginDate.before(appRcvdDate) || fppeBeginDate.equals(appRcvdDate)) && (fppeEndDate.after(appRcvdDate) || fppeEndDate
+									.equals(appRcvdDate))))
+					{
+						updateArFppeEligDtl(arFppeEligDtlCargo);
+						// insertMpeExtTrigger(arFppeEligDtlCargo);
+						insertFppExtTrigger(arFppeEligDtlCargo);
+					}
+				}
+
+			}
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.checkMpeExtEligibility()  appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
+	
+	public Timestamp getTimestampDateOnly(Timestamp ts) {
+		Timestamp retTS = null;
+		if(ts != null){
+			Calendar dateCalendar = Calendar.getInstance();
+			dateCalendar.setTime(ts);
+			dateCalendar.set(Calendar.HOUR_OF_DAY, 0);
+			dateCalendar.set(Calendar.MINUTE, 0);
+			dateCalendar.set(Calendar.SECOND, 0);
+			dateCalendar.set(Calendar.MILLISECOND, 0);
+			retTS = new Timestamp(dateCalendar.getTime().getTime());
+		}
+		return retTS;
+	}
+
+	private void updateArMpeEligDtl(ArMpeEligDetailCargo arMpeEligDtlCargo) throws Exception {
+		try {
+			ArMpeEligDetailCollection arMpeEligDtlColl = new ArMpeEligDetailCollection(connection);
+			
+			//Start of ILIES-278552
+			//Change the MPE extension date to 12/31/2999, instead of the original 90-day extension
+			java.sql.Timestamp mpeEndDt = java.sql.Timestamp.valueOf(MPE_FPPE_END_DATE);
+			arMpeEligDtlCargo.setMpeEndDt(mpeEndDt);
+			//End of ILIES-278552
+			
+			arMpeEligDtlCargo.setMpeExtensionSw('Y');
+			arMpeEligDtlColl.clear();
+			arMpeEligDtlColl.setCargo(arMpeEligDtlCargo);
+			arMpeEligDtlColl.update(arMpeEligDtlColl);
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArMpeEligDtl(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
+	
+	private void updateArFppeEligDtl(ArFppeEligDetailCargo arFppeEligDtlCargo) throws Exception {
+		try {
+			ArFppeEligDetailCollection arFppeEligDtlColl = new ArFppeEligDetailCollection(connection);
+			
+			//Start of ILIES-278552
+			//Change the FPPE extension date to 12/31/2999, instead of the original 90-day extension
+			java.sql.Timestamp fppeEndDt = java.sql.Timestamp.valueOf(MPE_FPPE_END_DATE);
+			arFppeEligDtlCargo.setFppeEndDt(fppeEndDt);
+			//End of ILIES-278552
+			
+			arFppeEligDtlCargo.setFppeExtensionSw('Y');
+			arFppeEligDtlColl.clear();
+			arFppeEligDtlColl.setCargo(arFppeEligDtlCargo);
+			arFppeEligDtlColl.update(arFppeEligDtlColl);
+		} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateArFppeEligDtl(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
+
+	private void insertMpeExtTrigger(ArMpeEligDetailCargo arMpeEligDtlCargo) throws Exception {
+		log(7, "Begin AutoRegistrationBO.insertMpeExtTrigger() - ");
+		InTriggerTableCargo[] triggerCargos = null;
+		ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
+		try {
+			if (arMpeEligDtlCargo != null && arMpeEligDtlCargo.getMangpCd() != null && arMpeEligDtlCargo.getMangpCd().length() > 0) {
+				log(7, "AutoRegistrationBO.insertMpeExtTrigger() :: arMpeEligDtlCargo.getIndvId() - " + arMpeEligDtlCargo.getIndvId());
+				InTriggerTableCargo inTrig = new InTriggerTableCargo();
+				inTrig.setTriggerCd("FI003");
+				inTrig.setMangpCd(arMpeEligDtlCargo.getMangpCd());
+				inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+				inTrig.setInterfaceNameCd("MANG");
+				inTrig.setProcessFlag('N');
+				inTrig.setFirstTimeInd('N');
+				SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+				Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
+				inTrig.setBeginDt(today);
+				inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
+				inTrig.setAppNum(arMpeEligDtlCargo.getAppNum());
+				inTrig.setIndvId(arMpeEligDtlCargo.getIndvId());
+				triggerList.add(inTrig);
+			}
+			if (triggerList.size() > 0) {
+				triggerCargos = new InTriggerTableCargo[triggerList.size()];
+				triggerList.toArray(triggerCargos);
+				try {
+					InTriggerTableCollection triggerBatchCollection = new InTriggerTableCollection(connection);
+					triggerBatchCollection.setResults(triggerCargos);
+					triggerBatchCollection.insert(triggerBatchCollection);
+				} catch (Exception excep) {
+					String msg = excep.getMessage();
+					if ((msg != null) && !(msg.trim().equals(""))) {
+						log(ILog.ERROR, "AutoRegistrationBO.insertMpeExtTrigger(): Exception while creating trigger: " + msg + "\n" + excep.getMessage() + "\n", excep);
+						throw new INTriggerException(msg);
+					} else {
+						log(ILog.ERROR, "AutoRegistrationBO.insertMpeExtTrigger(): Exception while creating trigger and Exception Message is Blank");
+						throw new INTriggerException("Failure while Insert and Exception Message is Blank");
+					}
+				}
+			}
+		} catch (INTriggerException e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.insertMpeExtTrigger(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
+	
+	private void insertMpeExtTrigger(ArFppeEligDetailCargo arFppeEligDtlCargo) throws Exception {
+		ArMpeEligDetailCargo arMpeEligDtlCargo = new ArMpeEligDetailCargo();
+		//Reusing MPE object to reduce redundancy
+		arMpeEligDtlCargo.setMangpCd(arFppeEligDtlCargo.getMangpCd());
+		arMpeEligDtlCargo.setAppNum(arFppeEligDtlCargo.getAppNum());
+		arMpeEligDtlCargo.setIndvId(arFppeEligDtlCargo.getIndvId());
+		insertMpeExtTrigger(arMpeEligDtlCargo);
+	}
+	// End: Added for ILIES-192695
+	
+	//ILIES-278164 - insert fppe extension trigger
+	private void insertFppExtTrigger(ArFppeEligDetailCargo arFppeEligDtlCargo) throws Exception {
+		log(7, "Begin AutoRegistrationBO.insertFppExtTrigger() - ");
+		InTriggerTableCargo[] triggerCargos = null;
+		ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
+		try {
+			if (arFppeEligDtlCargo != null && arFppeEligDtlCargo.getMangpCd() != null && arFppeEligDtlCargo.getMangpCd().length() > 0) {
+				log(7, "AutoRegistrationBO.insertFppExtTrigger() :: ArFppeEligDetailCargo.getIndvId() - " + arFppeEligDtlCargo.getIndvId());
+				InTriggerTableCargo inTrig = new InTriggerTableCargo();
+				inTrig.setTriggerCd("FI008");
+				inTrig.setMangpCd(arFppeEligDtlCargo.getMangpCd());
+				inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
+				inTrig.setInterfaceNameCd("MANG");
+				inTrig.setProcessFlag('N');
+				inTrig.setFirstTimeInd('N');
+				SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+				Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
+				inTrig.setBeginDt(today);
+				inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
+				inTrig.setAppNum(arFppeEligDtlCargo.getAppNum());
+				inTrig.setIndvId(arFppeEligDtlCargo.getIndvId());
+				triggerList.add(inTrig);
+			}
+			if (triggerList.size() > 0) {
+				triggerCargos = new InTriggerTableCargo[triggerList.size()];
+				triggerList.toArray(triggerCargos);
+				try {
+					InTriggerTableCollection triggerBatchCollection = new InTriggerTableCollection(connection);
+					triggerBatchCollection.setResults(triggerCargos);
+					triggerBatchCollection.insert(triggerBatchCollection);
+				} catch (Exception excep) {
+					String msg = excep.getMessage();
+					if ((msg != null) && !(msg.trim().equals(""))) {
+						log(ILog.ERROR, "AutoRegistrationBO.insertFppExtTrigger(): Exception while creating trigger: " + msg + "\n", excep);
+						throw new INTriggerException(msg);
+					} else {
+						log(ILog.ERROR, "AutoRegistrationBO.insertFppExtTrigger(): Exception while creating trigger and Exception Message is Blank");
+						throw new INTriggerException("Failure while Insert and Exception Message is Blank");
+					}
+				}
+			}
+		} catch (INTriggerException e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.insertFppExtTrigger(): " + "\n" + e.getMessage() + "\n", e);
+			throw e;
+		}
+	}
+    
+    public boolean completenessCheck(String appNum) throws Exception {
+	log(7, "AutoRegistrationBO.completenessCheck() started ");
+	T1001AppRqstCollection t1001Coll = new T1001AppRqstCollection(connection);
+	T1003AppPrirSrvCollection t1003SrvColl = new T1003AppPrirSrvCollection(connection);
+	T1004AppIndvCollection t1004Coll = new T1004AppIndvCollection(connection);
+	T1060_APP_IN_HPECollection t1060_APP_IN_HPEColl = new T1060_APP_IN_HPECollection(connection);
+	
+	log(ILog.DEBUG, "Initialising EDMWebserviceVO..." + appNum);
+	dmWebserviceVO = new DMElectronicDocumentSSVO();
+	Map speciallInd = new HashMap();
+	
+	try {
+	    Object appNumArgs[] = { appNum };
+	    Properties properties = FwPropertyLoader.getProperties(FwConstants.APPLICATION_PROPERTY_FILE);
+
+	    T1001AppRqstCargo t1001Cargo = new T1001AppRqstCargo();
+	    t1001Cargo.setAppNum(appNum);
+	    t1001Coll.setCargo(t1001Cargo);
+	    T1001AppRqstCargo[] t1001CargoArray = (T1001AppRqstCargo[]) t1001Coll.select("findByAppNum");
+	    if (t1001CargoArray == null || t1001CargoArray.length == 0) {
+	    	log(7, "AutoRegistrationBO.completenessCheck() :: t1001Cargo data not found: Failing the app --" + appNum);
+	    	throw new Exception();
+	    }
+	    
+	    t1001Cargo = t1001CargoArray[0];
+	    
+	    if (t1001Cargo == null)
+		return false;
+	    
+	    DMElectronicDocumentWSBO dmBO = new DMElectronicDocumentWSBO(connection);
+		String langCd = t1001Cargo.getLangCd(); //Langauge SPD
+		if(StringUtils.isNotEmpty(langCd) && !("0".equalsIgnoreCase(langCd))){
+		String langSI = dmBO.getLangSPD(langCd);
+			List<String> languageSplInd = new ArrayList<String>();
+			languageSplInd.add(langSI);
+			speciallInd.put(langSI, languageSplInd);
+		}
+	    
+	    T1002AppDtlCollection t1002Coll = new T1002AppDtlCollection(connection);
+	    T1002AppDtlCargo t1002Cargo = new T1002AppDtlCargo();
+	    T1002AppDtlCargo[] t1002CargoArray = (T1002AppDtlCargo[]) t1002Coll.select("findAppDtlByAppNum", appNumArgs);
+	    if (t1002CargoArray == null || t1002CargoArray.length == 0) {
+	    	log(7, "AutoRegistrationBO.completenessCheck() :: t1002Cargo data not found: Failing the app --" + appNum);
+	    	throw new Exception();
+	    }
+	    
+	    t1002Cargo = t1002CargoArray[0];
+	    T1004AppIndvCargo t1004Cargo = new T1004AppIndvCargo();
+	    T1004AppIndvCargo[] t1004CargoArray = (T1004AppIndvCargo[]) t1004Coll.select("findByAppNum", appNumArgs);
+	    if (t1004CargoArray == null || t1004CargoArray.length == 0) {
+	    	log(7, "AutoRegistrationBO.completenessCheck() :: t1004Cargo data not found: Failing the app --" + appNum);
+	    	throw new Exception();
+	    }
+	    
+	    log(7, "AutoRegistrationBO.completenessCheck() :: dmWebserviceVO ");
+	    dmWebserviceVO.setAppNum(appNum);
+	    if (t1001Cargo.getSopDueDt() != null) {
+		dmWebserviceVO.setDueDate(t1001Cargo.getSopDueDt().toString());
+	    } else {
+		dmWebserviceVO.setDueDate(currentTime.toString());
+	    }
+	    String pid = null;
+	    String htmlPid = null;
+	    pid = t1001Cargo.getPId();
+	    htmlPid = t1001Cargo.getHtmlPId();
+	    if (pid != null && !pid.trim().equals("")) {
+		dmWebserviceVO.setDocumentId(pid);
+	    } else {
+		dmWebserviceVO.setDocumentId(appNum);
+	    }
+	    if (htmlPid != null && !htmlPid.trim().equals("")) {
+		dmWebserviceVO.setHtmlPid(htmlPid);
+	    }
+	    
+	    dmWebserviceVO.setReceivedDate(t1001Cargo.getAppRcvDt().toString());
+	    dmWebserviceVO.setScanDate(dmWebserviceVO.getReceivedDate());
+	    dmWebserviceVO.setDestinationOfficeNum(new Long(t1001Cargo.getOfcNum()));
+	    dmWebserviceVO.setScannedOfficeNum(new Long(t1001Cargo.getOfcNum()));
+	    if (t1004CargoArray != null && t1004CargoArray.length > 0) {
+		for (int k = 0; k < t1004CargoArray.length; k++) {
+		    T1004AppIndvCargo cargo = t1004CargoArray[k];
+		    if (cargo != null && cargo.getPrimPrsnSw() == 'Y') {
+			dmWebserviceVO.setClientFirstName(cargo.getFstNam());
+			dmWebserviceVO.setClientLastName(cargo.getLastNam());
+			dmWebserviceVO.setClientMidName(cargo.getMidInit());
+		    }
+		}
+	    }
+	    
+	    log(7, "AutoRegistrationBO.completenessCheck() :: App Mode " + t1001Cargo.getAppMode());
+	    // For SSA Source
+	    if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MSP)) { 
+		log(7, "AutoRegistrationBO.completenessCheck() :: SSA App " + t1001Cargo.getAppNum());
+		appSSAMSPCategory = true;
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.AUTO_REG_MSP);
+		
+		// code for Task creation
+		ArrayList cashSplInd = new ArrayList();
+		cashSplInd.add("MSP");
+		if (cashSplInd != null) {
+		    speciallInd.put("MSP", cashSplInd);
+		}
+		
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		if (t1001Cargo.getCntyNum() == 0)
+		    return false;
+	    }//For SSA - LIS MSP changes : ILIES-291947
+	    else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(DMConstants.SELFSERVICE_LIS)) {
+		log(7, "AutoRegistrationBO.completenessCheck() :: SSA LIS App "+ t1001Cargo.getAppNum());
+		appSSALISMSPCategory = true;
+		dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE_LIS);
+		// code for Task creation
+		ArrayList lisSplInd = new ArrayList();
+		lisSplInd.add("MSP");
+		if (lisSplInd != null) {
+			speciallInd.put("MSP", lisSplInd);
+		}
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		/*log(7, "Before addressValidation completenessCheck() :: SSA LIS App "+ t1001Cargo.getAppNum());
+		if (!countyCdUpdateMSP(appNum,t1001Cargo)) {
+			return false;
+		    }*/
+		/*if (t1001Cargo.getCntyNum() == 0)
+			return false;	*/	
+	} 
+			// For FFM Source
+	else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MA)) {
+			log(7, "AutoRegistrationBO.completenessCheck() :: FFM App "+ t1001Cargo.getAppNum());
+		appMACategory = true;
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
+		if (t1001Cargo.getSopDueDt() == null) {
+		    if (t1001Cargo.getAppRcvDt() != null) {
+			INUtility inUtil = new INUtility();
+			dmWebserviceVO.setDueDate((inUtil.addDays(t1001Cargo.getAppRcvDt(), 14)).toString());
+		    }
+		}
+		
+		T3004AppProgramSplIndCollection t3004Coll = new T3004AppProgramSplIndCollection(connection);
+		T3004AppProgramSplIndCargo cargo = null;
+		T3004AppProgramSplIndCargo[] t3004CargoArray = (T3004AppProgramSplIndCargo[]) t3004Coll.select("findByAppNum", appNumArgs);
+		if (t3004CargoArray != null || t3004CargoArray.length > 0) {
+		    cargo = t3004CargoArray[0];
+		    ArrayList maSplInd = new ArrayList();
+		    maSplInd.add(cargo.getSplIndCd());
+		    if (maSplInd != null) {
+			speciallInd.put(AppRegConstants.AUTO_REG_MA, maSplInd);
+		    }
+		}
+		
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		dmWebserviceVO.setEntityTypeIndicator(DMConstants.DMNO);
+		dmWebserviceVO.setDocumentTitle(DMConstants.SELFSERVICE);
+		
+		log(7, "AutoRegistrationBO.completenessCheck() :: FFM App CntyNum -" + t1001Cargo.getCntyNum());
+		if (t1001Cargo.getCntyNum() == 0)
+		    return false;
+		
+		boolean addrCheck = checkAddress(t1002Cargo, appNum);
+		if (!addrCheck)
+		    return false;
+		
+		boolean prgReqCheck = programRequest(t1004CargoArray);
+		if (!prgReqCheck)
+		    return false;
+		
+		boolean dataCheck = dataCheckforFFMApps(t1004CargoArray);
+		if (!dataCheck) {
+		    return false;
+		}
+		boolean appAuthRep = appAuthRepCheck(appNum);
+		if (!appAuthRep) {
+		    return false;
+		}
+		
+	    } else if (t1001Cargo.getAppMode() != null && (t1001Cargo.getAppMode().equals(AppRegConstants.SS_APP_MODE) || t1001Cargo.getAppMode().equals(AppRegConstants.HP_APP_MODE))) {
+		log(7, "AutoRegistrationBO.completenessCheck() :: ABE App " + t1001Cargo.getAppNum());
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
+		
+		if (t1002Cargo == null)
+		    return false;
+		
+		T1001SsAppMpeCollection t1001SsAppMpeColl = new T1001SsAppMpeCollection(connection);
+		T1001SSAppMpeCargo[] t1001SsAppMpeArray = (T1001SSAppMpeCargo[]) t1001SsAppMpeColl.select("findAppDtlByAppNum", appNumArgs);
+		
+		T1060_APP_IN_HPECargo[] t1060HPECargoArray = (T1060_APP_IN_HPECargo[]) t1060_APP_IN_HPEColl.select("findByAppNum", appNumArgs);
+		
+		if (t1002Cargo.getFsRqstSw() == 'Y' || t1002Cargo.getCashRqstSw() == 'Y' || t1002Cargo.getMaRqstSw() == 'Y' || t1002Cargo.getMcRqstSw() == 'Y' || t1002Cargo.getFppRqstSw() == 'Y') {
+		    
+		    
+		    if (t1002Cargo.getFsRqstSw() == 'Y') {
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : FS Rqst");
+			appSNAPCategory = true;
+			
+			// for Task creation
+			ArrayList fapSplInd = new ArrayList();
+			if (t1001Cargo.getExpeditedFapSw() == 'Y') {
+			    fapSplInd.add("EX");
+			} else {
+			    fapSplInd.add("NE");
+			}
+			if (fapSplInd != null) {
+			    speciallInd.put("FS", fapSplInd);
+			}
+		    }
+		    
+		    if (t1002Cargo.getMaRqstSw() == 'Y') {
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : MA Rqst");
+			
+			T1060_APP_IN_HPECargo t1060HPECargo = null;
+			if (t1060HPECargoArray != null && t1060HPECargoArray.length > 0)
+			    t1060HPECargo = t1060HPECargoArray[0];
+			
+			if (t1060HPECargo != null) {
+			    appHPECategory = true;
+			}
+			
+			for (int i = 0; i < t1004CargoArray.length; i++) {
+			    t1004Cargo = t1004CargoArray[i];
+			    
+			    boolean age = false;
+			    java.sql.Timestamp indvdbrthDt = t1004Cargo.getBrthDt();
+			    age = ageCheck(indvdbrthDt);
+			    if (age && t1004Cargo.getMaRqstSw() == 'Y') {
+				appCPECategory = true;
+				break;
+			    }
+			}
+			
+			ArrayList maSplInd = new ArrayList();
+			maSplInd.add(AppRegConstants.AUTO_REG_MA);
+			if (maSplInd != null) {
+			    speciallInd.put(AppRegConstants.AUTO_REG_MA, maSplInd);
+			}
+		    }
+		    //Family Planning Application check.
+		    if (t1002Cargo.getFppRqstSw() == 'Y') {
+				log(7,"AutoRegistrationBO.completenessCheck() :: ABE App : MA Rqst");
+				appFPCategory = true;
+
+				//CPE/HPe should not run for FPS only (Unit testing)
+
+				ArrayList fpSplInd = new ArrayList();
+				fpSplInd.add(AppRegConstants.AUTO_REG_FPA);
+				if (fpSplInd != null) {
+					speciallInd.put(AppRegConstants.AUTO_REG_FPA,fpSplInd);
+				}
+			}
+		    
+		    if (t1002Cargo.getMcRqstSw() == 'Y') {
+				appMSPCategory = true;
+				log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : MSP Rqst");
+				// ILIES-289161
+				// code for Task creation
+				ArrayList mcSplInd = new ArrayList();
+				mcSplInd.add("MSP");
+				if (mcSplInd != null) {
+				    speciallInd.put("MC", mcSplInd);
+				}
+		    }
+		    if (t1002Cargo.getCashRqstSw() == 'Y') {
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : Cash Rqst");
+			appCashCategory = true;
+			
+			// code for Task creation
+			ArrayList cashSplInd = new ArrayList();
+			cashSplInd.add("TF");
+			if (cashSplInd != null) {
+			    speciallInd.put("TF", cashSplInd);
+			}
+		    }
+		} else if(t1001SsAppMpeArray != null && t1001SsAppMpeArray.length > 0){
+		    //Clde for MPE Check
+			log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : MPE Rqst ");
+			appMPECategory = true; //Keeping this as TRUE would allow other validations to run
+			appFPPECategory = t1001SsAppMpeArray[0].getAppType() != null && DMConstants.FP_PRESUMPTIVE_ELIGIBILITY.equalsIgnoreCase(t1001SsAppMpeArray[0].getAppType());
+			// code for Task Creation
+			dmWebserviceVO.setSourceTypeCode(appFPPECategory ? DMConstants.FP_PRESUMPTIVE_ELIGIBILITY : DMConstants.MEDICAID_PRESUMPTIVE_ELIGIBILITY);
+			ArrayList mPESplInd = new ArrayList();
+			mPESplInd.add(ARConstants.PM);
+			speciallInd.put(ARConstants.PM, mPESplInd);
+			dmWebserviceVO.setSplIndicator(speciallInd);
+			
+			Map sopCriteria = new HashMap();
+			Timestamp applicationDate = t1001Cargo.getAppRcvDt();
+			sopCriteria.put(SelfServiceBrokerConstants.APPLICATION_DATE, applicationDate);
+			Timestamp sopDueDate = computeSopDueDate(sopCriteria);
+			
+			if (sopDueDate != null) {
+			    dmWebserviceVO.setDueDate(sopDueDate.toString());
+			}
+		}
+		// for HPE
+		if (t1060HPECargoArray != null && t1060HPECargoArray.length > 0) {
+		    log(7, "AutoRegistrationBO.completenessCheck() :: ABE App : HPE Rqst ");
+		    appHPECategory = true;
+		    
+		    if (t1002Cargo.getMaRqstSw() == 'Y') {
+			hpe_pid = t1001Cargo.getHpePId();
+			if (hpe_pid == null || hpe_pid.trim().equals("")) {
+			    hpe_pid = appNum + "_HPE";
+			}
+			
+			hpe_html_pid = t1001Cargo.getHpeHtmlPId();
+			if (hpe_html_pid == null || hpe_html_pid.trim().equals("")) {
+			    hpe_html_pid = appNum + "_HPE";
+			}
+		    }
+		    
+		    // code for Task Creation
+		    ArrayList hpeSplInd = new ArrayList();
+		    hpeSplInd.add("HPE");
+		    speciallInd.put("HPE", hpeSplInd);
+		}
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		if (t1001Cargo.getCntyNum() == 0)
+		    return false;
+		
+		boolean addrCheck = false;
+		boolean prgReqCheck = false;
+		
+		if (appSNAPCategory) {
+		    addrCheck = checkAddress(t1002Cargo, appNum);
+		    if (!addrCheck)
+			return false;
+		    
+		    prgReqCheck = programRequest(t1004CargoArray);
+		    if (!prgReqCheck)
+			return false;
+		    
+		    T1003AppPrirSrvCargo t1003SrvCargo = new T1003AppPrirSrvCargo();
+		    T1003AppPrirSrvCargo[] t1003SrvCargoArray = (T1003AppPrirSrvCargo[]) t1003SrvColl.select("findPrirSrvByAppNum", appNumArgs);
+		    if (t1003SrvCargoArray == null || t1003SrvCargoArray.length == 0)
+			return false;
+		    else
+			t1003SrvCargo = t1003SrvCargoArray[0];
+		    
+		    boolean checkExpScrn = checkExpScreening(t1003SrvCargo);
+		    if (!checkExpScrn)
+			return false;
+		    
+		}
+		//Address check (Cash/Medical/FPA)
+		if (appCashCategory || appMACategory || appMSPCategory || appFPCategory) {
+		    if (addrCheck == false) {
+			addrCheck = checkAddress(t1002Cargo, appNum);
+			if (!addrCheck)
+			    return false;
+		    }
+		    if (prgReqCheck == false && !appHPECategory) {
+		    	prgReqCheck = programRequest(t1004CargoArray);
+			if (!prgReqCheck)
+			    return false;
+		    }
+		}
+		if (appMPECategory || appFPPECategory) {
+		    if (addrCheck == false) {
+			addrCheck = checkAddress(t1002Cargo, appNum);
+			if (!addrCheck)
+			    return false;
+		    }
+		    boolean mPECheck = checkMediPresEligibility(t1001SsAppMpeArray[0]);
+		    if (!mPECheck)
+			return false;
+		}
+		
+		if (appHPECategory) {
+		    if (addrCheck == false) {
+			addrCheck = checkAddress(t1002Cargo, appNum);
+			if (!addrCheck)
+			    return false;
+		    }
+		    boolean hPECheck = checkHospPresEligibility(t1060HPECargoArray[0]);
+		    if (!hPECheck)
+			return false;
+		}
+		
+		boolean appAuthRep = appAuthRepCheck(appNum);
+		if (!appAuthRep) {
+		    return false;
+		}
+	    }
+	    log(7, "AutoRegistrationBO.completenessCheck() :: Completed " + appNum);
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.completenessCheck() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_IA, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+	    throw e;
+	} finally {
+	    t1001Coll = null;
+	    t1003SrvColl = null;
+	    t1004Coll = null;
+	    t1060_APP_IN_HPEColl = null;
+	}
+	return true;
     }
 
-    public java.sql.Timestamp getCurrentMonthFirstDate(java.sql.Timestamp date, int backMonth) {
-	Calendar c = Calendar.getInstance();
-	c.setTime(new java.util.Date(date.getTime()));
-	c.set(Calendar.DAY_OF_MONTH, 1);
-	c.add(Calendar.MONTH, backMonth);
-	java.util.Date currentMonthFirstDate = c.getTime();
-	return new java.sql.Timestamp(currentMonthFirstDate.getTime());
-	
+    public boolean appAuthRepCheck(String appNum) throws Exception {
+	log(7, "Begin AutoRegistrationBO.appAuthRepCheck() ");
+	T2040AppAuthRepCargo t2040AppAuthRepCargo = new T2040AppAuthRepCargo();
+	T2040AppAuthRepCollection t2040AppAuthRepCollection = new T2040AppAuthRepCollection(connection);
+	T2040AppAuthRepCargo[] t2040AppAuthRepCargoArray = null;
+	try {
+	    t2040AppAuthRepCargo.setAppNum(appNum);
+	    t2040AppAuthRepCollection.setCargo(t2040AppAuthRepCargo);
+	    t2040AppAuthRepCargoArray = (T2040AppAuthRepCargo[]) t2040AppAuthRepCollection.select("findAuthRepInfoByByAppNum");
+	    if (t2040AppAuthRepCargoArray != null && t2040AppAuthRepCargoArray.length > 0) {
+		for (int i = 0; i < t2040AppAuthRepCargoArray.length; i++) {
+		    t2040AppAuthRepCargo = t2040AppAuthRepCargoArray[i];
+		    log(7, "AutoRegistrationBO.appAuthRepCheck() :: t2040AppAuthRepCargo.getAuthRepCd()--" + t2040AppAuthRepCargo.getAuthRepCd());
+		    if (t2040AppAuthRepCargo.getAuthRepCd() != null && !t2040AppAuthRepCargo.getAuthRepCd().trim().equals("") && !t2040AppAuthRepCargo.getAuthRepCd().trim().equals("0")) {
+			if (t2040AppAuthRepCargo.getFilingRepFirstName() == null || t2040AppAuthRepCargo.getFilingRepFirstName().trim().equals("") || t2040AppAuthRepCargo.getFilingRepLastName() == null || t2040AppAuthRepCargo.getFilingRepLastName().trim().equals("") || ((t2040AppAuthRepCargo.getL1Adr() == null || t2040AppAuthRepCargo.getL1Adr().trim().equals("")) && (t2040AppAuthRepCargo.getL2Adr() == null || t2040AppAuthRepCargo.getL2Adr().trim().equals("")))
+				|| t2040AppAuthRepCargo.getCityAdr() == null || t2040AppAuthRepCargo.getCityAdr().trim().equals("") || t2040AppAuthRepCargo.getStaAdr() == null || t2040AppAuthRepCargo.getStaAdr().trim().equals("") || t2040AppAuthRepCargo.getZipAdr() == null || t2040AppAuthRepCargo.getZipAdr().trim().equals("")) {
+			    
+			    log(7, "AutoRegistrationBO.appAuthRepCheck() :: Application failed in AuthRepCheck --" + appNum);
+			    return false;
+			}
+		    }
+		}
+	    }
+	    log(7, "AutoRegistrationBO.appAuthRepCheck() :: Application AuthRepCheck successfull --" + appNum);
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.appAuthRepCheck() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} finally {
+	    t2040AppAuthRepCargo = null;
+	    t2040AppAuthRepCollection = null;
+	    t2040AppAuthRepCargoArray = null;
+	}
+	return true;
     }
     
-    public boolean createEDMTask(String appNum) throws Exception {
-		boolean result = false;
-		result = createEDMTask(appNum,false);
-		return result;
+    public boolean ageCheck(java.sql.Timestamp indvdbrthDt) throws Exception {
+	try {
+	    Calendar dob = Calendar.getInstance();
+	    dob.setTime(new java.util.Date(indvdbrthDt.getTime()));
+	    Calendar today = Calendar.getInstance();
+	    int age = today.get(Calendar.YEAR) - dob.get(Calendar.YEAR);
+	    if (today.get(Calendar.MONTH) < dob.get(Calendar.MONTH)) {
+		age--;
+	    } else if (today.get(Calendar.MONTH) == dob.get(Calendar.MONTH) && today.get(Calendar.DAY_OF_MONTH) < dob.get(Calendar.DAY_OF_MONTH)) {
+		age--;
+	    }
+	    if (age >= 19)
+		return false;
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.ageCheck(): " + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	}
+	return true;
     }
     
-    public boolean createEDMTask(String appNum, boolean isIgnoreDuplicates) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.createEDMTask() ");
-    	System.out.println("Begin AutoRegistrationBO.createEDMTask() ");
-	
+    
+    
+    
+    public int ageCal(java.sql.Timestamp indvdbrthDt) throws Exception {
+    	int age = 0;
     	try {
-    	    // Create EDM Factory
-    	    DMFactory dmFactory = new DMFactory(); 
-    	    // Init DMWebserviceClient
-    	    DMWebserviceClient edmWebserviceClient = new DMWebserviceClient(connection);
-    	    
-    	    dmWebserviceVO.setIgnoreDuplicates(isIgnoreDuplicates);
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getAppNum" + this.dmWebserviceVO.getAppNum());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getDestinationOfficeNum" + this.dmWebserviceVO.getDestinationOfficeNum());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getTag" + this.dmWebserviceVO.getTag());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getClientFirstName" + this.dmWebserviceVO.getClientFirstName());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getClientLastName" + this.dmWebserviceVO.getClientLastName());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getClientMidName" + this.dmWebserviceVO.getClientMidName());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getgetSplIndicator" + this.dmWebserviceVO.getSplIndicator());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getHtmlPid" + this.dmWebserviceVO.getHtmlPid());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getDueDate() " + this.dmWebserviceVO.getDueDate());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getReceivedDate() " + this.dmWebserviceVO.getReceivedDate());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getScanDate() " + this.dmWebserviceVO.getScanDate());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getDocumentId() " + this.dmWebserviceVO.getDocumentId());
-    	    log(7, "AutoRegistrationBO.createEDMTask() dmWebserviceVO.getSourceTypeCode() " + this.dmWebserviceVO.getSourceTypeCode());
-    	    
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getAppNum" + this.dmWebserviceVO.getAppNum());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getDestinationOfficeNum" + this.dmWebserviceVO.getDestinationOfficeNum());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getTag" + this.dmWebserviceVO.getTag());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getClientFirstName" + this.dmWebserviceVO.getClientFirstName());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getClientLastName" + this.dmWebserviceVO.getClientLastName());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getClientMidName" + this.dmWebserviceVO.getClientMidName());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getgetSplIndicator" + this.dmWebserviceVO.getSplIndicator());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getDueDate() " + this.dmWebserviceVO.getDueDate());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getReceivedDate() " + this.dmWebserviceVO.getReceivedDate());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getScanDate() " + this.dmWebserviceVO.getScanDate());
-    	    System.out.println("AutoRegistrationBO.createEDMTask() dmWebserviceVO.getDocumentId() " + this.dmWebserviceVO.getDocumentId());
-    	    System.out.println("Begin AutoRegistrationBO.createEDMTask() "+this.dmWebserviceVO.getSourceTypeCode());
-    	    // Call EDMWEbservice
-    	    String appNumber = this.dmWebserviceVO.getAppNum();
-    	    String message = edmWebserviceClient.callWebservice(dmFactory.createGroupForApplication(dmWebserviceVO));
-    	    log(7, "AutoRegistrationBO.createEDMTask() Message returned from  EDMWebservice : " + message);
-    	    System.out.println("AutoRegistrationBO.createEDMTask() Message returned from  EDMWebservice : " + message);
-    	    log(ILog.INFO, "Message returned from  EDMWebservice : " + message);
-    	    log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.DEBUG, "AutoRegistrationBO::createEDMTask: calling EDM Webservice with result :" + message);
-    	    // If the Webservice is not successful, throw Exception to roll back
-    	    // transaction
-    	    if (!DMConstants.SUCCESS_STATUS_MSG.equalsIgnoreCase(message)) {
-    		log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.ERROR, "Exception in AutoRegistrationBO::createEDMTask:  EDM Webservice :" + message);
-    		throw new Exception(message);
+    	    Calendar dob = Calendar.getInstance();
+    	    dob.setTime(new java.util.Date(indvdbrthDt.getTime()));
+    	    Calendar today = Calendar.getInstance();
+    	     age = today.get(Calendar.YEAR) - dob.get(Calendar.YEAR);
+    	    if (today.get(Calendar.MONTH) < dob.get(Calendar.MONTH)) {
+    		age--;
+    	    } else if (today.get(Calendar.MONTH) == dob.get(Calendar.MONTH) && today.get(Calendar.DAY_OF_MONTH) < dob.get(Calendar.DAY_OF_MONTH)) {
+    		age--;
     	    }
-    	    if(DMConstants.SUCCESS_STATUS_MSG.equalsIgnoreCase(message) && ((DMConstants.SELFSERVICE_LIS).equalsIgnoreCase(dmWebserviceVO.getSourceTypeCode()) 
-    		   || (DMConstants.LIS).equalsIgnoreCase(dmWebserviceVO.getSourceTypeCode()) || ("MM").equalsIgnoreCase(dmWebserviceVO.getSourceTypeCode()) ) ){
-    		if( mspDocId != null){
-    		    log(7, "Before calling insertIntoDocLinkTable() from createEDMTask() for docId  - " + mspDocId);
-    		    System.out.println("Before calling insertIntoDocLinkTable() from createEDMTask() for docId  - " + mspDocId);
-    		    insertIntoDocLinkTable(appNumber, mspDocId, "AR-ATREG-HLY");
-    		}else{
-    		    mspDocId = "MSPSS" + appNum ;
-        	    log(7, "Before calling insertIntoDocLinkTable() from createEDMTask() for docId  - " + mspDocId);
-        	    System.out.println("Before calling insertIntoDocLinkTable() from createEDMTask() for docId  - " + mspDocId);
-    		    insertIntoDocLinkTable(appNum, mspDocId, "AR-ATREG-HLY");
-    		}
-		
-    	    }
-    	    
-    	    log(ILog.DEBUG, "HPE PID Before HPE PDF upload: " + hpe_pid);
-    	    if (hpe_pid != null && !hpe_pid.trim().isEmpty()) {
-    		log(ILog.DEBUG, "HPE_PID not null. before webservice");
-    		dmWebserviceVO.setDocumentId(hpe_pid);
-    		log(ILog.DEBUG, "HPE HTML PID Before HPE PDF upload: " + hpe_html_pid);
-    		if (hpe_html_pid != null && !hpe_html_pid.trim().isEmpty()) {
-    		    log(ILog.DEBUG, "HPE_HTML_PID not null. before webservice");
-    		    dmWebserviceVO.setHtmlPid(hpe_html_pid);
-    		}
-    		String message1 = edmWebserviceClient.callWebservice(dmFactory.createGroupForApplication(dmWebserviceVO));
-    		log(ILog.DEBUG, "HPE_PID not null. after webservice message: " + message1);
-    	    }
+    	 	return age;
     	    
     	} catch (Exception e) {
-    	    hasExceptionOccurred = true;
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.createEDMTask() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-    	    log(FwConstants.LOGGING_CATEGORY_EDM_WEBSERVICE, ILog.ERROR, "Exception in AutoRegistrationBO::createEDMTask:  EDM Webservice :" + e.getMessage());
-    	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_CT, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.ageCal(): " + "\n" + e.getMessage() + "\n", e);
     	    throw e;
     	}
-    	return true;
+    	
+     }
+    
+    
+    /**
+     * The <code>computeDueDate</code> computes the SopDueDate.
+     * 
+     * @param sopCriteria
+     *            - sopCriteria
+     * @return Timestamp - SopDueDate
+     */
+    public Timestamp computeSopDueDate(Map sopCriteria) {
+	Timestamp applicationDate = (Timestamp) sopCriteria.get("APPLICATION_DATE");
+	Timestamp cloneAppDate = (Timestamp) applicationDate.clone();
+	
+	int addDays = 24;
+	cloneAppDate = ALSOPUtil.addDays(cloneAppDate, addDays);
+	
+	java.util.Date date = new Date(cloneAppDate.getTime());
+	Calendar cal = Calendar.getInstance();
+	cal.setTime(date);
+	cal.set(Calendar.HOUR_OF_DAY, 0);
+	cal.set(Calendar.MINUTE, 0);
+	cal.set(Calendar.SECOND, 0);
+	cal.set(Calendar.MILLISECOND, 0);
+	
+	date = cal.getTime();
+	
+	cloneAppDate = new Timestamp(date.getTime());
+	return cloneAppDate;
     }
     
-    public boolean updateTaskForCaseProcess(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateTaskForCaseProcess() : appNum - " + appNum);
-	String docId = null;
-	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-	DcCasesCargo caseCargo = new DcCasesCargo();
-	DcCasesCollection caseColl = new DcCasesCollection(connection);
-	DcCasesCargo[] caseArrCargo = null;
+    public boolean checkAddress(T1002AppDtlCargo T1002Cargo, String appNum) throws Exception {
+	log(7, "Begin AutoRegistrationBO.checkAddress() ");
+	
+	try {
+	    if (T1002Cargo == null)
+		return false;
+	    if (T1002Cargo.getHlessSw() != 'Y') {
+		if (T1002Cargo.getHshlCityAdr() == null || T1002Cargo.getHshlCityAdr().trim().equals(""))
+		    return false;
+		else if (T1002Cargo.getHshlStaAdr() == null || T1002Cargo.getHshlStaAdr().trim().equals(""))
+		    return false;
+		else if (T1002Cargo.getHshlZipAdr() == null || T1002Cargo.getHshlZipAdr().trim().equals(""))
+		    return false;
+		else if (T1002Cargo.getHshlStAdr() == null || T1002Cargo.getHshlStAdr().trim().equals(""))
+		    return false;
+		else if (T1002Cargo.getAddrTypeInd() == null || T1002Cargo.getAddrTypeInd().trim().equals(""))
+		    return false;
+	    } else {
+		T1031AppMailAdrCollection T1031Coll = new T1031AppMailAdrCollection(connection);
+		T1031AppMailAdrCargo T1031Cargo = new T1031AppMailAdrCargo();
+		Object T1031Args[] = { appNum };
+		T1031AppMailAdrCargo[] T1031CargoArray = (T1031AppMailAdrCargo[]) T1031Coll.select("findMailingAddrByAppNum", T1031Args);
+		
+		if (T1031CargoArray == null || T1031CargoArray.length == 0)
+		    return false;
+		else
+		    T1031Cargo = T1031CargoArray[0];
+		
+		if (T1031Cargo == null)
+		    return false;
+		
+		if (T1031Cargo.getCityAdr() == null || T1031Cargo.getCityAdr().trim().equals(""))
+		    return false;
+		else if (T1031Cargo.getStaAdr() == null || T1031Cargo.getStaAdr().trim().equals(""))
+		    return false;
+		else if (T1031Cargo.getZipAdr() == null || T1031Cargo.getZipAdr().trim().equals(""))
+		    return false;
+		else if ((T1031Cargo.getStAdr() == null || T1031Cargo.getStAdr().trim().equals("")) && (T1031Cargo.getL2Adr() == null || T1031Cargo.getL2Adr().trim().equals("")))
+		    return false;
+		else if (T1031Cargo.getAddrTypeInd() == null || T1031Cargo.getAddrTypeInd().trim().equals(""))
+		    return false;
+	    }
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkAddress() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	}
+	return true;
+    }
+    
+    public boolean programRequest(T1004AppIndvCargo[] t1004CargoArray) throws Exception {
+	log(7, "Begin AutoRegistrationBO.programRequest() ");
+	try {
+	    if (t1004CargoArray == null || t1004CargoArray.length == 0)
+		return false;
+	    
+	    T1004AppIndvCargo t1004Cargo = null;
+	    boolean progReq = false;
+	    
+	    for (int i = 0; i < t1004CargoArray.length; i++) {
+		t1004Cargo = t1004CargoArray[i];
+		if (t1004Cargo == null)
+		    return false;
+		
+		if (t1004Cargo.getFsRqstSw() == 'Y' || t1004Cargo.getBcRqstSw() == 'Y' || t1004Cargo.getMaRqstSw() == 'Y' || t1004Cargo.getMcRqstSw() == 'Y' || t1004Cargo.getFppRqstSw() == 'Y') {
+		    progReq = true;
+		    break;
+		}
+	    }
+	    if (progReq == false)
+		return false;
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.programRequest(): " + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	}
+	return true;
+    }
+    
+    public boolean dataCheckforFFMApps(T1004AppIndvCargo[] t1004CargoArray) throws Exception {
+	log(7, "Begin AutoRegistrationBO.dataCheckforFFMApps() ");
+	
+	T1006AppInPermdCollection t1006AppInPermdColl = new T1006AppInPermdCollection(connection);
+	T1006AppInPermdCargo t1006AppInPermdCargo = new T1006AppInPermdCargo();
+	T1006AppInPermdCargo[] t1006AppInPermdCargoArray = null;
 	
 	try {
 	    
-	    DMDocTaskUpdateBO taskBo = new DMDocTaskUpdateBO(docId, connection);
-	    Object docIdforFileNet = taskBo.getDocIdFromDmDocForSubmit(appNum);
-	    if (docIdforFileNet != null) {
-		docId = (String) docIdforFileNet;
+	    if (t1004CargoArray == null || t1004CargoArray.length == 0)
+		return false;
+	    int indvCount = t1004CargoArray.length;
+	    
+	    String appNum = t1004CargoArray[0].getAppNum();
+	    
+	    t1006AppInPermdCargo.setAppNum(appNum);
+	    t1006AppInPermdColl.add(t1006AppInPermdCargo);
+	    t1006AppInPermdCargoArray = (T1006AppInPermdCargo[]) t1006AppInPermdColl.select("findByAppNumInboundFFMApps");
+	    if (t1006AppInPermdCargoArray == null || t1006AppInPermdCargoArray.length == 0 || t1006AppInPermdCargoArray.length != indvCount) {
+		return false;
 	    }
 	    
-	    if (docId != null) {
-		taskBo = new DMDocTaskUpdateBO(docId, connection);
-		long empID = 0;
-		long officeNum = 0;
-		long caseNumForNewApp = 0;
-		DcDriverBO dcDriverBO = new DcDriverBO(connection);
-		caseNumForNewApp = dcDriverBO.getCaseNumber(appNum + "");
-		
-		if (caseNumForNewApp != 0) {
-		    caseCargo.setCaseNum(caseNumForNewApp);
-		    caseColl.setCargo(caseCargo);
-		    caseArrCargo = (DcCasesCargo[]) caseColl.select("findByCaseNum");
-		    if (caseArrCargo != null && caseArrCargo.length > 0 && caseArrCargo[0] != null) {
-			officeNum = caseArrCargo[0].getOfficeNum();
-			empID = retrieveIntakeVirtualWkrId(officeNum);
-		    }
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.dataCheckforFFMApps(): " + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} finally {
+	    t1006AppInPermdColl = null;
+	    t1006AppInPermdCargo = null;
+	    t1006AppInPermdCargoArray = null;
+	}
+	return true;
+    }
+    
+    public boolean checkExpScreening(T1003AppPrirSrvCargo T1003SrvCargo) throws Exception {
+	log(7, "Begin AutoRegistrationBO.checkExpScreening() ");
+	
+	try {
+	    String date = "9999-12-31 00:00:00.0";
+	    SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.s");
+	    java.util.Date defaultDate = formatter.parse(date);
+	    double moGrIncmAmt = 0.0;
+		double childSprtAmt = 0.0;
+		double cntblIncm = 0.0;
+	    
+		if(T1003SrvCargo.getMoGrIncmAmt() > 0.0){
+			moGrIncmAmt = T1003SrvCargo.getMoGrIncmAmt();
 		}
-		
-		String appPrograms = null;
-		appPrograms = appSummaryBo.getApplicationPrograms(appNum);
-		
-		Boolean onlyMedicalPrograms = true;
-		if (appPrograms.indexOf("TF") != -1 || appPrograms.indexOf("FS") != -1) {
-		    onlyMedicalPrograms = false;
+		if(T1003SrvCargo.getChildSprtAmt() > 0.0){
+			childSprtAmt = T1003SrvCargo.getChildSprtAmt();
 		}
-		String assignableTag = "";
-		if (onlyMedicalPrograms) {
-		    assignableTag = DMConstants.DOCUMENT_TAG_NO_INTVW_INIT_DATA_COLL;
-		}else if(autoRegScheduledSw=='Y' && !onlyMedicalPrograms){
-			assignableTag = DMConstants.DOCUMENT_TAG_INTVW_REQ_INIT_DATA_COLL;
-		}else if(autoRegScheduledSw=='N'){
-			if (appPrograms.indexOf("FS") != -1 && 'Y' == autoRegT1001Cargo.getExpeditedFapSw() && ((autoRegT1002Cargo.getHshlCellPhnNum() != null && !autoRegT1002Cargo.getHshlCellPhnNum().trim().equals("")) || (autoRegT1002Cargo.getHshlPhnNum() != null && !autoRegT1002Cargo.getHshlPhnNum().trim().equals("")) || (autoRegT1002Cargo.getHshlWorkPhnNum() != null && !autoRegT1002Cargo.getHshlWorkPhnNum().trim().equals("")))) {
-			    assignableTag = "EX";
-			}else if(appPrograms.indexOf("FS") != -1 && 'N' == autoRegT1001Cargo.getExpeditedFapSw() && ((autoRegT1002Cargo.getHshlCellPhnNum() != null && !autoRegT1002Cargo.getHshlCellPhnNum().trim().equals("")) || (autoRegT1002Cargo.getHshlPhnNum() != null && !autoRegT1002Cargo.getHshlPhnNum().trim().equals("")) || (autoRegT1002Cargo.getHshlWorkPhnNum() != null && !autoRegT1002Cargo.getHshlWorkPhnNum().trim().equals("")))){
-				assignableTag = "NX";
-			}else{
-				assignableTag = DMConstants.DOCUMENT_TAG_INTVW_REQ_INIT_DATA_COLL;
-			}
+		if(moGrIncmAmt > childSprtAmt){
+			cntblIncm = moGrIncmAmt - childSprtAmt;
 		}
-		long assignableEmp = 0;
-		log(7, "AutoRegistrationBO.updateTaskForCaseProcess() :: assignableTag --" + assignableTag + "--assignableEmp--" + assignableEmp);
-		try {
-		    // 1. End current task
-		    // 2. Create a new task in complete status on the same Tag/Queue
-		    // 3. Create a new task in Assigned status on new Tag/Queue
-		    DMDocumentIndexUpdater dmDocIndex = new DMDocumentIndexUpdater(connection);
-		    // DMDocTaskUpdateBO taskBo1 = new DMDocTaskUpdateBO(docId,connection);
-		    DmDocCargo[] dmDocCargo = taskBo.getDocSeqNum();
-		    long docSeqNum = 0;
-		    long groupSeqNum = 0;
-		    if (dmDocCargo != null && dmDocCargo.length > 0) {
-			docSeqNum = dmDocCargo[0].getDocSeqNum();
-			groupSeqNum = dmDocCargo[0].getGroupSeqNum();
+	    /*if (T1003SrvCargo.getLqdAsetAmt() == 0.0 && T1003SrvCargo.getMoGrIncmAmt() == 0.0 && T1003SrvCargo.getMigFarmWrkrSw() != 'Y') {*/
+		if (T1003SrvCargo.getLqdAsetAmt() == 0.0 && cntblIncm == 0.0 && T1003SrvCargo.getMigFarmWrkrSw() != 'Y') {
+		return true;
+	    } else if (T1003SrvCargo.getLqdAsetAmt() >= 100.0 || cntblIncm >= 150.0) {
+		if (T1003SrvCargo.getMigFarmWrkrSw() == 'Y') {
+		    if (T1003SrvCargo.getIncmStopSw() == 'Y') {
+			if (T1003SrvCargo.getDtFinalPayChk().getTime() == defaultDate.getTime())
+			    return false;
+		    } else
+			return false;
+		    
+		    if (T1003SrvCargo.getIncmSameGrwrSw() == 'Y') {
+			if (T1003SrvCargo.getAmtSameGrwr() == 0.0)
+			    return false;
+		    } else {
+			return false;
 		    }
 		    
-		    boolean onlyHPEApp = true;
+		    if (T1003SrvCargo.getIncmCrntMnthSw() == 'Y') {
+			if (T1003SrvCargo.getDtIncmCrntMnth().getTime() == defaultDate.getTime() || T1003SrvCargo.getAmtCrntMnth() == 0.0 || T1003SrvCargo.getAmtTrvlAdvc() == 0.0)
+			    return false;
+		    } else {
+			return false;
+		    }
+		    
+		    if (T1003SrvCargo.getAppNum() == null || T1003SrvCargo.getAppNum().trim().equals(""))
+			return false;
+		}
+	    }
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkExpScreening(): " + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	}
+	return true;
+    }
+    
+    public boolean checkMediPresEligibility(T1001SSAppMpeCargo T1001SSAppMpeCargo) throws Exception {
+	log(7, "Begin AutoRegistrationBO.ccheckMediPresEligibility() ");
+	
+	try {
+	    
+	    if (T1001SSAppMpeCargo == null)
+		return false;
+	    
+	    if (T1001SSAppMpeCargo.getPrvdId() == 0)
+		return false;
+	    else if (T1001SSAppMpeCargo.getAppBeginDt() == null)
+		return false;
+	    else if (T1001SSAppMpeCargo.getAppEndDt() == null)
+		return false;
+	    else if (T1001SSAppMpeCargo.getHshlMbrQty() == 0)
+		return false;
+	    else if (T1001SSAppMpeCargo.getPosPrefTestInd() != 'Y' && !appFPPECategory)
+		return false;
+	    else if (T1001SSAppMpeCargo.getFetusCt() == 0 && !appFPPECategory)
+		return false;
+	    else if (T1001SSAppMpeCargo.getExptDlvrDt() == null && !appFPPECategory)
+		return false;
+	    else if (T1001SSAppMpeCargo.getAppNum() == null || T1001SSAppMpeCargo.getAppNum().trim().equals(""))
+		return false;
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkMediPresEligibility(): " + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	}
+	return true;
+    }
+    
+    public boolean checkHospPresEligibility(T1060_APP_IN_HPECargo T1060HPECargo) throws Exception {
+	log(7, "Begin AutoRegistrationBO.checkHospPresEligibility() ");
+	
+	try {
+	    
+	    if (T1060HPECargo == null)
+		return false;
+	    
+	    if (T1060HPECargo.getAdrCityName() == null || T1060HPECargo.getAdrCityName().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getAdrStateCd() == null || T1060HPECargo.getAdrStateCd().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getAdrZipCd() == 0)
+		return false;
+	    else if (T1060HPECargo.getPregnancySw() == 'Y') {
+		if (T1060HPECargo.getDeliveryDt() == null)
+		    return false;
+	    } else if (T1060HPECargo.getHouseholdSize() == 0)
+		return false;
+	    else if (T1060HPECargo.getHpeApplicantSw() == 0)
+		return false;
+	    else if (T1060HPECargo.getHpeBeginDt() == null)
+		return false;
+	    else if (T1060HPECargo.getHpeEligGrpCd() == null || T1060HPECargo.getHpeEligGrpCd().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getHpeEligSw() == 0)
+		return false;
+	    else if (T1060HPECargo.getHpeEmplName() == null || T1060HPECargo.getHpeEmplName().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getHpeHospName() == null || T1060HPECargo.getHpeHospName().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getHpeHsplNmbr() == 0)
+		return false;
+	    else if (T1060HPECargo.getHpeProvId() == null || T1060HPECargo.getHpeProvId().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getIlResSw() != 'Y')
+		return false;
+	    else if (T1060HPECargo.getIndvSeqNum() == 0)
+		return false;
+	    else if (T1060HPECargo.getUsCtznSw() == 'N' && T1060HPECargo.getLawfulPresSw() == 'N')
+		return false;
+	    else if (T1060HPECargo.getMedicareSw() == 0)
+		return false;
+	    else if (T1060HPECargo.getNatAmerSw() == 0)
+		return false;
+	    else if (T1060HPECargo.getPregnancySw() == 0)
+		return false;
+	    else if (T1060HPECargo.getStreetAddr() == null || T1060HPECargo.getStreetAddr().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getTelNum() == null || T1060HPECargo.getTelNum().trim().equals(""))
+		return false;
+	    else if (T1060HPECargo.getUsCtznSw() == 0)
+		return false;
+	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.checkHospPresEligibility(): " + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	}
+	return true;
+    }
+    
+    public boolean updateAutoRegTriggerTable(String appNum, char appStatus, String appExc, String batchInd) throws Exception {
+	log(7, "Begin AutoRegistrationBO.updateAutoRegTriggerTable() ");
+	log(7, "AutoRegistrationBO.updateAutoRegTriggerTable()--appNum " + appNum + "--appStatus--" + appStatus + "--appExc--" + appExc);
+	DcAutoProcessingCollection dcAutoProcColl = new DcAutoProcessingCollection(connection);
+	DcAutoProcessingCargo dcAutoProcCargo = new DcAutoProcessingCargo();
+	DcAutoProcessingCargo[] dcAutoProcCargoArray = null;
+	
+	try {
+	    
+	    Object dcAutoProcArgs[] = { appNum };
+	    dcAutoProcCargoArray = (DcAutoProcessingCargo[]) dcAutoProcColl.select("findByAppNum", dcAutoProcArgs);
+	    
+	    if (dcAutoProcCargoArray == null || dcAutoProcCargoArray.length == 0) {
+		
+		dcAutoProcCargo.setAppNum(appNum);
+		dcAutoProcCargo.setAutoRegStatusInd(appStatus);
+		dcAutoProcCargo.setAutoRegExceptCd(appExc);
+		dcAutoProcCargo.setAutoRegStatusDt(currentTime);
+		dcAutoProcCargo.setAutoBatProcInd(batchInd);
+		
+		if (appStatus == 'S' && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y") && !appMaHpeAssociation) {
+		    dcAutoProcCargo.setAutoPopStatusInd('R');
+		    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+		    dcAutoProcCargo.setSsaMspSw('Y');
+		    dcAutoProcCargo.setSsaMspCaseNum(dcCaseTempArray[0].getCaseNum());
+		} else if (appStatus == 'S' && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() == 'Y') 
+				&& autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y' && !appMaHpeAssociation) {
 		    if (appHPECategory) {
+			boolean onlyHPEApp = true;
 			for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-			    if (autoRegT1004CargoArray[i].getMaRqstSw() == 'Y' || autoRegT1004CargoArray[i].getFppRqstSw() == 'Y') {
+			    if (autoRegT1004CargoArray[i].getMaRqstSw() == 'Y') {
 				onlyHPEApp = false;
 			    }
 			}
-		    }
-		    
-		    if ((appHPECategory && onlyHPEApp == true) || appMPECategory == true || appFPPECategory == true || appSSAMSPCategory == true || (appSSALISMSPCategory == true && newSSALISMSPApp == false ) ||  appMaHpeAssociation == true || (autoRegT1002Cargo.getMaRqstSw() == 'Y' && autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y')) {
-			// FOR MSP or MA APPLICATIONS CLOSE ALL THE OPEN TASKS
-			    log(7, "AutoRegistrationBO.updateTaskForCaseProcess():: Closing the task for Only MA or HPE or MSP apps");
-			    DmTaskStatusCargo[] prevCargoArr = taskBo.updateTaskStatus(groupSeqNum);
+			if (onlyHPEApp == false) {
+			    dcAutoProcCargo.setAutoPopStatusInd('R');
+			    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+			}
 		    } else {
-			log(7, "AutoRegistrationBO.updateTaskForCaseProcess():: Closing the task ");
-			DmTaskStatusCargo[] prevCargoArr = taskBo.updateTaskStatus(groupSeqNum);
-			log(7, "AutoRegistrationBO.updateTaskForCaseProcess():: Creating new task ");
-			dmDocIndex.updateAutoRegApplicationForGroup(docId, caseNumForNewApp, assignableEmp, officeNum, assignableTag, caseArrCargo);
-		    }
-		    dmDocIndex.updateDocumentSpeicalIndicatorForAutoReg(docId, appNum);
-		    log(7, "End AutoRegistrationBO.updateTaskForCaseProcess() ");
-		} catch (Exception e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateTaskForCaseProcess() appNum: " + appNum + "\n" + e.getMessage() + 
-			"\n docId: " + docId + "\n caseNumForNewApp: " + caseNumForNewApp + "\n empID: " + empID + "\n", e);
-		    throw e;
-		}
-	    }
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateTaskForCaseProcess() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_CT, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    throw e;
-	} finally {
-	    caseCargo = null;
-	    caseColl = null;
-	    caseArrCargo = null;
-	}
-	
-    }
-
-    public boolean closeTaskStatus(String appNum) throws Exception {
-	
-	log(7, "Begin AutoRegistrationBO.closeTaskStatus() : appNum - " + appNum);
-	
-	DMDocumentIndexUpdater dmDocIndex = new DMDocumentIndexUpdater(connection);
-	DMDocTaskUpdateBO taskBo1 = null;
-	DmDocCargo[] dmDocCargo = null;
-	
-	try {
-	    String docId = null;
-	    DMDocTaskUpdateBO taskBo = new DMDocTaskUpdateBO(docId, connection);
-	    Object docIdforFileNet = taskBo.getDocIdFromDmDocForSubmit(appNum);
-	    if (docIdforFileNet != null) {
-		docId = (String) docIdforFileNet;
-	    }
-	    
-	    if (docId != null) {
-		log(7, "AutoRegistrationBO.closeTaskStatus():: docId-" + docId);
-		
-		taskBo1 = new DMDocTaskUpdateBO(docId, connection);
-		dmDocCargo = taskBo1.getDocSeqNum();
-		
-		long groupSeqNum = 0;
-		if (dmDocCargo != null && dmDocCargo.length > 0) {
-		    groupSeqNum = dmDocCargo[0].getGroupSeqNum();
-		}
-		
-		log(7, "AutoRegistrationBO.closeTaskStatus():: Closing the task for the groupSeqNum-" + groupSeqNum);
-		DmTaskStatusCargo[] prevCargoArr = taskBo.updateTaskStatus(groupSeqNum);
-	    }
-	    log(7, "AutoRegistrationBO.closeTaskStatus() ");
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.closeTaskStatus() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_CT, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    throw e;
-	}
-    }
-    
-    public boolean createTaskForREDEApps(String appNum, long caseNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.createTaskForREDEApps() : appNum - " + appNum + "--Case Num --" + caseNum);
-	
-	String docId = null;
-	DMDocTaskUpdateBO taskBo = new DMDocTaskUpdateBO(docId, connection);
-	DcCasesCargo caseCargo = new DcCasesCargo();
-	DcCasesCollection caseColl = new DcCasesCollection(connection);
-	DcCasesCargo[] caseArrCargo = null;
-	
-	try {
-	    Object docIdforFileNet = taskBo.getDocIdFromDmDocForSubmit(appNum);
-	    if (docIdforFileNet != null) {
-		docId = (String) docIdforFileNet;
-	    }
-	    log(7, "AutoRegistrationBO.createTaskForREDEApps() : docId - " + docId);
-	    if (docId != null) {
-		
-		long empID = 0;
-		long officeNum = 0;
-		if (caseNum != 0) {
-		    caseCargo.setCaseNum(caseNum);
-		    caseColl.setCargo(caseCargo);
-		    caseArrCargo = (DcCasesCargo[]) caseColl.select("findByCaseNum");
-		    if (caseArrCargo != null && caseArrCargo.length > 0 && caseArrCargo[0] != null) {
-			officeNum = caseArrCargo[0].getOfficeNum();
+			dcAutoProcCargo.setAutoPopStatusInd('R');
+			dcAutoProcCargo.setAutoPopStatusDt(currentTime);
 		    }
 		}
 		
-		empID = retrieveIntakeVirtualWkrId(officeNum);
-		String assignableTag = "";
-		if (autoRegT1002Cargo != null) {
-		    if (((autoRegT1002Cargo.getMaRqstSw() != 0 && autoRegT1002Cargo.getMaRqstSw() == 'Y') || (autoRegT1002Cargo.getMcRqstSw() != 0 && autoRegT1002Cargo.getMcRqstSw() == 'Y')) && ((autoRegT1002Cargo.getFsRqstSw() == 0 || autoRegT1002Cargo.getFsRqstSw() == 'N') && (autoRegT1002Cargo.getCashRqstSw() == 0 || autoRegT1002Cargo.getCashRqstSw() == 'N'))) {
-			assignableTag = "NR";
-		    } else {
-			assignableTag = "IR";
-		    }
-		}
+		dcAutoProcColl.setCargo(dcAutoProcCargo);
 		
-		DMDocumentIndexUpdater dmDocIndex = new DMDocumentIndexUpdater(connection);
-		boolean taskToBeCreated = true;
-		DMDocTaskUpdateBO taskUpdateBo = new DMDocTaskUpdateBO(docId, connection);
-		DmDocCargo[] dmDocCargo = taskUpdateBo.getDocSeqNum();
-		
-		long groupSeqNum = 0;
-		
-		if (dmDocCargo != null && dmDocCargo.length > 0) {
-		    groupSeqNum = dmDocCargo[0].getGroupSeqNum();
-		}
-		log(7, "AutoRegistrationBO.createTaskForREDEApps() : groupSeqNum - " + groupSeqNum);
-		DmTaskStatusCargo[] prevCargoArr = (DmTaskStatusCargo[]) taskBo.updateTaskStatus(groupSeqNum);
-		DmTaskStatusCargo taskCargo = null;
-		if (prevCargoArr != null && prevCargoArr.length > 0 && prevCargoArr[0] != null) {
-		    int arrLength = prevCargoArr.length;
-		    for (int i = 0; i < arrLength; i++) {
-			taskCargo = prevCargoArr[i];
-			if (officeNum == 0L) {
-			    officeNum = taskCargo.getOfficeNum();
-			    empID = retrieveIntakeVirtualWkrId(officeNum);
-			}
-			if (caseArrCargo != null && caseArrCargo.length > 0 && caseArrCargo[0] != null) {
-			    taskBo.createNewTaskStatus(DMConstants.DOCUMENT_TASK_STATUSCODE_NEW, empID, caseNum, officeNum, taskCargo, true, assignableTag, DMConstants.DOCUMENT_ACTIONTYPECODE_ASSIGNED);
-			    
-			}
-		    }
-		}
-		dmDocIndex.updateDocumentSpeicalIndicatorForAutoReg(docId, appNum);
-		updateDmDocsWithREDECaseNum(groupSeqNum, caseNum);
-	    }
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.createTaskForREDEApps() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    caseCargo = null;
-	    caseColl = null;
-	    caseArrCargo = null;
-	}
-	
-    }
-    
-    public boolean updateDmDocsWithREDECaseNum(long groupSeqNum, long caseNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.updateDmDocsWithREDECaseNum() : groupSeqNum--" + groupSeqNum);
-	
-	DmDocCargo dmDocCargo = new DmDocCargo();
-	DmDocCollection dmDocColl = new DmDocCollection(connection);
-	DmDocCargo[] dmDocCargoArray = null;
-	
-	try {
-	    
-	    dmDocCargo.setGroupSeqNum(groupSeqNum);
-	    dmDocColl.add(dmDocCargo);
-	    dmDocCargoArray = (DmDocCargo[]) dmDocColl.select("findDocumentsByGroupSeqNum");
-	    if (dmDocCargoArray != null && dmDocCargoArray.length > 0) {
-		log(7, "AutoRegistrationBO.updateDmDocsWithREDECaseNum() : DM Doc count--" + dmDocCargoArray.length);
-		log(7, "AutoRegistrationBO.updateDmDocsWithREDECaseNum() : Updating caseNum--" + caseNum);
-		dmDocColl.clear();
-		for (int i = 0; i < dmDocCargoArray.length; i++) {
-		    dmDocCargo = dmDocCargoArray[i];
-		    dmDocCargo.setCaseNum(caseNum);
-		    dmDocCargo.setUpdateDt(new java.sql.Timestamp(System.currentTimeMillis()));
-		    dmDocCargo.setUpdateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    dmDocColl.add(dmDocCargo);
-		}
-		dmDocColl.update(dmDocColl);
-		log(7, "AutoRegistrationBO.updateDmDocsWithREDECaseNum() : DMDoc table updated successfully ");
-	    }
-	    
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateDmDocsWithREDECaseNum() caseNum: " + caseNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    dmDocCargo = null;
-	    dmDocColl = null;
-	    dmDocCargoArray = null;
-	}
-	
-    }
-    
-    /**
-     * This method is used to put message in the Queue
-     * 
-     * @param appNum
-     * @throws Exception
-     */
-    public void sendMessageToIRDBQueue(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.sendMessageToIRDBQueue() - --" + appNum);
-	
-	Queue objSendQueue = null;
-	MQQueueConnectionFactory objFactory = null;
-	QueueConnection objQueueConn = null;
-	QueueSession objQueueSession = null;
-	QueueSender objQueueSender = null;
-	TextMessage sendMessage = null;
-	try {
-	    objFactory = new MQQueueConnectionFactory();
-	    String queueHost = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_HOST);
-	    String queuePort = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_PORT);
-	    String queueChannel = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_CHANNEL);
-	    int port = Integer.parseInt(queuePort);
-	    String queueManager = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_MANAGER);
-	    objFactory.setHostName(queueHost);
-	    objFactory.setPort(port);
-	    objFactory.setChannel(queueChannel);
-	    objFactory.setQueueManager(queueManager);
-	    objFactory.setTransportType(com.ibm.mq.jms.JMSC.MQJMS_TP_CLIENT_MQ_TCPIP);
-	    objQueueConn = objFactory.createQueueConnection();
-	    objQueueSession = objQueueConn.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
-	    objSendQueue = objQueueSession.createQueue(AppRegConstants.IRDB_SYNC_Q1);
-	    objQueueSender = objQueueSession.createSender(objSendQueue);
-	    sendMessage = objQueueSession.createTextMessage();
-	    sendMessage.setText(appNum + "#HPE");
-	    objQueueSender.send(sendMessage);
-	    log(7, "AutoRegistrationBO.sendMessageToIRDBQueue() - Placed AppNum in IRDB_SYNC_Q1 Queue--" + appNum);
-	    log(ILog.INFO, "Placed message in AUTO_REG_Q Queue");
-	    objQueueSender.close();
-	    objQueueSession.close();
-	    objQueueConn.close();
-	    
-	} catch (Exception ee) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.sendMessageToIRDBQueue() appNum: " + appNum + "\n" + ee.getMessage() + "\n", ee);
-	    hasExceptionOccurred = true;
-	    throw ee;
-	}
-    }
-    
-    public boolean sendMessageToIIRQueue() throws Exception {
-	
-	log(7, "Begin AutoRegistrationBO.sendMessageToIIRQueue() ");
-	IIRSyncBO syncBO = new IIRSyncBO(connection);
-	CvDcMciIndvCargo cvDcMciIndvCargo = new CvDcMciIndvCargo();
-	T1004AppIndvCargo t1004Cargo = null;
-	int currentCargo = -1;
-	try {
-	    
-	    if (indvMap != null || indvMap.size() != 0) {
-			for (int key : indvMap.keySet()) {
-				try{
-				    if (indvMap.get(key) == 0) {
-						for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
-						    currentCargo = i;
-						    t1004Cargo = autoRegT1004CargoArray[i];
-						    if (key == (int) t1004Cargo.getIndvSeqNum()) {
-								cvDcMciIndvCargo.setDobDt(t1004Cargo.getBrthDt());
-								cvDcMciIndvCargo.setFirstName(t1004Cargo.getFstNam());
-								cvDcMciIndvCargo.setLastName(t1004Cargo.getLastNam());
-								cvDcMciIndvCargo.setMidName(t1004Cargo.getMidInit());
-								cvDcMciIndvCargo.setGenderCd(t1004Cargo.getSexInd());
-								cvDcMciIndvCargo.setIndvId(t1004Cargo.getBridgesIndvId());
-								cvDcMciIndvCargo.setSsn(t1004Cargo.getSsnNum());
-								
-								syncBO.sendMessageFromBatch(cvDcMciIndvCargo.getIndvId(), createIDSRecord(cvDcMciIndvCargo), "A", "I");
-								log(7, "AutoRegistrationBO.sendMessageToIIRQueue() - Placed message in IIRSyncQueue Queue--");
-						    }
-						    
-						}
-				    }
-				}catch (Exception e) {
-				    // PMD_Override - R6 - Exception is not being propagated because if a Q message is not properly placed it
-				    // will be retried later on, and this is not reason to stop processing the current LUW.
-				    PMDRules.markApprovedCatchBlock("R6");
-				    // hasExceptionOccurred = true;
-				    exceptionBO.writeExceptionRecord(BatchConstants.INFO, "AR-ATREG-HLY:  AutoRegistrationBO - sendMessageToIIRQueue()", "Exception occured while updating IIR in updateIndv: " + (autoRegT1004CargoArray[currentCargo] != null ? autoRegT1004CargoArray[currentCargo].toString() : "-1") + " :: " + e.getMessage(), BatchConstants.REPORT_BODY, false, BatchConstants.FW_EXCEPTION_LOG_FILE, ILog.ERROR, BatchConstants.DEFAULT_LOGGER_FILE, false, e, null, null, null);	   
-				}			    
-			}
-	    }	
-	    return true;
-	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.sendMessageToIIRQueue(): " + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	} finally {
-	    syncBO = null;
-	    cvDcMciIndvCargo = null;
-	    t1004Cargo = null;
-	}
-	
-    }
-    
-    public String[] createIDSRecord(CvDcMciIndvCargo cargo) throws Exception{
-    	/*
-		 * As part of new IIR approach we have to pass history_Seq_num. Since history_seq_number is part of primary key, we need to fire this query 
-		 * to get the inserted history_seq_num from the database and send it to the IIR.
-		 */
-    	Object[] params = new Object[1];
-		params[0] = cargo;
-		CvDcMciIndvCollection mciIndvCollection = new CvDcMciIndvCollection(connection);
-		mciIndvCollection.setCargo(cargo);
-		CvDcMciIndvCargo[] historySeqCvDcMciIndvCargo = null;
-		try {
-			historySeqCvDcMciIndvCargo = (CvDcMciIndvCargo[]) mciIndvCollection.select("findByIndvId", params);
-		} catch (ApplicationException e) {
-			 log(ILog.ERROR, "AutoRegistrationBO.createIDSRecord Application exception while trying to find run the query for getting the history sequence number");
-			e.printStackTrace();
-			throw e;
-		} catch (FrameworkException e) {
-			 log(ILog.ERROR, "AutoRegistrationBO.createIDSRecord Framework Exception  while trying to find run the query for getting the history sequence number");
-			e.printStackTrace();
-			throw e;
-		}	
-		
-		String[] result = new String[8];
-		result[0] = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(cargo.getDobDt());
-		result[1] = cargo.getFirstName();
-		result[2] = cargo.getGenderCd() + "";
-		if(historySeqCvDcMciIndvCargo!=null && historySeqCvDcMciIndvCargo[0].getHistorySeq()>0){
-			result[3] = formatLongForIDS(historySeqCvDcMciIndvCargo[0].getHistorySeq(), 20);
-		}else{
-			result[3] = formatLongForIDS(0, 20);
-		}
-		result[4] = formatLongForIDS(cargo.getIndvId(), 20);
-		result[5] = cargo.getLastName();
-		result[6] = cargo.getMidName();
-		result[7] = formatLongForIDS(cargo.getSsn(), 20);
-		
-		return result;
-    }
-    
-    private String formatLongForIDS(long var, int length) {
-	String record2 = "";
-	int dataLen = length - (var + "").length();
-	for (int i = 0; i < dataLen; i++) {
-	    record2 = record2 + "0";
-	}
-	record2 = record2 + var;
-	return record2;
-    }
-
-    public boolean sendMessageFromBatch(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.sendMessageFromBatch() ");
-	Queue objSendQueue = null;
-	MQQueueConnectionFactory objFactory = null;
-	QueueConnection objQueueConn = null;
-	QueueSession objQueueSession = null;
-	QueueSender objQueueSender = null;
-	TextMessage sendMessage = null;
-	try {
-	    objFactory = new MQQueueConnectionFactory();
-	    String queueHost = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_HOST);
-	    String queuePort = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_PORT);
-	    String queueChannel = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_CHANNEL);
-	    int port = Integer.parseInt(queuePort);
-	    String queueManager = FwProperty.getInstance().getProperty(FwConstants.MESSAGING_PROPERTY_FILE, FwConstants.MESSAGING_MANAGER);
-	    objFactory.setHostName(queueHost);
-	    objFactory.setPort(port);
-	    objFactory.setChannel(queueChannel);
-	    objFactory.setQueueManager(queueManager);
-	    objFactory.setTransportType(com.ibm.mq.jms.JMSC.MQJMS_TP_CLIENT_MQ_TCPIP);
-	    log(ILog.ERROR, "AutoRegistrationBO.sendMessageFromBatch intialize");
-	    objQueueConn = objFactory.createQueueConnection();
-	    objQueueSession = objQueueConn.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
-	    objSendQueue = objQueueSession.createQueue(AppRegConstants.AUTO_REG_QUEUE);
-	    objQueueSender = objQueueSession.createSender(objSendQueue);
-	    sendMessage = objQueueSession.createTextMessage();
-	    sendMessage.setText(appNum);
-	    log(ILog.ERROR, "Begin AutoRegistrationBO.sendMessageFromBatch() - Placed AppNum in AUTO_REG_Q Queue--");
-	    objQueueSender.send(sendMessage);
-	    log(ILog.ERROR, "End AutoRegistrationBO.sendMessageFromBatch() - Placed AppNum in AUTO_REG_Q Queue--");
-	    objQueueSender.close();
-	    objQueueSession.close();
-	    objQueueConn.close();
-	    return true;
-	} catch (Exception ee) {
-	    hasExceptionOccurred = true;
-		log(ILog.ERROR, "Error while sending message to queue AutoRegistrationBO.sendMessageFromBatch() appNum: " + appNum + "\n" + ee.getMessage() + "\n", ee);
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_MQ, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    throw ee;
-	}
-    }
-
-    public void sendMessage(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.sendMessage() - " + appNum);
-	log(ILog.INFO, "Begin AutoRegistrationBO.sendMessage()");
-	try {
-	    if (appNum != null || appNum.trim() != "") {
-		FwMessageManager messageManagr = (FwMessageManager) FwServiceFactory.getInstance().create(IMessage.class);
-		messageManagr.sendForget("AutoRegQueue", appNum, "AutoRegQ");
-	    }else{
-	    	log(ILog.ERROR, "Couldn't Place message in AUTO_REG_Q Queue for APP_NUM" + appNum);
-	    }
-	    log(7, "AutoRegistrationBO.sendMessage() - Placed AppNum in AUTO_REG_Q Queue--" + appNum);
-    
-	} catch (Exception ee) {
-	    hasExceptionOccurred = true;
-		log(ILog.ERROR, "Error while sending message to queue AutoRegistrationBO.sendMessage() appNum: " + appNum + "\n" + ee.getMessage() + "\n", ee);
-	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_MQ, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
-	    if (TIERSConstants.BATCH.equals(ConnectionManager.getConnectionManager().getChannelInformation())) {
-		throw new TIERSBatchException(ee);
+		dcAutoProcColl.insert(dcAutoProcColl);
+		log(7, "AutoRegistrationBO.updateAutoRegTriggerTable() :: Data inserted Successfully");
+		return true;
 	    } else {
-		return;
-	    }
-	}
-    }
-    
-    /**
-     * This method generate correspondance trigger.
-     * 
-     * @param caseNumber
-     */
-    
-    private void generateCorrespondance(String appNum, String docID, String miscParameters, Connection Conn) throws Exception {
-	log(7, "Begin AutoRegistrationBO.generateCorrespondance() - " + appNum + "--docID--" + docID);
-	try {
-	    int returnVal = 0;
-	    Timestamp today = FwCalendar.getInstance().getDate().getTimestamp();
-	    if (icoBatch == null) {
-		icoBatch = (ICoBatch) CoServiceFactory.getInstance().create(ICoBatch.class);
-	    }
-	    String langcode = DIConstants.DI_NOTICE_LANG_ENGLISH;
-	    if (null != autoRegT1001Cargo.getLangCd() && autoRegT1001Cargo.getLangCd().trim().length() > 0 && autoRegT1001Cargo.getLangCd().equalsIgnoreCase("S")) {
-		langcode = "SP";
-	    }
-	    COCorrespondence coReqObj = new COCorrespondence();
-	    coReqObj.setCaseAppNumber(appNum);
-	    coReqObj.setDocId(docID);
-	    coReqObj.setCaseAppFlag(DIConstants.APP_NUM_A);
-	    coReqObj.setLangCd(langcode);
-	    coReqObj.setPrintMode(DIConstants.DI_NOTICE_PRINT_MODE_B);
-	    coReqObj.setDraftSwitch(DIConstants.DRAFT_SW_N);
-	    coReqObj.setMiscParameters(miscParameters);
-	    coReqObj.setGenerateDate(today);
-	    log(7, "The autoRegShAppCargo is >>" + autoRegShAppCargo);
-	    log(ILog.INFO, "The autoRegShAppCargo is >>" + autoRegShAppCargo);
-	    if (autoRegShAppCargo != null) {
-		log(7, "The appt id is >>" + autoRegShAppCargo.getApptId());
-		log(7, "The app num is >>" + autoRegShAppCargo.getAppNum());
-		log(7, "The case num is >>" + autoRegShAppCargo.getCaseNum());
-		log(7, "The appt count is >>" + autoRegShAppCargo.getApptCount());
-	    }
-	    // ILIES-186902
-	    if (autoRegShAppCargo != null && "FXX412".equalsIgnoreCase(docID)) {
-		log(7, "Inside if for FXX412 >>" + autoRegShAppCargo.getApptId());
-		log(ILog.INFO, "Inside if for FXX412 >>" + autoRegShAppCargo.getApptId());
-		coReqObj.setApptId(autoRegShAppCargo.getApptId());
+		dcAutoProcCargo = dcAutoProcCargoArray[0];
+		
+		dcAutoProcCargo.setAutoRegStatusInd(appStatus);
+		dcAutoProcCargo.setAutoRegExceptCd(appExc);
+		dcAutoProcCargo.setAutoRegStatusDt(currentTime);
+		dcAutoProcCargo.setAutoBatProcInd(batchInd);
+		dcAutoProcColl.setCargo(dcAutoProcCargo);
+		
+		if (appStatus == 'S' && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y") && !appMaHpeAssociation) {
+		    dcAutoProcCargo.setAutoPopStatusInd('R');
+		    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+		    dcAutoProcCargo.setSsaMspSw('Y');
+		    dcAutoProcCargo.setSsaMspCaseNum(dcCaseTempArray[0].getCaseNum());
+		} else if (appStatus == 'S' && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() == 'Y')  
+				&& autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y' && !appMaHpeAssociation) {
+		    if (appHPECategory) {
+			boolean onlyHPEApp = true;
+			for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+			    if (autoRegT1004CargoArray[i].getMaRqstSw() == 'Y') {
+				onlyHPEApp = false;
+			    }
+			}
+			if (onlyHPEApp == false) {
+			    dcAutoProcCargo.setAutoPopStatusInd('R');
+			    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+			}
+		    } else {
+			dcAutoProcCargo.setAutoPopStatusInd('R');
+			dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+		    }
+		}
+		
+		dcAutoProcColl.update(dcAutoProcColl);
+		log(7, "AutoRegistrationBO.updateAutoRegTriggerTable() :: Data updated Successfully");
+		return true;
 	    }
 	    
-	    returnVal = icoBatch.initiateCorrespondence(coReqObj, Conn);
-	    if (returnVal != 0)
-		throw new FrameworkException("Error While Triggering Correspondence and RETURN CODE is " + returnVal);
-	    log(7, "End AutoRegistrationBO.generateCorrespondance()");
 	} catch (Exception e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.generateCorrespondance() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-    }
-    
-    private void cpeMMISTrigger(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.cpeMMISTrigger() - " + appNum);
-	ArCpeEligDetailCargo[] cpeCargos = null;
-	ArCpeEligDetailCargo cpeCargo = null;
-	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-	InTriggerTableCargo[] triggerCargos = null;
-	ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
-	INTriggerBO trigBO = new INTriggerBO(connection);
-	try {
-	    // get all Individuals in CPE
-	    cpeCargos = appSummaryBo.findCaseCPE(appNum);
-	    SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-	    Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
-	    if (cpeCargos != null && cpeCargos.length > 0) {
-		for (int i = 0; i < cpeCargos.length; i++) {
-		    cpeCargo = (ArCpeEligDetailCargo) cpeCargos[i];
-		    if (cpeCargo.getMangpCd() != null && cpeCargo.getMangpCd().length() > 0  && (!"PN".equalsIgnoreCase(cpeCargo.getMangpCd()) && !"PM".equalsIgnoreCase(cpeCargo.getMangpCd()))) {
-			String newMANGP = "";
-			if ("PH".equals(cpeCargo.getMangpCd())) {
-			    newMANGP = "PA";
-			} else if ("PL".equals(cpeCargo.getMangpCd())) {
-			    newMANGP = "PB";
-			}
-			log(7, "AutoRegistrationBO.cpeMMISTrigger() :: cpeCargo.getIndvId() - " + cpeCargo.getIndvId());
-			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-			inTrig.setTriggerCd("FI001");
-			inTrig.setMangpCd(newMANGP);
-			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			inTrig.setInterfaceNameCd("MANG");
-			inTrig.setProcessFlag('N');
-			inTrig.setFirstTimeInd(trigBO.getFirstTimeIndByAppNum(appNum, "FI001"));
-			Timestamp beginDate = cpeCargo.getPeBeginDt();
-			if (ALSOPUtil.truncate(beginDate).after(today) || today.equals(ALSOPUtil.truncate(beginDate))) { // check if app date is >= today
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: begin date - " + beginDate);
-			    inTrig.setBeginDt(ALSOPUtil.truncate(beginDate)); // begin date is cpeCargo.getPeBeginDt()
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: end date - " + beginDate);
-			    inTrig.setEndDt(ALSOPUtil.truncate(beginDate)); // end date is also cpeCargo.getPeBeginDt()
-			}
-			// FOR PAST DATES
-			if (ALSOPUtil.truncate(beginDate).before(today)) { // check if app date is < today
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: begin date - " + cpeCargo.getPeBeginDt());
-			    inTrig.setBeginDt(ALSOPUtil.truncate(cpeCargo.getPeBeginDt())); // begin date is cpeCargo.getPeBeginDt()
-			    log(7, "AutoRegistrationBO.cpeMMISTrigger() :: end date - " + cpeCargo.getPeBeginDt());
-			    inTrig.setEndDt(ALSOPUtil.truncate(today)); // end date is today
-			}
-			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-			inTrig.setAppNum(appNum);
-			inTrig.setIndvId(cpeCargo.getIndvId());
-			triggerList.add(inTrig);
-			
-		    }
-		    
-		    if (cpeCargo.getMangpCd() != null && cpeCargo.getMangpCd().length() > 0) {
-			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-			inTrig.setTriggerCd("FI001");
-			inTrig.setMangpCd(cpeCargo.getMangpCd());
-			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			inTrig.setInterfaceNameCd("MANG");
-			inTrig.setProcessFlag('N');
-			
-			if(!"PN".equalsIgnoreCase(cpeCargo.getMangpCd()) && !"PM".equalsIgnoreCase(cpeCargo.getMangpCd())){
-				if (ALSOPUtil.truncate(cpeCargo.getPeBeginDt()).after(today) || today.equals(ALSOPUtil.truncate(cpeCargo.getPeBeginDt()))) { // check if app date is >= today
-				    inTrig.setBeginDt(ALSOPUtil.truncate(FwCalendar.getInstance().nextDay(cpeCargo.getPeBeginDt()))); // 2nd trigger begin date is appRcvDt + 1
-				}
-				// FOR PAST DATE
-				if (ALSOPUtil.truncate(cpeCargo.getPeBeginDt()).before(today)) { // check if app date is < today
-				    inTrig.setBeginDt(ALSOPUtil.truncate(FwCalendar.getInstance().nextDay(today))); // 2nd trigger begin date is today + 1
-				}
-			}else{
-				inTrig.setBeginDt(ALSOPUtil.truncate(cpeCargo.getPeBeginDt()));
-			}
-			inTrig.setEndDt(null);
-			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-			inTrig.setAppNum(appNum);
-			inTrig.setIndvId(cpeCargo.getIndvId());
-			inTrig.setFirstTimeInd(trigBO.getFirstTimeIndByAppNum(appNum, "FI001"));
-			triggerList.add(inTrig);
-		    }
-		}
-		if (triggerList.size() > 0) {
-		    triggerCargos = new InTriggerTableCargo[triggerList.size()];
-		    triggerList.toArray(triggerCargos);
-		    createTrigger(triggerCargos);
-		    generateCorrespondance(appNum, DIConstants.DOC_ID_FXX422, "", this.con);
-		    
-		}
-	    }
-	} catch (INTriggerException e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.cpeMMISTrigger() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception in AutoRegistrationBO.updateAutoRegTriggerTable(): " + "\n" + e.getMessage() + "\n", e);
+	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_IA, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
+	    
 	    throw e;
 	} finally {
-	    cpeCargos = null;
-	    cpeCargo = null;
+	    dcAutoProcColl = null;
+	    dcAutoProcCargo = null;
+	    dcAutoProcCargoArray = null;
 	}
     }
     
-    private void mpeMMISTrigger(String appNum) throws Exception {
-	log(7, "Begin AutoRegistrationBO.mpeMMISTrigger() - " + appNum);
-	ArMpeEligDetailCargo[] mpeCargos = null;
-	ArMpeEligDetailCargo mpeIndvCargo = null;
-	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-	InTriggerTableCargo[] triggerCargos = null;
-	ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
-	try {
-	    mpeCargos = appSummaryBo.findIndvsInMPE(appNum);
-	    if (mpeCargos != null && mpeCargos.length > 0) {
-		for (int i = 0; i < mpeCargos.length; i++) {
-		    mpeIndvCargo = (ArMpeEligDetailCargo) mpeCargos[i];
-		    if (mpeIndvCargo != null && mpeIndvCargo.getMangpCd() != null && mpeIndvCargo.getMangpCd().length() > 0) {
-			
-			log(7, "AutoRegistrationBO.mpeMMISTrigger() :: mpeIndvCargo.getIndvId() - " + mpeIndvCargo.getIndvId());
-			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-			inTrig.setTriggerCd("FI003");
-			inTrig.setMangpCd(mpeIndvCargo.getMangpCd());
-			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-			inTrig.setInterfaceNameCd("MANG");
-			inTrig.setProcessFlag('N');
-			inTrig.setFirstTimeInd('Y');
-			SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-			Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
-			inTrig.setBeginDt(today);
-			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-			inTrig.setAppNum(appNum);
-			inTrig.setIndvId(mpeIndvCargo.getIndvId());
-			triggerList.add(inTrig);
-			
-		    }
-		}
-		if (triggerList.size() > 0) {
-		    triggerCargos = new InTriggerTableCargo[triggerList.size()];
-		    triggerList.toArray(triggerCargos);
-		    createTrigger(triggerCargos);
-		}
-	    }
-	} catch (INTriggerException e) {
-		log(ILog.ERROR, "Exception in AutoRegistrationBO.mpeMMISTrigger() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-	    hasExceptionOccurred = true;
-	    throw e;
-	}
-	
-    }
-    
-    private void fppeMMISTrigger(String appNum) throws Exception {
-    	log(7, "Begin AutoRegistrationBO.fppeMMISTrigger() - " + appNum);
-    	ArFppeEligDetailCargo[] fppeCargos = null;
-    	AppSummaryBO appSummaryBo = new AppSummaryBO(connection);
-    	InTriggerTableCargo[] triggerCargos = null;
-    	ArrayList<InTriggerTableCargo> triggerList = new ArrayList<InTriggerTableCargo>();
+    public boolean updateAutoRegTriggerTable(DcAutoProcessingCargo dcAutoProcCargo, char appStatus, String appExc, String batchInd) throws Exception {
+    	log(7, "Begin AutoRegistrationBO.updateAutoRegTriggerTable() ");
+    	String appNum = dcAutoProcCargo.getAppNum();
+    	log(7, "AutoRegistrationBO.updateAutoRegTriggerTable()--appNum " + appNum + "--appStatus--" + appStatus + "--appExc--" + appExc);
+    	DcAutoProcessingCollection dcAutoProcColl = new DcAutoProcessingCollection(connection);
+   	
     	try {
-    		fppeCargos = appSummaryBo.findIndvsInFPPE(appNum);
-    	    if (fppeCargos != null && fppeCargos.length > 0) {
-	    		for(ArFppeEligDetailCargo fppeIndvCargo : fppeCargos) {
-	    		    if (fppeIndvCargo != null && fppeIndvCargo.getMangpCd() != null && fppeIndvCargo.getMangpCd().length() > 0) {
-		    			log(7, "AutoRegistrationBO.fppeMMISTrigger() :: fppeIndvCargo.getIndvId() - " + fppeIndvCargo.getIndvId());
-		    			InTriggerTableCargo inTrig = new InTriggerTableCargo();
-		    			inTrig.setTriggerCd("FI008");
-		    			inTrig.setMangpCd(fppeIndvCargo.getMangpCd());
-		    			inTrig.setCreateUserId(AppRegConstants.AUTO_REG_BATCH);
-		    			inTrig.setInterfaceNameCd("MANG");
-		    			inTrig.setProcessFlag('N');
-		    			inTrig.setFirstTimeInd('Y');
-		    			SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
-		    			Timestamp today = new Timestamp(sdf.parse(((FwCalendar.getInstance()).getDate()).getFormattedDate()).getTime());
-		    			inTrig.setBeginDt(today);
-		    			inTrig.setCreateDt(FwCalendar.getInstance().getDate().getTimestamp());
-		    			inTrig.setAppNum(appNum);
-		    			inTrig.setIndvId(fppeIndvCargo.getIndvId());
-		    			triggerList.add(inTrig);
-	    		    }
-	    		}
-	    		if (triggerList.size() > 0) {
-	    		    triggerCargos = new InTriggerTableCargo[triggerList.size()];
-	    		    triggerList.toArray(triggerCargos);
-	    		    createTrigger(triggerCargos);
-	    		}
-    	    }
-    	}catch (INTriggerException e) {
-			log(ILog.ERROR, "Exception in AutoRegistrationBO.fppeMMISTrigger() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
-    	    hasExceptionOccurred = true;
+    		dcAutoProcCargo.setAutoRegStatusInd(appStatus);
+    		dcAutoProcCargo.setAutoRegExceptCd(appExc);
+    		dcAutoProcCargo.setAutoRegStatusDt(currentTime);
+    		dcAutoProcCargo.setAutoBatProcInd(batchInd);
+    		dcAutoProcColl.setCargo(dcAutoProcCargo);
+    		
+    		if (appStatus == 'S' && autoReg_SSA_MSP_Sw != null && autoReg_SSA_MSP_Sw.equals("Y") && !appMaHpeAssociation) {
+    		    dcAutoProcCargo.setAutoPopStatusInd('R');
+    		    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+    		    dcAutoProcCargo.setSsaMspSw('Y');
+    		    dcAutoProcCargo.setSsaMspCaseNum(dcCaseTempArray[0].getCaseNum());
+    		} else if (appStatus == 'S' && (autoRegT1002Cargo.getMaRqstSw() == 'Y' || autoRegT1002Cargo.getFppRqstSw() != 'Y') 
+    				&& autoRegT1002Cargo.getFsRqstSw() != 'Y' && autoRegT1002Cargo.getCashRqstSw() != 'Y' && autoRegT1002Cargo.getMcRqstSw() != 'Y' && !appMaHpeAssociation) {
+    		    if (appHPECategory) {
+    			boolean onlyHPEApp = true;
+    			for (int i = 0; i < autoRegT1004CargoArray.length; i++) {
+    			    if (autoRegT1004CargoArray[i].getMaRqstSw() == 'Y') {
+    				onlyHPEApp = false;
+    			    }
+    			}
+    			if (onlyHPEApp == false) {
+    			    dcAutoProcCargo.setAutoPopStatusInd('R');
+    			    dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+    			}
+    		    } else {
+    			dcAutoProcCargo.setAutoPopStatusInd('R');
+    			dcAutoProcCargo.setAutoPopStatusDt(currentTime);
+    		    }
+    		}
+    		
+    		dcAutoProcColl.update(dcAutoProcColl);
+    		log(7, "AutoRegistrationBO.updateAutoRegTriggerTable() :: Data updated Successfully");
+    		return true;
+    	} catch (Exception e) {
+			log(ILog.ERROR, "Exception in AutoRegistrationBO.updateAutoRegTriggerTable(): " + "\n" + e.getMessage() + "\n", e);
+    	    updateAutoRegExcpTable(appNum, AppRegConstants.AUTO_REG_EXCP_EXCP_IA, AppRegConstants.AUTO_REG_EXCP_STATUS_EX);
     	    throw e;
+    	} finally {
+    	    dcAutoProcColl = null;
+    	    dcAutoProcCargo = null;
     	}
     }
+    
+    public boolean updateAutoRegExcpTable(String appNum, String appExcpCd, String statusCd) throws Exception {
+	log(7, "Begin AutoRegistrationBO.updateAutoRegExcpTable() ");
+	ArAutoRegExcpCollection arAutoRegExcpColl = null;
+	ArAutoRegExcpCargo arAutoRegExcpCargo = new ArAutoRegExcpCargo();
+	ArAutoRegExcpCargo[] arAutoRegExcpArray = null;
+	
+	try {
+	    arAutoRegExcpColl = new ArAutoRegExcpCollection(connection);
+	    
+	    Object arAutoRegExcp[] = { appNum };
+	    arAutoRegExcpArray = (ArAutoRegExcpCargo[]) arAutoRegExcpColl.select("findByAppNum", arAutoRegExcp);
+	    
+	    if (arAutoRegExcpArray == null || arAutoRegExcpArray.length == 0) {
+		arAutoRegExcpCargo.setAppNum(appNum);
+		if (appExcpCd != null && appExcpCd.trim() != "") {
+		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
+		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_CR)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CR_DESC); 			    
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_CT)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CT_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_MQ)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_MQ_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_FC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_FC_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DA)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DA_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_RE)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_RE_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AC_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PC_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PA)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PA_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PE)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PE_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AD)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AD_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_SH)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_SH_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DB)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DB_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IS)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IS_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IR)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IR_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IC_DESC);
+		    
+		}
+		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
+		arAutoRegExcpCargo.setAutoRegCreateDt(currentTime);
+		arAutoRegExcpCargo.setAutoRegExceptCount(1);
+		
+		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
+		arAutoRegExcpColl.insert(arAutoRegExcpColl);
+		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data inserted Successfully " + appNum);
+	    } else {
+		
+		arAutoRegExcpCargo = arAutoRegExcpArray[0];
+		if (appExcpCd != null && appExcpCd.trim() != "") {
+		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
+		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_CR)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CR_DESC);  
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_CT)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_CT_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_MQ)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_MQ_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_FC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_FC_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DA)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DA_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_RE)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_RE_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AC_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PC_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PA)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PA_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_PE)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_PE_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_AD)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_AD_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_SH)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_SH_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_DB)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_DB_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IS)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IS_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IR)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IR_DESC);
+		    else if (appExcpCd == AppRegConstants.AUTO_REG_PROCESS_IC)
+			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IC_DESC);
+		}
+		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
+		arAutoRegExcpCargo.setAutoRegUpdateDt(currentTime);
+		arAutoRegExcpCargo.setAutoRegExceptCount(arAutoRegExcpCargo.getAutoRegExceptCount() + 1);
+		
+		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
+		arAutoRegExcpColl.update(arAutoRegExcpColl);
+		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data updated Successfully " + appNum);
+	    }
+	    return true;
+	    
+	} catch (Exception e) {
+	    hasExceptionOccurred = true;
+		log(ILog.ERROR, "Exception while inserting data into AutoRegistrationBO.updateAutoRegExcpTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} finally {
+	    arAutoRegExcpColl = null;
+	    arAutoRegExcpCargo = null;
+	    arAutoRegExcpArray = null;
+	}
+    }
+    
+    public boolean updateAutoRegExcpTable(String appNum, String appExcpCd, String statusCd, int excpCount) throws Exception {
+    	log(7, "Begin AutoRegistrationBO.updateAutoRegExcpTable() ");
+    	ArAutoRegExcpCollection arAutoRegExcpColl = null;
+    	ArAutoRegExcpCargo arAutoRegExcpCargo = new ArAutoRegExcpCargo();
+    	ArAutoRegExcpCargo[] arAutoRegExcpArray = null;
+    	
+    	try {
+    	    arAutoRegExcpColl = new ArAutoRegExcpCollection(connection);
+    	    
+    	    Object arAutoRegExcp[] = { appNum };
+    	    arAutoRegExcpArray = (ArAutoRegExcpCargo[]) arAutoRegExcpColl.select("findByAppNum", arAutoRegExcp);
+    	    
+    	    if (arAutoRegExcpArray == null || arAutoRegExcpArray.length == 0) {
+    		arAutoRegExcpCargo.setAppNum(appNum);
+    		if (appExcpCd != null && appExcpCd.trim() != "") {
+    		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
+    		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
+    			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);
+    		}
+    		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
+    		arAutoRegExcpCargo.setAutoRegCreateDt(currentTime);
+    		arAutoRegExcpCargo.setAutoRegExceptCount(excpCount);
+    		
+    		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
+    		arAutoRegExcpColl.insert(arAutoRegExcpColl);
+    		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data inserted Successfully " + appNum);
+    	    } else {
+    		
+    		arAutoRegExcpCargo = arAutoRegExcpArray[0];
+    		if (appExcpCd != null && appExcpCd.trim() != "") {
+    		    arAutoRegExcpCargo.setAutoRegExceptCd(appExcpCd);
+    		    if (appExcpCd == AppRegConstants.AUTO_REG_EXCP_EXCP_IA)
+    			arAutoRegExcpCargo.setAutoRegExceptDesc(AppRegConstants.AUTO_REG_EXCP_EXCP_IA_DESC);    		    
+    		}
+    		arAutoRegExcpCargo.setAutoRegStatusCd(statusCd);
+    		arAutoRegExcpCargo.setAutoRegUpdateDt(currentTime);
+    		arAutoRegExcpCargo.setAutoRegExceptCount(excpCount);
+    		
+    		arAutoRegExcpColl.setCargo(arAutoRegExcpCargo);
+    		arAutoRegExcpColl.update(arAutoRegExcpColl);
+    		log(7, "AutoRegistrationBO.updateAutoRegExcpTable()::Data updated Successfully " + appNum);
+    	    }
+    	    return true;
+    	    
+	} catch (Exception e) {
+		log(ILog.ERROR, "Exception while inserting data into AutoRegistrationBO.updateAutoRegExcpTable() appNum: " + appNum + "\n" + e.getMessage() + "\n", e);
+	    throw e;
+	} finally {
+	    arAutoRegExcpColl = null;
+	    arAutoRegExcpCargo = null;
+	    arAutoRegExcpArray = null;
+	}
+    }
+    
+    public boolean getDataForAutoRegProcess(String appNum, boolean autoRegCheck) throws Exception {
+	log(7, "AutoRegistrationBO.getDataForAutoRegProcess() started ");
+	currentTime = new java.sql.Timestamp(System.currentTimeMillis());
+	
+	T1001AppRqstCollection t1001Coll = new T1001AppRqstCollection(connection);
+	T1001AppRqstCargo t1001Cargo = new T1001AppRqstCargo();
+	T1001AppRqstCargo[] t1001CargoArray = null;
+	
+	T1002AppDtlCollection t1002Coll = new T1002AppDtlCollection(connection);
+	T1002AppDtlCargo t1002Cargo = new T1002AppDtlCargo();
+	T1002AppDtlCargo[] t1002CargoArray = null;
+	
+	T1004AppIndvCargo t1004Cargo = new T1004AppIndvCargo();
+	T1004AppIndvCargo[] t1004CargoArray = null;
+	
+	T1003AppPrirSrvCollection t1003SrvColl = new T1003AppPrirSrvCollection(connection);
+	T1004AppIndvCollection t1004Coll = new T1004AppIndvCollection(connection);
+	T1060_APP_IN_HPECollection t1060_APP_IN_HPEColl = new T1060_APP_IN_HPECollection(connection);
+	T1060_APP_IN_HPECargo[] t1060HPECargoArray = null;
+	
+	log(ILog.DEBUG, "Initialising EDMWebserviceVO..." + appNum);
+	dmWebserviceVO = new DMElectronicDocumentSSVO();
+	Map speciallInd = new HashMap();
+	
+	try {
+	    
+	    Object appNumArgs[] = { appNum };
+	    
+	    t1001Cargo.setAppNum(appNum);
+	    t1001Coll.setCargo(t1001Cargo);
+	    t1001CargoArray = (T1001AppRqstCargo[]) t1001Coll.select("findByAppNum");
+	    if (t1001CargoArray == null || t1001CargoArray.length == 0)
+		return false;
+	    else
+		t1001Cargo = t1001CargoArray[0];
+	    if (t1001Cargo == null)
+		return false;
+	    t1002CargoArray = (T1002AppDtlCargo[]) t1002Coll.select("findAppDtlByAppNum", appNumArgs);
+	    if (t1002CargoArray == null || t1002CargoArray.length == 0)
+		return false;
+	    else
+		t1002Cargo = t1002CargoArray[0];
+	    
+	    t1004CargoArray = (T1004AppIndvCargo[]) t1004Coll.select("findByAppNum", appNumArgs);
+	    t1060HPECargoArray = (T1060_APP_IN_HPECargo[]) t1060_APP_IN_HPEColl.select("findByAppNum", appNumArgs);
+	    
+	    DMElectronicDocumentWSBO dmBO = new DMElectronicDocumentWSBO(connection); //Langauge SPD
+		String langCd = t1001Cargo.getLangCd();
+		if(StringUtils.isNotEmpty(langCd) && !("0".equalsIgnoreCase(langCd))){
+		String langSI = dmBO.getLangSPD(langCd);
+			List<String> languageSplInd = new ArrayList<String>();
+			languageSplInd.add(langSI);
+			speciallInd.put(langSI, languageSplInd);
+		}
+	    
+	    dmWebserviceVO.setAppNum(appNum);
+	    if (t1001Cargo.getSopDueDt() != null) {
+		dmWebserviceVO.setDueDate(t1001Cargo.getSopDueDt().toString());
+	    } else {
+		dmWebserviceVO.setDueDate(currentTime.toString());
+	    }
+	    
+	    String pid = null;
+	    String htmlPid = null;
+	    pid = t1001Cargo.getPId();
+	    if (pid != null && !pid.trim().equals("")) {
+		dmWebserviceVO.setDocumentId(pid);
+	    } else {
+		dmWebserviceVO.setDocumentId(appNum);
+	    }
+	    htmlPid = t1001Cargo.getHtmlPId();
+	    if (htmlPid != null && !htmlPid.trim().equals("")) {
+		dmWebserviceVO.setHtmlPid(htmlPid);
+	    }
+	    dmWebserviceVO.setReceivedDate(t1001Cargo.getAppRcvDt().toString());
+	    dmWebserviceVO.setScanDate(dmWebserviceVO.getReceivedDate());
+	    
+	    dmWebserviceVO.setDestinationOfficeNum(new Long(t1001Cargo.getOfcNum()));
+	    dmWebserviceVO.setScannedOfficeNum(new Long(t1001Cargo.getOfcNum()));
+	    if (t1004CargoArray != null && t1004CargoArray.length > 0) {
+		for (int k = 0; k < t1004CargoArray.length; k++) {
+		    T1004AppIndvCargo cargo = t1004CargoArray[k];
+		    if (cargo != null && cargo.getPrimPrsnSw() == 'Y') {
+			dmWebserviceVO.setClientFirstName(cargo.getFstNam());
+			dmWebserviceVO.setClientLastName(cargo.getLastNam());
+			dmWebserviceVO.setClientMidName(cargo.getMidInit());
+		    }
+		}
+	    }
+	    
+	    // For SSA Source
+	    if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MSP)) {
+		appSSAMSPCategory = true;
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.AUTO_REG_MSP);
+		
+		// code for Task creation
+		ArrayList cashSplInd = new ArrayList();
+		cashSplInd.add("MSP");
+		if (cashSplInd != null) {
+		    speciallInd.put("MSP", cashSplInd);
+		}
+		
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		
+	    } // For FFM Source
+	    else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(AppRegConstants.AUTO_REG_MA)) {
+		appMACategory = true;
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
+		
+		// Code for Task creation
+		if (t1001Cargo.getSopDueDt() == null) {
+		    
+		    if (t1001Cargo.getAppRcvDt() != null) {
+			INUtility inUtil = new INUtility();
+			dmWebserviceVO.setDueDate((inUtil.addDays(t1001Cargo.getAppRcvDt(), 14)).toString());
+		    }
+		}
+		
+		T3004AppProgramSplIndCollection t3004Coll = new T3004AppProgramSplIndCollection(connection);
+		T3004AppProgramSplIndCargo cargo = null;
+		T3004AppProgramSplIndCargo[] t3004CargoArray = (T3004AppProgramSplIndCargo[]) t3004Coll.select("findByAppNum", appNumArgs);
+		if (t3004CargoArray != null || t3004CargoArray.length > 0) {
+		    cargo = t3004CargoArray[0];
+		    ArrayList maSplInd = new ArrayList();
+		    maSplInd.add(cargo.getSplIndCd());
+		    if (maSplInd != null) {
+			speciallInd.put(AppRegConstants.AUTO_REG_MA, maSplInd);
+		    }
+		}
+		
+		dmWebserviceVO.setSplIndicator(speciallInd);
+		dmWebserviceVO.setEntityTypeIndicator(DMConstants.DMNO);
+		dmWebserviceVO.setDocumentTitle(DMConstants.SELFSERVICE);
+		
+			}// SSA - LIS MSP changes : ILIES-291947
+			else if (t1001Cargo.getAppMode() != null && t1001Cargo.getAppMode().equals(DMConstants.SELFSERVICE_LIS)) {
+				appSSALISMSPCategory = true;
+				dmWebserviceVO.setSourceTypeCode(DMConstants.SELFSERVICE_LIS);
+				// code for Task creation
+				ArrayList mcSplInd = new ArrayList();
+				 mcSplInd.add("MSP");
+				if (mcSplInd != null) {
+					speciallInd.put("MC", mcSplInd);
+				}
+				dmWebserviceVO.setSplIndicator(speciallInd);
+			}
+			// For ABE Source
+			else if (t1001Cargo.getAppMode() != null&& (t1001Cargo.getAppMode().equals(AppRegConstants.SS_APP_MODE) || t1001Cargo.getAppMode().equals(AppRegConstants.HP_APP_MODE))) {
+		
+		dmWebserviceVO.setSourceTypeCode(AppRegConstants.SS_APP_MODE);
+		
+		if (t1002Cargo == null)
+		    return false;
+		
+		if (t1002Cargo.getFsRqstSw() == 'Y' || t1002Cargo.getCashRqstSw() == 'Y' || t1002Cargo.getMaRqstSw() == 'Y' || t1002Cargo.getMcRqstSw() == 'Y' || t1002Cargo.getFppRqstSw() == 'Y') {
+		    
+		    if (t1002Cargo.getFsRqstSw() == 'Y') {
+			appSNAPCategory = true;
+			
+			// for Task creation
+			ArrayList fapSplInd = new ArrayList();
+			if (t1001Cargo.getExpeditedFapSw() == 'Y') {
+			    fapSplInd.add("EX");
+			} else {
+			    fapSplInd.add("NE");
+			}
+			if (fapSplInd != null) {
+			    speciallInd.put("FS", fapSplInd);
+			}
+		    }
+		    
+		    if (t1002Cargo.getMaRqstSw() == 'Y') {
+			
+			appMACategory = true;
+			
+			T1060_APP_IN_HPECargo t1060HPECargo = null;
+			if (t1060HPECargoArray != null && t1060HPECargoArray.length > 0)
+			    t1060HPECargo = t1060HPECargoArray[0];
+			
+			if (t1060HPECargo != null) {
+			    appHPECategory = true;
+			}
+			
+			for (int i = 0; i < t1004CargoArray.length; i++) {
+			    t1004Cargo = t1004CargoArray[i];
+			    
+			    boolean age = false;
+			    java.sql.Timestamp indvdbrthDt = t1004Cargo.getBrthDt();
+			    age = ageCheck(indvdbrthDt);
