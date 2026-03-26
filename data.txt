@@ -1,1505 +1,105 @@
-PregnancyBO pregBO = new PregnancyBO();
-//			delete existing row from INDV_LIVE_CHG
-			pregBO.deleteAppInPregRecord(deleteAppInPregColl);
-			
-			//make the page not required if, no other death row exists
-//			Get the before INDV_LIVE_CHG_Collection 
-			APP_IN_PREG_Collection appInPregBeforeColl = 
-				(APP_IN_PREG_Collection) beforeMap.get("ARHCS_ADD_PREG_DTLS_COLLECTION");
-			int appInPregBeforeCollSize = appInPregBeforeColl.size();
-			//check how many RM records are present
-			int countRN = 0;
-			for(int j=0; j < appInPregBeforeCollSize; j++){
-				APP_IN_PREG_Cargo cargo = (APP_IN_PREG_Cargo)appInPregBeforeColl.getCargo(j);
-				if (cargo.getIndv_seq_num().equals(indvSeqNum) && cargo.getSrc_app_ind().equals(AppConstants.RMC_NEW_RECORD_IND)){
-					countRN++;
-				}
+PeopleHandler peopleHandler = (PeopleHandler) session.get(AppConstants.INDIV_MASTER_HANDLER);
+			if(null == peopleHandler){
+				peopleHandler = new PeopleHandler();
+				peopleHandler.loadPeopleHandler(caseNumber, appNumber, "");
 			}
-			//check how many RM records are present
-//			if(!(countRN>1)){
-//				driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER, "ARHPD", driverArray,appNum);
-//			}
-//			delete record from category selection profile
-			SortedSet rmcSelPrfl = (SortedSet)session.get(AppConstants.RMC_CATEGORY_PROFILE_MASTER);
 			
-			RMC_IN_PRFL_Collection rmcInPrflColl = (RMC_IN_PRFL_Collection)session.get(AppConstants.RMC_IN_PRFL_MASTER);
-			if(rmcInPrflColl==null){
-				rmcInPrflColl = rmcResponseProfileManager.loadProfile(appNum);
-				session.put(AppConstants.RMC_IN_PRFL_MASTER, rmcInPrflColl);
-			}
-            //remove from RMC_IN_PRFL
-            if(countRN==1 && rmcInPrflColl!=null){
-            	RMC_IN_PRFL_Cargo rmcResCargo = rmcResponseProfileManager.getProfile(rmcInPrflColl,indvSeqNum);
-            	if(rmcResCargo!=null){
-            		rmcResponseProfileManager.makeAbsoluteNotRequired(IRMCResponseProfileManager.PREGNANCY,rmcResCargo,true);
-            	}
-           	}
-            
-            boolean rmcPrflNotRequired =false;
-            //here we need to check we have no entrys in rmcPrfl for disability response 
-            //as well as we need to check 
-            if(rmcInPrflColl != null && rmcInPrflColl.size() > 0){
-                if(rmcResponseProfileManager.isAppResponseNotRequired(rmcInPrflColl,IRMCResponseProfileManager.PREGNANCY)){
-                    rmcPrflNotRequired = true;
-                }
-            }
-            else{
-                rmcPrflNotRequired = true;
-            }
-			
-			
-			Map catType = new HashMap();
-			catType.put(AppConstants.BECAME_PREGNANT,AppConstants.BECAME_PREGNANT);
-			catType.put(AppConstants.PREGNANCY_ENDED,AppConstants.PREGNANCY_ENDED);
-			
-			Map becamePregnantCatMap = new HashMap();
-			becamePregnantCatMap.put(AppConstants.BECAME_PREGNANT,AppConstants.BECAME_PREGNANT);
-			long catSeqNum = 0;
-			categorySelectionProfileManager.removeSequenceDetail(rmcSelPrfl,appNum,Short.parseShort(indvSeqNum),catSeqNum, AppConstants.BECAME_PREGNANT);
-			
-		    if(categorySelectionProfileManager.isEmpty(rmcSelPrfl,catType) && rmcPrflNotRequired)
-			{
-				driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER, "ARHPD", driverArray,appNum);
-				
-			}
-		    
-//		  *********************
-			//Not going to remove from RMC_RQST CARgo as of now
-			//**********************
-			if(categorySelectionProfileManager.isEmpty(rmcSelPrfl,becamePregnantCatMap) && rmcPrflNotRequired){
-				RMCRequestManager rmcRqstManager = new RMCRequestManager();
-				//	RMC_RQST_Cargo rmcCargo = rmcRqstManager.loadRMCRequest(appNum);
-				RMC_RQST_Cargo rmcRqstCargo = (RMC_RQST_Cargo)session.get(AppConstants.RMC_RQST);
-				if(rmcRqstCargo!=null && rmcRqstCargo.getPreg_add_stat_sw()!=null && !rmcRqstCargo.getPreg_add_stat_sw().equals(FwConstants.YES)){
-	            	//logic to delete from rmcRqstCargo using RMCRequestManager
-//	            	rmcRqstCargo.setAdd_chg_stat_sw(FwConstants.NO);
-//					RMC_RQST_Collection rmcRqstColl = new RMC_RQST_Collection();
-//					rmcRqstColl.addCargo(rmcRqstCargo);
-//					rmcRqstManager.storeRMCRqst(rmcRqstColl);
-//					session.put(AppConstants.RMC_RQST,rmcRqstCargo);
-//					session.put(AppConstants.RMC_RQST_COLLECTION,rmcRqstColl);
-				}
-			}		    
-		   
-		    session.put(AppConstants.RMC_CATEGORY_PROFILE_MASTER,rmcSelPrfl);
-			//make summary page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-
-			//Add the page collection to  collection			
-			txnBean.setPageCollection(pageCollection);				
-		
-			//end
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::eraseAddPregnancyDetails:End");
-
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("eraseAddPregnancyDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "eraseAddPregnancyDetails", e);
-			throw fe;
-		}
-	}
-	/**
-	* Comment here
-	*/
-	public void endAddPregnancyDetails(FwTransaction txnBean) throws javax.ejb.EJBException {
-
-		try {
-
-
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("endAddPregnancyDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "endAddPregnancyDetails", e);
-			throw fe;
-		}
-	}
-	/**
-	* Comment here
-	*/
-	public void addAddPregnancyDetails(FwTransaction txnBean) throws javax.ejb.EJBException {
-
-		try {
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-			//get cargo determining user selection
-			String addPregDtlsSeq = (request.get("firstName_addPregDtls")!= null) ? (String)request.get("firstName_addPregDtls") : "";
-			
-			ARHCSValidator validator = new ARHCSValidator();
-			//validate selections
-			if(addPregDtlsSeq == null || addPregDtlsSeq.equals(AppConstants.SELECT_DEFAULT_OPTION))
-			{
-				validator.validateAdd(AppConstants.BECAME_PREGNANT);
-				//add validation message and return
-				request.put(FwConstants.MESSAGE_LIST,validator.getMessageList());
-				txnBean.setPageCollection((Map)session.get(FwConstants.BEFORE_COLLECTION));
-				return;
-			}
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-
-			IndivTypeSeqBean indivSeqBean = new IndivTypeSeqBean();
-			indivSeqBean.setIndivSeqNum(addPregDtlsSeq);
-			indivSeqBean.setSeqNum("0");
-			indivSeqBean.setType(AppConstants.BECAME_PREGNANT);
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN,indivSeqBean);
-			
-			//set driver status
-			int [] driver = (int [])session.get(FwConstants.RMC_DRIVER);
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, "ARHPD", driver,appNum);
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, "ARHCS", driver,appNum);
-			session.put(FwConstants.RMC_DRIVER, driver);
-
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("addAddPregnancyDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "addAddPregnancyDetails", e);
-			throw fe;
-		}
-	}
-
-	/**
-	* Method for Loading the Response Map
-	*/
-	private Map createandLoadARHISResponseMapsToPageCollection(RMC_RESPONSE_Custom_Collection rmcRspnseCustomColl, 
-					Map pageCollection, PeopleHandler peopleHandler, boolean pageLoad, int driverStatus, FwTransaction txnBean, RMC_RQST_Cargo rmcRqstCargo, String aTfs_sw)
-	{
-		try 
-		{
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::createandLoadARHISResponseMapsToPageCollection:Start");
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.LEFT_THE_HOME, 
-					true, txnBean, rmcRqstCargo, aTfs_sw);
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.GOT_MARRIED, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.GOT_DIVORCED, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.BECAME_PREGNANT, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.PREGNANCY_ENDED, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.DISABLED_BLIND, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.SOMEONE_DIED, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.NURSING_FACILITY, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			getPeopleCollectionAndUpdateMaps(rmcRspnseCustomColl, pageCollection, peopleHandler, AppConstants.JAIL_IMPRISION, 
-					true, txnBean, rmcRqstCargo,aTfs_sw);
-			
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::createandLoadARHISResponseMapsToPageCollection:End");
-			return pageCollection;	
-		}
-		catch(FwException fe) 
-		{
-			throw fe;
-		} 
-		catch(Exception e) 
-		{
-			FwException fe = createFwException(this.getClass().getName(), "createandLoadABHEQResponseMapsToPageCollection", e);
-			throw fe;
-		}	
-	}	
-	
-	
-	/*
-	 * This method gets the people collection for a questions page, populates maps for AFBIndividualsTags 
-	 * and creates a map of noOneChecked strings
-	 * - padmana 
-	 */
-	public Map getPeopleCollectionAndUpdateMaps(RMC_RESPONSE_Custom_Collection rmcRespCustomColl, Map pageCollection, 
-					PeopleHandler peopleHandler, String categoryID,  
-					boolean getRelevant, FwTransaction txnBean, RMC_RQST_Cargo rmcRqstCargo, String aTfs_sw)
-	{
-		try 
-		{
-			//Declarations
-			String indivSeqNum = null;
-			INDIVIDUAL_Custom_Cargo indivCargo = new INDIVIDUAL_Custom_Cargo();
 			INDIVIDUAL_Custom_Collection indivColl = new INDIVIDUAL_Custom_Collection();
-			StringBuffer indivCollKey = new StringBuffer();
-			indivCollKey.append(AppConstants.PEOPLE);
-			indivCollKey.append(categoryID);
-			Map session = txnBean.getSession();
-			
-			//try to get a filtered list.  If it doesn't exist, get the peopleHandler getIndividuals
-			if(pageCollection.get(indivCollKey.toString()) == null)
-			{
-				if(getRelevant)
-				{
-					indivColl = peopleHandler.getRelevantIndividuals();
+			indivColl = peopleHandler.getInHomeIndividuals();
+			int indvCollSize = indivColl == null ? 0 : indivColl.size();
+			boolean isAnySelection = false;
+			List changesList = new ArrayList(indivColl.size());
+			String pageId = "ARHMR";
+			for(int i=0; i< indvCollSize; i++){
+				INDIVIDUAL_Custom_Cargo indivCargo = indivColl.getResult(i);
+				indivSeqNum = indivCargo.getIndv_seq_num();
+				long catSeqNum = 0; 
+				char currentResponse = 'N';
+				if(indivSeqNum != null){
+					currentResponse = categorySelectionProfileManager.getSequenceDetailStatus(categorySelectionProfile,Short.parseShort(indivSeqNum),catSeqNum, AppConstants.RMC_ERJA_PRFL);
 				}
-				else
-				{
-					indivColl = peopleHandler.getAllIndividuals();		
+				String currRespStr = String.valueOf(currentResponse);
+				String beforeResp = (String)beforeCollMap.get(AppConstants.RMC_ERJA_PRFL+"_"+indivSeqNum);
+				if(!currRespStr.equals(String.valueOf(ICategorySelectionProfileManager.STATUS_NOT_REQUIRED))){
+						isAnySelection = true;
 				}
-			}
-			else
-			{
-				indivColl = (INDIVIDUAL_Custom_Collection)pageCollection.get(indivCollKey.toString());
-			}
-			//Added by Uma for RMC Expansion Pregnancy BRGUS00289013
-			if(AppConstants.PREGNANCY_ENDED.equalsIgnoreCase(categoryID)){
-				List indvSeq = (List) session.get("PREG_INDV");
-				//Added by uma for BRGUS00289250
-				if(indvSeq!=null && indvSeq.size()>0){
-				String aAppNum = (String)session.get(AppConstants.APP_NUMBER);
-				INDIVIDUAL_Custom_Cargo indivCustCargo = new INDIVIDUAL_Custom_Cargo();			
-				for(int c=0;c<indivColl.size();c++){
-					indivCustCargo=indivColl.getResult(c);
-					if(!indvSeq.contains(indivCustCargo.getIndv_seq_num())){
-						indivColl.remove(c);
-						c--;
-					}													
-				}
-				}
-			}
-
-			//set the passed response map = new map
-			Map questionRespMap = new HashMap();
-			
-			RMC_RESPONSE_Custom_Cargo rmcRspnseCustomCargo = null;
-
-			//get size of the collection
-			int indivCollSize = indivColl.size();
-			
-			String questionResp = FwConstants.NO;
-			SortedSet selectionProfile = (SortedSet)session.get(AppConstants.RMC_CATEGORY_PROFILE_MASTER);
-			long catSeqNum = 0;
-			//Loop for each Cargo in the people collection (for each person)
-			for(int i = 0; i < indivCollSize; i++)
-			{ 
-				indivCargo = indivColl.getResult(i);
-				indivSeqNum = indivCargo.getIndv_seq_num(); 
-				questionResp = FwConstants.NO;
-				
-				if(selectionProfile!=null)
-					questionResp = String.valueOf(categorySelectionProfileManager.getSequenceDetailStatus(selectionProfile, Short.parseShort(indivSeqNum),catSeqNum,categoryID));
-				//for this question, add the person's response to a map
-				questionRespMap.put(indivSeqNum, questionResp);
-				
-				//create the cargo
-				if (rmcRqstCargo!=null || aTfs_sw!=null){
-					boolean isAddCargo = false;
-					
-					if(categoryID.equals(AppConstants.LEFT_THE_HOME)){
-						if ((rmcRqstCargo.getPrsn_move_stat_sw()!=null && rmcRqstCargo.getPrsn_move_stat_sw().equals(FwConstants.YES))||
-								(aTfs_sw!=null && aTfs_sw.equals(FwConstants.YES))){
-							isAddCargo = true;
+				if(currRespStr.equals(beforeResp)){
+					if(!currRespStr.equals(FwConstants.NO)){
+						if(currRespStr.equals(String.valueOf(ICategorySelectionProfileManager.STATUS_COMPLETE)) 
+									|| currRespStr.equals(String.valueOf(ICategorySelectionProfileManager.STATUS_VISIT_AGAIN)))
+							changesList.add("Comp");
+						else{
+							changesList.add("Req");
 						}
 					}
-					else if(categoryID.equals(AppConstants.GOT_MARRIED)){ 
-						if (rmcRqstCargo.getMrrg_stat_sw()!=null && rmcRqstCargo.getMrrg_stat_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
+					else if (currRespStr.equals(FwConstants.NO)){
+						changesList.add("NotReq");
 					}
-					
-					else if(categoryID.equals(AppConstants.GOT_DIVORCED)){
-						if (rmcRqstCargo.getDvrc_stat_sw()!=null && rmcRqstCargo.getDvrc_stat_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
-					}
-					
-					else if(categoryID.equals(AppConstants.BECAME_PREGNANT)){
-						if (rmcRqstCargo.getPreg_add_stat_sw()!=null && rmcRqstCargo.getPreg_add_stat_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
-					}
-					else if(categoryID.equals(AppConstants.PREGNANCY_ENDED)){
-						if (rmcRqstCargo.getPreg_chg_stat_sw()!=null && rmcRqstCargo.getPreg_chg_stat_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
-					}
-					
-					else if(categoryID.equals(AppConstants.DISABLED_BLIND)){
-						if (rmcRqstCargo.getDabl_stat_sw()!=null && rmcRqstCargo.getDabl_stat_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
-					}
-					
-					else if(categoryID.equals(AppConstants.SOMEONE_DIED)){
-						if (rmcRqstCargo.getDth_stat_sw()!=null && rmcRqstCargo.getDth_stat_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
-					}
-					
-					else if(categoryID.equals(AppConstants.NURSING_FACILITY)){
-						if (rmcRqstCargo.getNursing_facility_change_sw()!=null && rmcRqstCargo.getNursing_facility_change_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
-					}
-					
-					else if(categoryID.equals(AppConstants.JAIL_IMPRISION)){
-						if (rmcRqstCargo.getJail_imprison_sw()!=null && rmcRqstCargo.getJail_imprison_sw().equals(FwConstants.YES)){
-							isAddCargo = true;
-						}
-					}
-					
-					if(isAddCargo){
-						rmcRspnseCustomCargo = new RMC_RESPONSE_Custom_Cargo();
-						rmcRspnseCustomCargo.setIndvSeqNum(indivSeqNum);
-						rmcRspnseCustomCargo.setCategoryType(categoryID);
-						rmcRspnseCustomCargo.setResponse(questionResp);
-						rmcRespCustomColl.addCargo(rmcRspnseCustomCargo);
-					}
+				 }
+				//if there was a selection before and no selection now
+				if((beforeResp==null && currRespStr.equals(String.valueOf(ICategorySelectionProfileManager.STATUS_NOT_REQUIRED)))){
+					changesList.add("Comp");
 				}
-
-			}//end for loop
-				
-			//Store all maps in page collection
-			String respMapString = new String();
-			respMapString = AppConstants.RESP_MAP;
-			respMapString = respMapString + categoryID;
-			pageCollection.put(respMapString, questionRespMap);
-
-			//store people collection in page collection
-			String peopleString = new String();
-			peopleString = AppConstants.PEOPLE;
-			peopleString = peopleString + categoryID;
-			pageCollection.put(peopleString, indivColl);			
-			
-			return pageCollection;
-			//exit
-		}
-		catch(FwException fe) 
-		{
-			fe.setParameterText(categoryID);
-			throw fe;
-		} 
-		catch(Exception e) 
-		{
-			FwException fe = createFwException(this.getClass().getName(), "getPeopleCollectionAndUpdateMaps", e);
-			fe.setParameterText(categoryID);
-			throw fe;
-		}	
-	}
-	
-	public Map getPeopleCollectionAndUpdateMapsForRMC(RMC_IN_PRFL_Collection rmcInPrflColl, Map pageCollection, 
-			PeopleHandler peopleHandler, String compID, short questionName, 
-			 int driverStatus)
-	{
-	try 
-	{
-		//Declarations
-		String indivSeqNum = null;
-		INDIVIDUAL_Custom_Cargo indivCargo;
-		INDIVIDUAL_Custom_Collection indivColl;
-		StringBuffer indivCollKey = new StringBuffer();
-		indivCollKey.append(AppConstants.PEOPLE);
-		indivCollKey.append(compID);
-		
-		//try to get a filtered list.  If it doesn't exist, get the peopleHandler getIndividuals
-		if(pageCollection.get(indivCollKey.toString()) == null)
-		{
-			indivColl = peopleHandler.getAllIndividuals();	
-		}
-		else
-		{
-			indivColl = (INDIVIDUAL_Custom_Collection)pageCollection.get(indivCollKey.toString());
-		}
-	
-		//set the passed response map = new map
-		Map questionRespMap = new HashMap();
-		
-		//create an appInPrfl object			
-		RMC_IN_PRFL_Cargo rmcInPrflCargo = null;
-	
-		//get size of the collection
-		int indivCollSize = indivColl.size();
-		
-		//Loop for each Cargo in the people collection (for each person)
-		for(int i = 0; i < indivCollSize; i++)
-		{ 
-			//get the indivCargo
-			indivCargo = (INDIVIDUAL_Custom_Cargo) indivColl.get(i);
-			
-			//get app_indiv_seq_num
-			indivSeqNum = indivCargo.getIndv_seq_num(); 
-	
-			//Get the appInPrflCargo for this person
-			rmcInPrflCargo = (RMC_IN_PRFL_Cargo) rmcResponseProfileManager.getProfile(rmcInPrflColl, indivSeqNum);	
-	
-			//get the AIP Response for the given question from this cargo		
-			String questionResp = rmcResponseProfileManager.getProfileResponse(rmcInPrflCargo, questionName);
-			
-			//for this question, add the person's response to a map
-			questionRespMap.put(indivSeqNum, questionResp);
-		}//end for loop
-	
-				
-		//Store all maps in page collection
-		StringBuffer respMapString = new StringBuffer();
-		respMapString.append(AppConstants.RESP_MAP);
-		respMapString.append(compID);
-		pageCollection.put(respMapString.toString(), questionRespMap);
-	
-		//store people collection in page collection
-		StringBuffer peopleString = new StringBuffer();
-		peopleString.append(AppConstants.PEOPLE);
-		peopleString.append(compID);
-		pageCollection.put(peopleString.toString(), indivColl);			
-		
-		return pageCollection;
-		//exit
-	}
-	catch(FwException fe) 
-	{
-		fe.setParameterText(compID);
-		throw fe;
-	} 
-	catch(Exception e) 
-	{
-		FwException fe = createFwException(this.getClass().getName(), "getPeopleCollectionAndUpdateMapsForRMC", e);
-		fe.setParameterText(compID);
-		throw fe;
-	}	
-	}
-	
-	public Map getPeopleCollectionForValidation(RMC_RESPONSE_Custom_Collection currRespCustomColl, Map pageCollection, 
-			PeopleHandler peopleHandler, String categoryID,  
-			boolean getRelevant, FwTransaction txnBean)
-{
-try 
-{
-	//Declarations
-	String indivSeqNum = null;
-	INDIVIDUAL_Custom_Cargo indivCargo = new INDIVIDUAL_Custom_Cargo();
-	INDIVIDUAL_Custom_Collection indivColl = new INDIVIDUAL_Custom_Collection();
-	StringBuffer indivCollKey = new StringBuffer();
-	indivCollKey.append(AppConstants.PEOPLE);
-	indivCollKey.append(categoryID);
-	Map session = txnBean.getSession();
-	
-	//try to get a filtered list.  If it doesn't exist, get the peopleHandler getIndividuals
-	if(pageCollection.get(indivCollKey.toString()) == null)
-	{
-		if(getRelevant)
-		{
-			indivColl = peopleHandler.getRelevantIndividuals();
-		}
-		else
-		{
-			indivColl = peopleHandler.getAllIndividuals();		
-		}
-	}
-	else
-	{
-		indivColl = (INDIVIDUAL_Custom_Collection)pageCollection.get(indivCollKey.toString());
-	}
-
-	//set the passed response map = new map
-	Map questionRespMap = new HashMap();
-	
-	RMC_RESPONSE_Custom_Cargo rmcRspnseCustomCargo = null;
-
-	//get size of the collection
-	int indivCollSize = indivColl.size();
-	String questionResp = new String();
-	//Loop for each Cargo in the people collection (for each person)
-	for(int i = 0; i < indivCollSize; i++)
-	{ 
-		//get the indivCargo
-		indivCargo = (INDIVIDUAL_Custom_Cargo) indivColl.get(i);
-		
-		//get app_indiv_seq_num
-		indivSeqNum = indivCargo.getIndv_seq_num(); 
-		
-		//get the AIP Response for the given question from this cargo		
-		questionResp = FwConstants.NO;
-		int currRespCustomCollSize = currRespCustomColl.size();
-		for(int j=0; j<currRespCustomCollSize; j++){
-			RMC_RESPONSE_Custom_Cargo tempCargo = (RMC_RESPONSE_Custom_Cargo)currRespCustomColl.get(j);
-			if(tempCargo.getIndvSeqNum().equals(indivSeqNum) && categoryID.equals(tempCargo.getCategoryType())){
-				questionResp = String.valueOf(ICategorySelectionProfileManager.STATUS_REQUIRED);
-				break;
-			}
-		}
-		//for this question, add the person's response to a map
-		questionRespMap.put(indivSeqNum, questionResp);
-		
-
-	}//end for loop
-		
-	//Store all maps in page collection
-	String respMapString = new String();
-	respMapString = AppConstants.RESP_MAP;
-	respMapString = respMapString + categoryID;
-	pageCollection.put(respMapString.toString(), questionRespMap);
-
-	//store people collection in page collection
-	String peopleString = new String();
-	peopleString = AppConstants.PEOPLE;
-	peopleString = peopleString + categoryID;
-	pageCollection.put(peopleString.toString(), indivColl);			
-	
-	return pageCollection;
-	//exit
-}
-catch(FwException fe) 
-{
-	fe.setParameterText(categoryID);
-	throw fe;
-} 
-catch(Exception e) 
-{
-	FwException fe = createFwException(this.getClass().getName(), "getPeopleCollectionForValidation", e);
-	fe.setParameterText(categoryID);
-	throw fe;
-}	
-}
-
-
-
-private List getListFromCategoryProfile(SortedSet aSelectionProfile)
-{
-	try{
-		List categoryList=new ArrayList();
-		Iterator iter = aSelectionProfile.iterator();
-		CategorySequenceDetail categorySeqDtl=null;
-		int i=0;
-		while(iter.hasNext()){
-			categorySeqDtl = (CategorySequenceDetail)iter.next();
-			String indvSeq=String.valueOf(categorySeqDtl.getIndividualSequence());
-			categoryList.add(i,indvSeq);
-			i++;
-		}
-		return categoryList;
-	}catch(FwException fe) {
-		ctx.setRollbackOnly();
-		FwWrappedException we = new FwWrappedException();
-		we.setCallingClassID(this.getClass().getName());
-		we.setCallingMethodID("getListFromCategoryProfile");
-		we.setFwException(fe);
-		throw we;
-	} catch(Exception e) {
-		ctx.setRollbackOnly();
-		FwException fe = createFwException(this.getClass().getName(), "getListFromCategoryProfile", e);
-		throw fe;
-	}
-}
-
-	public void editAbsentParentDetails(FwTransaction txnBean) throws javax.ejb.EJBException {
-	
-		try {
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editAbsentParentDetails:Start");	 
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			//make summary page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-	
-			IndivTypeSeqBean indivTypeSeqBean = new IndivTypeSeqBean();
-			APP_ABS_PRNT_Cust_Collection appHshlRltColl = (APP_ABS_PRNT_Cust_Collection)pageCollection.get("APP_ABS_PRNT_Cust_Collection");
-			indivTypeSeqBean.setIndivSeqNum(appHshlRltColl.getResult(0).getIndv_seq_num());
-			indivTypeSeqBean.setType(appHshlRltColl.getResult(0).getAbs_ind());
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, indivTypeSeqBean);
-			txnBean.setPageCollection(pageCollection);
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editAbsentParentDetails:End");
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("editAbsentParentDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "editAbsentParentDetails", e);
-			throw fe;
-		}
-	}
-
-	public void editRelationshipDetails(FwTransaction txnBean) throws javax.ejb.EJBException {
-
-		try {
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editRelationshipDetails:Start");
-			Map pageCollection = txnBean.getPageCollection();
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			//make summary page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-			IndivTypeSeqBean indivTypeSeqBean = new IndivTypeSeqBean();
-			APP_HSHL_RLT_Collection appHshlRltColl = (APP_HSHL_RLT_Collection)pageCollection.get("APP_HSHL_RLT_Collection");
-			indivTypeSeqBean.setIndivSeqNum(appHshlRltColl.getCargo(0).getSrc_indv_seq_num());
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, indivTypeSeqBean);
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editRelationshipDetails:End");
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("editRelationshipDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "editRelationshipDetails", e);
-			throw fe;
-		}
-	}	
-	
-	public void editTaxInformationDetails(FwTransaction txnBean) throws javax.ejb.EJBException {
-
-		try {
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editTaxInformationDetails:Start");
-			Map pageCollection = txnBean.getPageCollection();
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			//make summary page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-			IndivTypeSeqBean indivTypeSeqBean = new IndivTypeSeqBean();
-			APP_HSHL_RLT_Collection appHshlRltColl = (APP_HSHL_RLT_Collection)pageCollection.get("APP_HSHL_RLT_Collection");
-			indivTypeSeqBean.setIndivSeqNum(appHshlRltColl.getCargo(0).getSrc_indv_seq_num());
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, indivTypeSeqBean);
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editTaxInformationDetails:End");
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("editTaxInformationDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "editTaxInformationDetails", e);
-			throw fe;
-		}
-	}	
-
-	public void editMedicareDetails(FwTransaction txnBean) throws javax.ejb.EJBException
-	{
-		try
-		{
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editMedicareDetails:Start");	 
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-
-			//Get driver info.
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			//Get appNumber from the session
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			//Define IndvSeqNum and the SeqNum and Type and RowNum
-			String indvSeqNum = null, seqNum=null, type=null;
-			
-			APP_IN_MEDCR_Collection medcrColl = (APP_IN_MEDCR_Collection) pageCollection.get("APP_IN_MEDCR_Collection");
-			indvSeqNum = medcrColl.getResult(0).getIndv_seq_num();
-			seqNum = medcrColl.getResult(0).getSeq_num();
-
-			//Set the indvTypeSeqBean
-			IndivTypeSeqBean indivTypeSeqBean = new IndivTypeSeqBean() ;
-			indivTypeSeqBean.setIndivSeqNum(indvSeqNum);
-			indivTypeSeqBean.setSeqNum(seqNum);	
-			
-			//make Medicare Deatils page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, "ARHMD", driverArray, appNum);
-				
-			//make summary page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-			
-			//put the indivTypeSeqBean in pageCollection
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, indivTypeSeqBean);
-			
-			//Add the page collection to  collection			
-			txnBean.setPageCollection(pageCollection);				
-		
-			//end
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editMedicareDetails:End");
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("editMedicareDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "editMedicareDetails", e);
-			throw fe;
-		}		
-	}
-
-	public void editSchoolEnrollmentDetails(FwTransaction txnBean) throws javax.ejb.EJBException
-	{
-		try
-		{
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editSchoolEnrollmentDetails:Start");	 
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-
-			//Get driver info.
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			//Get appNumber from the session
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			
-			//Define IndvSeqNum and the SeqNum and Type and RowNum
-			String indvSeqNum = null, seqNum=null, type=null;
-			APP_IN_SCHLE_Collection schleColl = (APP_IN_SCHLE_Collection) pageCollection.get("APP_IN_SCHLE_Collection");
-
-			indvSeqNum = schleColl.getResult(0).getIndv_seq_num();
-			type = schleColl.getResult(0).getEduc_cd();
-
-			//Set the indvTypeSeqBean
-			IndivTypeSeqBean indivTypeSeqBean = new IndivTypeSeqBean() ;
-			indivTypeSeqBean.setIndivSeqNum(indvSeqNum);
-			indivTypeSeqBean.setType(type);
-
-			//make summary page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-
-			//put the indivTypeSeqBean in pageCollection
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, indivTypeSeqBean);
-			//Add the page collection to  collection			
-			txnBean.setPageCollection(pageCollection);				
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editSchoolEnrollmentDetails:End");
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("editSchoolEnrollmentDetails");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "editSchoolEnrollmentDetails", e);
-			throw fe;
-		}
-	}
-	
-	/**
-	 * This method is used to get the other changes details 
-	 * 
-	 * @author Indrani 09/30/2011
-	 * @param  FwTransaction
-	 * @returns void 
-	 * @throws javax.ejb.EJBException
-	 */
-	public void loadOtherChangesDetails(FwTransaction txnBean) throws javax.ejb.EJBException {
-	try 
-		{
-			log(ILog.INFO, "CdcEJBBean::getCDCProviderDetails:Start");
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			String currentPageId = (String)request.get(FwConstants.CURRENT_PAGE_ID);
-			//make by default the loopingQuestion as NO
-			request.put("loopingQuestion", FwConstants.NO);
-			String showLoopingQuestionFlag = FwConstants.YES;				
-			OtherChangesBO otherChangesBO = new OtherChangesBO();
-			Map beforeColl = null;		
-			beforeColl =(Map) session.get(FwConstants.BEFORE_COLLECTION);
-			/*if(!((String)request.get(FwConstants.PREVIOUS_PAGE_ID)).equals(currentPageId))
-			{
-				//clean Session and BeforeCollection
-				//session.remove("RMC_RQST_Collection");
-				session.remove(FwConstants.BEFORE_COLLECTION);
-			}*/
-			
-			int driverStatus =	driverManager.getAFBStatus(FwConstants.RMC_DRIVER, currentPageId, driverArray);			
-			//When user hits the Back button or comes from the Summary Page
-			if(pageCollection.get(FwConstants.DETAIL_KEY_BEAN)!= null) {
-				
-				pageCollection = new HashMap();		
-				//get Details_Collection from DataBase and set to PageCollection			
-				pageCollection.put("RMC_RQST_Collection", otherChangesBO.getOtherChangeDetails((String)session.get(AppConstants.APP_NUMBER)));
-			}
-			else {
-				
-				//check is pageStatus is REQ OR ADDNEW or VISIT_AGAIN
-				if(driverStatus == FwConstants.DRIVER_REQUIRED || driverStatus == FwConstants.DRIVER_ADD_NEW || driverStatus == FwConstants.DRIVER_VISIT_AGAIN)
-				{	
-					pageCollection = new HashMap();				
-					//check the session and pageCollection for RMC_RQST_Collection 
-					//if not found read the database and populate the RecordArray.
-					if(session.get("RMC_RQST_Collection") == null) {
-						
-								setOtherChangesCollectionToSession(txnBean, driverStatus);				
-							}											
-					RMC_RQST_Collection coll_ses = (RMC_RQST_Collection) session.get("RMC_RQST_Collection");
-					RMC_RQST_Cargo cargo_ses = null;
-					if(coll_ses != null ){
-						int size = coll_ses.size();
-						if(size > 0){
-							//get last cargo from session									
-							cargo_ses = coll_ses.getCargo(size-1);
-						}	
-					}
-					else{
-						cargo_ses = (RMC_RQST_Cargo)session.get(AppConstants.RMC_RQST);
-					}
-					
-					RMC_RQST_Collection newColl = new RMC_RQST_Collection();
-					newColl.addCargo(cargo_ses);									
-					//set Details_Collection from session to PageCollection
-					pageCollection.put("RMC_RQST_Collection", newColl);
-								
-				}	
-				else 
-				{
-					// RMC_RQST_Collection coll_ses = (RMC_RQST_Collection) session.get("RMC_RQST_Collection");
-					RMC_RQST_Collection coll_ses = null;
-					if(beforeColl.containsKey("RMC_RQST_Collection"))
-					{ coll_ses = (RMC_RQST_Collection)beforeColl.get("RMC_RQST_Collection");}
-					
-					RMC_RQST_Cargo cargo_ses = null;
-					if(coll_ses != null ){
-						int size = coll_ses.size();
-						if(size > 0){
-							//get last cargo from session									
-							cargo_ses = coll_ses.getCargo(size-1);
-						}	
-					}
-					else{
-						cargo_ses = (RMC_RQST_Cargo)session.get(AppConstants.RMC_RQST);
-					}			
-					RMC_RQST_Collection newColl = new RMC_RQST_Collection();
-					newColl.addCargo(cargo_ses);									
-					//set Details_Collection from session to PageCollection
-					pageCollection.put("RMC_RQST_Collection", newColl);
-				
-				}			
-			}
-			
-			//Add the page collection to before collection
-			if(session.get(FwConstants.BEFORE_COLLECTION) != null){
-				((Map)session.get(FwConstants.BEFORE_COLLECTION)).putAll(pageCollection);					
-			}
-			else{
-				//Map beforeColl = new HashMap();
-				beforeColl.putAll(pageCollection);
-				session.put(FwConstants.BEFORE_COLLECTION, beforeColl);
-			}
-			txnBean.setPageCollection(pageCollection);
-			log(ILog.INFO, "CdcEJBBean::getCDCProviderDetails:End");
-		} catch(FwException fe) {	  		
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("loadOtherchanges");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "loadOtherchanges", e);
-			throw fe;
-		}
-	
-	}
-	
-
-	/**
-	 * This method is used set the other change details from the collections to session
-	 * 
-	 * @author Indrani 09/30/2011
-	 * @param  FwTransaction, int
-	 * @returns void 
-	 * 
-	 */
-	private void setOtherChangesCollectionToSession(FwTransaction txnBean, int driverStatus)
-	{		
-		Map session = txnBean.getSession();
-		Map pageCollection = txnBean.getPageCollection();		
-		try
-		{		
-			RMC_RQST_Collection rmcRqstColl = new RMC_RQST_Collection();			
-			//Does ShelterCostDetailCollection exists in Pagecollection?
-			if(pageCollection.get("RMC_RQST_Collection") != null)
-			{		
-				rmcRqstColl = (RMC_RQST_Collection) pageCollection.get("RMC_RQST_Collection");					
-				//put the ShelterCostDetailCollection in session
-				session.put("RMC_RQST_Collection", rmcRqstColl);
-			}
-			else
-			{
-				OtherChangesBO otherChangesBO =	new OtherChangesBO();
-				RMC_RQST_Collection rrcoll = otherChangesBO.getOtherChangeDetails((String)session.get(AppConstants.APP_NUMBER));
-				
-				if(rrcoll != null){
-
-					int rrCollSize = rrcoll.size();
-
-					for(int i= 0; i < rrCollSize;i++){
-						if(rrcoll.getCargo(i)!=null)
-							rmcRqstColl.addCargo(rrcoll.getCargo(i));					
-					}
-				}
-				
-				if(rmcRqstColl.size()>0){
-					//put the ShelterCostDetailCollection in session
-					session.put("RMC_RQST_Collection", rmcRqstColl);
+				//if no selection before and a selection now
+				else if((beforeResp !=null && !currRespStr.equals(String.valueOf(ICategorySelectionProfileManager.STATUS_NOT_REQUIRED)))){
+					changesList.add("makeReq");						
 				}
 			}
-		}catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("setOtherChangesCollectionToSession");
-			we.setFwException(fe);
-		throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "setOtherChangesCollectionToSession", e);
-			throw fe;
-		}
-	}
-
-	
-	/**
-	 * This method is used to store the additional details given by the user about the application
-	 * 
-	 * @author Indrani 09/30/2011
-	 * @param  FwTransaction
-	 * @returns void 
-	 * @throws javax.ejb.EJBException
-	 */
-	public void storeOtherChangesDetails(FwTransaction txnBean) throws javax.ejb.EJBException 
-	{
-		try 
-		{			
-			log(ILog.INFO,"ReportMyChangesEJBBean::storeCategorySelection:Start");	
-			RMC_RQST_Cargo rmcRqstCargo = null;
-			RMC_RQST_Collection rmcAfterColl = null;
-			RMC_RQST_Cargo rmcRqstBeforeCargo = null;
-			Map beforeColl = null;
-			
-			
-			//Getting the session
-			Map session = txnBean.getSession();
-			Map pageCollection = txnBean.getPageCollection();
-			//Reading Request Object
-			Map request = txnBean.getRequest();
-			
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
-			RMCRequestManager rmcRequestManager = new RMCRequestManager();
-			JobIncomeBO jobBo = new JobIncomeBO();
-			OtherChangesBO otherBO= new OtherChangesBO();
-			//get driver array
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			String currentPageID = (String) request.get(FwConstants.CURRENT_PAGE_ID);
-			rmcAfterColl = (RMC_RQST_Collection) pageCollection.get("RMC_RQST_Collection");
-			String isRMB = AppConstants.NO;
-			if(session.get("IS_RMB")!=null)
-				isRMB = session.get("IS_RMB").toString();
-			
-			rmcRqstCargo = rmcAfterColl.getCargo(0);
-			rmcRqstBeforeCargo=(RMC_RQST_Cargo)session.get(AppConstants.RMC_RQST);	
-			otherBO.validatePageContents(rmcRqstBeforeCargo,rmcRqstCargo,isRMB);	
-						
-			if(otherBO.hasMessages()){
-				request.put(FwConstants.MESSAGE_LIST, otherBO.getMessageList());
-				//put the first Name into request to avoid null pointer in JSP
-				pageCollection.put("RMC_RQST_Collection", pageCollection.get("RMC_RQST_Collection"));	
-				return;				
-			}		 	
-			
-			
-			
-			
-			RMC_RQST_Cargo rmcRqstAfterCargo =  null; 
-			
-				if(rmcRqstBeforeCargo==null)
-					rmcRqstBeforeCargo=new RMC_RQST_Cargo();			
-				String othChngEffDt = rmcRqstCargo.getOther_change_eff_dt();
-				if (othChngEffDt != null && !othChngEffDt.trim().equals("") && !othChngEffDt.equals(AppConstants.HIGH_TIMESTAMP))
-				{
-					StringBuffer dateConverter  = new StringBuffer();
-					String sAppDate = rmcRqstCargo.getOther_change_eff_dt();
-					dateConverter.append( sAppDate.substring(6,10)).append("-").append(sAppDate.substring(0,2)).append("-").append(sAppDate.substring(3,5));
-					rmcRqstCargo.setOther_change_eff_dt(dateConverter.toString());	
-					//rmcRqstCargo.setOther_change_stat_sw(rmcRqstBeforeCargo.getOther_change_stat_sw());
+			if(changesList.contains("makeReq")){
+				driverStatus = (int) driverManager.getAFBStatus(FwConstants.RMC_DRIVER,pageId, driverArray);
+				if(driverStatus==FwConstants.DRIVER_COMPLETE || driverStatus==FwConstants.DRIVER_VISIT_AGAIN){
+					driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER,pageId,driverArray,appNumber);
 				}
-				if(isRMB!=null && isRMB.trim().length()>0 && isRMB.equalsIgnoreCase(AppConstants.YES)){
-					rmcRqstAfterCargo = (RMC_RQST_Cargo) rmcRqstBeforeCargo.clone();
-					rmcRqstAfterCargo.setOther_change_eff_dt(rmcRqstCargo.getOther_change_eff_dt());
-					rmcRqstAfterCargo.setOther_change_stat_sw(rmcRqstCargo.getOther_change_stat_sw());
-					rmcRqstAfterCargo.setOther_change_text(rmcRqstCargo.getOther_change_text());
-					
-					// changed by Yogendra
-					rmcRqstAfterCargo.setOther_change_type_cd(rmcRqstCargo.getOther_change_type_cd());
-				}else
-				rmcRqstAfterCargo = jobBo.getCompleteCargo(rmcRqstBeforeCargo, rmcRqstCargo);				
-				//Checking the Before Collection is Null or Not
-				if(rmcRqstBeforeCargo != null ){
-					//Compare cargoes to see what has changed
-					rmcRqstAfterCargo = (RMC_RQST_Cargo)isChanged(rmcRqstBeforeCargo,rmcRqstAfterCargo);
-				}
-				if(rmcRqstBeforeCargo == null || rmcRqstAfterCargo.isDirty()){
-					rmcRqstAfterCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-					RMC_RQST_Collection rmcRqstcoll =new RMC_RQST_Collection();
-					rmcRqstcoll.addCargo(rmcRqstAfterCargo);
-					rmcRequestManager.storeRMCRqst(rmcRqstcoll);
-					session.put(AppConstants.RMC_RQST,rmcRqstAfterCargo);
-					session.put(FwConstants.RMC_DRIVER,driverArray);
-				}
-				
-				//Add the page collection to before collection
-				if(session.get(FwConstants.BEFORE_COLLECTION) != null){
-					((Map)session.get(FwConstants.BEFORE_COLLECTION)).putAll(pageCollection);					
-				}
-				else{
-					//Map beforeColl = new HashMap();
-					beforeColl.putAll(pageCollection);
-					session.put(FwConstants.BEFORE_COLLECTION, beforeColl);
-				}
-				txnBean.setPageCollection(pageCollection);
-				
-				driverManager.makeComplete(FwConstants.RMC_DRIVER, currentPageID, driverArray, (String)session.get(AppConstants.APP_NUMBER));
-				log(ILog.INFO, "BenefitsEJBBean::storeAddUserDetail:End");
-				
-		} catch(FwException fe) {
-		ctx.setRollbackOnly();
-		FwWrappedException we = new FwWrappedException();
-		we.setCallingClassID(this.getClass().getName());
-		we.setCallingMethodID("storeAddUserDetail");
-		we.setFwException(fe);
-		throw we;
-	} catch(Exception e) {
-		ctx.setRollbackOnly();
-		FwException fe = createFwException(this.getClass().getName(), "storeAddUserDetail", e);
-		throw fe;
-	}
-}
-	/**
-	 * @param txnBean
-	 * @throws javax.ejb.EJBException
-	 */
-	public void editNursingContactInfo(FwTransaction txnBean) throws javax.ejb.EJBException {
-
-		try {
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editNursingContactInfo:Start");	 
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-							  
-			//Get driver info.
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-
-			//Get appNumber from the session
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			//String addressType = (String) request.get(key);
-			APP_NURSING_ADDRESS_Collection nursingColl = (APP_NURSING_ADDRESS_Collection) pageCollection
-				.get("APP_NURSING_ADDRESS_Collection");
-			APP_NURSING_ADDRESS_Cargo nursingCargo = nursingColl
-					.getCargo(0);
-		
-			IndivTypeSeqBean seqBean = new IndivTypeSeqBean();
-			seqBean.setIndivSeqNum("1");
-			seqBean.setSeqNum("1");
-			seqBean.setType(nursingCargo.getAddr_type_cd());
-			
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, seqBean);
-			
-			//make contact info page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, "ARMCG", driverArray, appNum);
-
-			//make summary page as required
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-
-			//Add the page collection to  collection			
-			txnBean.setPageCollection(pageCollection);				
-		
-			//end
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::editNursingContactInfo:End");
-	
-
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("editNursingContactInfo");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "editNursingContactInfo", e);
-			throw fe;
-		}
-	}
-	/**
-	 * @param txnBean
-	 * @throws javax.ejb.EJBException
-	 */
-	public void eraseNursingContactInfo(FwTransaction txnBean) throws javax.ejb.EJBException {
-
-		try {
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::eraseNursingContactInfo:Start");	 
-			Map session = txnBean.getSession();
-			Map request = txnBean.getRequest();
-			Map pageCollection = txnBean.getPageCollection();
-							  
-			//Get driver info.
-			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-
-			//Get appNumber from the session
-			String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			// Get beforeMap
-			Map beforeMap = (Map) session.get(FwConstants.BEFORE_COLLECTION);
-			//String addressType = (String) request.get(key);
-			APP_NURSING_ADDRESS_Collection nursingColl = (APP_NURSING_ADDRESS_Collection) pageCollection
-				.get("APP_NURSING_ADDRESS_Collection");
-			APP_NURSING_ADDRESS_Cargo nursingCargo = nursingColl
-					.getCargo(0);
-			
-			// Get the before AIP Collection
-			APP_NURSING_ADDRESS_Collection nursingBeforeColl = (APP_NURSING_ADDRESS_Collection) beforeMap
-					.get("APP_NURSING_ADDRESS_Collection");
-			APP_NURSING_DETAIL_Collection nursingDetailBeforeColl = (APP_NURSING_DETAIL_Collection) beforeMap
-				.get("APP_NURSING_DETAIL_Collection");
-			// Cargo
-			APP_NURSING_ADDRESS_Cargo nursingBeforeCargo = new APP_NURSING_ADDRESS_Cargo();
-			APP_NURSING_DETAIL_Cargo nursingDetailBeforeCargo = new APP_NURSING_DETAIL_Cargo();
-			// Initialize ValidationBO
-			ABMedicalDetailsBO nursingBO = new ABMedicalDetailsBO();
-
-			// Initialize short field names
-			short responseId = 0;
-			boolean warningMsgFlag = false;
-		
-			IndivTypeSeqBean seqBean = new IndivTypeSeqBean();
-			seqBean.setIndivSeqNum("1");
-			seqBean.setSeqNum("1");
-			seqBean.setType(nursingCargo.getAddr_type_cd());
-			
-			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, seqBean);			
-			
-			// This code is added to display the name of the person for the
-			// erase message in summary page
-			PeopleHandler peopleHandler = (PeopleHandler) session
-					.get(AppConstants.INDIV_MASTER_HANDLER);
-			String name = peopleHandler.getFirstName("1");
-			nursingBO.validateNursingAddrErase(name,nursingCargo.getAddr_type_cd());
-
-			if (nursingBO.hasMessages()) {
-				String reqWarningMsgs = (String) request
-						.get(FwConstants.WARNING_MSG_DETAILS);
-				warningMsgFlag = this.checkForWarningMesgs(reqWarningMsgs,
-						nursingBO.getMessageList());
-				if (!warningMsgFlag) {
-					request.put(FwConstants.MESSAGE_LIST, nursingBO
-							.getMessageList());
-					txnBean.setPageCollection((Map) session
-							.get(FwConstants.BEFORE_COLLECTION));
-					pageCollection.put(FwConstants.PAGE_COMPONENT_LIST,
-							beforeMap.get(FwConstants.PAGE_COMPONENT_LIST));
-					beforeMap
-							.put(FwConstants.DETAIL_KEY_BEAN, seqBean);
-					return;
-				} else {
-					IndivTypeSeqBean postIndivSeqBean = (IndivTypeSeqBean) beforeMap
-							.get(FwConstants.DETAIL_KEY_BEAN);
-					boolean sameIndivSeqNum = (postIndivSeqBean
-							.getIndivSeqNum().equals(seqBean
-							.getIndivSeqNum())) ? true : false;
-					boolean sameType = (postIndivSeqBean.getType()
-							.equals(seqBean.getType())) ? true
-							: false;
-					if ((sameIndivSeqNum == false) || (sameType == false)) {
-						request.put(FwConstants.MESSAGE_LIST, nursingBO
-								.getMessageList());
-						txnBean.setPageCollection((Map) session
-								.get(FwConstants.BEFORE_COLLECTION));
-						pageCollection.put(FwConstants.PAGE_COMPONENT_LIST,
-								beforeMap.get(FwConstants.PAGE_COMPONENT_LIST));
-						beforeMap.put(AppConstants.INDV_TYPE_SEQ_BEAN,
-								seqBean);
-						return;
-					}
-
+				driverManager.makeRequired(FwConstants.RMC_DRIVER,pageId,driverArray,appNumber);
+			}else if(!changesList.contains("makeReq") && !changesList.contains("Req") && changesList.contains("makeAbsNotReq")){
+				driverStatus = (int) driverManager.getAFBStatus(FwConstants.RMC_DRIVER,pageId, driverArray);
+				driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER,pageId,driverArray,appNumber);
+			}
+			if(changesList.contains("Comp") && !changesList.contains("Req") && !changesList.contains("makeReq")){
+				driverStatus = (int) driverManager.getAFBStatus(FwConstants.RMC_DRIVER,pageId, driverArray);
+				if(driverStatus!=FwConstants.DRIVER_REQUIRED){
+					driverManager.makeComplete(FwConstants.RMC_DRIVER,pageId,driverArray,appNumber);
 				}
 			}
-
-			// Initialize
-			int count = 0;
-			int nursingAddrBeforeSize = 0;
-			String addresstype = null;
-			String cdcIndvSeqNum = null;
-			boolean anotheraddressTypeExist = false;
-			nursingAddrBeforeSize = nursingBeforeColl.size();
-
-			for (int i = 0; i < nursingAddrBeforeSize; i++) {
-				nursingBeforeCargo = nursingBeforeColl
-						.getCargo(i);
-				addresstype = nursingBeforeCargo.getAddr_type_cd();				
-				
-					if (nursingCargo.getAddr_type_cd().equals(addresstype)) {
-						count++;
-					}
-					if (!nursingCargo.getAddr_type_cd().equals(addresstype)
-							&& nursingCargo.getAddr_type_cd() != null) {
-						anotheraddressTypeExist = true;
-					}
-				
-			}
-
-			APP_NURSING_ADDRESS_Collection deleteColl = new APP_NURSING_ADDRESS_Collection();
-			APP_NURSING_ADDRESS_Cargo deleteCargo = new APP_NURSING_ADDRESS_Cargo();
-			List addressTypes = new ArrayList();
-			for (int i = 0; i < nursingAddrBeforeSize; i++) {
-				deleteCargo = (APP_NURSING_ADDRESS_Cargo) nursingBeforeColl
-						.getCargo(i);
-				if ((deleteCargo.getAddr_type_cd().equals(nursingCargo.getAddr_type_cd()))
-						|| (nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_NURSING_FACILITY) && 
-								deleteCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_CONTACT_INFO))) {
-					deleteCargo.setRowAction(FwConstants.ROWACTION_DELETE);
-					deleteColl.addCargo(deleteCargo);
-				}else
-					addressTypes.add(deleteCargo.getAddr_type_cd());
-			}
-			// Delete the detail record
-			nursingBO.deleteSpouseAddress(deleteColl, nursingCargo.getAddr_type_cd());
-			if(nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_NURSING_FACILITY)
-					|| (nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_COURT_GUARDIAN))){
-				if(nursingDetailBeforeColl!=null && nursingDetailBeforeColl.size()>0){
-					nursingDetailBeforeCargo = nursingDetailBeforeColl.getCargo(0);
-				}else{
-					nursingDetailBeforeColl=nursingBO.loadNursingDetail(appNum);
-					nursingDetailBeforeCargo = nursingDetailBeforeColl.getCargo(0);
-				}			
-				if(nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_NURSING_FACILITY)){
-					if(addressTypes!=null && addressTypes.size()>0 && addressTypes.contains(AppConstants.ADDR_COURT_GUARDIAN)){
-						nursingDetailBeforeCargo.setFacility_name(AppConstants.SPACE);
-						nursingDetailBeforeCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-					}else if(addressTypes==null || addressTypes.size()==0){
-						nursingDetailBeforeCargo.setRowAction(FwConstants.ROWACTION_DELETE);
-					}
+			if(isAnySelection){
+				driverManager.makeRequired(FwConstants.RMC_DRIVER,"AMRCR", driverArray,appNumber);
+			}else{
+				driverStatus = (int) driverManager.getAFBStatus(FwConstants.RMC_DRIVER,"AMRCR", driverArray);
+				if(driverStatus != FwConstants.DRIVER_COMPLETE && driverStatus != FwConstants.DRIVER_REQUIRED && driverStatus != FwConstants.DRIVER_VISIT_AGAIN){
+					driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER,"AMRCR", driverArray,appNumber);
 				}
-				if(nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_COURT_GUARDIAN)){
-					if(addressTypes!=null && addressTypes.size()>0 && addressTypes.contains(AppConstants.ADDR_NURSING_FACILITY)){
-						nursingDetailBeforeCargo.setGuardian_name(AppConstants.SPACE);
-						nursingDetailBeforeCargo.setGuardian_expense_pay_sw(AppConstants.SPACE);
-						nursingDetailBeforeCargo.setGuardian_sw(AppConstants.SPACE);
-						nursingDetailBeforeCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-					}else if(addressTypes==null || addressTypes.size()==0){
-						nursingDetailBeforeCargo.setRowAction(FwConstants.ROWACTION_DELETE);
-					}
-				}
-				nursingDetailBeforeColl.setCargo(0, nursingDetailBeforeCargo);
-				nursingBO.updateNursingDetails(nursingDetailBeforeColl);
 			}
-			if(addressTypes==null || addressTypes.size()==0){
-				driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER, "ARMCG", driverArray, appNum);
-			}
-			RMCRequestManager requestManager = new RMCRequestManager();
-			RMC_RQST_Collection rqstColl = new RMC_RQST_Collection();
-			RMC_RQST_Cargo rqstCargo = requestManager.loadRMCRequest(appNum);
-			if(rqstCargo!=null && nursingCargo!=null && nursingCargo.getAddr_type_cd()!=null){
-				if(nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.NF_SPOUSE_ADDRESS_TYPE)){
-					rqstCargo.setSpouse_addr_contact_change_sw(AppConstants.NO);
-				}
-				if(nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_COURT_GUARDIAN)){
-					rqstCargo.setCourt_appointed_guardian_sw(AppConstants.NO);
-				}				
-				if(nursingCargo.getAddr_type_cd().equalsIgnoreCase(AppConstants.ADDR_NURSING_FACILITY)){					
-						rqstCargo.setNursing_facility_change_sw(AppConstants.NO);
-				}
-				rqstCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-				rqstColl.addCargo(rqstCargo);
-				requestManager.storeRMCRqst(rqstColl);
-				session.put(AppConstants.RMC_RQST, rqstCargo);
-				session.put(AppConstants.RMC_RQST_COLLECTION, rqstColl);
-				pageCollection.put(AppConstants.RMC_RQST, rqstCargo);
-				pageCollection.put(AppConstants.RMC_RQST_COLLECTION, rqstColl);
-			}
-
 			
-			//make summary page as required
-			if((addressTypes!=null && addressTypes.size()>0) || (rqstCargo.getPrsn_move_stat_sw()!=null && rqstCargo.getPrsn_move_stat_sw().trim().equalsIgnoreCase(AppConstants.YES))
-					|| (rqstCargo.getPrsn_add_stat_sw()!=null && rqstCargo.getPrsn_add_stat_sw().trim().equalsIgnoreCase(AppConstants.YES)))
-			driverManager.makeRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-			else
-				driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER, (String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray, appNum);
-
-			//Add the page collection to  collection			
-			txnBean.setPageCollection(pageCollection);
-			//end
-			log(ILog.INFO, "RMCHouseHoldInfoEJBBean::eraseNursingContactInfo:End");
-	
-
-		} catch(FwException fe) {
-			ctx.setRollbackOnly();
-			FwWrappedException we = new FwWrappedException();
-			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("eraseNursingContactInfo");
-			we.setFwException(fe);
-			throw we;
-		} catch(Exception e) {
-			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(), "eraseNursingContactInfo", e);
-			throw fe;
-		}
-	}
-	
-	/**
-	 * Added by Jean Claude for ILIES-153070
-	 * This methods checks for validation warnings that have been displayed before
-	 * @param messageList
-	 * @return boolean
-	 */
-	public boolean checkForSkipValidation(FwMessageList messageList) {
-		log(ILog.INFO, "AppSessionBean::checkForSkipValidation::Start");
-		try{
-			    int messageListSize = 0;
-			    if(messageList != null)
-			        messageListSize = messageList.getMessageListSize();
-				boolean skipvalidation=false;
-				for(int i=0;i<messageListSize;i++){
-					if(messageList.getMessageAtIndex(i).getMessageCode() == "36200" || 
-							messageList.getMessageAtIndex(i).getMessageCode() == "36202"){
-						//skipvalidation true only if there is only address invalidation only
-						skipvalidation = true;
-					}
-					else
-					{
-						skipvalidation = false;
-						break;
-					}
-				}	
-				
+			session.put(FwConstants.BEFORE_COLLECTION, pageCollection);
+			session.put(AppConstants.RMC_CATEGORY_PROFILE_MASTER, categorySelectionProfile);
+			session.put(AppConstants.RMC_IN_PRFL_MASTER, rmcInPrflSessColl);
+			session.put(FwConstants.RMC_DRIVER, driverArray);
 			
-			log(ILog.INFO, "AppSessionBean::checkForSkipValidation::End");
-			return skipvalidation;
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErja::End::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+
 		} catch (FwException fe) {
-			throw fe;
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".storeHouseHoldInfoErja failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid +
+					" Exception info::" + fe + "::message::" + fe.getMessage() + "::stackTrace::" + fe.getStackTrace() + "::cause::" +fe.getCause());
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("storeHouseHoldInfoErja");
+			we.setFwException(fe);
+			throw we;
 		} catch (Exception e) {
-			FwException fe = createFwException(this.getClass().getName(), "checkForSkipValidation", e);
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".storeHouseHoldInfoErja failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid + 
+					" Exception info:: " + e + "::message::" + e.getMessage() + "::stackTrace::" + e.getStackTrace() + "::cause::" + e.getCause());
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(),"storeHouseHoldInfoErja:: ", e);
 			throw fe;
 		}
 	}
-	
-	
-	
-	
-	
-	
-    /**
-     * @param txnBean
-     * @throws javax.ejb.EJBException
-     */
-     public void addressValidationFCRC(FwTransaction txnBean) throws javax.ejb.EJBException {
 
-                     try {
-                                     log(ILog.INFO, "RMCHouseHoldInfoEJBBean::addressValidationFCRC:Start");     
-                                     Map session = txnBean.getSession();
-                                     Map request = txnBean.getRequest();
-                                     
-                                     Map pageCollection = txnBean.getPageCollection();
-                                     
-                                     pageCollection.put("ADDRESS_TYPE", "PHISICAL");
-                                     
-                                     txnBean.setPageCollection(pageCollection);                                                       
-                                     
-                                 	//APP_RGST_Cargo appRgstFstCargo = (APP_RGST_Cargo) request.get("FST_CONTACT_DETAIL");
-                                     
-                                     log(ILog.INFO, "RMCHouseHoldInfoEJBBean::addressValidationFCRC:End");
-     
+	public void loadHouseHoldInfoErjaDetails(FwTransaction txnBean)throws javax.ejb.EJBException {
 
-                     } catch(FwException fe) {
-                                     ctx.setRollbackOnly();
-                                     FwWrappedException we = new FwWrappedException();
-                                     we.setCallingClassID(this.getClass().getName());
-                                     we.setCallingMethodID("editNursingContactInfo");
-                                     we.setFwException(fe);
-                                     throw we;
-                     } catch(Exception e) {
-                                     ctx.setRollbackOnly();
-                                     FwException fe = createFwException(this.getClass().getName(), "editNursingContactInfo", e);
-                                     throw fe;
-                     }
-     }
-     /**
-     * @param txnBean
-     * @throws javax.ejb.EJBException
-     */
-     public void storeAddressValidationFCRC(FwTransaction txnBean) throws javax.ejb.EJBException {
-
-                     try {
-                                     log(ILog.INFO, "RMCHouseHoldInfoEJBBean::addressValidationFCRC:Start");     
-                                     Map session = txnBean.getSession();
-                                     Map request = txnBean.getRequest();
-                                     
-                                     //Get driver info.
-			             		     int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-			
-			             			 //Get appNumber from the session
-			             			 String appNum = (String)session.get(AppConstants.APP_NUMBER);
-			             			 
-			             			 //Catch that check box here; if it's checked (AKA "Y") set the FCRC_sw to be no (do not change)
-                              
-			             			 String office_sw = (String) request.get("other");
-
-			             			 String fcrc_sw = "Y";
-			             			 
-			             			 if(office_sw != null || "N".equals(office_sw))
-			             				 fcrc_sw = "N";
-			             			 
-			             			//Store the new string into the DB... 
-			             			RMCRequestManager rmcReqManage = new RMCRequestManager();
-			                        RMC_RQST_Cargo rmcRqstBeforeCargo=(RMC_RQST_Cargo)session.get(AppConstants.RMC_RQST);	
-			                        rmcRqstBeforeCargo.setFcrc_sw(fcrc_sw);
-			                        rmcRqstBeforeCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
-			                        RMC_RQST_Collection rmcColl = new RMC_RQST_Collection();
-			                        rmcColl.addCargo(rmcRqstBeforeCargo);
-			                        rmcReqManage.storeRMCRqst(rmcColl);
-
-			                    	APP_RGST_Cargo appRgstFstCargo = (APP_RGST_Cargo) request.get("FST_CONTACT_DETAIL");
-			                    	request.put("FST_CONTACT_DETAIL", appRgstFstCargo); 
-			                    	
-			                    	session.put(AppConstants.RMC_RQST,rmcRqstBeforeCargo);
-			                    	
-			                    	Map pageCollection = txnBean.getPageCollection();
-                                     
-                                    pageCollection.put("ADDRESS_TYPE", "PHISICAL"); 
-                                     
-                                    txnBean.setPageCollection(pageCollection);                                                       
-                                     
-                                    log(ILog.INFO, "RMCHouseHoldInfoEJBBean::addressValidationFCRC:End");
-                                     
-                     				driverManager.makeComplete(FwConstants.RMC_DRIVER, "ARACV", driverArray, appNum);
-     
-
-                     } catch(FwException fe) {
-                                     ctx.setRollbackOnly();
-                                     FwWrappedException we = new FwWrappedException();
-                                     we.setCallingClassID(this.getClass().getName());
-                                     we.setCallingMethodID("editNursingContactInfo");
-                                     we.setFwException(fe);
-                                     throw we;
-                     } catch(Exception e) {
-                                     ctx.setRollbackOnly();
-                                     FwException fe = createFwException(this.getClass().getName(), "editNursingContactInfo", e);
-                                     throw fe;
-                     }
-     }
-
-	public void loadHouseHoldInfoErja(FwTransaction txnBean)throws javax.ejb.EJBException {
-
-		log(ILog.INFO, "RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErja::Start");
+		log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErjaDetails::Start");
 		Map session = txnBean.getSession();
 		Map request = txnBean.getRequest();
 		String caseNumber = (String) session.get(AppConstants.CASE_NUM);
@@ -1507,71 +107,205 @@ private List getListFromCategoryProfile(SortedSet aSelectionProfile)
 		Map httpSessionMap = (Map) session.get(FwConstants.HTTP_SESSION);
 		Map securedSessionMap = null;
 		String wid = null;
-		Map pageCollection = txnBean.getPageCollection();
-		PeopleHandler peopleHandler = (PeopleHandler) session.get(AppConstants.INDIV_MASTER_HANDLER);
+		RMC_IN_PRFL_Collection rmcInPrflColl = (RMC_IN_PRFL_Collection) session.get(AppConstants.RMC_IN_PRFL_MASTER);
 		int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
+		String currentPageId = (String) request.get(FwConstants.CURRENT_PAGE_ID);
+		String previousPageId = (String) request.get(FwConstants.PREVIOUS_PAGE_ID);
+		Map beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
 		try {
 			HouseHoldInfoBO hb = new HouseHoldInfoBO();
 			hb.setSogiSwitchBasedOnAge(txnBean);
+			
 			if(null != httpSessionMap){
 				securedSessionMap = (Map) httpSessionMap.get(FwConstants.SECURED_SESSION);
 			}
 			if(null != securedSessionMap && null != securedSessionMap.get(FwConstants.LDAP_WID)){
 				wid = securedSessionMap.get(FwConstants.LDAP_WID).toString();
 			}
-			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErja::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+			if(null == beforeColl){
+				beforeColl = new HashMap();
+			}
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErjaDetails::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
 			
-			/* indv custom collections to be displayed on page */
-			INDIVIDUAL_Custom_Collection indvCustomColl = new INDIVIDUAL_Custom_Collection();
-			INDIVIDUAL_Custom_Collection indvCustomColl2 = new INDIVIDUAL_Custom_Collection();
-			INDIVIDUAL_Custom_Cargo indvCustomCargo = null;
+			Map pageCollection = txnBean.getPageCollection();
+			int pageStatus = driverManager.getAFBStatus(FwConstants.RMC_DRIVER,currentPageId, driverArray);
+
+			SortedSet categorySelectionProfile = (SortedSet) session.get(AppConstants.RMC_CATEGORY_PROFILE_MASTER);
+			SortedSet erjaProfile = null;
+			SortedSet erjaCategoryProfile = null;
+			SortedSet erjaRmcProfile = null;
+			SortedSet newProfile = new TreeSet(new CategorySequenceDetailsComparator());
+			HouseHoldInfoBO houseHoldInfoBO = new HouseHoldInfoBO();
+			short[] responseType = new short[] { IRMCResponseProfileManager.ETHNICITY_RACE_RESP };
+			String[] catType = new String[] { AppConstants.RMC_ERJA_PRFL };
+			if (!currentPageId.equals(previousPageId)) {
+				erjaProfile = new TreeSet(new CategorySequenceDetailsComparator());
+				if (categorySelectionProfile != null) {
+					erjaCategoryProfile = createPageProfile(categorySelectionProfile, catType);
+					erjaProfile.addAll(erjaCategoryProfile);
+				}
+				if (categorySelectionProfile.isEmpty() && rmcInPrflColl != null) {
+					erjaRmcProfile = createPageProfile(new TreeSet(),rmcInPrflColl, responseType);
+					erjaProfile.addAll(erjaRmcProfile);
+				}
+				if (pageStatus != FwConstants.DRIVER_REQUIRED) {
+					Map erjaCollections = houseHoldInfoBO.fetchErjaDetails(appNumber);
+					if (erjaCollections != null && !erjaCollections.isEmpty()) {
+						Iterator iterator = erjaCollections.keySet().iterator();
+						while(iterator.hasNext()){
+							String indvSeqNum = (String)iterator.next();
+							categorySelectionProfileManager.insertExistingSequenceDetail(erjaProfile, null, null,Short.parseShort(indvSeqNum),(long) 0, AppConstants.RMC_ERJA_PRFL);
+						}
+						Set indvSeqNums = new HashSet();
+						Iterator iter = erjaProfile.iterator();
+						while(iter.hasNext()){
+							CategorySequenceDetail categorySeqDetail = (CategorySequenceDetail)iter.next();
+							if(!indvSeqNums.contains(categorySeqDetail.getIndividualSequence())){
+								indvSeqNums.add(categorySeqDetail.getIndividualSequence());
+								newProfile.add(categorySeqDetail);
+							}
+						}
+					}
+				}
+				if (pageStatus == FwConstants.DRIVER_REQUIRED || pageStatus == FwConstants.DRIVER_VISIT_AGAIN) {
+					categorySelectionProfileManager.setCurrentRecordIndToFirst(newProfile);
+				}
+				if (pageStatus == FwConstants.DRIVER_COMPLETE) {
+					categorySelectionProfileManager.setCurrentRecordIndToLast(newProfile);
+				}
+				beforeColl.remove(AppConstants.RMC_CATEGORY_PAGE_PRFL);
+			} else {
+				beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
+				if(beforeColl != null){
+					newProfile = (SortedSet) beforeColl.get(AppConstants.RMC_CATEGORY_PAGE_PRFL);
+				}
+			}
+			if(newProfile == null || newProfile.isEmpty()){
+				newProfile = erjaProfile;
+			}
+			IndivTypeSeqBean indivSeqBean = (IndivTypeSeqBean) pageCollection.get(FwConstants.DETAIL_KEY_BEAN);
+			if (indivSeqBean != null) {
+				CategorySequenceDetail categorySeqDetail1 = categorySelectionProfileManager.getCategorySequenceDetail(newProfile,Short.parseShort(indivSeqBean.getIndivSeqNum()),Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+				if (categorySeqDetail1 != null) {
+					categorySelectionProfileManager.makeSequenceDetailRequired(newProfile, null,Short.parseShort(indivSeqBean.getIndivSeqNum()),Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+					CategorySequenceDetail categorySeqDetail2 = categorySelectionProfileManager.getCategorySequenceDetail(categorySelectionProfile, Short.parseShort(indivSeqBean.getIndivSeqNum()),Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+					if (categorySeqDetail2 != null) {
+						categorySelectionProfileManager.makeSequenceDetailRequired(categorySelectionProfile, appNumber,Short.parseShort(indivSeqBean.getIndivSeqNum()), Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+					}
+				} else {
+					if (indivSeqBean.getSeqNum().equals("0")) {
+						RMC_RQST_Cargo rmcRqstCargo = (RMC_RQST_Cargo) session.get(AppConstants.RMC_RQST);
+						RMC_IN_PRFL_Cargo rmcInPrflCargo = null;
+						if (rmcInPrflColl != null) {
+							rmcInPrflCargo = rmcResponseProfileManager.getProfile(rmcInPrflColl,indivSeqBean.getIndivSeqNum());
+						} else {
+							rmcInPrflColl = new RMC_IN_PRFL_Collection();
+						}
+						if (rmcInPrflCargo == null) {
+							rmcInPrflCargo = new RMC_IN_PRFL_Cargo();
+							rmcInPrflCargo.setApp_num(appNumber);
+							rmcInPrflCargo.setIndv_seq_num(indivSeqBean.getIndivSeqNum());
+							rmcResponseProfileManager.createRMCIndividualProfile(rmcInPrflCargo);
+							rmcInPrflColl.addCargo(rmcInPrflCargo);
+						}
+						rmcResponseProfileManager.makeAddNew(IRMCResponseProfileManager.ETHNICITY_RACE_RESP,rmcInPrflCargo, true);
+						categorySelectionProfileManager.insertSequenceDetail(categorySelectionProfile,appNumber, AppConstants.RMC_ERJA_PRFL,Short.parseShort(indivSeqBean.getIndivSeqNum()),indivSeqBean.getType());
+						categorySelectionProfileManager.makeSequenceDetailRequired(categorySelectionProfile, appNumber,Short.parseShort(indivSeqBean.getIndivSeqNum()), Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+						session.put(AppConstants.RMC_IN_PRFL_MASTER,rmcInPrflColl);
+
+						SortedSet erjaSortedSet = null;
+						String[] catTypeErja = { AppConstants.RMC_ERJA_PRFL };
+						erjaSortedSet = createPageProfile(categorySelectionProfile, catTypeErja);
+						newProfile.addAll(erjaSortedSet);
+						categorySelectionProfileManager.getNextSequenceDetail(newProfile);
+						if (null != rmcRqstCargo && !rmcRqstCargo.getErja_chg_stat_sw().equals(AppConstants.YES)) {
+							rmcRqstCargo.setErja_chg_stat_sw(AppConstants.YES);
+						}
+					} else {
+						categorySelectionProfileManager.insertExistingSequenceDetail(newProfile,null,null,Short.parseShort(indivSeqBean.getIndivSeqNum()),Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+						categorySelectionProfileManager.makeSequenceDetailRequired(newProfile, null,Short.parseShort(indivSeqBean.getIndivSeqNum()), Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+
+						categorySelectionProfileManager.insertExistingSequenceDetail(categorySelectionProfile, appNumber,AppConstants.RMC_CAT_HO_COMP_PRFL,Short.parseShort(indivSeqBean.getIndivSeqNum()), Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+						categorySelectionProfileManager.makeSequenceDetailRequired(categorySelectionProfile, appNumber,Short.parseShort(indivSeqBean.getIndivSeqNum()), Long.parseLong(indivSeqBean.getSeqNum()),indivSeqBean.getType());
+					}
+				}
+			}
+			CategorySequenceDetail categorySeqDetail = categorySelectionProfileManager.getCurrentSequenceDetail(newProfile);
+			if (categorySeqDetail == null) {
+				categorySeqDetail = categorySelectionProfileManager.getNextSequenceDetail(newProfile);
+			}
+			
+			String indvSeqNum = Short.toString(categorySeqDetail.getIndividualSequence());
+			pageCollection.put(AppConstants.RMC_CATEGORY_PAGE_PRFL, newProfile);
+			
+			Map erjaCollections = houseHoldInfoBO.loadErjaDetails(appNumber, indvSeqNum);
+			RMC_RACE_Collection rmcRaceColl = (RMC_RACE_Collection) erjaCollections.get("RMC_RACE_Collection");
+			RMC_ETHNICITY_Collection rmcEthnicityColl = (RMC_ETHNICITY_Collection) erjaCollections.get("RMC_ETHNICITY_Collection");
+			RMC_SEX_GENDER_Collection rmcSexGenderColl = (RMC_SEX_GENDER_Collection) erjaCollections.get("RMC_SEX_GENDER_Collection");
+
+			RMC_RACE_Collection rmcRaceCollFromPage = (RMC_RACE_Collection) pageCollection.get("RMC_RACE_Coll"+indvSeqNum);
+			RMC_ETHNICITY_Collection rmcEthnicityCollFromPage = (RMC_ETHNICITY_Collection) pageCollection.get("RMC_ETHNICITY_Coll"+indvSeqNum);
+			RMC_SEX_GENDER_Collection rmcSexGenderCollFromPage = (RMC_SEX_GENDER_Collection) pageCollection.get("RMC_SEX_GENDER_Coll"+indvSeqNum);
+			if(null != rmcRaceCollFromPage && !rmcRaceCollFromPage.isEmpty() || null != rmcEthnicityCollFromPage && !rmcEthnicityCollFromPage.isEmpty() || null != rmcSexGenderCollFromPage && !rmcSexGenderCollFromPage.isEmpty()){
+				if(null != rmcRaceCollFromPage && !rmcRaceCollFromPage.isEmpty()){
+					pageCollection.put("RMC_RACE_Coll"+indvSeqNum, rmcRaceCollFromPage);
+				}
+				if(null != rmcEthnicityCollFromPage && !rmcEthnicityCollFromPage.isEmpty()){
+					pageCollection.put("RMC_ETHNICITY_Coll"+indvSeqNum, rmcEthnicityCollFromPage);
+				}
+				if(null != rmcSexGenderCollFromPage && !rmcSexGenderCollFromPage.isEmpty()){
+					pageCollection.put("RMC_SEX_GENDER_Coll"+indvSeqNum, rmcSexGenderCollFromPage);
+				}
+			}else if(null != rmcRaceColl && !rmcRaceColl.isEmpty() || null != rmcEthnicityColl && !rmcEthnicityColl.isEmpty() || null != rmcSexGenderColl && !rmcSexGenderColl.isEmpty()){
+				if(null != rmcRaceColl && !rmcRaceColl.isEmpty()){
+					pageCollection.put("RMC_RACE_Coll"+indvSeqNum, rmcRaceColl);
+				}
+				if(null != rmcEthnicityColl && !rmcEthnicityColl.isEmpty()){
+					pageCollection.put("RMC_ETHNICITY_Coll"+indvSeqNum, rmcEthnicityColl);
+				}
+				if(null != rmcSexGenderColl && !rmcSexGenderColl.isEmpty()){
+					pageCollection.put("RMC_SEX_GENDER_Coll"+indvSeqNum, rmcSexGenderColl);
+				}
+			}
+			
+			RMC_IN_PRFL_Cargo rmcInPrflCargo = rmcResponseProfileManager.getProfile(rmcInPrflColl, indvSeqNum);
+			PeopleHandler peopleHandler = (PeopleHandler) session.get(AppConstants.INDIV_MASTER_HANDLER);
 			if(null == peopleHandler){
 				peopleHandler = new PeopleHandler();
 				peopleHandler.loadPeopleHandler(caseNumber, appNumber, "");
 			}
-			indvCustomColl = peopleHandler.getInHomeIndividuals();
-			
-			if(null != indvCustomColl){
-				for (int i = 0; i < indvCustomColl.size(); i++) {
-					indvCustomCargo = (INDIVIDUAL_Custom_Cargo) indvCustomColl.get(i);
-					if (null != indvCustomCargo && null != indvCustomCargo.getIndv_age() && indvCustomCargo.getIndv_age().getYears() >= SOGIReferenceHelper.getSogiAgeThresholdIntegerValue()) {
-						indvCustomColl2.addCargo(indvCustomCargo);
-					}
-				}
-			}
-			
-			updateMapsErja(pageCollection, peopleHandler, AppConstants.RMC_ERJA_PRFL, txnBean, indvCustomColl, indvCustomColl2);
-			pageCollection.put("INDIVIDUAL_Custom_Collection", indvCustomColl);
-			session.put("INDIVIDUAL_Custom_Collection", indvCustomColl);
-			pageCollection.put("INDIVIDUAL_Custom_Collection2", indvCustomColl2);	
-			session.put(FwConstants.BEFORE_COLLECTION, pageCollection);
+			pageCollection.put("RMC_IN_PRFL_Cargo", rmcInPrflCargo);
+			pageCollection.put(AppConstants.FIRST_NAME,peopleHandler.getFirstName(indvSeqNum));
+			pageCollection.put(AppConstants.CURRENT_INDIV_SEQ_NUM, indvSeqNum);
 			txnBean.setPageCollection(pageCollection);
-
-			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErja::End::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+			session.put(FwConstants.BEFORE_COLLECTION, pageCollection);
+			session.put(FwConstants.RMC_DRIVER, driverArray);
+			
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErjaDetails::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
 
 		} catch (FwException fe) {
-			log(ILog.ERROR, this.getClass().getSimpleName()+ ".loadHouseHoldInfoErja failed::" +
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".loadHouseHoldInfoErjaDetails failed::" +
 					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid +
 					" Exception info::" + fe + "::message::" + fe.getMessage() + "::stackTrace::" + fe.getStackTrace() + "::cause::" +fe.getCause());
 			ctx.setRollbackOnly();
 			FwWrappedException we = new FwWrappedException();
 			we.setCallingClassID(this.getClass().getName());
-			we.setCallingMethodID("loadHouseHoldInfoErja");
+			we.setCallingMethodID("loadHouseHoldInfoErjaDetails");
 			we.setFwException(fe);
 			throw we;
 		} catch (Exception e) {
-			log(ILog.ERROR, this.getClass().getSimpleName()+ ".loadHouseHoldInfoErja failed::" +
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".loadHouseHoldInfoErjaDetails failed::" +
 					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid + 
 					" Exception info:: " + e + "::message::" + e.getMessage() + "::stackTrace::" + e.getStackTrace() + "::cause::" + e.getCause());
 			ctx.setRollbackOnly();
-			FwException fe = createFwException(this.getClass().getName(),"loadHouseHoldInfoErja:: ", e);
+			FwException fe = createFwException(this.getClass().getName(),"loadHouseHoldInfoErjaDetails:: ", e);
 			throw fe;
 		}
 	}
 
-	public void storeHouseHoldInfoErja(FwTransaction txnBean)throws javax.ejb.EJBException {
-
-		log(ILog.INFO, "RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErja::Start");
+	public void storeHouseHoldInfoErjaDetails(FwTransaction txnBean)throws javax.ejb.EJBException {
+		
+		log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErjaDetails::Start");
 		Map session = txnBean.getSession();
 		Map request = txnBean.getRequest();
 		String caseNumber = (String) session.get(AppConstants.CASE_NUM);
@@ -1580,11 +314,218 @@ private List getListFromCategoryProfile(SortedSet aSelectionProfile)
 		Map securedSessionMap = null;
 		String wid = null;
 		Map pageCollection = txnBean.getPageCollection();
-		RMC_IN_PRFL_Collection rmcInPrflSessColl = (RMC_IN_PRFL_Collection) session.get(AppConstants.RMC_IN_PRFL_MASTER);
-		RMC_IN_PRFL_Cargo[] rmcInPrflCargoArray = null;
-		int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
-		String currentPageID = (String) request.get(FwConstants.CURRENT_PAGE_ID);
 		try {
+			if(null != httpSessionMap){
+				securedSessionMap = (Map) httpSessionMap.get(FwConstants.SECURED_SESSION);
+			}
+			if(null != securedSessionMap && null != securedSessionMap.get(FwConstants.LDAP_WID)){
+				wid = securedSessionMap.get(FwConstants.LDAP_WID).toString();
+			}
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErjaDetails::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+			
+			APP_INDV_Collection appIndvColl = null;
+			APP_INDV_Cargo appIndvCargo = new APP_INDV_Cargo();
+			appIndvColl = (APP_INDV_Collection) pageCollection.get("APP_INDV_Collection");
+			if(null != appIndvColl && !appIndvColl.isEmpty()){
+				appIndvCargo = appIndvColl.getCargo(0);
+			}
+			
+			String indvSeqNum = (String) request.get("indvSeqNum") == null ? "": (String) request.get("indvSeqNum");
+			PeopleHandler peopleHandler = (PeopleHandler) session.get(AppConstants.INDIV_MASTER_HANDLER);
+			if(null == peopleHandler){
+				peopleHandler = new PeopleHandler();
+				peopleHandler.loadPeopleHandler(caseNumber, appNumber, "");
+			}
+			
+			INDIVIDUAL_Custom_Cargo indvCustomCargo = peopleHandler.getIndividual(indvSeqNum);
+			Map erjaCollections = new HashMap();
+			if(appIndvCargo != null && indvCustomCargo != null){
+				erjaCollections = populateErjaCollections(appIndvCargo, indvCustomCargo.getIndv_pin_num(), indvSeqNum, appNumber, wid);
+			}
+			
+			RMC_RACE_Collection rmcRaceColl = (RMC_RACE_Collection) erjaCollections.get("RMC_RACE_Collection");
+			RMC_ETHNICITY_Collection rmcEthnicityColl = (RMC_ETHNICITY_Collection) erjaCollections.get("RMC_ETHNICITY_Collection");
+			RMC_SEX_GENDER_Collection rmcSexGenderColl = (RMC_SEX_GENDER_Collection) erjaCollections.get("RMC_SEX_GENDER_Collection");
+			RMC_SEX_GENDER_Cargo rmcSexGenderCargo = null;
+			if(rmcSexGenderColl != null && !rmcSexGenderColl.isEmpty()){
+				rmcSexGenderCargo = rmcSexGenderColl.getCargo(0);
+			}
+			
+			// validations
+			Map validationsMap = new HashMap();
+			if (rmcSexGenderCargo != null && rmcSexGenderCargo.getSex_at_birth_details() != null && !" ".equalsIgnoreCase(rmcSexGenderCargo.getSex_at_birth_details())) {
+				validationsMap.put("sexAssignedAtBirthText",rmcSexGenderCargo.getSex_at_birth_details());
+			}
+			if (rmcSexGenderCargo != null && rmcSexGenderCargo.getGender_identity_details() != null && !" ".equalsIgnoreCase(rmcSexGenderCargo.getGender_identity_details())) {
+				validationsMap.put("genderIdentityText",rmcSexGenderCargo.getGender_identity_details());
+			}
+			if (rmcSexGenderCargo != null && rmcSexGenderCargo.getSexual_orientation_details() != null && !" ".equalsIgnoreCase(rmcSexGenderCargo.getSexual_orientation_details())) {
+				validationsMap.put("sexualOrientationText",rmcSexGenderCargo.getSexual_orientation_details());
+			}
+			RMCValidator rmcValidator = new RMCValidator();
+			FwMessageList messages = new FwMessageList();
+			if (!validationsMap.isEmpty()) {
+				messages = rmcValidator.validateArhmr(validationsMap);
+			}
+			RMC_IN_PRFL_Collection rmcInPrflColl = (RMC_IN_PRFL_Collection) session.get(AppConstants.RMC_IN_PRFL_MASTER);
+			if (messages != null && messages.hasMessages()) {
+				RMC_IN_PRFL_Cargo rmcInPrflCargo = rmcResponseProfileManager.getProfile(rmcInPrflColl, indvSeqNum);
+				pageCollection.put("RMC_IN_PRFL_Cargo", rmcInPrflCargo);
+				pageCollection.put(AppConstants.FIRSTNAME,(String) request.get(AppConstants.FIRSTNAME));
+				pageCollection.put("indvSeqNum", indvSeqNum);
+				pageCollection.put("RMC_RACE_Coll"+indvSeqNum, rmcRaceColl);
+				pageCollection.put("RMC_ETHNICITY_Coll"+indvSeqNum, rmcEthnicityColl);
+				pageCollection.put("RMC_SEX_GENDER_Coll"+indvSeqNum, rmcSexGenderColl);
+				pageCollection.put(FwConstants.MESSAGE_LIST, messages);
+				request.put(FwConstants.NEXT_PAGE_ID,request.get(FwConstants.CURRENT_PAGE_ID));
+				request.put(FwConstants.NEXT_PAGE_ACTION,(String)request.get(FwConstants.CURRENT_PAGE_ID)+"Load");
+				return;
+			}
+			// validations end
+			
+			HouseHoldInfoBO houseHoldInfoBO = new HouseHoldInfoBO();
+			RMC_RACE_Collection rmcRaceBeforeColl = null;
+			RMC_RACE_Cargo rmcRaceBeforeCargo = null;
+			RMC_ETHNICITY_Collection rmcEthnicityBeforeColl = null;
+			RMC_ETHNICITY_Cargo rmcEthnicityBeforeCargo = null;
+			RMC_SEX_GENDER_Collection rmcSexGenderBeforeColl = null;
+			RMC_SEX_GENDER_Cargo rmcSexGenderBeforeCargo = null;
+			
+			Map erjaBeforeCollections = houseHoldInfoBO.loadErjaDetails(appNumber, indvSeqNum);
+			rmcRaceBeforeColl = (RMC_RACE_Collection) erjaBeforeCollections.get("RMC_RACE_Collection");
+			rmcEthnicityBeforeColl = (RMC_ETHNICITY_Collection) erjaBeforeCollections.get("RMC_ETHNICITY_Collection");
+			rmcSexGenderBeforeColl = (RMC_SEX_GENDER_Collection) erjaBeforeCollections.get("RMC_SEX_GENDER_Collection");
+			
+			
+			if(rmcRaceBeforeColl != null && !rmcRaceBeforeColl.isEmpty()){
+				for(int i = 0; i < rmcRaceBeforeColl.size(); i++){
+					rmcRaceBeforeColl.getCargo(i).setRowAction(FwConstants.ROWACTION_DELETE);
+				}
+				rmcRaceBeforeColl = (RMC_RACE_Collection) rmcRaceBeforeColl.persist(FwConstants.DAO);
+			}
+			if(rmcEthnicityBeforeColl != null && !rmcEthnicityBeforeColl.isEmpty()){
+				for(int i = 0; i < rmcEthnicityBeforeColl.size(); i++){
+					rmcEthnicityBeforeColl.getCargo(i).setRowAction(FwConstants.ROWACTION_DELETE);
+				}
+				rmcEthnicityBeforeColl = (RMC_ETHNICITY_Collection) rmcEthnicityBeforeColl.persist(FwConstants.DAO);
+			}
+			
+			if(rmcRaceColl != null && !rmcRaceColl.isEmpty()){
+				rmcRaceColl = (RMC_RACE_Collection) rmcRaceColl.persist(FwConstants.DAO);
+			}
+			if(rmcEthnicityColl != null && !rmcEthnicityColl.isEmpty()){
+				rmcEthnicityColl = (RMC_ETHNICITY_Collection) rmcEthnicityColl.persist(FwConstants.DAO);
+			}
+			
+			//check update or insert RMC_SEX_GENDER
+			if(rmcSexGenderBeforeColl != null && !rmcSexGenderBeforeColl.isEmpty()){
+				rmcSexGenderBeforeCargo = rmcSexGenderBeforeColl.getCargo(0);
+				if (rmcSexGenderBeforeCargo != null && !rmcSexGenderBeforeCargo.equals(rmcSexGenderCargo)) {
+					rmcSexGenderCargo.setRowAction(FwConstants.ROWACTION_UPDATE);
+					rmcSexGenderCargo.setCreate_dt(rmcSexGenderBeforeCargo.getCreate_dt());
+					rmcSexGenderCargo.setUpdate_dt(fwDate.getTimestamp().toString());
+					if(wid != null){
+						rmcSexGenderCargo.setUpdate_user_id(wid);
+					}
+				}else{
+					rmcSexGenderCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				}
+			}
+			if(rmcSexGenderBeforeColl == null){
+				rmcSexGenderBeforeColl = new RMC_SEX_GENDER_Collection();
+			}
+			rmcSexGenderBeforeColl.clear();
+			rmcSexGenderBeforeColl.addCargo(rmcSexGenderCargo);
+			rmcSexGenderBeforeColl = (RMC_SEX_GENDER_Collection) rmcSexGenderBeforeColl.persist(FwConstants.DAO);
+			
+			pageCollection.put("RMC_RACE_Coll"+indvSeqNum, rmcRaceBeforeColl);
+			pageCollection.put("RMC_ETHNICITY_Coll"+indvSeqNum, rmcEthnicityBeforeColl);
+			pageCollection.put("RMC_SEX_GENDER_Coll"+indvSeqNum, rmcSexGenderBeforeColl);
+			
+			Map beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
+			if(beforeColl == null){
+				beforeColl = new HashMap();
+			}
+			SortedSet erjaProfile = (SortedSet) beforeColl.get(AppConstants.RMC_CATEGORY_PAGE_PRFL);
+			if(erjaProfile == null){
+				erjaProfile = new TreeSet(new CategorySequenceDetailsComparator());
+			}
+			CategorySequenceDetail categorySeqDetailBean = categorySelectionProfileManager.getCurrentSequenceDetail(erjaProfile);
+			if(categorySeqDetailBean != null){
+				indvSeqNum = String.valueOf(categorySeqDetailBean.getIndividualSequence());
+			}
+			SortedSet categorySelectionProfile = (SortedSet) session.get(AppConstants.RMC_CATEGORY_PROFILE_MASTER);
+			if (appIndvColl != null && categorySelectionProfile != null) {
+				categorySelectionProfileManager.updateSequence(erjaProfile, null,categorySeqDetailBean.getIndividualSequence(),categorySeqDetailBean.getCategorySequence(),categorySeqDetailBean.getCategoryType());
+			}
+			String indvSeq = categorySeqDetailBean == null ? "1" : String.valueOf(categorySeqDetailBean.getIndividualSequence());
+			RMC_IN_PRFL_Cargo rmcInPrflCargo = rmcResponseProfileManager.getProfile(rmcInPrflColl, indvSeq);
+			if (rmcInPrflCargo != null) {
+				rmcResponseProfileManager.makeComplete(IRMCResponseProfileManager.ETHNICITY_RACE_RESP,rmcInPrflCargo, true);
+				short[] responseIdGender = new short[]{IRMCResponseProfileManager.ERJA_GENDER_RESP};
+				short[] responseidRace = new short[]{IRMCResponseProfileManager.ERJA_RACE_RESP};
+				String[] responseValue = {AppConstants.COMPLETE};
+				if(AppConstants.YES.equalsIgnoreCase(rmcInPrflCargo.getErja_gender_resp())){
+					rmcResponseProfileManager.persist(appNumber, indvSeqNum, responseIdGender, responseValue);
+				}
+				if(AppConstants.YES.equalsIgnoreCase(rmcInPrflCargo.getErja_race_resp())){
+					rmcResponseProfileManager.persist(appNumber, indvSeqNum, responseidRace, responseValue);
+				}
+			}
+			if (categorySelectionProfile != null) {
+				categorySelectionProfileManager.makeSequenceDetailComplete(categorySelectionProfile, appNumber,categorySeqDetailBean.getIndividualSequence(),categorySeqDetailBean.getCategorySequence(),categorySeqDetailBean.getCategoryType());
+			}
+			categorySelectionProfileManager.makeSequenceDetailComplete(erjaProfile, null,categorySeqDetailBean.getIndividualSequence(),categorySeqDetailBean.getCategorySequence(),categorySeqDetailBean.getCategoryType());
+			
+			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
+			String currentPageID = (String) request.get(FwConstants.CURRENT_PAGE_ID);
+			if (categorySelectionProfileManager.areAllSequencesComplete(erjaProfile)) {
+				driverManager.makeComplete(FwConstants.RMC_DRIVER,currentPageID, driverArray, appNumber);
+				session.put(FwConstants.RMC_DRIVER, driverArray);
+			} else {
+				categorySelectionProfileManager.getNextSequenceDetail(erjaProfile);
+			}
+			pageCollection.put(AppConstants.RMC_CATEGORY_PAGE_PRFL, erjaProfile);
+			txnBean.setPageCollection(pageCollection);
+			session.put(FwConstants.BEFORE_COLLECTION, pageCollection);
+			session.put(FwConstants.RMC_DRIVER, driverArray);
+			
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErjaDetails::End::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+
+		} catch (FwException fe) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".storeHouseHoldInfoErjaDetails failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid +
+					" Exception info::" + fe + "::message::" + fe.getMessage() + "::stackTrace::" + fe.getStackTrace() + "::cause::" +fe.getCause());
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("storeHouseHoldInfoErjaDetails");
+			we.setFwException(fe);
+			throw we;
+		} catch (Exception e) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".storeHouseHoldInfoErjaDetails failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid + 
+					" Exception info:: " + e + "::message::" + e.getMessage() + "::stackTrace::" + e.getStackTrace() + "::cause::" + e.getCause());
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(),"storeHouseHoldInfoErjaDetails:: ", e);
+			throw fe;	
+		}
+	}
+
+	public void loadHouseHoldInfoErjaSummary(FwTransaction txnBean)throws javax.ejb.EJBException {
+		
+		log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErjaSummary::Start");
+		Map session = txnBean.getSession();
+		Map request = txnBean.getRequest();
+		String caseNumber = (String) session.get(AppConstants.CASE_NUM);
+		String appNumber = (String) session.get(AppConstants.APP_NUMBER);
+		Map httpSessionMap = (Map) session.get(FwConstants.HTTP_SESSION);
+		Map securedSessionMap = null;
+		String wid = null;
+		Map pageCollection = txnBean.getPageCollection();
+		Map beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
+		try {
+			
 			HouseHoldInfoBO hb = new HouseHoldInfoBO();
 			hb.setSogiSwitchBasedOnAge(txnBean);
 			
@@ -1607,193 +548,1140 @@ private List getListFromCategoryProfile(SortedSet aSelectionProfile)
 			if(null != securedSessionMap && null != securedSessionMap.get(FwConstants.LDAP_WID)){
 				wid = securedSessionMap.get(FwConstants.LDAP_WID).toString();
 			}
-			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErja::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
-			
-			int driverStatus = driverManager.getAFBStatus(FwConstants.RMC_DRIVER, currentPageID, driverArray);
-			RMC_RESPONSE_Custom_Collection rmcResponseCustomColl = new RMC_RESPONSE_Custom_Collection();
-			RMC_RESPONSE_Custom_Cargo rmcResponseCustomCargo;
-			short[] responseArray = new short[] { IRMCResponseProfileManager.ETHNICITY_RACE_RESP };
-			boolean[] addInd = new boolean[responseArray.length];
-			boolean foundFlag = false;
-			Set foundSet = new HashSet();
-			if(null != rmcInPrflSessColl && !rmcInPrflSessColl.isEmpty()){
-				rmcInPrflCargoArray = rmcInPrflSessColl.getResults();
-			}
-			if(rmcInPrflCargoArray != null && rmcInPrflCargoArray.length > 0){
-				for (int i = 0; i < rmcInPrflCargoArray.length; i++) {
-					foundFlag = false;
-					if (request.containsKey("erjaRace_"+rmcInPrflCargoArray[i].getIndv_seq_num())&& request.get("erjaRace_"+rmcInPrflCargoArray[i].getIndv_seq_num()) != null) {
-						rmcInPrflCargoArray[i].setErja_race_resp(AppConstants.YES);
-						foundFlag = true;
-					} else if(rmcInPrflCargoArray[i].getEthnicity_race_resp().equalsIgnoreCase(AppConstants.COMPLETE)){
-						foundFlag = true;
-					}else{
-						rmcInPrflCargoArray[i].setErja_race_resp(AppConstants.NO);
-					}
-					if (request.containsKey("erjaGender_"+rmcInPrflCargoArray[i].getIndv_seq_num()) && request.get("erjaGender_"+rmcInPrflCargoArray[i].getIndv_seq_num()) != null) {
-						rmcInPrflCargoArray[i].setErja_gender_resp(AppConstants.YES);
-						foundFlag = true;
-					} else if(rmcInPrflCargoArray[i].getEthnicity_race_resp().equalsIgnoreCase(AppConstants.COMPLETE)){
-						foundFlag = true;
-					}else{
-						rmcInPrflCargoArray[i].setErja_gender_resp(AppConstants.NO);
-					}
-					if (foundFlag && !AppConstants.COMPLETE.equalsIgnoreCase(rmcInPrflCargoArray[i].getEthnicity_race_resp())) {
-						rmcResponseCustomCargo = new RMC_RESPONSE_Custom_Cargo();
-						rmcResponseCustomCargo.setChangeSelectionCategoryCd(AppConstants.RMC_ERJA_PRFL);
-						rmcResponseCustomCargo.setCategoryType(AppConstants.RMC_ERJA_PRFL);
-						rmcResponseCustomCargo.setIndvSeqNum(rmcInPrflCargoArray[i].getIndv_seq_num());
-						rmcResponseCustomCargo.setResponse(AppConstants.NO);
-						rmcResponseCustomColl.addCargo(rmcResponseCustomCargo); 
-					}
-					foundSet.add(foundFlag);
-				}
-			}
-			
-			Map beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
 			if(beforeColl == null){
 				beforeColl = new HashMap();
 			}
-			if (!foundSet.contains(true)) {
-				RMCValidator rmcValidator = new RMCValidator();
-				FwMessageList messages = new FwMessageList();
-				if(sogiEnabled){
-					messages = rmcValidator.validateArrei(foundFlag);
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErjaSummary::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+			
+			String languageCd = (String)httpSessionMap.get(AppConstants.LANGUAGE);
+            String jsEnabled = (String)httpSessionMap.get(FwConstants.JS_ENABLED);
+			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
+			int driverStatus = driverManager.getAFBStatus(FwConstants.RMC_DRIVER,(String) request.get(FwConstants.CURRENT_PAGE_ID), driverArray);
+			SortedSet selectionProfile = (SortedSet) session.get(AppConstants.RMC_CATEGORY_PROFILE_MASTER);
+			boolean loadCatSelProfile = false;	
+			if((selectionProfile ==  null || selectionProfile.isEmpty()) && driverStatus != FwConstants.DRIVER_NOT_REQUIRED ){
+			    loadCatSelProfile = true;
+			}
+			else if(selectionProfile != null && !selectionProfile.isEmpty()) {
+			    CategorySequenceDetail catSeqDetail = categorySelectionProfileManager.getCurrentSequenceDetail(selectionProfile);
+			    if(catSeqDetail == null){
+			        catSeqDetail = categorySelectionProfileManager.getNextSequenceDetail(selectionProfile);
+			        if(catSeqDetail != null && catSeqDetail.getChangeSelectionCategoryCd().equals(AppConstants.RMC_ERJA_PRFL)){
+			        		loadCatSelProfile = false;
+			        	}
+			        	else {
+			        		loadCatSelProfile = true;
+			        	}
+			        }
+			}
+			String appNum = (String)session.get(AppConstants.APP_NUMBER);
+			if(loadCatSelProfile){
+			    selectionProfile = categorySelectionProfileManager.loadCategoryChangeSelectionProfile(appNum,AppConstants.RMC_ERJA_PRFL);
+			}
+			if(selectionProfile != null){
+				categorySelectionProfileManager.resetCurrentSeqeunceDetail(selectionProfile);
+			}
+			
+			List<String> indivsOverTwelveYears = new ArrayList<String>();
+			HouseHoldInfoBO houseHoldInfoBo = new HouseHoldInfoBO();
+			Map erjaCollections= houseHoldInfoBo.fetchErjaDetails(appNumber);
+			INDIVIDUAL_Custom_Collection indvColl = null;
+			PeopleHandler peopleHandler = new PeopleHandler();
+			peopleHandler.loadPeopleHandler(caseNumber, appNumber, "");
+			indvColl = peopleHandler.getInHomeIndividuals();
+			if(indvColl != null){
+				for(int i = 0; i < indvColl.size(); i++){
+					INDIVIDUAL_Custom_Cargo indvCargo = indvColl.getResult(i);
+					if (null != indvCargo && null != indvCargo.getIndv_age() && indvCargo.getIndv_age().getYears() >= SOGIReferenceHelper.getSogiAgeThresholdIntegerValue()) {
+						log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErjaSummary::indvAge::" + indvCargo.getIndv_age());
+						indivsOverTwelveYears.add(indvCargo.getIndv_seq_num());
+					}
 				}
-				else {
-					messages = rmcValidator.validateArreiForSOGI(foundFlag);
+			}
+			
+			RMCErjaSummaryListView erjaIndvListView = new RMCErjaSummaryListView();
+			erjaIndvListView.setCaseNumber(caseNumber);
+			erjaIndvListView.setAppNumber(appNumber);
+			erjaIndvListView.setAgeList(indivsOverTwelveYears);
+			erjaIndvListView.setLanguage(languageCd);
+			erjaIndvListView.setJsEnabled(jsEnabled);
+			erjaIndvListView.setName("ERJA_SUMMARY_LIST_VIEW");
+			Object erjaObject = erjaCollections;
+			erjaIndvListView.setDisplayData(erjaObject);
+			int[] erjaDataType = {IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol};
+			erjaIndvListView.setColDataType(erjaDataType);
+			erjaIndvListView.setPageSize(1000);
+			if( !sogiEnabled) {
+				RMCErjaSummaryListViewForSogi sogiIndvListView = new RMCErjaSummaryListViewForSogi();
+				sogiIndvListView.setCaseNumber(caseNumber);
+				sogiIndvListView.setAppNumber(appNumber);
+				sogiIndvListView.setAgeList(indivsOverTwelveYears);
+				sogiIndvListView.setLanguage(languageCd);
+				sogiIndvListView.setJsEnabled(jsEnabled);
+				sogiIndvListView.setName("SOGI_SUMMARY_LIST_VIEW");
+				Object sogiObject = erjaCollections;
+				sogiIndvListView.setDisplayData(sogiObject);
+				int[] sogiDataType = {IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol,IListviewFormatter.stringCol};
+				sogiIndvListView.setColDataType(sogiDataType);
+				sogiIndvListView.setPageSize(1000);
+				pageCollection.put("SOGI_SUMMARY_LIST_VIEW", sogiIndvListView);
+			}
+			
+			beforeColl.remove(AppConstants.RMC_CATEGORY_PAGE_PRFL);
+			pageCollection.put("ERJA_SUMMARY_LIST_VIEW", erjaIndvListView);
+			
+			session.put(FwConstants.BEFORE_COLLECTION, pageCollection);
+			session.put(AppConstants.RMC_CATEGORY_PROFILE_MASTER,selectionProfile);
+			txnBean.setPageCollection(pageCollection);
+			
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::loadHouseHoldInfoErjaSummary::End::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+
+		} catch (FwException fe) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".loadHouseHoldInfoErjaSummary failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid +
+					" Exception info::" + fe + "::message::" + fe.getMessage() + "::stackTrace::" + fe.getStackTrace() + "::cause::" +fe.getCause());
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("loadHouseHoldInfoErjaSummary");
+			we.setFwException(fe);
+			throw we;
+		} catch (Exception e) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".loadHouseHoldInfoErjaSummary failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid + 
+					" Exception info:: " + e + "::message::" + e.getMessage() + "::stackTrace::" + e.getStackTrace() + "::cause::" + e.getCause());
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(),"loadHouseHoldInfoErjaSummary:: ", e);
+			throw fe;	
+		}
+	}
+
+	public void storeHouseHoldInfoErjaSummary(FwTransaction txnBean)throws javax.ejb.EJBException {
+		log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErjaSummary::Start");
+		Map session = txnBean.getSession();
+		Map request = txnBean.getRequest();
+		String caseNumber = (String) session.get(AppConstants.CASE_NUM);
+		String appNumber = (String) session.get(AppConstants.APP_NUMBER);
+		Map httpSessionMap = (Map) session.get(FwConstants.HTTP_SESSION);
+		Map securedSessionMap = null;
+		String wid = null;
+		Map beforeColl = (Map) session.get(FwConstants.BEFORE_COLLECTION);
+		Map pageCollection = (Map) txnBean.getPageCollection();
+		try {
+			if(null != httpSessionMap){
+				securedSessionMap = (Map) httpSessionMap.get(FwConstants.SECURED_SESSION);
+			}
+			if(null != securedSessionMap && null != securedSessionMap.get(FwConstants.LDAP_WID)){
+				wid = securedSessionMap.get(FwConstants.LDAP_WID).toString();
+			}
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErjaSummary::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+			
+			String currentPageID = (String) request.get(FwConstants.CURRENT_PAGE_ID);
+			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
+			driverManager.makeComplete(FwConstants.RMC_DRIVER, currentPageID,driverArray, appNumber);
+			session.put(FwConstants.RMC_DRIVER, driverArray);
+			
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::storeHouseHoldInfoErjaSummary::End::caseNumber::"+ caseNumber + " appNumber::" + appNumber+ " wid::" + wid);
+
+		} catch (FwException fe) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".storeHouseHoldInfoErjaSummary failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid +
+					" Exception info::" + fe + "::message::" + fe.getMessage() + "::stackTrace::" + fe.getStackTrace() + "::cause::" +fe.getCause());
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("storeHouseHoldInfoErjaSummary");
+			we.setFwException(fe);
+			throw we;
+		} catch (Exception e) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".storeHouseHoldInfoErjaSummary failed::" +
+					"Case Number:: " + caseNumber + " App Number:: " + appNumber + " wid:: " + wid + 
+					" Exception info:: " + e + "::message::" + e.getMessage() + "::stackTrace::" + e.getStackTrace() + "::cause::" + e.getCause());
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(),"storeHouseHoldInfoErjaSummary:: ", e);
+			throw fe;	
+		}
+	}
+
+	public void editErjaHouseHoldInfoDetails(FwTransaction txnBean)throws javax.ejb.EJBException {
+
+		Map session = txnBean.getSession();
+		String appNum = (String) session.get(AppConstants.APP_NUMBER);
+		try {
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::editErjaHouseHoldInfoDetails::Start");
+			
+			Map request = txnBean.getRequest();
+			Map pageCollection = txnBean.getPageCollection();
+			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::editErjaHouseHoldInfoDetails::appNumber:: "+ appNum);
+			driverManager.makeRequired(FwConstants.RMC_DRIVER, "ARHMR",driverArray, appNum);
+			driverManager.makeRequired(FwConstants.RMC_DRIVER,(String) request.get(FwConstants.CURRENT_PAGE_ID),driverArray, appNum);
+
+			IndivTypeSeqBean indivTypeSeqBean = new IndivTypeSeqBean();
+			APP_INDV_Collection appIndvColl = (APP_INDV_Collection) pageCollection.get("APP_INDV_Collection");
+			APP_INDV_Cargo appIndvCargo = null;
+			if(null != appIndvColl && !appIndvColl.isEmpty()){
+				appIndvCargo = (APP_INDV_Cargo) appIndvColl.get(0);
+				indivTypeSeqBean.setSeqNum(appIndvCargo.getIndv_seq_num());
+				indivTypeSeqBean.setIndivSeqNum(appIndvCargo.getIndv_seq_num());
+			}else{
+				indivTypeSeqBean.setSeqNum(AppConstants.ONE);
+				indivTypeSeqBean.setIndivSeqNum(AppConstants.ONE);
+			}
+			indivTypeSeqBean.setType(AppConstants.RMC_ERJA_PRFL);
+			indivTypeSeqBean.setSeqNum("0");
+			
+			pageCollection.put(FwConstants.DETAIL_KEY_BEAN, indivTypeSeqBean);
+			txnBean.setPageCollection(pageCollection);
+			
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::editErjaHouseHoldInfoDetails::End::appNumber::"+ appNum);
+
+		} catch (FwException fe) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".editErjaHouseHoldInfoDetails failed::" +
+					"App Number:: " + appNum +
+					" Exception info::" + fe + "::message::" + fe.getMessage() + "::stackTrace::" + fe.getStackTrace() + "::cause::" +fe.getCause());
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("editErjaHouseHoldInfoDetails");
+			we.setFwException(fe);
+			throw we;
+		} catch (Exception e) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".editErjaHouseHoldInfoDetails failed::" +
+					"App Number:: " + appNum + 
+					" Exception info:: " + e + "::message::" + e.getMessage() + "::stackTrace::" + e.getStackTrace() + "::cause::" + e.getCause());
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(),"editErjaHouseHoldInfoDetails", e);
+			throw fe;
+		}
+	}
+
+	public void eraseHouseHoldInfoErjaDetails(FwTransaction txnBean)throws javax.ejb.EJBException {
+		
+		Map session = txnBean.getSession();
+		String appNum = (String) session.get(AppConstants.APP_NUMBER);
+		try {
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::eraseHouseHoldInfoDetails::Start::appNumber::" + appNum);
+			
+			Map request = txnBean.getRequest();
+			Map pageCollection = txnBean.getPageCollection();
+			int[] driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
+
+			APP_INDV_Collection appIndvColl = (APP_INDV_Collection) pageCollection.get("APP_INDV_Collection");
+			String indvSeqNum = null;
+			if(appIndvColl != null && !appIndvColl.isEmpty()){
+				indvSeqNum = appIndvColl.getCargo(0).getIndv_seq_num();
+			}else{
+				return;
+			}
+
+			HouseHoldInfoBO houseHoldInfoBO = new HouseHoldInfoBO();
+			Map erjaCollections = houseHoldInfoBO.loadErjaDetails(appNum, indvSeqNum);
+			RMC_RACE_Collection rmcRaceBeforeColl = (RMC_RACE_Collection) erjaCollections.get("RMC_RACE_Collection");
+			RMC_ETHNICITY_Collection rmcEthnicityBeforeColl = (RMC_ETHNICITY_Collection) erjaCollections.get("RMC_ETHNICITY_Collection");
+			RMC_SEX_GENDER_Collection rmcSexGenderBeforeColl = (RMC_SEX_GENDER_Collection) erjaCollections.get("RMC_SEX_GENDER_Collection");
+			
+			if(rmcRaceBeforeColl != null && !rmcRaceBeforeColl.isEmpty()){
+				for(int i = 0; i < rmcRaceBeforeColl.size(); i++){
+					rmcRaceBeforeColl.getCargo(i).setRowAction(FwConstants.ROWACTION_DELETE);
+				}
+				rmcRaceBeforeColl = (RMC_RACE_Collection) rmcRaceBeforeColl.persist(FwConstants.DAO);
+			}
+			if(rmcEthnicityBeforeColl != null && !rmcEthnicityBeforeColl.isEmpty()){
+				for(int i = 0; i < rmcEthnicityBeforeColl.size(); i++){
+					rmcEthnicityBeforeColl.getCargo(i).setRowAction(FwConstants.ROWACTION_DELETE);
+				}
+				rmcEthnicityBeforeColl = (RMC_ETHNICITY_Collection) rmcEthnicityBeforeColl.persist(FwConstants.DAO);
+			}
+			if(rmcSexGenderBeforeColl != null && !rmcSexGenderBeforeColl.isEmpty()){
+				rmcSexGenderBeforeColl.getCargo(0).setRowAction(FwConstants.ROWACTION_DELETE);
+				rmcSexGenderBeforeColl = (RMC_SEX_GENDER_Collection) rmcSexGenderBeforeColl.persist(FwConstants.DAO);
+			}
+			
+			SortedSet rmcSelPrfl = (SortedSet) session.get(AppConstants.RMC_CATEGORY_PROFILE_MASTER);
+			Map catType = new HashMap();
+			catType.put(AppConstants.RMC_ERJA_PRFL, AppConstants.RMC_ERJA_PRFL);
+			long catSeqNum = 0;
+			if(rmcSelPrfl != null){
+				categorySelectionProfileManager.removeSequenceDetail(rmcSelPrfl,appNum, Short.parseShort(indvSeqNum), catSeqNum,AppConstants.RMC_ERJA_PRFL);
+			}
+
+			RMC_IN_PRFL_Collection rmcInPrflColl = (RMC_IN_PRFL_Collection) session.get(AppConstants.RMC_IN_PRFL_MASTER);
+			if (rmcInPrflColl == null) {
+				rmcInPrflColl = rmcResponseProfileManager.loadProfile(appNum);
+				session.put(AppConstants.RMC_IN_PRFL_MASTER, rmcInPrflColl);
+			}
+			boolean rmcPrflNotRequired = false;
+			if (rmcInPrflColl != null && rmcInPrflColl.size() > 0) {
+				for (int i = 0; i < rmcInPrflColl.size(); i++) {
+					RMC_IN_PRFL_Cargo rmcInPrflCargo = rmcInPrflColl.getCargo(i);
+					if (rmcInPrflCargo.getIndv_seq_num().equals(indvSeqNum)) {
+						rmcResponseProfileManager.makeNotRequired(IRMCResponseProfileManager.ETHNICITY_RACE_RESP,rmcInPrflCargo, true);
+						short[] responseIdGender = new short[]{IRMCResponseProfileManager.ERJA_GENDER_RESP};
+						short[] responseidRace = new short[]{IRMCResponseProfileManager.ERJA_RACE_RESP};
+						String[] responseValue = {AppConstants.NO};
+						rmcResponseProfileManager.persist(appNum, rmcInPrflCargo.getIndv_seq_num(), responseIdGender, responseValue);
+						rmcResponseProfileManager.persist(appNum, rmcInPrflCargo.getIndv_seq_num(), responseidRace, responseValue);
+						rmcInPrflCargo.setErja_gender_resp(AppConstants.NO);
+						rmcInPrflCargo.setErja_race_resp(AppConstants.NO);
+						rmcInPrflCargo.setEthnicity_race_resp(AppConstants.NO);
+						rmcInPrflColl.setCargo(i, rmcInPrflCargo);
+					}
+				}
+				if (rmcResponseProfileManager.isAppResponseNotRequired(rmcInPrflColl,IRMCResponseProfileManager.ETHNICITY_RACE_RESP)) {
+					rmcPrflNotRequired = true;
 				}
 				
-				if (messages != null && messages.hasMessages()) {
-					pageCollection.put("RESP_MAP_EJ",beforeColl.get("RESP_MAP_EJ"));
-					pageCollection.put("RESP_MAP_EJ2",beforeColl.get("RESP_MAP_EJ2"));
-					pageCollection.put("INDIVIDUAL_Custom_Collection",beforeColl.get("INDIVIDUAL_Custom_Collection"));
-					pageCollection.put("INDIVIDUAL_Custom_Collection2",beforeColl.get("INDIVIDUAL_Custom_Collection2"));
-					pageCollection.put(FwConstants.MESSAGE_LIST, messages);
-					request.put(FwConstants.NEXT_PAGE_ID,request.get(FwConstants.CURRENT_PAGE_ID));
-					request.put(FwConstants.NEXT_PAGE_ACTION,(String)request.get(FwConstants.CURRENT_PAGE_ID)+"Load");
-					return;
-				}
+			} else {
+				rmcPrflNotRequired = true;
 			}
 
-			RMC_IN_PRFL_Collection rmcInPrflPageColl = null;
-			RMC_IN_PRFL_Cargo rmcInPrflPageCargo = null;
-			RMC_IN_PRFL_Cargo rmcInPrflSessCargo = null;
-			String indvSeqNum;
-			if (rmcResponseCustomColl != null && rmcResponseCustomColl.size() > 0) {
-				for (int i = 0; i < rmcResponseCustomColl.size(); i++) {
-					rmcResponseCustomCargo = rmcResponseCustomColl.getCargo(i);
-					String catType = rmcResponseCustomCargo.getCategoryType();
-					indvSeqNum = rmcResponseCustomCargo.getIndvSeqNum();
-					// page
-					if (rmcInPrflPageColl != null) {
-						rmcInPrflPageCargo = rmcResponseProfileManager.getProfile(rmcInPrflPageColl, indvSeqNum);
-					} else {
-						rmcInPrflPageColl = new RMC_IN_PRFL_Collection();
-					}
-					if (rmcInPrflPageCargo == null) {
-						rmcInPrflPageCargo = new RMC_IN_PRFL_Cargo();
-						rmcInPrflPageCargo.setApp_num(appNumber);
-						rmcInPrflPageCargo.setIndv_seq_num(indvSeqNum);
-						rmcInPrflPageColl.addCargo(rmcInPrflPageCargo);
-					}
-					// session
-					if (rmcInPrflSessColl != null) {
-						rmcInPrflSessCargo = rmcResponseProfileManager.getProfile(rmcInPrflSessColl, indvSeqNum);
-					} else {
-						rmcInPrflSessColl = new RMC_IN_PRFL_Collection();
-					}
-					if (rmcInPrflSessCargo == null) {
-						rmcInPrflSessCargo = new RMC_IN_PRFL_Cargo();
-						rmcInPrflSessCargo.setApp_num(appNumber);
-						rmcInPrflSessCargo.setIndv_seq_num(indvSeqNum);
-						rmcResponseProfileManager.createRMCIndividualProfile(rmcInPrflSessCargo);
-						rmcInPrflSessColl.addCargo(rmcInPrflSessCargo);
-					}
-
-					if (AppConstants.YES.equalsIgnoreCase(rmcInPrflSessCargo.getErja_gender_resp()) || AppConstants.YES.equalsIgnoreCase(rmcInPrflSessCargo.getErja_race_resp())) {
-						rmcInPrflPageCargo.setEthnicity_race_resp(AppConstants.YES);
-					}
-				}
+			if (categorySelectionProfileManager.isEmpty(rmcSelPrfl, catType) && rmcPrflNotRequired) {
+				driverManager.makeAbsoluteNotRequired(FwConstants.RMC_DRIVER,"ARHMR", driverArray, appNum);
+				driverManager.makeRequired(FwConstants.RMC_DRIVER, "ARREI", driverArray, appNum);
 			}
+			session.put(AppConstants.RMC_IN_PRFL_MASTER, rmcInPrflColl);
+			session.put(AppConstants.RMC_CATEGORY_PROFILE_MASTER, rmcSelPrfl);
+			driverManager.makeRequired(FwConstants.RMC_DRIVER,(String) request.get(FwConstants.CURRENT_PAGE_ID),driverArray, appNum);
+			txnBean.setPageCollection(pageCollection);
+			
+			log(ILog.INFO,"RMCHouseHoldInfoEJBBean::eraseHouseHoldInfoErjaDetails::End::appNumber::"+ appNum);
 
-			RMC_IN_PRFL_Cargo rmcPrflPageCargo = null;
-			boolean[] dirtyIndicatorArray = new boolean[rmcResponseProfileManager.getMaxIndvSeqNumber(rmcInPrflSessColl) + 1];
-			char status = IRMCResponseProfileManager.STATUS_NOT_REQUIRED;
-			String[] translatedProfileArray = null;
+		} catch (FwException fe) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".eraseHouseHoldInfoErjaDetails failed::" +
+					"App Number:: " + appNum +
+					" Exception info::" + fe + "::message::" + fe.getMessage() + "::stackTrace::" + fe.getStackTrace() + "::cause::" +fe.getCause());
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("eraseHouseHoldInfoErjaDetails");
+			we.setFwException(fe);
+			throw we;
+		} catch (Exception e) {
+			log(ILog.ERROR, this.getClass().getSimpleName()+ ".eraseHouseHoldInfoErjaDetails failed::" +
+					"App Number:: " + appNum + 
+					" Exception info:: " + e + "::message::" + e.getMessage() + "::stackTrace::" + e.getStackTrace() + "::cause::" + e.getCause());
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(),"editErjaHouseHoldInfoDetails", e);
+			throw fe;
+		}
+	}
+
+	private Map updateMapsErja(Map pageCollection, PeopleHandler peopleHandler, String categoryID, FwTransaction txnBean,
+			INDIVIDUAL_Custom_Collection indvCustomColl1, INDIVIDUAL_Custom_Collection indvCustomColl2) {
+		try {
 			String indivSeqNum = null;
-			int[] erjaDetailDirtyIndicator = { IRMCResponseProfileManager.NOT_DIRTY };
-			Map indvResponseMap = new HashMap();
-			int rmcInPrflPageCollSize = rmcInPrflPageColl == null ? 0 : rmcInPrflPageColl.size();
-			int rmcInPrflSessCollSize = rmcInPrflSessColl == null ? 0 : rmcInPrflSessColl.size();
-			for (int s = 0; s < rmcInPrflSessCollSize; s++) {
-				RMC_IN_PRFL_Cargo rmcPrflSessCargo = rmcInPrflSessColl.getCargo(s);
-				for (int p = 0; p < rmcInPrflPageCollSize; p++) {
-					rmcPrflPageCargo = rmcInPrflPageColl.getCargo(p);
-					if (rmcPrflPageCargo.getIndv_seq_num().equals(rmcPrflSessCargo.getIndv_seq_num())) {
-						translatedProfileArray = new String[responseArray.length];
-						indivSeqNum = rmcPrflPageCargo.getIndv_seq_num();
-						if (rmcResponseProfileManager.determineDirtyStatus(rmcPrflPageCargo.getEthnicity_race_resp(),rmcPrflSessCargo.getEthnicity_race_resp(),erjaDetailDirtyIndicator, driverStatus)) {
-							if (!dirtyIndicatorArray[0]) {
-								dirtyIndicatorArray[0] = true;
-							}
-							if(indivSeqNum != null){
-								dirtyIndicatorArray[Integer.parseInt(indivSeqNum)] = true;
-							}
-						}
-						if (!rmcPrflSessCargo.getEthnicity_race_resp().equalsIgnoreCase(String.valueOf(ICategorySelectionProfileManager.STATUS_COMPLETE))) {
-							rmcResponseProfileManager.translateProfileResponses(rmcPrflPageCargo.getEthnicity_race_resp(),rmcPrflSessCargo.getEthnicity_race_resp(),driverStatus,IRMCResponseProfileManager.ETHNICITY_RACE_RESP,rmcPrflSessCargo);
-						}
-						translatedProfileArray[0] = rmcPrflSessCargo.getEthnicity_race_resp();
-						status = rmcPrflSessCargo.getEthnicity_race_resp().charAt(0);
-						indvResponseMap.put(indivSeqNum, translatedProfileArray);
-					}
-				}
-			}
-			if (dirtyIndicatorArray[0]) {
-				String indvSeqNumber = null;
-				for (int i = 0; i < rmcInPrflPageCollSize; i++) {
-					indvSeqNumber = rmcInPrflPageColl.getCargo(i).getIndv_seq_num();
-					if(indvSeqNumber != null){
-						if (dirtyIndicatorArray[Integer.parseInt(indvSeqNumber)]) {
-							rmcResponseProfileManager.persist(appNumber,indvSeqNumber, responseArray,(String[]) indvResponseMap.get(indvSeqNumber));
-						}
-					}
-				}
-			}
-			
+			Map session = txnBean.getSession();
+			INDIVIDUAL_Custom_Cargo indvCargo = new INDIVIDUAL_Custom_Cargo();
+			Map questionRespMap = new HashMap();
+			Map questionRespMap2 = new HashMap();
+			String questionResp = FwConstants.NO;
+			RMC_IN_PRFL_Collection rmcInPrflColl = (RMC_IN_PRFL_Collection) session.get(AppConstants.RMC_IN_PRFL_MASTER);
 			RMC_IN_PRFL_Cargo rmcInPrflCargo = null;
-			if(rmcInPrflSessColl != null && !rmcInPrflSessColl.isEmpty()){
-				short[] responseIdGender = new short[]{IRMCResponseProfileManager.ERJA_GENDER_RESP};
-				short[] responseidRace = new short[]{IRMCResponseProfileManager.ERJA_RACE_RESP};
-				String[] responseValue = {AppConstants.YES};
-				for(int i = 0; i < rmcInPrflSessColl.size(); i++){
-					if(AppConstants.YES.equalsIgnoreCase(rmcInPrflSessColl.getCargo(i).getErja_gender_resp())){
-						rmcResponseProfileManager.persist(appNumber, rmcInPrflSessColl.getCargo(i).getIndv_seq_num(), responseIdGender, responseValue);
+			long catSeqNum = 0;
+			for (int i = 0; i < indvCustomColl1.size(); i++) {
+				indvCargo = indvCustomColl1.getResult(i);
+				indivSeqNum = indvCargo.getIndv_seq_num();
+				rmcInPrflCargo = rmcResponseProfileManager.getProfile(rmcInPrflColl, String.valueOf(indivSeqNum));
+				questionResp = FwConstants.NO;
+				if (rmcInPrflCargo != null){
+					questionResp = rmcInPrflCargo.getErja_race_resp();
+				}
+				questionRespMap.put(indivSeqNum, questionResp);
+			}
+			String respMapString = new String();
+			respMapString = AppConstants.RESP_MAP;
+			respMapString = respMapString + categoryID;
+			pageCollection.put(respMapString, questionRespMap);
+			
+			for (int i = 0; i < indvCustomColl1.size(); i++) {
+				indvCargo = indvCustomColl1.getResult(i);
+				indivSeqNum = indvCargo.getIndv_seq_num();
+				rmcInPrflCargo = rmcResponseProfileManager.getProfile(rmcInPrflColl, String.valueOf(indivSeqNum));
+				questionResp = FwConstants.NO;
+				if (rmcInPrflCargo != null){
+					questionResp = rmcInPrflCargo.getErja_gender_resp();
+				}
+				questionRespMap.put(indivSeqNum, questionResp);
+			}
+			String respMapString2 = new String();
+			respMapString = AppConstants.RESP_MAP;
+			respMapString = respMapString + categoryID +"2";
+			pageCollection.put(respMapString, questionRespMap);
+
+			return pageCollection;
+			
+		} catch (FwException fe) {
+			fe.setParameterText(categoryID);
+			throw fe;
+		} catch (Exception e) {
+			FwException fe = createFwException(this.getClass().getName(),"updateMapsErja", e);
+			fe.setParameterText(categoryID);
+			throw fe;
+		}
+	}
+	
+	private Map populateErjaCollections(APP_INDV_Cargo appIndvCargo, String indvId, String indvSeqNum, String appNumber, String wid) {
+		try {
+			RMC_RACE_Collection rmcRaceColl = new RMC_RACE_Collection();
+			RMC_RACE_Cargo rmcRaceCargo = null;
+			RMC_ETHNICITY_Collection rmcEthnicityColl = new RMC_ETHNICITY_Collection();
+			RMC_ETHNICITY_Cargo rmcEthnicityCargo = null;
+			RMC_SEX_GENDER_Collection rmcSexGenderColl = new RMC_SEX_GENDER_Collection();
+			RMC_SEX_GENDER_Cargo rmcSexGenderCargo = null;
+			
+			
+			if(appIndvCargo.getAi_ind() != null && appIndvCargo.getAi_ind().equals("I")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getAi_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getAs_indn_ind() != null && appIndvCargo.getAs_indn_ind().equals("S")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getAs_indn_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getAsia_ind() != null && appIndvCargo.getAsia_ind().equals("A")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getAsia_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getAsian_american_ind() != null && appIndvCargo.getAsian_american_ind().equals("E")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getAsian_american_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getBlk_ind() != null && appIndvCargo.getBlk_ind().equals("B")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getBlk_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getChi_ind() != null && appIndvCargo.getChi_ind().equals("C")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getChi_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+
+			if(appIndvCargo.getFil_ind() != null && appIndvCargo.getFil_ind().equals("F")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getFil_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getGuam_ind() != null && appIndvCargo.getGuam_ind().equals("G")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getGuam_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			
+			if(appIndvCargo.getJp_ind() != null && appIndvCargo.getJp_ind().equals("J")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getJp_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getKor_ind() != null && appIndvCargo.getKor_ind().equals("K")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getKor_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+
+			if(appIndvCargo.getMid_east_north_afr_ind() != null && appIndvCargo.getMid_east_north_afr_ind().equals("M")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getMid_east_north_afr_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getNat_haw_ind() != null && appIndvCargo.getNat_haw_ind().equals("P")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getNat_haw_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+
+			if(appIndvCargo.getOther_race_alone_ind() != null && appIndvCargo.getOther_race_alone_ind().equals("R")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getOther_race_alone_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getOther_race_ind() != null && appIndvCargo.getOther_race_ind().equals("T")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getOther_race_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+
+			if(appIndvCargo.getSam_ind() != null && appIndvCargo.getSam_ind().equals("N")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getSam_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getUnk_ind() != null && appIndvCargo.getUnk_ind().equals("U")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getUnk_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getVt_ind() != null && appIndvCargo.getVt_ind().equals("V")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getVt_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getWht_ind() != null && appIndvCargo.getWht_ind().equals("W")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getWht_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(appIndvCargo.getPac_isl_ind() != null && appIndvCargo.getPac_isl_ind().equals("O")){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(appIndvCargo.getPac_isl_ind());
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			if(rmcRaceColl.isEmpty()){
+				rmcRaceCargo = new RMC_RACE_Cargo();
+				rmcRaceCargo.setApp_num(appNumber);
+				rmcRaceCargo.setIndv_id(indvId);
+				rmcRaceCargo.setIndv_seq_num(indvSeqNum);
+				rmcRaceCargo.setRace_cd(FwConstants.SPACE);
+				rmcRaceCargo.setIndigenous_status(appIndvCargo.getIndigenous_status() == null ? FwConstants.SPACE : appIndvCargo.getIndigenous_status());
+				rmcRaceCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcRaceCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcRaceCargo.setCreate_user_id(wid);
+				rmcRaceCargo.setUpdate_user_id(null);
+				rmcRaceCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcRaceCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcRaceColl.addCargo(rmcRaceCargo);
+			}
+			
+			//ethnicity
+			if(appIndvCargo.getHspc_ind() != null && appIndvCargo.getHspc_ind().equals("A")){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(appIndvCargo.getHspc_ind());
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			if(appIndvCargo.getPr_ind() != null && appIndvCargo.getPr_ind().equals("P")){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(appIndvCargo.getPr_ind());
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			if(appIndvCargo.getNon_hspc_ind() != null && appIndvCargo.getNon_hspc_ind().equals("N")){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(appIndvCargo.getNon_hspc_ind());
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			if(appIndvCargo.getPrefer_not_answer_ind() != null && appIndvCargo.getPrefer_not_answer_ind().equals("S")){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(appIndvCargo.getPrefer_not_answer_ind());
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			if(appIndvCargo.getMex_ind() != null && appIndvCargo.getMex_ind().equals("M")){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(appIndvCargo.getMex_ind());
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			if(appIndvCargo.getCub_ind() != null && appIndvCargo.getCub_ind().equals("C")){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(appIndvCargo.getCub_ind());
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			if(appIndvCargo.getOther_ethnicity_ind() != null && appIndvCargo.getOther_ethnicity_ind().equals("O")){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(appIndvCargo.getOther_ethnicity_ind());
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			if(rmcEthnicityColl.isEmpty()){
+				rmcEthnicityCargo = new RMC_ETHNICITY_Cargo();
+				rmcEthnicityCargo.setApp_num(appNumber);
+				rmcEthnicityCargo.setIndv_id(indvId);
+				rmcEthnicityCargo.setIndv_seq_num(indvSeqNum);
+				rmcEthnicityCargo.setEthnicity_cd(FwConstants.SPACE);
+				rmcEthnicityCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcEthnicityCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcEthnicityCargo.setCreate_user_id(wid);
+				rmcEthnicityCargo.setUpdate_user_id(null);
+				rmcEthnicityCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcEthnicityCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcEthnicityColl.addCargo(rmcEthnicityCargo);
+			}
+			
+			if((appIndvCargo.getGender_identity() != null && !appIndvCargo.getGender_identity().equalsIgnoreCase(""))
+					|| (appIndvCargo.getGender_identity_details() != null && !appIndvCargo.getGender_identity_details().equalsIgnoreCase(""))
+					|| (appIndvCargo.getSex_at_birth() != null && !appIndvCargo.getSex_at_birth().equalsIgnoreCase(""))
+					|| (appIndvCargo.getSex_at_birth_details() != null && !appIndvCargo.getSex_at_birth_details().equalsIgnoreCase(""))
+					|| (appIndvCargo.getSexual_orientation() != null && !appIndvCargo.getSexual_orientation().equalsIgnoreCase(""))
+					|| (appIndvCargo.getSexual_orientation_details() != null && !appIndvCargo.getSexual_orientation_details().equalsIgnoreCase(""))){
+						rmcSexGenderCargo = new RMC_SEX_GENDER_Cargo();
+						rmcSexGenderCargo.setApp_num(appNumber);
+						rmcSexGenderCargo.setIndv_id(indvId);
+						rmcSexGenderCargo.setIndv_seq_num(indvSeqNum);
+						rmcSexGenderCargo.setGender_identity(appIndvCargo.getGender_identity());
+						rmcSexGenderCargo.setGender_identity_details(appIndvCargo.getGender_identity_details());
+						rmcSexGenderCargo.setSex_at_birth(appIndvCargo.getSex_at_birth());
+						rmcSexGenderCargo.setSex_at_birth_details(appIndvCargo.getSex_at_birth_details());
+						rmcSexGenderCargo.setSexual_orientation(appIndvCargo.getSexual_orientation());
+						rmcSexGenderCargo.setSexual_orientation_details(appIndvCargo.getSexual_orientation_details());
+						rmcSexGenderCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+						rmcSexGenderCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+						rmcSexGenderCargo.setCreate_user_id(wid);
+						rmcSexGenderCargo.setUpdate_user_id(null);
+						rmcSexGenderCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+						rmcSexGenderCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+						rmcSexGenderColl.addCargo(rmcSexGenderCargo);
 					}
-					if(AppConstants.YES.equalsIgnoreCase(rmcInPrflSessColl.getCargo(i).getErja_race_resp())){
-						rmcResponseProfileManager.persist(appNumber, rmcInPrflSessColl.getCargo(i).getIndv_seq_num(), responseidRace, responseValue);
+			if(rmcSexGenderColl.isEmpty()){
+				rmcSexGenderCargo = new RMC_SEX_GENDER_Cargo();
+				rmcSexGenderCargo.setApp_num(appNumber);
+				rmcSexGenderCargo.setIndv_id(indvId);
+				rmcSexGenderCargo.setIndv_seq_num(indvSeqNum);
+				rmcSexGenderCargo.setGender_identity(FwConstants.SPACE);
+				rmcSexGenderCargo.setGender_identity_details(FwConstants.SPACE);
+				rmcSexGenderCargo.setSex_at_birth(FwConstants.SPACE);
+				rmcSexGenderCargo.setSex_at_birth_details(FwConstants.SPACE);
+				rmcSexGenderCargo.setSexual_orientation(FwConstants.SPACE);
+				rmcSexGenderCargo.setSexual_orientation_details(FwConstants.SPACE);
+				rmcSexGenderCargo.setSrc_ind(AppConstants.ABE_SOURCE_INDICATOR);
+				rmcSexGenderCargo.setCreate_dt((fwDate.getTimestamp().toString()));
+				rmcSexGenderCargo.setCreate_user_id(wid);
+				rmcSexGenderCargo.setUpdate_user_id(null);
+				rmcSexGenderCargo.setUpdate_dt(AppConstants.HIGH_DATE_TIMESTAMP_RMC);
+				rmcSexGenderCargo.setRowAction(FwConstants.ROWACTION_INSERT);
+				rmcSexGenderColl.addCargo(rmcSexGenderCargo);
+			}
+			
+			Map erjaCollections = new HashMap();
+			erjaCollections.put("RMC_RACE_Collection", rmcRaceColl);
+			erjaCollections.put("RMC_ETHNICITY_Collection", rmcEthnicityColl);
+			erjaCollections.put("RMC_SEX_GENDER_Collection", rmcSexGenderColl);
+			return erjaCollections;
+			
+		} catch (FwException fe) {
+			fe.setParameterText("populateErjaCollections");
+			throw fe;
+		} catch (Exception e) {
+			FwException fe = createFwException(this.getClass().getName(),"populateErjaCollections", e);
+			fe.setParameterText("populateErjaCollections");
+			throw fe;
+		}
+	}
+	
+	public void loadHouseHoldInfoTaxInformationDetails(FwTransaction txnBean) throws javax.ejb.EJBException {
+		Map session = txnBean.getSession();
+		Map request = txnBean.getRequest();
+		Map pageCollection = txnBean.getPageCollection();
+		Map beforeColl = null;
+		int[] driverArray = null;
+		
+		PeopleHandler peopleHandler = null;
+		ABHouseHoldMemberBO householdBo = null;
+		ABHouseHoldRelationshipBO houseHoldRelationBo = null;
+		List<String> houseHold = null;
+		List<String> houseHoldInverse = null;
+		
+		INDIVIDUAL_Custom_Collection indivColl = null;
+		INDIVIDUAL_Custom_Collection indvSortedCustColl = null;
+		INDIVIDUAL_Custom_Collection newIndvSortedCustColl = null;
+		INDIVIDUAL_Custom_Collection indvSrcCustColl = null;
+		INDIVIDUAL_Custom_Collection indvRefCustColl = null;
+		INDV_LIVE_CHG_Cargo indvLiveChgCargo = null;
+		INDV_LIVE_CHG_Cargo[] indvLiveChgCargoArray;
+		INDV_LIVE_CHG_Collection indvLiveChgColl = null;
+		APP_HSHL_RLT_Collection houseHoldRMCollection = null;
+		APP_HSHL_RLT_Collection houseHoldRNCollection = null;
+		APP_HSHL_RLT_Collection houseHoldCollection = null;
+		APP_INDV_Cargo taxFilingIndvCargo = null;
+		APP_INDV_Collection appIndvColl = null;
+		APP_INDV_Collection combinedIndvCollection = null;
+		APP_INDV_Cargo[] taxFilingIndvCargoArray;
+		INDIVIDUAL_Custom_Cargo indivCargo = null;
+		
+		
+		String pageId = null;
+		String appNumber = null;
+		String indvSeqNumber = "";
+		String language = "EN";
+		String srcAppInd = AppConstants.RMC_MODIFIED_RECORD_IND;
+		
+		int relationPosition = 0;
+		int pageStatus = 0; 		
+		try {
+			appNumber =(String) session.get(AppConstants.APP_NUMBER);
+			driverArray = (int[]) session.get(FwConstants.RMC_DRIVER);
+			peopleHandler = (PeopleHandler)session.get(AppConstants.INDIV_MASTER_HANDLER);
+			pageId = (String)request.get(FwConstants.CURRENT_PAGE_ID);
+			pageStatus = driverManager.getAFBStatus(FwConstants.RMC_DRIVER,pageId,driverArray);
+			beforeColl =(Map)session.get(FwConstants.BEFORE_COLLECTION);
+			String previousPageId = (String)request.get(FwConstants.PREVIOUS_PAGE_ID);
+			IReferenceTableManager iref = ReferenceTableManager.getInstance();
+			
+			houseHold=new ArrayList<String>();
+			houseHoldInverse=new ArrayList<String>();
+			householdBo= new ABHouseHoldMemberBO();
+			houseHoldRelationBo = new  ABHouseHoldRelationshipBO();	
+			combinedIndvCollection= new APP_INDV_Collection();
+			houseHoldCollection = new APP_HSHL_RLT_Collection();
+			
+			
+			// Start of Collecting Individual Information
+			indivColl = peopleHandler.getAllIndividuals();
+			
+ 		   	if(indivColl !=null && !indivColl.isEmpty()){
+				for(int i=0 ; i< indivColl.size();i++){
+					indivCargo=indivColl.getResult(i);
+					indvSeqNumber= indivCargo.getIndv_seq_num();
+					
+					appIndvColl = new APP_INDV_Collection();
+					appIndvColl = householdBo.loadHouseholdMemberDetail(appNumber,Integer.parseInt(indvSeqNumber));
+					
+					if(null!=appIndvColl && appIndvColl.size()!=0)
+						combinedIndvCollection.addAll(appIndvColl);
+					else{
+						indvLiveChgColl = houseHoldRelationBo.loadHouseholdRMCIndvDetail(appNumber,Integer.parseInt(indvSeqNumber),srcAppInd);
+						if(null!=indvLiveChgColl){
+							indvLiveChgCargo = new INDV_LIVE_CHG_Cargo();
+							taxFilingIndvCargo = new APP_INDV_Cargo();
+							appIndvColl = new APP_INDV_Collection();
+							taxFilingIndvCargoArray = new APP_INDV_Cargo[1];
+							
+							indvLiveChgCargoArray = indvLiveChgColl.getResults();
+							if(null!=indvLiveChgCargoArray && indvLiveChgCargoArray.length!=0)
+								indvLiveChgCargo = indvLiveChgCargoArray[0];
+							
+							taxFilingIndvCargo.setApp_num(appNumber);
+							taxFilingIndvCargo.setIndv_seq_num(indivCargo.getIndv_seq_num());
+							
+							if(null!=indivCargo.getFst_nam())
+								taxFilingIndvCargo.setFst_nam(indivCargo.getFst_nam());
+							
+							if(null!=indivCargo.getLast_nam())
+								taxFilingIndvCargo.setLast_nam(indivCargo.getLast_nam());
+							
+							if(null!=indvLiveChgCargo.getLive_arng_typ())
+								taxFilingIndvCargo.setLive_arng_typ(indvLiveChgCargo.getLive_arng_typ());
+						
+							if(null!=indvLiveChgCargo.getMrtl_stat_cd())
+								taxFilingIndvCargo.setMrtl_stat_cd(indvLiveChgCargo.getMrtl_stat_cd());
+
+							if(null!=indvLiveChgCargo.getFiling_taxes_sw())
+								taxFilingIndvCargo.setFile_taxes_sw(indvLiveChgCargo.getFiling_taxes_sw());
+							
+							//USERAN - Tax Dependent Unknown Change
+							if(null!=indvLiveChgCargo.getTax_dependent_uk_sw())
+								taxFilingIndvCargo.setTax_dependent_uk_sw(indvLiveChgCargo.getTax_dependent_uk_sw());
+							
+							taxFilingIndvCargo = houseHoldRelationBo.getAppIndvDetails(taxFilingIndvCargo, appNumber, indvSeqNumber);
+							
+							taxFilingIndvCargoArray[0]=taxFilingIndvCargo;
+							appIndvColl.setResults(taxFilingIndvCargoArray);
+						}
+						//Safety check - If INDV_SEQ_NUM doesn't exist in neither APP_INDV nor INDV_LIVE_CHG (Shouldn't happen), assigning 'N' by default
+						else{
+							taxFilingIndvCargo = new APP_INDV_Cargo();
+							appIndvColl = new APP_INDV_Collection();
+							taxFilingIndvCargoArray = new APP_INDV_Cargo[1];
+							taxFilingIndvCargo.setApp_num(appNumber);
+							taxFilingIndvCargo.setIndv_seq_num(indivCargo.getIndv_seq_num());
+							taxFilingIndvCargo.setFile_taxes_sw("X");
+							taxFilingIndvCargo.setTax_dependent_uk_sw(" ");
+							taxFilingIndvCargoArray[0]=taxFilingIndvCargo;
+							appIndvColl.setResults(taxFilingIndvCargoArray);
+						}
+						combinedIndvCollection.addAll(appIndvColl);
 					}
 				}
+				pageCollection.put(AppConstants.APP_INDV_COLLECTION, combinedIndvCollection);
+ 		   	}
+ 		   	// End of Collecting Individual Information
+			
+ 		    //Start of Collecting Relationship Information
+			houseHoldRMCollection = houseHoldRelationBo.loadAppHshlRltByAppNumAndSrcAppInd(appNumber,"RM");
+			//ILIES-317892: Start - Tax Dependent Save Logic Code Fix
+			if(null==houseHoldRMCollection || houseHoldRMCollection.isEmpty()){
+				houseHoldRMCollection = houseHoldRelationBo.loadAppHshlRltByAppNumAndSrcAppInd(appNumber,"CW");
+				//ILIES-317781: Start - WSDL Call Populating Tax Dependent & Jointly Filing for all flows handled
+				for(APP_HSHL_RLT_Cargo appHshlRltCargoLocalUpdate : houseHoldRMCollection.getResults()){
+					appHshlRltCargoLocalUpdate.setTax_dependent_sw(AppConstants.SPACE_STRING);
+					appHshlRltCargoLocalUpdate.setTax_jointly_filed_sw(AppConstants.SPACE_STRING);
+				}
+				//ILIES-317781: End - WSDL Call Populating Tax Dependent & Jointly Filing for all flows handled
+			}
+			//ILIES-317892: End - Tax Dependent Save Logic Code Fix	
+			
+			if(null!=houseHoldRMCollection && !houseHoldRMCollection.isEmpty())
+				houseHoldCollection.addAll(houseHoldRMCollection);
+			
+			houseHoldRNCollection = houseHoldRelationBo.loadAppHshlRltByAppNumAndSrcAppInd(appNumber,"RN");
+			if(null!=houseHoldRNCollection)
+				houseHoldCollection.addAll(houseHoldRNCollection);
+			
+			
+			for(APP_HSHL_RLT_Cargo cargo:houseHoldCollection.getResults()){								
+				 String desc = iref.getColumnValue("IREL",137,cargo.getRlt_cd(),language);
+				 houseHold.add("\""+cargo.getSrc_indv_seq_num()+cargo.getRef_indv_seq_num()+"\":\""+desc+"\"");		
+			     request.put("DISPLAY_MAP", houseHold.toString().replace("[", "{").replace("]", "}"));
+			     pageCollection.put("DISPLAY_MAP",houseHold.toString().replace("[", "{").replace("]", "}"));
+			}
+
+ 		   	for(APP_HSHL_RLT_Cargo cargo:houseHoldCollection.getResults()){
+
+				String gender = peopleHandler.getIndividual(cargo.getRef_indv_seq_num()).getSex_ind();
+ 		   		 if("M".equalsIgnoreCase(gender)){
+				 String desc = iref.getColumnValue("IREL",138,cargo.getRlt_cd(),language);
+ 				 houseHoldInverse.add("\""+cargo.getRef_indv_seq_num()+cargo.getSrc_indv_seq_num()+"\":\""+desc+"\"");
+ 				 }	
+ 				else{
+ 				 String desc = iref.getColumnValue("IREL",139,cargo.getRlt_cd(),language);
+ 				 houseHoldInverse.add("\""+cargo.getRef_indv_seq_num()+cargo.getSrc_indv_seq_num()+"\":\""+desc+"\"");
+ 				}
+ 		   		request.put("INVERSE_MAP", houseHoldInverse.toString().replace("[", "{").replace("]", "}"));
+ 		   		pageCollection.put("INVERSE_MAP",houseHoldInverse.toString().replace("[", "{").replace("]", "}"));
 			}
 			
-			SortedSet categorySelectionProfile = (SortedSet) session.get(AppConstants.RMC_CATEGORY_PROFILE_MASTER);
-			if(categorySelectionProfile == null || categorySelectionProfile.isEmpty()){
-				categorySelectionProfile = categorySelectionProfileManager.buildSelectionProfile(rmcResponseCustomColl,appNumber, AppConstants.RMC_ERJA_PRFL);
-			}
-			else{
-				categorySelectionProfileManager.rebuildSelectionProfile(categorySelectionProfile, rmcResponseCustomColl,appNumber,AppConstants.RMC_ERJA_PRFL);
-			}
+			houseHoldRelationBo.loadHousholdTaxDetailsRMC(houseHoldCollection,pageCollection, peopleHandler, combinedIndvCollection);
 			
-			driverManager.makeComplete(FwConstants.RMC_DRIVER, currentPageID,driverArray, appNumber);
-			Map beforeCollMap = new HashMap();
-			int rmcRespBeforeCollSize = rmcResponseCustomColl == null ? 0 : rmcResponseCustomColl.size();
-			for(int i=0; i<rmcRespBeforeCollSize; i++){
-				RMC_RESPONSE_Custom_Cargo beforeCargo = (RMC_RESPONSE_Custom_Cargo)rmcResponseCustomColl.get(i);
-				String beforeCargoCatType = beforeCargo.getCategoryType();
-				String beforeCargoIndivSeqNum = beforeCargo.getIndvSeqNum();
-				String beforeCargoResponse = beforeCargo.getResponse();
-				String key = beforeCargoCatType + "_" + beforeCargoIndivSeqNum;
-				String value = beforeCargoResponse;
-				beforeCollMap.put(key,value);
+			session.put("APP_JOINTLY_FILING_TAX", pageCollection.get("APP_JOINTLY_FILING_TAX"));
+			session.put("APP_HSHL_RLT_Collection",pageCollection.get("APP_HSHL_RLT_Collection"));
+			 
+			//End of Collecting Relationship Information
+ 		   	
+ 		   	txnBean.setRequest(request);
+			pageCollection.put("CurrentPageStatus",String.valueOf(pageStatus));
+			txnBean.setPageCollection(pageCollection);
+			componentManager.getComponents(pageId,txnBean);
+			beforeColl =(Map) session.get(FwConstants.BEFORE_COLLECTION);
+			if(beforeColl == null)
+				beforeColl = new HashMap();
+			beforeColl.putAll(pageCollection);
+			session.put(FwConstants.BEFORE_COLLECTION, beforeColl);
+		} catch(FwException fe) {
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("loadHouseHoldInfoTaxInformationDetails");
+			we.setFwException(fe);
+			throw we;
+		} catch(Exception e) {
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(), "loadHouseHoldInfoTaxInformationDetails", e);
+			throw fe;
+		}
+	}
+	
+	/**
+	* Method sort the relationship cargos in a sequence order of indv seq num
+	*@param appHshlRltColl gov.wisconsin.access.business.entities.APP_HSHL_RLT_Collection
+	*@param sortedRetionshipColl gov.wisconsin.access.business.entities.APP_HSHL_RLT_Collection
+	*@author govinpr 
+	*/
+	private APP_HSHL_RLT_Collection sortRelationshipCargoOnIndvSeq(APP_HSHL_RLT_Collection appHshlRltColl) throws javax.ejb.EJBException {
+
+		try {
+			APP_HSHL_RLT_Collection sortedRetionshipColl = new APP_HSHL_RLT_Collection();
+			APP_HSHL_RLT_Cargo tempCargo = null; 
+			boolean found = false;			
+			if(appHshlRltColl != null ){
+				if(appHshlRltColl.size() > 1){
+					int appHshlRltCollSize = appHshlRltColl.size();
+					for(int i=0;i<appHshlRltCollSize;i++){
+						int indSeq = Integer.parseInt(appHshlRltColl.getCargo(i).getSrc_indv_seq_num());
+						for(int j=0;j<appHshlRltCollSize;j++){
+							int tempSeq = Integer.parseInt(appHshlRltColl.getCargo(j).getSrc_indv_seq_num());
+							if(indSeq > tempSeq){
+								indSeq = tempSeq;
+								tempCargo = appHshlRltColl.getCargo(j);
+								found = true;
+							}
+						}
+						if(!found){
+							tempCargo = appHshlRltColl.getCargo(i);
+							found = false;
+						}
+						if(tempCargo != null) {
+							sortedRetionshipColl.addCargo(tempCargo);
+							appHshlRltColl.remove(tempCargo);
+							i--;
+							appHshlRltCollSize--;
+							tempCargo = null;
+							found = false;
+						}
+					}
+					if(appHshlRltColl.size() > 0) {
+						sortedRetionshipColl.addAll(appHshlRltColl);
+					}
+				}else{
+					sortedRetionshipColl = appHshlRltColl;
+				}
 			}
+			return sortedRetionshipColl;
+		} catch(FwException fe) {
+			ctx.setRollbackOnly();
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("sortRelationshipCargoOnIndvSeq");
+			we.setFwException(fe);
+			throw we;
+		} catch(Exception e) {
+			ctx.setRollbackOnly();
+			FwException fe = createFwException(this.getClass().getName(), "sortRelationshipCargoOnIndvSeq", e);
+			throw fe;
+		}
+	}
+	
+	// START: ILIES-316907 - Member Move out changes
+	private HashMap<String, APP_HSHL_RLT_Cargo> copyDbMap(Map<String, APP_HSHL_RLT_Cargo> original)
+			throws CloneNotSupportedException {
+		HashMap<String, APP_HSHL_RLT_Cargo> copy = new HashMap<String, APP_HSHL_RLT_Cargo>();
+		for (Map.Entry<String, APP_HSHL_RLT_Cargo> entry : original.entrySet()) {
+			APP_HSHL_RLT_Cargo cargo = new APP_HSHL_RLT_Cargo();
+			cargo = (APP_HSHL_RLT_Cargo) ((APP_HSHL_RLT_Cargo) entry.getValue()).clone();
+			copy.put(entry.getKey(), cargo);
+		}
+		return copy;
+	}
+	// END: ILIES-316907 - Member Move out changes
+}
