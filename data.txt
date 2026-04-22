@@ -1,329 +1,165 @@
-Caused by: com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'005D5A'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26
+Use this in Copilot:
 
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
+You are a senior Java + Spring Batch + DB2 performance engineer. I need you to analyze and fix deadlocks in a monthly redetermination batch.
 
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
+## Business context
 
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
+* Monthly batch volume: about 100,000 cases.
+* Each case has about 4 individuals on average.
+* Batch functionality:
 
-	at com.ibm.db2.jcc.am.fp.b(Unknown Source)
+  * pick all records due for next redetermination,
+  * align dates,
+  * split all relevant tables to R,
+  * processing starts from the month after next redetermination.
+* Current issue:
 
-	at com.ibm.db2.jcc.am.fp.c(Unknown Source)
+  * because of partitioning / chunked parallel execution, we are seeing many DB2 deadlocks and timeouts.
 
-	at com.ibm.db2.jcc.t4.bb.l(Unknown Source)
+## Tech context
 
-	at com.ibm.db2.jcc.t4.bb.a(Unknown Source)
+* Java
+* Spring Batch
+* Spring JDBC / JdbcTemplate
+* DB2
+* HikariCP
+* partitioned execution using `TaskExecutorPartitionHandler`
+* async threads like `SimpleAsyncTaskExecutor-*`
 
-	at com.ibm.db2.jcc.t4.p.a(Unknown Source)
+## Observed failures
 
-	at com.ibm.db2.jcc.t4.wb.b(Unknown Source)
+We are getting DB2 `SQLCODE=-913`, `SQLSTATE=57033`, deadlock/timeout errors.
+Two major SQL patterns are failing:
 
-	at com.ibm.db2.jcc.am.gp.tc(Unknown Source)
+1. Update on address history table:
 
-	at com.ibm.db2.jcc.am.gp.b(Unknown Source)
+```sql
+UPDATE W026DT92.TWNPERSON_ADRS_HST
+SET ADR_TYPE=?, ADR_STS=?, ADR_SRC=?, CNTRY_CD=?, ADR_VRFD_BY=?, ADR_VRFD_DT=?, FIPS_CD=?, AS_OF_DT=?, PRD_END_DT=?, SYS_ID=?, ADR_VRFD_CD=?, ADR_STS_EFF_DT=?, NOTE=?, NOMADS_USRID=?, INST_NM=?, RSDN_CNTY_CD=?, OOS_SSP_VRFD_IND=?, GENRL_DLVRY_IND=?, FIPS_CD_SUFX=?, INTRFC_SSN=?, LAST_UPD_DT=?, ZIP_CD=?, ST_CD=?, CITY=?, OTH_ADDR=?, APT_NMB=?, STR_TYPE=?, STR_NM=?, STR_DIR=?, HOUSE_NMB=?
+WHERE UPI=? AND PRD_BEG_TS=?
+```
 
-	at com.ibm.db2.jcc.am.gp.lc(Unknown Source)
+2. Update on redetermination details table:
 
-	at com.ibm.db2.jcc.am.gp.executeUpdate(Unknown Source)
+```sql
+UPDATE W026DT91.TWNREDET_RCRT_DTLS T1
+SET REDET_STRT_DT = ?, REDET_TYPE = ?, TIMELY_RCRT_DT = ?
+WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND NEXT_REDET_DT = ? AND REDET_STRT_DT = '9999-12-31'
+```
 
-	at com.zaxxer.hikari.pool.ProxyPreparedStatement.executeUpdate(ProxyPreparedStatement.java:61)
+The logs show deadlocks during:
 
-	at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.executeUpdate(HikariProxyPreparedStatement.java)
+* `RedeterminationSplitDataService.processRecords`
+* `RedeterminationSplitDataService.genericSplitRecords`
+* `RedeterminationSplitDataService.updateAddress`
+* `RedeterminationNightlyWriter.write`
+* `RedeterminationNightlyService.updateNextRedDateWithNoRealignFlag`
+* `SorDao.update`
+* `TerminateSorRecord.execute`
 
-	at org.springframework.jdbc.core.JdbcTemplate.lambda$update$2(JdbcTemplate.java:965)
+## What I want from you
 
-	at org.springframework.jdbc.core.JdbcTemplate.execute(JdbcTemplate.java:651)
+I do NOT want generic deadlock advice. I want a concrete remediation plan and code-level changes for this batch.
 
-	... 52 more
+### Please do all of the following:
 
-16 Apr 2026 14:52:58,289 ERROR RedeterminationSplitDataService:906 - PreparedStatementCallback; SQL [UPDATE W026DT92.TWNPERSON_ADRS_HST SET ADR_TYPE=?,ADR_STS=?,ADR_SRC=?,CNTRY_CD=?,ADR_VRFD_BY=?,ADR_VRFD_DT=?,FIPS_CD=?,AS_OF_DT=?,PRD_END_DT=?,SYS_ID=?,ADR_VRFD_CD=?,ADR_STS_EFF_DT=?,NOTE=?,NOMADS_USRID=?,INST_NM=?,RSDN_CNTY_CD=?,OOS_SSP_VRFD_IND=?,GENRL_DLVRY_IND=?,FIPS_CD_SUFX=?,INTRFC_SSN=?,LAST_UPD_DT=?,ZIP_CD=?,ST_CD=?,CITY=?,OTH_ADDR=?,APT_NMB=?,STR_TYPE=?,STR_NM=?,STR_DIR=?,HOUSE_NMB=? WHERE UPI=? AND PRD_BEG_TS=?]; UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'007426'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26; nested exception is com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'007426'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26 Exception  for key964304073 for gov.nv.dwss.domain.record.sor.IndividualAddressSorRecord@ccc77a1c 
+1. Identify the most likely root causes of the deadlocks in this design.
+2. Explain whether the issue is more likely caused by:
 
-SimpleAsyncTaskExecutor-3java.lang.RuntimeException: org.springframework.dao.DeadlockLoserDataAccessException: PreparedStatementCallback; SQL [UPDATE W026DT92.TWNPERSON_ADRS_HST SET ADR_TYPE=?,ADR_STS=?,ADR_SRC=?,CNTRY_CD=?,ADR_VRFD_BY=?,ADR_VRFD_DT=?,FIPS_CD=?,AS_OF_DT=?,PRD_END_DT=?,SYS_ID=?,ADR_VRFD_CD=?,ADR_STS_EFF_DT=?,NOTE=?,NOMADS_USRID=?,INST_NM=?,RSDN_CNTY_CD=?,OOS_SSP_VRFD_IND=?,GENRL_DLVRY_IND=?,FIPS_CD_SUFX=?,INTRFC_SSN=?,LAST_UPD_DT=?,ZIP_CD=?,ST_CD=?,CITY=?,OTH_ADDR=?,APT_NMB=?,STR_TYPE=?,STR_NM=?,STR_DIR=?,HOUSE_NMB=? WHERE UPI=? AND PRD_BEG_TS=?]; UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'007426'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26; nested exception is com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'007426'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26
+   * partitioning strategy,
+   * chunk concurrency,
+   * bad ordering of updates,
+   * multiple threads touching same `ICI` / `UPI`,
+   * transaction boundary size,
+   * missing / weak indexing,
+   * repeated update of same logical rows,
+   * or a combination.
+3. Propose a safer processing design for high-volume monthly execution.
 
-	at gov.nv.dwss.redetermination.service.RedeterminationSplitDataService.lambda$0(RedeterminationSplitDataService.java:291)
+### I want specific recommendations in these areas:
 
-	at java.base/java.util.ArrayList$ArrayListSpliterator.forEachRemaining(ArrayList.java:1625)
+#### A. Partitioning and ownership
 
-	at java.base/java.util.stream.ReferencePipeline$Head.forEach(ReferencePipeline.java:762)
+* Show how to partition data so that the same `ICI` or `UPI` never lands in multiple parallel partitions.
+* Recommend whether partition key should be `ICI`, `UPI`, case range, hash bucket, or date range.
+* Suggest how to guarantee row ownership per thread.
 
-	at gov.nv.dwss.redetermination.service.RedeterminationSplitDataService.genericSplitRecords(RedeterminationSplitDataService.java:183)
+#### B. Ordering and locking
 
-	at gov.nv.dwss.redetermination.service.RedeterminationSplitDataService.processRecords(RedeterminationSplitDataService.java:136)
+* Recommend a deterministic ordering for updates/inserts/deletes to reduce deadlocks.
+* Show how all writers should update tables in the same order.
+* Explain how to avoid lock inversion across `TWNPERSON_ADRS_HST` and `TWNREDET_RCRT_DTLS`.
 
-	at gov.nv.dwss.redetermination.service.RedeterminationSplitDataService$$FastClassBySpringCGLIB$$24ce5075.invoke(<generated>)
+#### C. Transaction and chunk tuning
 
-	at org.springframework.cglib.proxy.MethodProxy.invoke(MethodProxy.java:218)
+* Suggest chunk size and throttle/concurrency settings for 100k monthly cases.
+* Recommend when to reduce chunk size vs reduce grid size vs reduce task executor threads.
+* Suggest transaction scope changes to shorten lock hold time.
 
-	at org.springframework.aop.framework.CglibAopProxy.invokeMethod(CglibAopProxy.java:386)
+#### D. Retry and recovery
 
-	at org.springframework.aop.framework.CglibAopProxy.access$000(CglibAopProxy.java:85)
+* Show how to add retry for DB2 deadlock/timeout (`SQLCODE -913`) with backoff and jitter.
+* Give Spring Batch / Spring Retry code examples.
+* Explain which operations are safe to retry and how to keep them idempotent.
 
-	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:704)
+#### E. SQL and indexing
 
-	at gov.nv.dwss.redetermination.service.RedeterminationSplitDataService$$EnhancerBySpringCGLIB$$71499414.processRecords(<generated>)
+* Recommend exact indexes that should exist for the failing SQL.
+* For example, assess indexes around:
 
-	at gov.nv.dwss.redetermination.listener.RedetWriterListner.lambda$0(RedetWriterListner.java:46)
+  * `TWNPERSON_ADRS_HST (UPI, PRD_BEG_TS)`
+  * `TWNREDET_RCRT_DTLS (ICI, PRGM_CASE_TYPE, NEXT_REDET_DT, REDET_STRT_DT)`
+* Suggest whether additional covering indexes or clustering would help.
+* Explain whether the predicate `REDET_STRT_DT = '9999-12-31'` can cause contention.
 
-	at java.base/java.util.ArrayList$ArrayListSpliterator.forEachRemaining(ArrayList.java:1625)
+#### F. Code changes
 
-	at java.base/java.util.stream.ReferencePipeline$Head.forEach(ReferencePipeline.java:762)
+* Show sample refactoring for:
 
-	at gov.nv.dwss.redetermination.listener.RedetWriterListner.afterWrite(RedetWriterListner.java:33)
+  * `RedeterminationSplitDataService`
+  * `RedeterminationNightlyService`
+  * writer/listener flow
+* Recommend whether `afterWrite` listener work should be moved out of listener transaction flow.
+* Recommend whether address split and redetermination update should be separated into distinct steps or jobs.
+* Show pseudocode or Java examples for the improved approach.
 
-	at gov.nv.dwss.redetermination.listener.RedetWriterListner$$FastClassBySpringCGLIB$$28079931.invoke(<generated>)
+#### G. Safer batch architecture
 
-	at org.springframework.cglib.proxy.MethodProxy.invoke(MethodProxy.java:218)
+* Tell me whether I should:
 
-	at org.springframework.aop.framework.CglibAopProxy.invokeMethod(CglibAopProxy.java:386)
+  * serialize updates per case,
+  * stage records into temp/work tables first,
+  * then do ordered merge/update,
+  * or use a two-phase approach.
+* Provide the best design for large monthly volume with minimal deadlocks.
 
-	at org.springframework.aop.framework.CglibAopProxy.access$000(CglibAopProxy.java:85)
+## Deliverable format
 
-	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:704)
+Give me the answer in this structure:
 
-	at gov.nv.dwss.redetermination.listener.RedetWriterListner$$EnhancerBySpringCGLIB$$ee5347e4.afterWrite(<generated>)
+1. **Root cause diagnosis**
+2. **Most probable deadlock scenario in current code**
+3. **Immediate low-risk fixes**
+4. **Medium-term code refactor**
+5. **Recommended partitioning model**
+6. **Recommended SQL/index changes**
+7. **Retry strategy with Java/Spring code**
+8. **Sample refactored batch flow**
+9. **What metrics/logging to add to prove the fix**
+10. **Final recommended implementation order**
 
-	at org.springframework.batch.core.listener.CompositeItemWriteListener.afterWrite(CompositeItemWriteListener.java:60)
+## Important constraints
 
-	at org.springframework.batch.core.listener.MulticasterBatchListener.afterWrite(MulticasterBatchListener.java:268)
+* Prefer practical changes that can be implemented in an existing Spring Batch codebase.
+* Assume I need both short-term stabilization and long-term scalability.
+* Be very specific.
+* When suggesting code, use Java / Spring Batch / JdbcTemplate examples.
+* Do not give vague advice like “optimize queries” or “reduce deadlocks” without showing exactly how.
 
-	at org.springframework.batch.core.step.item.SimpleChunkProcessor.doAfterWrite(SimpleChunkProcessor.java:175)
+Also, based on the symptoms, explicitly tell me whether the deadlocks are more likely due to parallel partitions processing overlapping `ICI`/`UPI` rows than due to DB2 alone.
 
-	at org.springframework.batch.core.step.item.SimpleChunkProcessor.doWrite(SimpleChunkProcessor.java:160)
+My read from the logs: this is very likely an application concurrency/design issue, not “DB2 just being DB2.” The strongest signals are parallel `SimpleAsyncTaskExecutor` threads, partitioned step execution, and conflicting updates on shared business keys (`UPI`, `ICI`) across multiple services and listeners.
 
-	at org.springframework.batch.core.step.item.FaultTolerantChunkProcessor$3.doWithRetry(FaultTolerantChunkProcessor.java:348)
+Also, doing extra work from `afterWrite`/listener-driven flows while chunk transactions are active can widen the lock window and make deadlocks much more likely under parallel partitions. Your stack trace shows split/update work being triggered in listener-driven batch flow, which is a classic lock amplification pattern.
 
-	at org.springframework.retry.support.RetryTemplate.doExecute(RetryTemplate.java:329)
-
-	at org.springframework.retry.support.RetryTemplate.execute(RetryTemplate.java:255)
-
-	at org.springframework.batch.core.step.item.BatchRetryTemplate.execute(BatchRetryTemplate.java:217)
-
-	at org.springframework.batch.core.step.item.FaultTolerantChunkProcessor.write(FaultTolerantChunkProcessor.java:444)
-
-	at org.springframework.batch.core.step.item.SimpleChunkProcessor.process(SimpleChunkProcessor.java:217)
-
-	at org.springframework.batch.core.step.item.ChunkOrientedTasklet.execute(ChunkOrientedTasklet.java:77)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep$ChunkTransactionCallback.doInTransaction(TaskletStep.java:407)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep$ChunkTransactionCallback.doInTransaction(TaskletStep.java:331)
-
-	at org.springframework.transaction.support.TransactionTemplate.execute(TransactionTemplate.java:140)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep$2.doInChunkContext(TaskletStep.java:273)
-
-	at org.springframework.batch.core.scope.context.StepContextRepeatCallback.doInIteration(StepContextRepeatCallback.java:82)
-
-	at org.springframework.batch.repeat.support.RepeatTemplate.getNextResult(RepeatTemplate.java:375)
-
-	at org.springframework.batch.repeat.support.RepeatTemplate.executeInternal(RepeatTemplate.java:215)
-
-	at org.springframework.batch.repeat.support.RepeatTemplate.iterate(RepeatTemplate.java:145)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep.doExecute(TaskletStep.java:258)
-
-	at org.springframework.batch.core.step.AbstractStep.execute(AbstractStep.java:208)
-
-	at org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler$1.call(TaskExecutorPartitionHandler.java:138)
-
-	at org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler$1.call(TaskExecutorPartitionHandler.java:135)
-
-	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
-
-	at java.base/java.lang.Thread.run(Thread.java:833)
-
-Caused by: org.springframework.dao.DeadlockLoserDataAccessException: PreparedStatementCallback; SQL [UPDATE W026DT92.TWNPERSON_ADRS_HST SET ADR_TYPE=?,ADR_STS=?,ADR_SRC=?,CNTRY_CD=?,ADR_VRFD_BY=?,ADR_VRFD_DT=?,FIPS_CD=?,AS_OF_DT=?,PRD_END_DT=?,SYS_ID=?,ADR_VRFD_CD=?,ADR_STS_EFF_DT=?,NOTE=?,NOMADS_USRID=?,INST_NM=?,RSDN_CNTY_CD=?,OOS_SSP_VRFD_IND=?,GENRL_DLVRY_IND=?,FIPS_CD_SUFX=?,INTRFC_SSN=?,LAST_UPD_DT=?,ZIP_CD=?,ST_CD=?,CITY=?,OTH_ADDR=?,APT_NMB=?,STR_TYPE=?,STR_NM=?,STR_DIR=?,HOUSE_NMB=? WHERE UPI=? AND PRD_BEG_TS=?]; UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'007426'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26; nested exception is com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'007426'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26
-
-	at org.springframework.jdbc.support.SQLErrorCodeSQLExceptionTranslator.doTranslate(SQLErrorCodeSQLExceptionTranslator.java:271)
-
-	at org.springframework.jdbc.support.AbstractFallbackSQLExceptionTranslator.translate(AbstractFallbackSQLExceptionTranslator.java:70)
-
-	at org.springframework.jdbc.core.JdbcTemplate.translateException(JdbcTemplate.java:1541)
-
-	at org.springframework.jdbc.core.JdbcTemplate.execute(JdbcTemplate.java:667)
-
-	at org.springframework.jdbc.core.JdbcTemplate.update(JdbcTemplate.java:960)
-
-	at org.springframework.jdbc.core.JdbcTemplate.update(JdbcTemplate.java:1015)
-
-	at gov.nv.dwss.domain.dao.SorDao.update(SorDao.java:171)
-
-	at gov.nv.dwss.redetermination.util.split.TerminateSorRecord.execute(TerminateSorRecord.java:65)
-
-	at gov.nv.dwss.redetermination.util.split.SorSplitMultipleRecord.split(SorSplitMultipleRecord.java:31)
-
-	at gov.nv.dwss.redetermination.service.RedeterminationSplitDataService.updateAddress(RedeterminationSplitDataService.java:901)
-
-	at gov.nv.dwss.redetermination.service.RedeterminationSplitDataService.lambda$0(RedeterminationSplitDataService.java:203)
-
-	... 45 more
-
-Caused by: com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN91D592.S3503470.X'007426'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26
-
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
-
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
-
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
-
-	at com.ibm.db2.jcc.am.fp.b(Unknown Source)
-
-	at com.ibm.db2.jcc.am.fp.c(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.bb.l(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.bb.a(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.p.a(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.wb.b(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.tc(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.b(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.lc(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.executeUpdate(Unknown Source)
-
-	at com.zaxxer.hikari.pool.ProxyPreparedStatement.executeUpdate(ProxyPreparedStatement.java:61)
-
-	at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.executeUpdate(HikariProxyPreparedStatement.java)
-
-	at org.springframework.jdbc.core.JdbcTemplate.lambda$update$2(JdbcTemplate.java:965)
-
-	at org.springframework.jdbc.core.JdbcTemplate.execute(JdbcTemplate.java:651)
-
-	... 52 more
- 
-SimpleAsyncTaskExecutor-816 Apr 2026 15:45:08,613 ERROR RedeterminationNightlyService:129 - PreparedStatementCallback; SQL [UPDATE W026DT91.TWNREDET_RCRT_DTLS T1 SET REDET_STRT_DT = ?, REDET_TYPE = ?, TIMELY_RCRT_DT = ? WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND NEXT_REDET_DT = ? AND REDET_STRT_DT = '9999-12-31']; UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN92D591.S3503910.X'000304'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26; nested exception is com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN92D591.S3503910.X'000304'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26 
-
-SimpleAsyncTaskExecutor-816 Apr 2026 15:45:08,613 ERROR RedeterminationNightlyWriter:100 - Case cannot be processed for ICI->  785840000 Case cannot be processed for ICI->  785840000 Exception: PreparedStatementCallback; SQL [UPDATE W026DT91.TWNREDET_RCRT_DTLS T1 SET REDET_STRT_DT = ?, REDET_TYPE = ?, TIMELY_RCRT_DT = ? WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND NEXT_REDET_DT = ? AND REDET_STRT_DT = '9999-12-31']; UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN92D591.S3503910.X'000304'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26; nested exception is com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN92D591.S3503910.X'000304'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26 
-
-SimpleAsyncTaskExecutor-816 Apr 2026 15:45:08,615 ERROR ExceptionUtil:240 - Skip Exception thrown for ICI -> 785840000, UPI -> null with error msg -> Case cannot be processed for ICI->  785840000 Exception: PreparedStatementCallback; SQL [UPDATE W026DT91.TWNREDET_RCRT_DTLS T1 SET REDET_STRT_DT = ?, REDET_TYPE = ?, TIMELY_RCRT_DT = ? WHERE ICI = ? AND PRGM_CASE_TYPE = ? AND NEXT_REDET_DT = ? AND REDET_STRT_DT = '9999-12-31']; UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN92D591.S3503910.X'000304'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26; nested exception is com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN92D591.S3503910.X'000304'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26 and  stacktrace -> com.ibm.db2.jcc.am.SqlException: UNSUCCESSFUL EXECUTION CAUSED BY DEADLOCK OR TIMEOUT. REASON CODE 00C9008E, TYPE OF RESOURCE 00000302, AND RESOURCE NAME WN92D591.S3503910.X'000304'. SQLCODE=-913, SQLSTATE=57033, DRIVER=4.19.26
-
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
-
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
-
-	at com.ibm.db2.jcc.am.kd.a(Unknown Source)
-
-	at com.ibm.db2.jcc.am.fp.b(Unknown Source)
-
-	at com.ibm.db2.jcc.am.fp.c(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.bb.l(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.bb.a(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.p.a(Unknown Source)
-
-	at com.ibm.db2.jcc.t4.wb.b(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.tc(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.b(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.lc(Unknown Source)
-
-	at com.ibm.db2.jcc.am.gp.executeUpdate(Unknown Source)
-
-	at com.zaxxer.hikari.pool.ProxyPreparedStatement.executeUpdate(ProxyPreparedStatement.java:61)
-
-	at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.executeUpdate(HikariProxyPreparedStatement.java)
-
-	at org.springframework.jdbc.core.JdbcTemplate.lambda$update$2(JdbcTemplate.java:965)
-
-	at org.springframework.jdbc.core.JdbcTemplate.execute(JdbcTemplate.java:651)
-
-	at org.springframework.jdbc.core.JdbcTemplate.update(JdbcTemplate.java:960)
-
-	at org.springframework.jdbc.core.JdbcTemplate.update(JdbcTemplate.java:1015)
-
-	at org.springframework.jdbc.core.JdbcTemplate.update(JdbcTemplate.java:1025)
-
-	at gov.nv.dwss.redetermination.dao.RedeterminationNightlyDao.updateNextRedDateWithNoRealignFlag(RedeterminationNightlyDao.java:377)
-
-	at gov.nv.dwss.redetermination.dao.RedeterminationNightlyDao$$FastClassBySpringCGLIB$$f099f20e.invoke(<generated>)
-
-	at org.springframework.cglib.proxy.MethodProxy.invoke(MethodProxy.java:218)
-
-	at org.springframework.aop.framework.CglibAopProxy.invokeMethod(CglibAopProxy.java:386)
-
-	at org.springframework.aop.framework.CglibAopProxy.access$000(CglibAopProxy.java:85)
-
-	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:704)
-
-	at gov.nv.dwss.redetermination.dao.RedeterminationNightlyDao$$EnhancerBySpringCGLIB$$a6850a9f.updateNextRedDateWithNoRealignFlag(<generated>)
-
-	at gov.nv.dwss.redetermination.service.RedeterminationNightlyService.updateNextRedDateWithNoRealignFlag(RedeterminationNightlyService.java:124)
-
-	at gov.nv.dwss.redetermination.service.RedeterminationNightlyService$$FastClassBySpringCGLIB$$6a0edc94.invoke(<generated>)
-
-	at org.springframework.cglib.proxy.MethodProxy.invoke(MethodProxy.java:218)
-
-	at org.springframework.aop.framework.CglibAopProxy.invokeMethod(CglibAopProxy.java:386)
-
-	at org.springframework.aop.framework.CglibAopProxy.access$000(CglibAopProxy.java:85)
-
-	at org.springframework.aop.framework.CglibAopProxy$DynamicAdvisedInterceptor.intercept(CglibAopProxy.java:704)
-
-	at gov.nv.dwss.redetermination.service.RedeterminationNightlyService$$EnhancerBySpringCGLIB$$9af8df1.updateNextRedDateWithNoRealignFlag(<generated>)
-
-	at gov.nv.dwss.redetermination.writer.RedeterminationNightlyWriter.write(RedeterminationNightlyWriter.java:74)
-
-	at org.springframework.batch.core.step.item.SimpleChunkProcessor.writeItems(SimpleChunkProcessor.java:193)
-
-	at org.springframework.batch.core.step.item.FaultTolerantChunkProcessor.scan(FaultTolerantChunkProcessor.java:609)
-
-	at org.springframework.batch.core.step.item.FaultTolerantChunkProcessor.access$900(FaultTolerantChunkProcessor.java:56)
-
-	at org.springframework.batch.core.step.item.FaultTolerantChunkProcessor$5.recover(FaultTolerantChunkProcessor.java:434)
-
-	at org.springframework.retry.support.RetryTemplate.handleRetryExhausted(RetryTemplate.java:539)
-
-	at org.springframework.retry.support.RetryTemplate.doExecute(RetryTemplate.java:387)
-
-	at org.springframework.retry.support.RetryTemplate.execute(RetryTemplate.java:255)
-
-	at org.springframework.batch.core.step.item.BatchRetryTemplate.execute(BatchRetryTemplate.java:217)
-
-	at org.springframework.batch.core.step.item.FaultTolerantChunkProcessor.write(FaultTolerantChunkProcessor.java:444)
-
-	at org.springframework.batch.core.step.item.SimpleChunkProcessor.process(SimpleChunkProcessor.java:217)
-
-	at org.springframework.batch.core.step.item.ChunkOrientedTasklet.execute(ChunkOrientedTasklet.java:77)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep$ChunkTransactionCallback.doInTransaction(TaskletStep.java:407)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep$ChunkTransactionCallback.doInTransaction(TaskletStep.java:331)
-
-	at org.springframework.transaction.support.TransactionTemplate.execute(TransactionTemplate.java:140)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep$2.doInChunkContext(TaskletStep.java:273)
-
-	at org.springframework.batch.core.scope.context.StepContextRepeatCallback.doInIteration(StepContextRepeatCallback.java:82)
-
-	at org.springframework.batch.repeat.support.RepeatTemplate.getNextResult(RepeatTemplate.java:375)
-
-	at org.springframework.batch.repeat.support.RepeatTemplate.executeInternal(RepeatTemplate.java:215)
-
-	at org.springframework.batch.repeat.support.RepeatTemplate.iterate(RepeatTemplate.java:145)
-
-	at org.springframework.batch.core.step.tasklet.TaskletStep.doExecute(TaskletStep.java:258)
-
-	at org.springframework.batch.core.step.AbstractStep.execute(AbstractStep.java:208)
-
-	at org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler$1.call(TaskExecutorPartitionHandler.java:138)
-
-	at org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler$1.call(TaskExecutorPartitionHandler.java:135)
-
-	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
-
-	at java.base/java.lang.Thread.run(Thread.java:833)
-	
-	
-	
-   This is a monthly batch witj load of 1 lakh cases we will get every month. Ceach case might have on average 4 individuals, what this batch functionality, it will get all records which are due for next redermination, align the dates , and split all relevant tables to R, starting from next next month of redetermination. what we are observing is because of partioning, or chunk, we are seeing lot of deadlocks, i want you to give mea prompt that i can use in copilot to fix those issues.
-   
-   I will give full batch workspace also
+When you share the full batch workspace, I can turn this into a second, much sharper Copilot prompt tailored to your actual classes, step config, partitioner, DAO methods, and SQL.
