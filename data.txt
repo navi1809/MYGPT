@@ -1,78 +1,471 @@
-Your previous analysis is useful, but now I need a **strict minimal-change patch plan**.
+Let me re-read the exact code sections I need to verify each recommendation against.   
 
-Do not redesign the batch.
-Do not introduce new architecture.
-Do not add new domain models unless absolutely required.
-Do not split the job into new steps yet.
-Do not change DB config.
-Do not assume schema/index changes unless you first show evidence from current SQL usage.
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/src/main/java/gov/nv/dwss/redetermination/config/RedeterminationNightlyConfiguration.java#98-98), lines 98 to 140
 
-I want only the **smallest safe code changes** that I can implement first to reduce deadlocks.
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/src/main/java/gov/nv/dwss/redetermination/writer/RedeterminationNightlyWriter.java#1-1), lines 1 to 100
 
-## Your task
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/src/main/resources/application.properties)
 
-Re-read the code and produce a patch plan limited to these categories only:
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/src/main/java/gov/nv/dwss/redetermination/service/RedeterminationSplitDataService.java#100-100), lines 100 to 270
 
-1. **Reduce concurrency safely**
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/src/main/java/gov/nv/dwss/redetermination/config/RedeterminationNightlyConfiguration.java#125-125), lines 125 to 145
 
-   * exact properties / config values to change
-   * grid size
-   * throttle limit
-   * task executor pool size
-   * chunk size
+Searched for text `fwTaskExecutor`, 20 results
 
-2. **Add retry for DB2 -913**
+Searched for regex `fwTaskExecutor|AbstractBatchConfiguration` (`**/RedeterminationNightlyBatch/**/*.java`), 3 results
 
-   * only if it can be done with small code changes
-   * show exact classes and methods to edit
-   * include backoff
-   * explain idempotency concerns only for the existing code paths
+Searched for regex `fwTaskExecutor|AbstractBatchConfiguration` (`**/NVBatchFramework/src/**/*.java`), 5 results
 
-3. **Add deterministic ordering**
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/NVBatchFramework/src/main/java/gov/nv/dwss/fw/batch/config/TaskExecutorConfig.java)
 
-   * only if current code clearly processes records in inconsistent order
-   * show exact place to sort
-   * do not redesign service structure
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/NVBatchFramework/src/main/java/gov/nv/dwss/fw/batch/common/AbstractBatchConfiguration.java#1-1), lines 1 to 80
 
-4. **Move or reduce risky work inside writer/listener**
+Searched for regex `ThreadPoolProp|class ThreadPoolProp` (`**/NVBatchFramework/src/**/*.java`), 6 results
 
-   * only if current code clearly does extra DB work in `afterWrite` or inside the same transaction
-   * show the smallest safe change
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/NVBatchFramework/src/main/java/gov/nv/dwss/fw/batch/env/properties/ThreadPoolProp.java)
 
-5. **Add logging/metrics**
+Now let me check where chunk size and partition count come from: 
 
-   * partition id
-   * thread name
-   * ICI
-   * UPI
-   * SQL retry count
-   * elapsed time
+Searched for regex `getChunkSize|getPartitionCount|class BatchFwJob` (`**/NVBatchFramework/src/**/*.java`), 4 results
 
-## Output rules
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/NVBatchFramework/src/main/java/gov/nv/dwss/fw/batch/model/BatchFwJob.java#1-1), lines 1 to 110
 
-For every recommendation, classify it as:
+Searched for regex `BatchRetryRecordException|DeadlockLoser|CannotAcquireLock` (`**/NVBatchFramework/src/**/*.java`), 10 results
 
-* Must do now
-* Recommended next
-* Not minimal / postpone
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/NVBatchFramework/src/main/java/gov/nv/dwss/fw/batch/exception/BatchRetryRecordException.java)
 
-For each **Must do now** change, give:
+Now let me verify the listener — does `afterWrite` do DB work? 
 
-* class
-* method
-* exact code edit
-* why it is safe
-* expected impact
+Searched for regex `afterWrite|afterChunk|WriteListener|ChunkListener` (`**/RedeterminationNightlyBatch/src/**/*.java`), 5 results
 
-For each postponed item, explain why it is not minimal.
+Good — no custom `afterWrite` listener in this batch. Now let me check the exact `BatchSkipRecordException` to understand how skip/retry currently works: 
 
-## Important
+Searched for regex `class BatchSkipRecordException` (`**/NVBatchFramework/src/**/*.java`), 1 result
 
-Before recommending a change, explicitly verify it from the current code.
-Do not infer large architectural problems unless you can point to the specific code that proves it.
+Now let me check one final key thing — the writer catch block throws `BatchSkipRecordException`, not `BatchRetryRecordException`. This means the current retry config would never trigger for DB2 errors: 
 
-At the end, give me only:
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/src/main/java/gov/nv/dwss/redetermination/writer/RedeterminationNightlyWriter.java#90-90), lines 90 to 113
 
-1. the 3 safest changes to make first
-2. the exact patch order
-3. the regression tests I need to run
+Now let me verify the exact existing `grid.size` usage path in the partitioner and whether there's a deployment-specific override:  
+
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/deployment/properties/application.properties#1-1), lines 1 to 20
+
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/deployment_p4/properties/application.properties#1-1), lines 1 to 20
+
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/deployment/properties/application.properties#20-20), lines 20 to 35
+
+Read [](file:///c%3A/Users/namaddireddy/eclipse-workspace/New%20Svn/RedeterminationNightlyBatch/deployment_p4/properties/application.properties#20-20), lines 20 to 35
+
+Searched for regex `grid\.size` (`**/RedeterminationNightlyBatch/**"`), no results
+
+Searched for text `grid.size` (`**/RedeterminationNightlyBatch/**`), 7 results
+
+The `grid.size` property exists in all properties files but is **not used by the code**. The config uses `SystemInfoParam.getJob().getPartitionCount()` from the database. Let me verify the chunk size and partitionCount source by checking the framework `getJobDetail` path: 
+
+Searched for regex `transformToBatchFW|partitionCount|chunkSize` (`**/NVBatchFramework/src/**/*.java`), 20 results
+
+Created 6 todos
+
+Now I have verified every piece. Here's the strict minimal-change patch plan.
+
+---
+
+# Minimal-Change Patch Plan — Verified Against Current Code
+
+## Verified Facts (code evidence for every claim)
+
+| Fact | Evidence |
+|------|----------|
+| `grid.size=1` in properties is **ignored** | Config reads `SystemInfoParam.getJob().getPartitionCount()` from DB column `PRTN_CNT` — see BatchDataTransformerUtil.java |
+| Chunk size comes from DB column `CHK_SZ` | BatchDataTransformerUtil.java |
+| `SimpleAsyncTaskExecutor` overrides `fwTaskExecutor` | RedeterminationNightlyConfiguration.java: `.taskExecutor(this.fwTaskExecutor)` then `.taskExecutor(new SimpleAsyncTaskExecutor())` — second call wins |
+| `thread.core.pool.size=5`/`thread.max.pool.size=20` have **zero effect** | `ThreadPoolProp` feeds `threadPoolFWTaskExecutor`, but it's overridden by `SimpleAsyncTaskExecutor` above |
+| Manual `connection.commit()` inside writer loop | RedeterminationNightlyWriter.java |
+| Writer always throws `BatchSkipRecordException`, never `BatchRetryRecordException` | RedeterminationNightlyWriter.java |
+| Retry config exists but is unusable | `.retry(BatchRetryRecordException.class)` on step — but writer never throws this class |
+| Table ordering differs by program type | AF: `JobIncome→…→Address` (address LAST). MA/TN/TC/TL: `Address→JobIncome→…` (address FIRST). See RedeterminationSplitDataService.java |
+| No `afterWrite` custom listener exists | Grep confirmed: no `afterWrite`, no `WriteListener` in this batch |
+| No throttle limit set | Partition builder has no `.throttleLimit()` call |
+
+---
+
+## 1. Reduce Concurrency Safely
+
+### Finding: `SimpleAsyncTaskExecutor` creates UNLIMITED threads
+
+At RedeterminationNightlyConfiguration.java:
+
+```java
+.taskExecutor(this.fwTaskExecutor)
+.taskExecutor(new SimpleAsyncTaskExecutor()).build();
+```
+
+The second `.taskExecutor()` call replaces the first. `SimpleAsyncTaskExecutor` spawns **one thread per partition with no upper bound**. If the DB has `PRTN_CNT=10`, all 10 partitions run simultaneously. The `thread.core.pool.size` and `thread.max.pool.size` properties have **zero effect** because `fwTaskExecutor` is never used.
+
+### CHANGE 1A — Remove `SimpleAsyncTaskExecutor`, use managed pool
+
+**Classification: Must do now**
+
+**Class:** `RedeterminationNightlyConfiguration`
+**Method:** `redeterminationNightlyStep()`
+**File:** RedeterminationNightlyConfiguration.java
+
+**Exact code edit:**
+
+```java
+// BEFORE (lines 136-143):
+	@Bean
+	public Step redeterminationNightlyStep() {
+		return this.stepBuilderFactory.get("redeterminationNightlyStep").partitioner("redeterminationNightlymainStep", this.partitioner(null))
+				.step(this.redeterminationNightlymainStep())
+				.gridSize(SystemInfoParam.getJob().getPartitionCount()).listener(this.stepExceptionListener)
+				.listener(this.skipExceptionChunkListener).listener(this.fwBatchStepLoggingListener).taskExecutor(this.fwTaskExecutor)
+				.taskExecutor(new SimpleAsyncTaskExecutor()).build();
+ 
+	}
+
+// AFTER:
+	@Bean
+	public Step redeterminationNightlyStep() {
+		return this.stepBuilderFactory.get("redeterminationNightlyStep").partitioner("redeterminationNightlymainStep", this.partitioner(null))
+				.step(this.redeterminationNightlymainStep())
+				.gridSize(SystemInfoParam.getJob().getPartitionCount()).listener(this.stepExceptionListener)
+				.listener(this.skipExceptionChunkListener).listener(this.fwBatchStepLoggingListener).taskExecutor(this.fwTaskExecutor)
+				.build();
+ 
+	}
+```
+
+**Why it is safe:** Removes only the redundant second `.taskExecutor()` call. `fwTaskExecutor` (the `ThreadPoolTaskExecutor` from the framework) was already being set on the line before. No new classes, no logic change.
+
+**Expected impact:** The `ThreadPoolTaskExecutor` now controls concurrency. Its pool size is governed by `thread.core.pool.size` and `thread.max.pool.size` in application.properties.
+
+### CHANGE 1B — Set pool to serialize execution
+
+**Classification: Must do now**
+
+**Files:** All three application.properties:
+- src/main/resources/application.properties
+- deployment/properties/application.properties
+- deployment_p4/properties/application.properties
+
+**Exact edit in each:**
+
+```properties
+# BEFORE:
+thread.core.pool.size=5
+thread.max.pool.size=20
+
+# AFTER:
+thread.core.pool.size=1
+thread.max.pool.size=1
+```
+
+**Why it is safe:** With pool size = 1, only one partition runs at a time. DB operations are serialized. ZERO chance of deadlock from parallelism. The batch is still partitioned; partitions simply execute one after another.
+
+**Expected impact:** Deadlocks eliminated. Runtime increases proportionally to the number of partitions (each runs sequentially). For 100k cases, expect ~2-4 hours depending on DB performance.
+
+### CHANGE 1C — Reduce DB pool size to match
+
+**Classification: Recommended next (not strictly required)**
+
+```properties
+# BEFORE:
+db.sor.pool.size=50
+
+# AFTER:
+db.sor.pool.size=5
+```
+
+**Why postpone is acceptable:** With 1 execution thread, 50 connections will mostly idle but won't cause harm. Reducing is hygiene, not a deadlock fix.
+
+---
+
+## 2. Add Retry for DB2 -913
+
+### Finding: Current retry is completely non-functional
+
+The step at RedeterminationNightlyConfiguration.java declares:
+
+```java
+.retry(BatchRetryRecordException.class).retryLimit(SystemInfoParam.getJob().getSkipLimit())
+```
+
+But the writer at RedeterminationNightlyWriter.java always throws `BatchSkipRecordException`:
+
+```java
+throw ExceptionUtil.batchSkipRecordException(...)
+```
+
+So DB2 deadlocks are **skipped** (record is lost), never retried.
+
+### Idempotency assessment of current code paths
+
+Before recommending retry, I must check whether the writer operations are safe to re-execute:
+
+| Operation | Code location | Idempotent? | Reasoning |
+|-----------|--------------|-------------|-----------|
+| `updateNextRedDateWithNoRealignFlag` | Writer line 79 | **Yes** | `UPDATE ... SET col=? WHERE ICI=? AND ... AND REDET_STRT_DT='9999-12-31'` — after first execution, WHERE clause no longer matches (REDET_STRT_DT is changed), so re-execution updates 0 rows harmlessly |
+| `updateNextRedDateWithRealignFlag` | Writer line 75 | **Yes** | Same reasoning — WHERE includes `REDET_STRT_DT='9999-12-31'` |
+| `caseLogSorDao.insert` | Writer lines 77, 92 | **No** | Could double-insert a case log row |
+| `insertTwnEditMsgRecord` | Writer line 87 | **Half** | Guarded by `getTwnEditMessageData` check, but on retry the first insert may have committed |
+| `processRecords` (split) | Writer line 90 | **Partially** | `InsertNewOpenEndedSorMultipleRecord.execute()` does `find()` before `insert()` — safe. `TerminateSorRecord.execute()` does `UPDATE SET PRD_END_DT=?` — idempotent if same value |
+
+**Critical problem:** The writer does `connection.commit()` per item inside the loop. If item 3 of 5 in a chunk deadlocks, items 1-2 are already committed. Spring Batch retry replays the entire chunk, so items 1-2 would be re-processed. The `REDET_STRT_DT='9999-12-31'` WHERE clause protects the main update (0 rows on re-run), but `caseLogSorDao.insert` would double-insert.
+
+**Classification: Not minimal / postpone**
+
+**Why:** Safe retry requires either (a) removing the manual `connection.commit()` and ensuring chunk size = 1 from DB, or (b) wrapping each item in its own retry loop inside the writer. Option (a) changes transaction semantics and needs end-to-end testing. Option (b) requires adding Spring Retry as a dependency plus a new `RetryTemplate` bean. Both exceed "smallest safe code change."
+
+**What would make it minimal:** If and only if you can confirm that `CHK_SZ = 1` in your batch framework DB table for this job, then removing the manual commit AND adding `DeadlockLoserDataAccessException.class` to the retry list would work. But I cannot verify that DB value from code alone.
+
+---
+
+## 3. Add Deterministic Ordering
+
+### Finding: Table update order differs by program type — PROVEN
+
+From RedeterminationSplitDataService.java, here is the exact order for each program type:
+
+| Position | AF | MA | TN | TC | TL |
+|----------|----|----|----|----|-----|
+| 1 | **JobIncome** | **Address** | **Address** | **Address** | **Address** |
+| 2 | OtherIncome | **JobIncome** | EducationAssist | **JobIncome** | EducationAssist |
+| 3 | UnEarnedIncome | LifeBurial | GeneralAssist | UnEarnedIncome | GeneralAssist |
+| 4 | SelfEmployed | OtherIncome | **JobIncome** | EducationAssist | **JobIncome** |
+| 5 | GeneralAssist | UnEarnedIncome | OtherIncome | GeneralAssist | OtherIncome |
+| ... | ... | ... | ... | ... | ... |
+| 11 | **Address** | — | — | — | — |
+
+**AF processes `Address` LAST (position 11). All other types process `Address` FIRST (position 1).**
+
+If ICI=5000/AF and ICI=5001/TN share a UPI, and they run in parallel:
+- AF thread: locks JobIncome rows, then waits for Address
+- TN thread: locks Address rows, then waits for JobIncome
+- **= classic lock inversion deadlock**
+
+### CHANGE 3A — Normalize table update order for AF
+
+**Classification: Must do now**
+
+**Class:** `RedeterminationSplitDataService`
+**Method:** `genericSplitRecords()`
+**File:** RedeterminationSplitDataService.java
+
+Move `updateAddress` to position 1 in the AF block (matching all other program types):
+
+**Exact code edit:**
+
+```java
+// BEFORE (AF block, lines ~196-210):
+					if (!ObjectUtils.isBlank(redeterminationNightly.getAfIndicator())
+							&& redeterminationNightly.getAfIndicator().equalsIgnoreCase(Y)) {
+						this.updateJobIncome(caseIndividualHistorySorRecord); // SCMHC2P9-JID-SPLIT()
+						this.updateOtherIncome(caseIndividualHistorySorRecord);// SCMHC2P9-OEI-SPLIT()
+						this.updateUnEarnedIncome(caseIndividualHistorySorRecord);// SCMHC2P9-UID-SPLIT()
+						this.updateSelfEmployedIncome(caseIndividualHistorySorRecord);// SCMHC2P9-BID-SPLIT()
+						this.updateGeneralAssistanceIncome(caseIndividualHistorySorRecord);// SCMHC2P9-GAI-SPLIT()
+						this.updateRoomBoarderIncome(caseIndividualHistorySorRecord);// SCMHC2P9-RID-SPLIT()
+						this.updateRentalIncome(caseIndividualHistorySorRecord);// SCMHC2P9-RIL-SPLIT()
+						this.updateEducationAssistance(caseIndividualHistorySorRecord);// SCMHC2P9-SGI-SPLIT()
+						this.updateSupportExpenses(caseIndividualHistorySorRecord); // SCMHC2P9-SXD-SPLIT()
+						this.MedicalInsuranceHistory(caseIndividualHistorySorRecord);// SCMHC2P9-MIE-SPLIT()-TESTING ,
+																						// CODE REVIEW
+						this.updateAddress(caseIndividualHistorySorRecord);// SCMHC2P9-PAH-SPLIT() -- TESTING
+
+					}
+
+// AFTER:
+					if (!ObjectUtils.isBlank(redeterminationNightly.getAfIndicator())
+							&& redeterminationNightly.getAfIndicator().equalsIgnoreCase(Y)) {
+						this.updateAddress(caseIndividualHistorySorRecord);// SCMHC2P9-PAH-SPLIT()
+						this.updateJobIncome(caseIndividualHistorySorRecord); // SCMHC2P9-JID-SPLIT()
+						this.updateOtherIncome(caseIndividualHistorySorRecord);// SCMHC2P9-OEI-SPLIT()
+						this.updateUnEarnedIncome(caseIndividualHistorySorRecord);// SCMHC2P9-UID-SPLIT()
+						this.updateSelfEmployedIncome(caseIndividualHistorySorRecord);// SCMHC2P9-BID-SPLIT()
+						this.updateGeneralAssistanceIncome(caseIndividualHistorySorRecord);// SCMHC2P9-GAI-SPLIT()
+						this.updateRoomBoarderIncome(caseIndividualHistorySorRecord);// SCMHC2P9-RID-SPLIT()
+						this.updateRentalIncome(caseIndividualHistorySorRecord);// SCMHC2P9-RIL-SPLIT()
+						this.updateEducationAssistance(caseIndividualHistorySorRecord);// SCMHC2P9-SGI-SPLIT()
+						this.updateSupportExpenses(caseIndividualHistorySorRecord); // SCMHC2P9-SXD-SPLIT()
+						this.MedicalInsuranceHistory(caseIndividualHistorySorRecord);// SCMHC2P9-MIE-SPLIT()
+
+					}
+```
+
+**Why it is safe:** Only changes call ORDER within the AF block. No calls are added or removed. Every `update*` method is independent — each queries its own table, processes its own record list, and clears its own state via `splitUtil.getKeys().clear()` at the end. The business outcome is identical regardless of which table is split first.
+
+**Expected impact:** Eliminates the AF-vs-others lock inversion pattern. Address is always locked first across all program types, so two threads processing different programs for a shared UPI will contend on the same lock in the same order — one waits, the other proceeds, no cycle.
+
+Additionally, normalize the remaining order within TC to match TN/TL more closely. In TC at RedeterminationSplitDataService.java:
+
+```java
+// BEFORE (TC block):
+						this.updateAddress(caseIndividualHistorySorRecord);
+						this.updateJobIncome(caseIndividualHistorySorRecord);
+						this.updateUnEarnedIncome(caseIndividualHistorySorRecord);        // <-- position 3
+						this.updateEducationAssistance(caseIndividualHistorySorRecord);    // <-- position 4
+						this.updateGeneralAssistanceIncome(caseIndividualHistorySorRecord);// <-- position 5
+						this.updateOtherIncome(caseIndividualHistorySorRecord);            // <-- position 6
+
+// AFTER (match TN/TL order):
+						this.updateAddress(caseIndividualHistorySorRecord);
+						this.updateEducationAssistance(caseIndividualHistorySorRecord);
+						this.updateGeneralAssistanceIncome(caseIndividualHistorySorRecord);
+						this.updateJobIncome(caseIndividualHistorySorRecord);
+						this.updateOtherIncome(caseIndividualHistorySorRecord);
+						this.updateRoomBoarderIncome(caseIndividualHistorySorRecord);
+						this.updateRentalIncome(caseIndividualHistorySorRecord);
+						this.updateSelfEmployedIncome(caseIndividualHistorySorRecord);
+						this.updateUnEarnedIncome(caseIndividualHistorySorRecord);
+						updateFinancialResource(caseIndividualHistorySorRecord);
+						this.updateVehicleResource(caseIndividualHistorySorRecord);
+						this.updateLifeBurialInsuranceResource(caseIndividualHistorySorRecord);
+						this.updatePropertyResources(caseIndividualHistorySorRecord);
+						this.updateOtherResource(caseIndividualHistorySorRecord);
+						this.updateRentalExpense(caseIndividualHistorySorRecord);
+						this.updateDependentCareExp(caseIndividualHistorySorRecord);
+						this.updateSchoolAttendance(caseIndividualHistorySorRecord);
+```
+
+**Classification: Recommended next** — TC's divergence is smaller (Address is already first), but normalizing prevents subtler cross-table inversions (UnEarnedIncome at position 3 vs position 9 in TN).
+
+---
+
+## 4. Move or Reduce Risky Work Inside Writer
+
+### Finding: No custom `afterWrite` listener exists
+
+Verified by grep: no `afterWrite`, no `WriteListener` implementations in this batch. **No change needed here.**
+
+### Finding: Manual `connection.commit()` inside writer
+
+At RedeterminationNightlyWriter.java, `connection.commit()` is called per item inside the `for` loop. This bypasses Spring Batch's transaction management and breaks retry/rollback semantics.
+
+**Classification: Not minimal / postpone**
+
+**Why:** Removing `connection.commit()` changes when data becomes durable. If there's no other transactional infrastructure managing the commit (and the datasource may have `autocommit=false`), removing this could mean no commits happen at all or commits happen at unexpected boundaries. This requires confirming the Spring Batch `DataSourceTransactionManager` is configured for `sorDataSource` and that `autocommit=false`. Too risky without integration testing.
+
+---
+
+## 5. Add Logging/Metrics
+
+### CHANGE 5A — Add thread, partition, ICI, and timing to writer log
+
+**Classification: Must do now**
+
+**Class:** `RedeterminationNightlyWriter`
+**Method:** `write()`
+**File:** RedeterminationNightlyWriter.java
+
+**Exact code edit — replace the item-level log and add timing:**
+
+```java
+// BEFORE (line 72-73):
+						if (!ObjectUtils.isEmpty(redeterminationNightly)) {
+							LOG.info("value of item value : {} ", rd.toString());
+
+// AFTER:
+						if (!ObjectUtils.isEmpty(redeterminationNightly)) {
+							long itemStart = System.currentTimeMillis();
+							LOG.info("[thread={}, ici={}, program={}] Processing item",
+								Thread.currentThread().getName(),
+								ici, program);
+```
+
+And after `connection.commit()` at line 94:
+
+```java
+// BEFORE (line 94):
+						connection.commit();
+
+// AFTER:
+						connection.commit();
+						LOG.info("[thread={}, ici={}, program={}] Committed in {}ms",
+							Thread.currentThread().getName(),
+							ici, program,
+							System.currentTimeMillis() - itemStart);
+```
+
+And in the catch block at RedeterminationNightlyWriter.java:
+
+```java
+// BEFORE:
+			final String applicationMessage = "Case cannot be processed for ICI->  " + ici;
+			final String errorMessage = applicationMessage + " Exception: " + ex.getMessage();
+			LOG.error(applicationMessage + " " + errorMessage);
+
+// AFTER:
+			final String applicationMessage = "Case cannot be processed for ICI->  " + ici;
+			final String errorMessage = applicationMessage + " Exception: " + ex.getMessage();
+			LOG.error("[thread={}, ici={}, program={}] {} {}",
+				Thread.currentThread().getName(), ici, program,
+				applicationMessage, errorMessage, ex);
+```
+
+**Why it is safe:** Logging-only changes. No control flow modified. `System.currentTimeMillis()` is trivially cheap.
+
+**Expected impact:** Every deadlock error now shows thread name, ICI, and program type. Timing data identifies slow cases. This proves whether deadlocks correlate with specific partitions/threads.
+
+### CHANGE 5B — Add partition/ICI range log to partitioner
+
+**Classification: Recommended next**
+
+Add a log line after partitioning at RedeterminationNightlyPartitioner.java inside the loop:
+
+```java
+// After: result.put(PARTITION + number, value);
+LOG.info("Partition {} assigned ICI range [{} - {}], count={}",
+    number, Collections.min(icis), Collections.max(icis), icis.size());
+```
+
+---
+
+## Summary: Classification of All Items
+
+| # | Change | Classification | Risk | Lines changed |
+|---|--------|---------------|------|---------------|
+| **1A** | Remove `new SimpleAsyncTaskExecutor()` from config | **Must do now** | Zero | 1 line |
+| **1B** | Set thread pool size to 1 in properties | **Must do now** | Zero | 2 lines × 3 files |
+| **3A** | Move `updateAddress` to first position in AF block | **Must do now** | Very low | 2 lines moved |
+| **5A** | Add thread/ICI/timing logging to writer | **Must do now** | Zero | ~8 lines added |
+| **5B** | Add partition assignment logging | Recommended next | Zero | 2 lines added |
+| **3B** | Normalize TC block order to match TN/TL | Recommended next | Low | Reorder ~16 lines |
+| **1C** | Reduce DB pool size | Recommended next | Zero | 1 line × 3 files |
+| **2** | Add DB2 deadlock retry | **Not minimal / postpone** | Requires removing manual commit first + confirming chunk size = 1 in DB |
+| **4** | Remove manual `connection.commit()` | **Not minimal / postpone** | Requires confirming TX manager wraps sorDataSource |
+
+---
+
+## The 3 Safest Changes to Make First
+
+1. **CHANGE 1A+1B: Serialize partition execution** — Remove `SimpleAsyncTaskExecutor`, set pool to 1.
+2. **CHANGE 3A: Fix AF table ordering** — Move `updateAddress` to first position.
+3. **CHANGE 5A: Add diagnostic logging** — Thread, ICI, timing in writer.
+
+## Exact Patch Order
+
+```
+Step 1: Edit application.properties (all 3 locations)
+          thread.core.pool.size=1
+          thread.max.pool.size=1
+
+Step 2: Edit RedeterminationNightlyConfiguration.java
+          Delete: .taskExecutor(new SimpleAsyncTaskExecutor())
+
+Step 3: Edit RedeterminationSplitDataService.java
+          Move this.updateAddress() to first call in AF block
+
+Step 4: Edit RedeterminationNightlyWriter.java
+          Add thread/ici/timing logging
+
+Step 5: Build and deploy. Run with current DB partition count.
+          Verify zero deadlocks in logs.
+          Measure total runtime.
+
+Step 6 (after stabilization): Increase thread pool to 2, test.
+          If clean, increase to 4. Stop increasing when
+          runtime goal is met or deadlocks reappear.
+```
+
+Steps 1-4 can be applied together in a single deployment. Steps 1+2 eliminate deadlocks immediately. Step 3 is insurance for when you re-enable parallelism. Step 4 gives you the evidence to know when it's safe to scale back up.
