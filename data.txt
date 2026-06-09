@@ -1,1 +1,115 @@
-testing script
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.util.*;
+
+public class FileTextArchiver {
+
+    private static final Set<String> EXTENSIONS = Set.of(
+            ".al", ".jsp", ".js", ".txt", ".java"
+    );
+
+    private static final String SEPARATOR = "-----------------";
+    private static final String FILE_START = SEPARATOR + " FILE: ";
+    private static final String FILE_END = SEPARATOR + " END FILE";
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.out.println("Usage:");
+            System.out.println("  Pack   : java FileTextArchiver pack <source-folder> <output-file>");
+            System.out.println("  Unpack : java FileTextArchiver unpack <archive-file> <output-folder>");
+            return;
+        }
+
+        String mode = args[0];
+
+        if ("pack".equalsIgnoreCase(mode)) {
+            pack(Paths.get(args[1]), Paths.get(args[2]));
+        } else if ("unpack".equalsIgnoreCase(mode)) {
+            unpack(Paths.get(args[1]), Paths.get(args[2]));
+        } else {
+            System.out.println("Invalid mode: " + mode);
+        }
+    }
+
+    public static void pack(Path sourceFolder, Path outputFile) throws IOException {
+        try (BufferedWriter writer = Files.newBufferedWriter(outputFile, StandardCharsets.UTF_8)) {
+
+            Files.walk(sourceFolder)
+                    .filter(Files::isRegularFile)
+                    .filter(FileTextArchiver::hasAllowedExtension)
+                    .forEach(file -> {
+                        try {
+                            Path relativePath = sourceFolder.relativize(file);
+
+                            writer.write(FILE_START + relativePath.toString().replace("\\", "/"));
+                            writer.newLine();
+
+                            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+                            for (String line : lines) {
+                                writer.write(line);
+                                writer.newLine();
+                            }
+
+                            writer.write(FILE_END);
+                            writer.newLine();
+
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+        }
+
+        System.out.println("Archive created: " + outputFile);
+    }
+
+    public static void unpack(Path archiveFile, Path outputFolder) throws IOException {
+        Files.createDirectories(outputFolder);
+
+        try (BufferedReader reader = Files.newBufferedReader(archiveFile, StandardCharsets.UTF_8)) {
+            String line;
+            BufferedWriter writer = null;
+
+            while ((line = reader.readLine()) != null) {
+
+                if (line.startsWith(FILE_START)) {
+                    String fileName = line.substring(FILE_START.length()).trim();
+                    Path outputPath = outputFolder.resolve(fileName);
+
+                    Files.createDirectories(outputPath.getParent());
+                    writer = Files.newBufferedWriter(outputPath, StandardCharsets.UTF_8);
+
+                } else if (line.equals(FILE_END)) {
+                    if (writer != null) {
+                        writer.close();
+                        writer = null;
+                    }
+
+                } else {
+                    if (writer != null) {
+                        writer.write(line);
+                        writer.newLine();
+                    }
+                }
+            }
+
+            if (writer != null) {
+                writer.close();
+            }
+        }
+
+        System.out.println("Files recreated in: " + outputFolder);
+    }
+
+    private static boolean hasAllowedExtension(Path file) {
+        String name = file.getFileName().toString().toLowerCase();
+
+        for (String ext : EXTENSIONS) {
+            if (name.endsWith(ext)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
