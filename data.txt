@@ -1,14 +1,9 @@
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.HashSet;
-import java.util.Set;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.*;
+import java.nio.file.*;
+import java.util.*;
 import java.util.stream.Stream;
 
 public class FileTextArchiver {
@@ -22,11 +17,11 @@ public class FileTextArchiver {
                     ".java"
             ));
 
-    private static final String FILE_START =
-            "----------------- FILE: ";
+    private static final String FILE_HEADER =
+            "----------------- FILE -----------------";
 
     private static final String FILE_END =
-            "----------------- END FILE";
+            "----------------- END FILE -----------------";
 
     public static void main(String[] args) throws Exception {
 
@@ -39,22 +34,22 @@ public class FileTextArchiver {
             return;
         }
 
-        String mode = args[0];
-        Path firstPath = Paths.get(args[1]);
-        Path secondPath = Paths.get(args[2]);
+        String operation = args[0];
+        Path inputPath = Paths.get(args[1]);
+        Path outputPath = Paths.get(args[2]);
 
-        if ("pack".equalsIgnoreCase(mode)) {
-            pack(firstPath, secondPath);
-        } else if ("unpack".equalsIgnoreCase(mode)) {
-            unpack(firstPath, secondPath);
+        if ("pack".equalsIgnoreCase(operation)) {
+            pack(inputPath, outputPath);
+        } else if ("unpack".equalsIgnoreCase(operation)) {
+            unpack(inputPath, outputPath);
         } else {
-            System.out.println("Invalid mode: " + mode);
+            System.out.println("Invalid operation: " + operation);
         }
     }
 
     public static void pack(
             final Path sourceFolder,
-            final Path outputFile) throws IOException {
+            final Path archiveFile) throws IOException {
 
         if (!Files.isDirectory(sourceFolder)) {
             throw new IllegalArgumentException(
@@ -62,27 +57,22 @@ public class FileTextArchiver {
                             + sourceFolder.toAbsolutePath());
         }
 
-        Path outputParent = outputFile.toAbsolutePath().getParent();
+        Path archiveParent =
+                archiveFile.toAbsolutePath().getParent();
 
-        if (outputParent != null) {
-            Files.createDirectories(outputParent);
+        if (archiveParent != null) {
+            Files.createDirectories(archiveParent);
         }
 
-        try (
-                final BufferedWriter writer =
-                        Files.newBufferedWriter(
-                                outputFile,
-                                StandardCharsets.UTF_8);
+        final StringBuilder archive = new StringBuilder();
 
-                Stream<Path> paths = Files.walk(sourceFolder)
-        ) {
-            paths
-                    .filter(Files::isRegularFile)
+        try (Stream<Path> paths = Files.walk(sourceFolder)) {
+
+            paths.filter(Files::isRegularFile)
                     .filter(FileTextArchiver::hasAllowedExtension)
-                    .filter(file ->
-                            !file.toAbsolutePath().normalize().equals(
-                                    outputFile.toAbsolutePath().normalize()))
+                    .filter(file -> !sameFile(file, archiveFile))
                     .forEach(file -> {
+
                         try {
                             Path relativePath =
                                     sourceFolder.relativize(file);
@@ -91,36 +81,56 @@ public class FileTextArchiver {
                                     relativePath.toString()
                                             .replace("\\", "/");
 
-                            byte[] originalBytes =
-                                    Files.readAllBytes(file);
+                            DecodedFile decodedFile =
+                                    readTextFile(file);
 
-                            String encodedContent =
-                                    Base64.getEncoder()
-                                            .encodeToString(originalBytes);
+                            archive.append(FILE_HEADER)
+                                   .append("\n");
 
-                            writer.write(FILE_START + storedPath);
-                            writer.newLine();
+                            archive.append("PATH=")
+                                   .append(storedPath)
+                                   .append("\n");
 
-                            writer.write(encodedContent);
-                            writer.newLine();
+                            archive.append("CHARSET=")
+                                   .append(decodedFile.charset.name())
+                                   .append("\n");
 
-                            writer.write(FILE_END);
-                            writer.newLine();
+                            archive.append("LENGTH=")
+                                   .append(decodedFile.content.length())
+                                   .append("\n");
+
+                            archive.append("CONTENT-BEGIN")
+                                   .append("\n");
+
+                            /*
+                             * Do not add or remove anything inside
+                             * the actual file content.
+                             */
+                            archive.append(decodedFile.content);
+
+                            archive.append("\n")
+                                   .append(FILE_END)
+                                   .append("\n");
 
                             System.out.println(
-                                    "Packed: " + storedPath);
+                                    "Archived: " + storedPath
+                                    + " [" + decodedFile.charset.name() + "]");
 
                         } catch (IOException e) {
                             throw new RuntimeException(
-                                    "Failed to pack file: " + file,
+                                    "Failed to archive file: " + file,
                                     e);
                         }
                     });
         }
 
+        Files.write(
+                archiveFile,
+                archive.toString().getBytes(StandardCharsets.UTF_8));
+
         System.out.println(
-                "Archive created: "
-                        + outputFile.toAbsolutePath());
+                "Archive created at: "
+                        + archiveFile.toAbsolutePath());
     }
 
     public static void unpack(
@@ -135,70 +145,189 @@ public class FileTextArchiver {
 
         Files.createDirectories(outputFolder);
 
-        try (
-                BufferedReader reader =
-                        Files.newBufferedReader(
-                                archiveFile,
-                                StandardCharsets.UTF_8)
-        ) {
-            String line;
-            Path currentOutputFile = null;
-            StringBuilder base64Content = null;
+        String archive =
+                new String(
+                        Files.readAllBytes(archiveFile),
+                        StandardCharsets.UTF_8);
 
-            while ((line = reader.readLine()) != null) {
+        int searchPosition = 0;
+        int restoredCount = 0;
 
-                if (line.startsWith(FILE_START)) {
+        while (true) {
 
-                    String relativeFileName =
-                            line.substring(FILE_START.length()).trim();
+            int headerPosition =
+                    archive.indexOf(FILE_HEADER, searchPosition);
 
-                    currentOutputFile =
-                            createSafeOutputPath(
-                                    outputFolder,
-                                    relativeFileName);
-
-                    Path parent = currentOutputFile.getParent();
-
-                    if (parent != null) {
-                        Files.createDirectories(parent);
-                    }
-
-                    base64Content = new StringBuilder();
-
-                } else if (line.equals(FILE_END)) {
-
-                    if (currentOutputFile != null
-                            && base64Content != null) {
-
-                        byte[] originalBytes =
-                                Base64.getDecoder().decode(
-                                        base64Content.toString());
-
-                        Files.write(
-                                currentOutputFile,
-                                originalBytes);
-
-                        System.out.println(
-                                "Recreated: "
-                                        + currentOutputFile.toAbsolutePath());
-                    }
-
-                    currentOutputFile = null;
-                    base64Content = null;
-
-                } else if (base64Content != null) {
-
-                    base64Content.append(line.trim());
-                }
+            if (headerPosition < 0) {
+                break;
             }
+
+            int pathStart =
+                    archive.indexOf("PATH=", headerPosition);
+
+            int pathEnd =
+                    archive.indexOf('\n', pathStart);
+
+            String relativePath =
+                    archive.substring(
+                            pathStart + "PATH=".length(),
+                            pathEnd);
+
+            int charsetStart =
+                    archive.indexOf("CHARSET=", pathEnd);
+
+            int charsetEnd =
+                    archive.indexOf('\n', charsetStart);
+
+            String charsetName =
+                    archive.substring(
+                            charsetStart + "CHARSET=".length(),
+                            charsetEnd);
+
+            int lengthStart =
+                    archive.indexOf("LENGTH=", charsetEnd);
+
+            int lengthEnd =
+                    archive.indexOf('\n', lengthStart);
+
+            int contentLength =
+                    Integer.parseInt(
+                            archive.substring(
+                                    lengthStart + "LENGTH=".length(),
+                                    lengthEnd));
+
+            String contentMarker = "CONTENT-BEGIN\n";
+
+            int contentStart =
+                    archive.indexOf(
+                            contentMarker,
+                            lengthEnd)
+                            + contentMarker.length();
+
+            int contentEnd =
+                    contentStart + contentLength;
+
+            if (contentEnd > archive.length()) {
+                throw new IOException(
+                        "Invalid archive content length for: "
+                                + relativePath);
+            }
+
+            String content =
+                    archive.substring(contentStart, contentEnd);
+
+            Path outputFile =
+                    createSafeOutputPath(
+                            outputFolder,
+                            relativePath);
+
+            Path parent = outputFile.getParent();
+
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+
+            Charset originalCharset =
+                    Charset.forName(charsetName);
+
+            Files.write(
+                    outputFile,
+                    content.getBytes(originalCharset));
+
+            System.out.println(
+                    "Recreated: "
+                            + outputFile.toAbsolutePath());
+
+            restoredCount++;
+
+            searchPosition = contentEnd;
         }
+
+        System.out.println(
+                "Total files recreated: " + restoredCount);
 
         System.out.println(
                 "Files recreated in: "
                         + outputFolder.toAbsolutePath());
     }
 
-    private static boolean hasAllowedExtension(Path file) {
+    private static DecodedFile readTextFile(
+            Path file) throws IOException {
+
+        byte[] bytes = Files.readAllBytes(file);
+
+        /*
+         * First try UTF-8 strictly.
+         */
+        try {
+            String content =
+                    decodeStrictly(
+                            bytes,
+                            StandardCharsets.UTF_8);
+
+            return new DecodedFile(
+                    content,
+                    StandardCharsets.UTF_8);
+
+        } catch (CharacterCodingException e) {
+
+            /*
+             * Many older Windows project files use
+             * Windows-1252 encoding.
+             */
+            Charset windowsCharset =
+                    Charset.forName("windows-1252");
+
+            try {
+                String content =
+                        decodeStrictly(
+                                bytes,
+                                windowsCharset);
+
+                return new DecodedFile(
+                        content,
+                        windowsCharset);
+
+            } catch (CharacterCodingException secondException) {
+
+                /*
+                 * Final fallback.
+                 */
+                Charset fallback =
+                        StandardCharsets.ISO_8859_1;
+
+                String content =
+                        new String(bytes, fallback);
+
+                return new DecodedFile(
+                        content,
+                        fallback);
+            }
+        }
+    }
+
+    private static String decodeStrictly(
+            byte[] bytes,
+            Charset charset)
+            throws CharacterCodingException {
+
+        CharsetDecoder decoder =
+                charset.newDecoder();
+
+        decoder.onMalformedInput(
+                CodingErrorAction.REPORT);
+
+        decoder.onUnmappableCharacter(
+                CodingErrorAction.REPORT);
+
+        CharBuffer result =
+                decoder.decode(ByteBuffer.wrap(bytes));
+
+        return result.toString();
+    }
+
+    private static boolean hasAllowedExtension(
+            Path file) {
 
         String fileName =
                 file.getFileName()
@@ -214,24 +343,50 @@ public class FileTextArchiver {
         return false;
     }
 
+    private static boolean sameFile(
+            Path first,
+            Path second) {
+
+        return first.toAbsolutePath()
+                    .normalize()
+                    .equals(
+                        second.toAbsolutePath()
+                              .normalize());
+    }
+
     private static Path createSafeOutputPath(
             Path outputFolder,
-            String relativeFileName) throws IOException {
+            String relativePath) throws IOException {
 
-        Path normalizedOutputFolder =
-                outputFolder.toAbsolutePath().normalize();
+        Path normalizedFolder =
+                outputFolder.toAbsolutePath()
+                            .normalize();
 
         Path outputPath =
-                normalizedOutputFolder
-                    .resolve(relativeFileName)
+                normalizedFolder
+                    .resolve(relativePath)
                     .normalize();
 
-        if (!outputPath.startsWith(normalizedOutputFolder)) {
+        if (!outputPath.startsWith(normalizedFolder)) {
             throw new IOException(
-                    "Invalid file path in archive: "
-                            + relativeFileName);
+                    "Invalid path in archive: "
+                            + relativePath);
         }
 
         return outputPath;
+    }
+
+    private static class DecodedFile {
+
+        private final String content;
+        private final Charset charset;
+
+        private DecodedFile(
+                String content,
+                Charset charset) {
+
+            this.content = content;
+            this.charset = charset;
+        }
     }
 }
