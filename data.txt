@@ -1,42 +1,237 @@
-SELECT
-      SELECT DISTINCT
-       T2.ICI,
-       T5.HOH_UPI,
-       T5.APPL_UPI
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Stream;
 
-FROM
-       W100DP1.TWNELIG_VERSION     T2,
-       W100DP1.TWNELG_VER_MBR      T3,
-       W100DP1.TWNCASE_MEMBER_HST  T4,
-       W100DP1.TWNFAM_CASE_HSTRY   T5
+public class FileTextArchiver {
 
-WHERE
-      
-       T2.PRGM_CASE_TYPE   = 'AF'
-   AND T2.BNFT_YR          = YEAR(:RUN_DT)
-   AND T2.BNFT_MTH         = MONTH(:RUN_DT)
-   AND T2.CASE_RSLT_CD     = 'E'
-   AND T2.LST_POSTD_VER_IND = 'Y'
-   AND T3.ICI              = T2.ICI
-   AND T3.PRGM_CASE_TYPE   = T2.PRGM_CASE_TYPE
-   AND T3.BNFT_YR          = T2.BNFT_YR
-   AND T3.BNFT_MTH         = T2.BNFT_MTH
-   AND T3.VER_NMB          = T2.VER_NMB
-   AND T3.AID_CD IN ('CA', 'AM1', 'EM2')
-   AND T3.ELIG_CD NOT IN (' ', '3', '7', '9')
-   AND T4.ICI              = T3.ICI
-   AND T4.UPI              = T3.UPI
-   AND T4.PRD_BEG_DT      <= :RUN_DT
-   AND T4.PRD_END_DT      >= LAST_DAY(:RUN_DT)
-   AND T4.MAINT_CD        <> 'D'
-   AND T5.ICI              = T2.ICI
-   AND T5.PRD_BEG_DT      <= :RUN_DT
-   AND T5.PRD_END_DT      >= LAST_DAY(:RUN_DT)
+    private static final Set<String> EXTENSIONS =
+            new HashSet<String>(Arrays.asList(
+                    ".al",
+                    ".jsp",
+                    ".js",
+                    ".txt",
+                    ".java"
+            ));
 
-GROUP BY
-       T2.ICI
+    private static final String FILE_START =
+            "----------------- FILE: ";
 
-ORDER BY
-       T2.ICI
+    private static final String FILE_END =
+            "----------------- END FILE";
 
-FOR FETCH ONLY WITH UR;
+    public static void main(String[] args) throws Exception {
+
+        if (args.length < 3) {
+            System.out.println("Usage:");
+            System.out.println(
+                    "Pack   : pack <source-folder> <archive-file>");
+            System.out.println(
+                    "Unpack : unpack <archive-file> <output-folder>");
+            return;
+        }
+
+        String mode = args[0];
+        Path firstPath = Paths.get(args[1]);
+        Path secondPath = Paths.get(args[2]);
+
+        if ("pack".equalsIgnoreCase(mode)) {
+            pack(firstPath, secondPath);
+        } else if ("unpack".equalsIgnoreCase(mode)) {
+            unpack(firstPath, secondPath);
+        } else {
+            System.out.println("Invalid mode: " + mode);
+        }
+    }
+
+    public static void pack(
+            final Path sourceFolder,
+            final Path outputFile) throws IOException {
+
+        if (!Files.isDirectory(sourceFolder)) {
+            throw new IllegalArgumentException(
+                    "Source folder does not exist: "
+                            + sourceFolder.toAbsolutePath());
+        }
+
+        Path outputParent = outputFile.toAbsolutePath().getParent();
+
+        if (outputParent != null) {
+            Files.createDirectories(outputParent);
+        }
+
+        try (
+                final BufferedWriter writer =
+                        Files.newBufferedWriter(
+                                outputFile,
+                                StandardCharsets.UTF_8);
+
+                Stream<Path> paths = Files.walk(sourceFolder)
+        ) {
+            paths
+                    .filter(Files::isRegularFile)
+                    .filter(FileTextArchiver::hasAllowedExtension)
+                    .filter(file ->
+                            !file.toAbsolutePath().normalize().equals(
+                                    outputFile.toAbsolutePath().normalize()))
+                    .forEach(file -> {
+                        try {
+                            Path relativePath =
+                                    sourceFolder.relativize(file);
+
+                            String storedPath =
+                                    relativePath.toString()
+                                            .replace("\\", "/");
+
+                            byte[] originalBytes =
+                                    Files.readAllBytes(file);
+
+                            String encodedContent =
+                                    Base64.getEncoder()
+                                            .encodeToString(originalBytes);
+
+                            writer.write(FILE_START + storedPath);
+                            writer.newLine();
+
+                            writer.write(encodedContent);
+                            writer.newLine();
+
+                            writer.write(FILE_END);
+                            writer.newLine();
+
+                            System.out.println(
+                                    "Packed: " + storedPath);
+
+                        } catch (IOException e) {
+                            throw new RuntimeException(
+                                    "Failed to pack file: " + file,
+                                    e);
+                        }
+                    });
+        }
+
+        System.out.println(
+                "Archive created: "
+                        + outputFile.toAbsolutePath());
+    }
+
+    public static void unpack(
+            Path archiveFile,
+            Path outputFolder) throws IOException {
+
+        if (!Files.isRegularFile(archiveFile)) {
+            throw new IllegalArgumentException(
+                    "Archive file does not exist: "
+                            + archiveFile.toAbsolutePath());
+        }
+
+        Files.createDirectories(outputFolder);
+
+        try (
+                BufferedReader reader =
+                        Files.newBufferedReader(
+                                archiveFile,
+                                StandardCharsets.UTF_8)
+        ) {
+            String line;
+            Path currentOutputFile = null;
+            StringBuilder base64Content = null;
+
+            while ((line = reader.readLine()) != null) {
+
+                if (line.startsWith(FILE_START)) {
+
+                    String relativeFileName =
+                            line.substring(FILE_START.length()).trim();
+
+                    currentOutputFile =
+                            createSafeOutputPath(
+                                    outputFolder,
+                                    relativeFileName);
+
+                    Path parent = currentOutputFile.getParent();
+
+                    if (parent != null) {
+                        Files.createDirectories(parent);
+                    }
+
+                    base64Content = new StringBuilder();
+
+                } else if (line.equals(FILE_END)) {
+
+                    if (currentOutputFile != null
+                            && base64Content != null) {
+
+                        byte[] originalBytes =
+                                Base64.getDecoder().decode(
+                                        base64Content.toString());
+
+                        Files.write(
+                                currentOutputFile,
+                                originalBytes);
+
+                        System.out.println(
+                                "Recreated: "
+                                        + currentOutputFile.toAbsolutePath());
+                    }
+
+                    currentOutputFile = null;
+                    base64Content = null;
+
+                } else if (base64Content != null) {
+
+                    base64Content.append(line.trim());
+                }
+            }
+        }
+
+        System.out.println(
+                "Files recreated in: "
+                        + outputFolder.toAbsolutePath());
+    }
+
+    private static boolean hasAllowedExtension(Path file) {
+
+        String fileName =
+                file.getFileName()
+                    .toString()
+                    .toLowerCase();
+
+        for (String extension : EXTENSIONS) {
+            if (fileName.endsWith(extension)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Path createSafeOutputPath(
+            Path outputFolder,
+            String relativeFileName) throws IOException {
+
+        Path normalizedOutputFolder =
+                outputFolder.toAbsolutePath().normalize();
+
+        Path outputPath =
+                normalizedOutputFolder
+                    .resolve(relativeFileName)
+                    .normalize();
+
+        if (!outputPath.startsWith(normalizedOutputFolder)) {
+            throw new IOException(
+                    "Invalid file path in archive: "
+                            + relativeFileName);
+        }
+
+        return outputPath;
+    }
+}
