@@ -1,392 +1,1980 @@
+package gov.illinois.access.presentation.pdf;
+
+import java.awt.Color;
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.*;
-import java.nio.file.*;
-import java.util.*;
-import java.util.stream.Stream;
-
-public class FileTextArchiver {
-
-    private static final Set<String> EXTENSIONS =
-            new HashSet<String>(Arrays.asList(
-                    ".al",
-                    ".jsp",
-                    ".js",
-                    ".txt",
-                    ".java"
-            ));
-
-    private static final String FILE_HEADER =
-            "----------------- FILE -----------------";
-
-    private static final String FILE_END =
-            "----------------- END FILE -----------------";
-
-    public static void main(String[] args) throws Exception {
-
-        if (args.length < 3) {
-            System.out.println("Usage:");
-            System.out.println(
-                    "Pack   : pack <source-folder> <archive-file>");
-            System.out.println(
-                    "Unpack : unpack <archive-file> <output-folder>");
-            return;
-        }
-
-        String operation = args[0];
-        Path inputPath = Paths.get(args[1]);
-        Path outputPath = Paths.get(args[2]);
-
-        if ("pack".equalsIgnoreCase(operation)) {
-            pack(inputPath, outputPath);
-        } else if ("unpack".equalsIgnoreCase(operation)) {
-            unpack(inputPath, outputPath);
-        } else {
-            System.out.println("Invalid operation: " + operation);
-        }
-    }
-
-    public static void pack(
-            final Path sourceFolder,
-            final Path archiveFile) throws IOException {
-
-        if (!Files.isDirectory(sourceFolder)) {
-            throw new IllegalArgumentException(
-                    "Source folder does not exist: "
-                            + sourceFolder.toAbsolutePath());
-        }
-
-        Path archiveParent =
-                archiveFile.toAbsolutePath().getParent();
-
-        if (archiveParent != null) {
-            Files.createDirectories(archiveParent);
-        }
-
-        final StringBuilder archive = new StringBuilder();
-
-        try (Stream<Path> paths = Files.walk(sourceFolder)) {
-
-            paths.filter(Files::isRegularFile)
-                    .filter(FileTextArchiver::hasAllowedExtension)
-                    .filter(file -> !sameFile(file, archiveFile))
-                    .forEach(file -> {
-
-                        try {
-                            Path relativePath =
-                                    sourceFolder.relativize(file);
-
-                            String storedPath =
-                                    relativePath.toString()
-                                            .replace("\\", "/");
-
-                            DecodedFile decodedFile =
-                                    readTextFile(file);
-
-                            archive.append(FILE_HEADER)
-                                   .append("\n");
-
-                            archive.append("PATH=")
-                                   .append(storedPath)
-                                   .append("\n");
-
-                            archive.append("CHARSET=")
-                                   .append(decodedFile.charset.name())
-                                   .append("\n");
-
-                            archive.append("LENGTH=")
-                                   .append(decodedFile.content.length())
-                                   .append("\n");
-
-                            archive.append("CONTENT-BEGIN")
-                                   .append("\n");
-
-                            /*
-                             * Do not add or remove anything inside
-                             * the actual file content.
-                             */
-                            archive.append(decodedFile.content);
-
-                            archive.append("\n")
-                                   .append(FILE_END)
-                                   .append("\n");
-
-                            System.out.println(
-                                    "Archived: " + storedPath
-                                    + " [" + decodedFile.charset.name() + "]");
-
-                        } catch (IOException e) {
-                            throw new RuntimeException(
-                                    "Failed to archive file: " + file,
-                                    e);
-                        }
-                    });
-        }
-
-        Files.write(
-                archiveFile,
-                archive.toString().getBytes(StandardCharsets.UTF_8));
-
-        System.out.println(
-                "Archive created at: "
-                        + archiveFile.toAbsolutePath());
-    }
-
-    public static void unpack(
-            Path archiveFile,
-            Path outputFolder) throws IOException {
-
-        if (!Files.isRegularFile(archiveFile)) {
-            throw new IllegalArgumentException(
-                    "Archive file does not exist: "
-                            + archiveFile.toAbsolutePath());
-        }
-
-        Files.createDirectories(outputFolder);
-
-        String archive =
-                new String(
-                        Files.readAllBytes(archiveFile),
-                        StandardCharsets.UTF_8);
-
-        int searchPosition = 0;
-        int restoredCount = 0;
-
-        while (true) {
-
-            int headerPosition =
-                    archive.indexOf(FILE_HEADER, searchPosition);
-
-            if (headerPosition < 0) {
-                break;
-            }
-
-            int pathStart =
-                    archive.indexOf("PATH=", headerPosition);
-
-            int pathEnd =
-                    archive.indexOf('\n', pathStart);
-
-            String relativePath =
-                    archive.substring(
-                            pathStart + "PATH=".length(),
-                            pathEnd);
-
-            int charsetStart =
-                    archive.indexOf("CHARSET=", pathEnd);
-
-            int charsetEnd =
-                    archive.indexOf('\n', charsetStart);
-
-            String charsetName =
-                    archive.substring(
-                            charsetStart + "CHARSET=".length(),
-                            charsetEnd);
-
-            int lengthStart =
-                    archive.indexOf("LENGTH=", charsetEnd);
-
-            int lengthEnd =
-                    archive.indexOf('\n', lengthStart);
-
-            int contentLength =
-                    Integer.parseInt(
-                            archive.substring(
-                                    lengthStart + "LENGTH=".length(),
-                                    lengthEnd));
-
-            String contentMarker = "CONTENT-BEGIN\n";
-
-            int contentStart =
-                    archive.indexOf(
-                            contentMarker,
-                            lengthEnd)
-                            + contentMarker.length();
-
-            int contentEnd =
-                    contentStart + contentLength;
-
-            if (contentEnd > archive.length()) {
-                throw new IOException(
-                        "Invalid archive content length for: "
-                                + relativePath);
-            }
-
-            String content =
-                    archive.substring(contentStart, contentEnd);
-
-            Path outputFile =
-                    createSafeOutputPath(
-                            outputFolder,
-                            relativePath);
-
-            Path parent = outputFile.getParent();
-
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-
-            Charset originalCharset =
-                    Charset.forName(charsetName);
-
-            Files.write(
-                    outputFile,
-                    content.getBytes(originalCharset));
-
-            System.out.println(
-                    "Recreated: "
-                            + outputFile.toAbsolutePath());
-
-            restoredCount++;
-
-            searchPosition = contentEnd;
-        }
-
-        System.out.println(
-                "Total files recreated: " + restoredCount);
-
-        System.out.println(
-                "Files recreated in: "
-                        + outputFolder.toAbsolutePath());
-    }
-
-    private static DecodedFile readTextFile(
-            Path file) throws IOException {
-
-        byte[] bytes = Files.readAllBytes(file);
-
-        /*
-         * First try UTF-8 strictly.
-         */
-        try {
-            String content =
-                    decodeStrictly(
-                            bytes,
-                            StandardCharsets.UTF_8);
-
-            return new DecodedFile(
-                    content,
-                    StandardCharsets.UTF_8);
-
-        } catch (CharacterCodingException e) {
-
-            /*
-             * Many older Windows project files use
-             * Windows-1252 encoding.
-             */
-            Charset windowsCharset =
-                    Charset.forName("windows-1252");
-
-            try {
-                String content =
-                        decodeStrictly(
-                                bytes,
-                                windowsCharset);
-
-                return new DecodedFile(
-                        content,
-                        windowsCharset);
-
-            } catch (CharacterCodingException secondException) {
-
-                /*
-                 * Final fallback.
-                 */
-                Charset fallback =
-                        StandardCharsets.ISO_8859_1;
-
-                String content =
-                        new String(bytes, fallback);
-
-                return new DecodedFile(
-                        content,
-                        fallback);
-            }
-        }
-    }
-
-    private static String decodeStrictly(
-            byte[] bytes,
-            Charset charset)
-            throws CharacterCodingException {
-
-        CharsetDecoder decoder =
-                charset.newDecoder();
-
-        decoder.onMalformedInput(
-                CodingErrorAction.REPORT);
-
-        decoder.onUnmappableCharacter(
-                CodingErrorAction.REPORT);
-
-        CharBuffer result =
-                decoder.decode(ByteBuffer.wrap(bytes));
-
-        return result.toString();
-    }
-
-    private static boolean hasAllowedExtension(
-            Path file) {
-
-        String fileName =
-                file.getFileName()
-                    .toString()
-                    .toLowerCase();
-
-        for (String extension : EXTENSIONS) {
-            if (fileName.endsWith(extension)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static boolean sameFile(
-            Path first,
-            Path second) {
-
-        return first.toAbsolutePath()
-                    .normalize()
-                    .equals(
-                        second.toAbsolutePath()
-                              .normalize());
-    }
-
-    private static Path createSafeOutputPath(
-            Path outputFolder,
-            String relativePath) throws IOException {
-
-        Path normalizedFolder =
-                outputFolder.toAbsolutePath()
-                            .normalize();
-
-        Path outputPath =
-                normalizedFolder
-                    .resolve(relativePath)
-                    .normalize();
-
-        if (!outputPath.startsWith(normalizedFolder)) {
-            throw new IOException(
-                    "Invalid path in archive: "
-                            + relativePath);
-        }
-
-        return outputPath;
-    }
-
-    private static class DecodedFile {
-
-        private final String content;
-        private final Charset charset;
-
-        private DecodedFile(
-                String content,
-                Charset charset) {
-
-            this.content = content;
-            this.charset = charset;
-        }
-    }
-}
+import java.io.InputStreamReader;
+import java.io.StringWriter;
+import java.sql.Date;
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+
+import org.apache.commons.lang.exception.ExceptionUtils;
+import com.lowagie.text.Chapter;
+import com.lowagie.text.Chunk;
+import com.lowagie.text.Document;
+import com.lowagie.text.DocumentException;
+import com.lowagie.text.Element;
+import com.lowagie.text.Font;
+import com.lowagie.text.FontFactory;
+import com.lowagie.text.HeaderFooter;
+import com.lowagie.text.Image;
+import com.lowagie.text.ListItem;
+import com.lowagie.text.PageSize;
+import com.lowagie.text.Paragraph;
+import com.lowagie.text.Phrase;
+import com.lowagie.text.Rectangle;
+import com.lowagie.text.pdf.BaseFont;
+import com.lowagie.text.pdf.ColumnText;
+import com.lowagie.text.pdf.PdfContentByte;
+import com.lowagie.text.pdf.PdfGState;
+import com.lowagie.text.pdf.PdfPCell;
+import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfReader;
+import com.lowagie.text.pdf.PdfStamper;
+import com.lowagie.text.pdf.PdfWriter;
+
+import gov.illinois.access.business.customEntities.APP_ABS_PRNT_Cust_Cargo;
+import gov.illinois.access.business.customEntities.APP_ABS_PRNT_Cust_Collection;
+import gov.illinois.access.business.customEntities.INDIVIDUAL_Custom_Cargo;
+import gov.illinois.access.business.customEntities.INDIVIDUAL_Custom_Collection;
+import gov.illinois.access.business.customEntities.JOBINCOME_Custom_Cargo;
+import gov.illinois.access.business.customEntities.JOBINCOME_Custom_Collection;
+import gov.illinois.access.business.entities.*;
+import gov.illinois.access.business.rules.AdditionalBenefitsBO;
+import gov.illinois.access.business.rules.cmb.CMBQueryBO;
+import gov.illinois.access.business.rules.employment.JobIncomeBO;
+import gov.illinois.access.business.rules.expenses.ShelterCostsBO;
+import gov.illinois.access.business.rules.household.SOGIReferenceHelper;
+import gov.illinois.access.business.rules.pdf.RMCPdfHelperBO;
+import gov.illinois.access.business.utility.PMDRules;
+import gov.illinois.access.business.utility.StringUtils;
+import gov.illinois.access.management.applications.IApplicationManager;
+import gov.illinois.access.management.applications.IRMCResponseProfileManager;
+import gov.illinois.access.management.applications.RMCResponseProfileManager;
+import gov.illinois.access.management.constants.AppConstants;
+import gov.illinois.access.management.individuals.PeopleHandler;
+import gov.illinois.access.management.programs.FwProgramManager;
+import gov.illinois.access.management.programs.IProgramManager;
+import gov.illinois.access.management.util.DateRoutine;
+import gov.illinois.access.management.util.DisplayFormatter;
+import gov.illinois.access.management.util.IndividualAge;
+import gov.illinois.framework.business.entities.FwTransaction;
+import gov.illinois.framework.driver.DriverManager;
+import gov.illinois.framework.driver.FwPageManager;
+import gov.illinois.framework.driver.IDriver;
+import gov.illinois.framework.driver.IPage;
+import gov.illinois.framework.exceptions.FwException;
+import gov.illinois.framework.exceptions.FwExceptionManager;
+import gov.illinois.framework.exceptions.FwWrappedException;
+import gov.illinois.framework.exceptions.IException;
+import gov.illinois.framework.factories.FwServiceFactory;
+import gov.illinois.framework.management.configuration.IConfiguration;
+import gov.illinois.framework.management.constants.FwConstants;
+import gov.illinois.framework.management.logging.ILog;
+import gov.illinois.framework.management.references.IReferenceConstants;
+import gov.illinois.framework.management.references.IReferenceTableData;
+import gov.illinois.framework.management.references.IReferenceTableManager;
+import gov.illinois.framework.management.references.ReferenceTableManager;
+import gov.illinois.framework.management.util.FwDataCriteria;
+import gov.illinois.framework.management.util.FwDate;
+import gov.illinois.framework.management.util.FwMessageFormatter;
+import gov.illinois.framework.persistence.management.IData;
+import gov.illinois.access.business.rules.household.RetroMonthsReferenceHelper;
+
+/**
+ * Enter the description of the class
+ * 
+ * @author Saravana Muppuru Creation Date Jul 7, 2006 Modified By: Swati Vaze
+ *         Modified By: Cometron Selvaraj Modified By: Indrani Nirmal Kumar -
+ *         Dec 01, 2011 PCR#29772
+ */
+public class PrintRMCPdf {
+	InputStreamReader inputStreamReader = null;
+	String langIndicator = FwConstants.ENGLISH;
+	boolean exceptionOccured =false;
+	private boolean insertPDFWaterMark;
+	private String errorSectionHeader;
+	com.lowagie.text.List list;
+	Font fRegularTextBold = FontFactory.getFont(FontFactory.HELVETICA, 10,
+			Font.BOLD);
+	Font fItalic = FontFactory.getFont(FontFactory.HELVETICA, 12, Font.ITALIC);
+	Font fRegularTextTen = FontFactory.getFont(FontFactory.HELVETICA, 10);
+	Font fRegularText = FontFactory.getFont(FontFactory.HELVETICA, 12);
+	Font fRegularBoldUnderlined = FontFactory.getFont(FontFactory.HELVETICA,
+			10, Font.BOLD);
+	Font fRegularErrorTen = FontFactory.getFont(FontFactory.HELVETICA, 10,Font.NORMAL,Color.RED);
+
+	Font fRegularTextWhiteBold = FontFactory.getFont(FontFactory.HELVETICA, 12,
+			Font.BOLD, new Color(255, 255, 255));
+	// start book mark
+	Font fanchorText = FontFactory.getFont(FontFactory.HELVETICA, 12,
+			Font.NORMAL, java.awt.Color.BLUE);
+	Font fsectionHeading = FontFactory.getFont(FontFactory.HELVETICA, 12,
+			Font.UNDERLINE);
+	Font fsmallSectionHeading = FontFactory.getFont(FontFactory.HELVETICA, 12);
+	Font fsmallSecHeadUnderline = FontFactory.getFont(FontFactory.HELVETICA,
+			12, Font.UNDERLINE);
+
+	HeaderFooter footer;
+	Image checkMark;
+	Image checkBox;
+	SimpleDateFormat formatter;
+	Date toDay;
+
+	// end
+
+	HeaderFooter header;
+	Image logo;
+
+	ByteArrayOutputStream ba = null;
+	IPage ipage = FwPageManager.createInstance();
+	IReferenceTableManager iref = ReferenceTableManager.getInstance();
+	Chunk chunk = null;
+	Document doc = null;
+
+	String app_type = AppConstants.SPACE;
+
+	PdfWriter docWriter = null;
+	String batchNum = null;
+	String jobNm=null;
+	String MmcAppNum=null;
+
+	DateRoutine dateRoutine = DateRoutine.getInstance();
+	DisplayFormatter displayFormatter = DisplayFormatter.getInstance();
+	FwDate fwDate = FwDate.getInstance();
+	SimpleDateFormat simpleDateFormat = new SimpleDateFormat("MM/dd/yyyy");
+	private static ILog logger = (ILog) FwServiceFactory.getInstance().create(
+			ILog.class);
+
+	boolean isRMB = false;
+	boolean isRMC = false;
+	boolean isCdcExists = false;
+	BufferedReader htmlReader = null;
+	boolean isRetroEnabled = RetroMonthsReferenceHelper.retroMonthsEnableDisable();
+
+	PrintRMCPdfExt pdfEXT = null;
+
+	/**
+	 * @param txnBean
+	 */
+	public void buildByteArraySecurePdf(FwTransaction txnBean) {
+		Map request = txnBean.getRequest();
+		Map pdfMap = (Map) request.get(FwConstants.PDF_MAP);
+		request.put(FwConstants.PDF_BYTE_ARRAY, buildByteArray(pdfMap));
+		txnBean.setRequest(request);
+
+	}
+
+	/**
+	 * @param txnBean
+	 */
+	public void buildErrorSecurePdf(FwTransaction txnBean) {
+		Map request = txnBean.getRequest();
+		request.put(FwConstants.PDF_BYTE_ARRAY, renderSystemErrorPDF(txnBean));
+	}
+
+	public ByteArrayOutputStream renderSystemErrorPDF(FwTransaction txnBean) {
+		String appNumber=null;
+		try {
+			Map request = txnBean.getRequest();
+			ba = new ByteArrayOutputStream();
+			doc = new Document();
+			langIndicator = (String) request.get(AppConstants.LANGUAGE);
+			docWriter = PdfWriter.getInstance(doc, ba);
+			PdfDocEventsForAFB events = new PdfDocEventsForAFB(langIndicator);
+			docWriter.setPageEvent(events);
+			doc.setPageSize(PageSize.LETTER);
+			doc.setMargins(36, 36, 48, 36);
+
+			doc.open();
+			Paragraph pNum = new Paragraph(AppConstants.EMPTY_STRING,
+					fRegularTextBold);
+			appNumber = (String) request.get(AppConstants.APP_NUMBER);
+			appNumber = paddingNumbers(appNumber, 10);
+			pNum.add(new Paragraph("\n"));
+			MmcAppNum = appNumber;
+			//pNum.add(ipage.getDisplayText(30608, langIndicator));
+			//ILIES-209924
+			if(appNumber != null && !appNumber.isEmpty()){
+				String errorMessage = getDisplayText(1700011, langIndicator);
+				//pNum.add(errorMessage);
+				pNum.add(errorMessage);
+				pNum.add(FwConstants.SPACE);
+				pNum.add(appNumber);
+				pNum.add(FwConstants.DOT);
+				pNum.add(new Paragraph("\n"));
+				pNum.add(getDisplayText(1700012, langIndicator));
+			}else{
+				pNum.add(getDisplayText(1700013, langIndicator));
+			}
+			pNum.add(FwConstants.DOT);
+			//pNum.add(appNumber);
+			//pNum.add(FwConstants.DOT);
+			doc.add(pNum);
+			doc.add(new Paragraph(AppConstants.NEWLINE));
+			//return ba;
+		} catch (FwException fe) {
+			
+			StringWriter sw = new StringWriter();
+			sw.append("FwException.renderSystemErrorPDF").append("/appNumber:").append(appNumber).append("\n");
+			logger.log(this.getClass(), ILog.ERROR, sw.toString());
+			
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("renderSystemErrorPDF");	
+			we.setStackTrace(fe.getStackTrace());
+			we.setFwException(fe);			
+			throw we;
+		} catch (Exception e) {
+			
+			StringWriter sw = new StringWriter();
+			sw.append("Exception.renderSystemErrorPDF").append("/appNumber:").append(appNumber).append("\n");
+			logger.log(this.getClass(), ILog.ERROR, sw.toString());
+			
+			throw createFwException(this.getClass().getName(),
+					"renderSystemErrorPDF", e);
+		} finally {
+			if (doc != null) {
+				doc.close();
+			}
+			if (docWriter != null) {
+				docWriter.close();
+			}
+		
+		if(insertPDFWaterMark){
+			PdfReader reader = null;
+			try {
+				 reader = new PdfReader(ba.toByteArray());
+				 int n = reader.getNumberOfPages();
+			        PdfStamper stamper = new PdfStamper(reader, ba);
+			        Font f = new Font(30);
+			        Phrase p = new Phrase("ERROR - Missing Data on PDF", f);
+			        PdfGState gs1 = new PdfGState();
+			        gs1.setFillOpacity(0.5f);
+		            PdfContentByte over;
+			        Rectangle pagesize;
+			        float x, y;
+			        for (int i = 1; i <= n; i++) {
+			            pagesize = reader.getPageSizeWithRotation(i);
+			            x = (pagesize.left() + pagesize.right()) / 2;
+			            y = (pagesize.top() + pagesize.bottom()) / 2;
+			            over = stamper.getOverContent(i);
+			            over.saveState();
+			            over.setGState(gs1);		          
+			            ColumnText.showTextAligned(over, Element.ALIGN_CENTER, p, 280, 390, 45);         
+	 		            over.restoreState();
+			        }
+			        stamper.close();
+			        reader.close();
+			      //  return ba;
+			} catch (Exception e) {
+				log(ILog.ERROR,"PrintAFBPdf::buildByte Array ::Exception ::: MmcAppNum "+ MmcAppNum + "  Exception: "+ e.getMessage() , e);
+				FwException fe = new FwException();
+				fe.setClassID(this.getClass().getName());
+				fe.setMethodID("buildByte Array ::Exception");
+				fe.setExceptionType(FwConstants.EXP_TYP_APPLICATION);
+				fe.setExceptionText(String.valueOf(e));
+				fe.setStackTraceValue(FwExceptionManager.getStackTraceValue(e));			
+		        writeExceptionRecord(fe);	   
+			}
+		}
+		
+		//return ba;
+	}
+		return ba;
+	}
+	
+	
+	
+	public ByteArrayOutputStream renderSystemErrorHTML(FwTransaction txnBean) {
+		String appNumber=null;
+			StringBuffer sb = new StringBuffer();
+		try {
+			Map request = txnBean.getRequest();
+			ba = new ByteArrayOutputStream();
+			langIndicator = (String) request.get(AppConstants.LANGUAGE);
+
+			appNumber = (String) request.get(AppConstants.APP_NUMBER);
+			appNumber = paddingNumbers(appNumber, 10);
+		
+			sb.append("\n<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0 Transitional//EN\">");
+			sb.append("\n<HTML lang=\"EN\">");
+			sb.append("\n<HEAD>");
+			sb.append("\n<TITLE>Illinois.gov - IL Application for Benefits Eligibility (ABE) Apply for Benefits Eligibility </TITLE>");
+			sb.append("\n<link HREF=\"/access/css/ie_Styles.css?6.1.4\" REL=\"stylesheet\" TYPE=\"text/css\">");
+			sb.append("\n</HEAD>");
+			sb.append("\n<BODY BGCOLOR=\"#ffffff\" LEFTMARGIN=\"0\" TOPMARGIN=\"0\">");
+			sb.append("\n<DIV style=\"font-family: Arial, Helvetica, sans-serif;\">\n");
+			//sb.append("\t\t<H2 style=\"padding: 2em 0 0 1em\">" +  ipage.getDisplayText(30608, langIndicator) + appNumber + "</H2>\n");
+			//ILIES-209924
+			if(appNumber != null && !appNumber.isEmpty()){
+				sb.append("\t\t<H2 style=\"padding: 2em 0 0 1em\">" +  ipage.getDisplayText(1700011, langIndicator) + appNumber + "</H2>\n");
+				sb.append("\t\t<H2 style=\"padding: 2em 0 0 1em\">" +  ipage.getDisplayText(1700012, langIndicator) + "</H2>\n");
+			}else{
+				sb.append("\t\t<H2 style=\"padding: 2em 0 0 1em\">" +  ipage.getDisplayText(1700013, langIndicator) + "</H2>\n");
+			}
+			sb.append("</DIV>\n");
+			sb.append("\n</BODY>");
+			sb.append("\n</HTML>");
+			try {
+				ba.write(String.valueOf(sb).getBytes());
+			}
+			catch (IOException e) {
+				
+				StringWriter sw = new StringWriter();
+				sw.append("IOException.renderSystemErrorHTML").append("/appNumber:").append(appNumber).append("\n");
+				logger.log(this.getClass(), ILog.ERROR, sw.toString());
+			}			
+		} catch (FwException fe) {
+			StringWriter sw = new StringWriter();
+			sw.append("FwException.renderSystemErrorHTML").append("/appNumber:").append(appNumber).append("\n");
+			logger.log(this.getClass(), ILog.ERROR, sw.toString());
+			
+			FwWrappedException we = new FwWrappedException();
+			we.setCallingClassID(this.getClass().getName());
+			we.setCallingMethodID("renderSystemErrorHTML");
+			we.setStackTrace(fe.getStackTrace());
+			we.setFwException(fe);
+			throw we;
+		} catch (Exception e) {
+			
+			StringWriter sw = new StringWriter();
+			sw.append("Exception.renderSystemErrorHTML").append("/appNumber:").append(appNumber).append("\n");
+			logger.log(this.getClass(), ILog.ERROR, sw.toString());
+			
+			throw createFwException(this.getClass().getName(),
+					"renderSystemErrorHTML", e);
+		} 
+		return ba;
+	}
+
+	/**
+	 * @param doc
+	 * @param text
+	 * @param font
+	 * @param align
+	 * @throws Exception
+	 */
+	private void getParagraphs(Document doc, String text, Font font, int align)
+			throws Exception {
+
+		Paragraph pdfParagraph = null;
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			PdfPTable tab = new PdfPTable(1);
+			tab.getDefaultCell().setBorder(0);
+			float width[] = { 1 };
+			tab.setWidths(width);
+			tab.setTotalWidth(100);
+			tab.setWidthPercentage(100);
+			pdfParagraph = new Paragraph(text, font);
+			pdfParagraph.setAlignment(align);
+			PdfPCell pdfPNewCell = new PdfPCell(pdfParagraph);
+			pdfPNewCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+			pdfPNewCell.setBorder(0);
+
+			tab.addCell(pdfPNewCell);
+			doc.add(tab);
+
+		} else
+			try {
+				doc.add(new Paragraph(text, font));
+
+			} catch (DocumentException de) {
+				
+				StringWriter sw = new StringWriter();
+				sw.append("DocumentException.getParagraphs1").append("\n");
+				logger.log(this.getClass(), ILog.ERROR, sw.toString());				
+
+			}
+
+	}
+
+	/**
+	 * @param doc
+	 * @param text
+	 * @param font
+	 * @throws Exception
+	 */
+	private void getParagraphs(Document doc, String text, Font font)
+			throws Exception {
+
+		Paragraph pdfParagraph = null;
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			PdfPTable tab = new PdfPTable(1);
+			tab.getDefaultCell().setBorder(0);
+			float width[] = { 1 };
+			tab.setWidths(width);
+			tab.setTotalWidth(100);
+			tab.setWidthPercentage(100);
+			pdfParagraph = new Paragraph(text, font);
+
+			PdfPCell pdfPNewCell = new PdfPCell(pdfParagraph);
+			pdfPNewCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+			pdfPNewCell.setBorder(0);
+			tab.addCell(pdfPNewCell);
+			doc.add(tab);
+
+		} else
+			try {
+				doc.add(new Paragraph(text, font));
+
+			} catch (DocumentException de) {
+
+				StringWriter sw = new StringWriter();
+				sw.append("DocumentException.getParagraphs2").append("\n");
+				logger.log(this.getClass(), ILog.ERROR, sw.toString());	
+
+			}
+
+	}
+
+	/**
+	 * @param textID
+	 * @param language_indicator
+	 * @return
+	 */
+	public String getDisplayText(int textID, String language_indicator) {
+
+		String text = ipage.getDisplayText(textID, language_indicator);
+		if (language_indicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(language_indicator)) {
+			text = this.convertToArabic(text);
+		}
+		return text;
+	}
+	
+	/**
+	 * Displays the inputed textID as it's proper String output; substitute array populates each ~ in the String as necessary.
+	 * @param textID Text ID from the Database to put populated on-screen.
+	 * @param languageIndicator String representing the language which needs to be used.
+	 * @param substitute String Array filled with the parameters needed to replace the ~ keys in the textID String.
+	 * @return String representing the textID with replaced ~ values.
+	 */
+	public String getDisplayText(int textID, String languageIndicator, String[] substitute){
+		String text = ipage.getDisplayText(textID, languageIndicator);
+		if (AppConstants.LANGUAGE_CD_ARABIC.equalsIgnoreCase(languageIndicator)) {
+			text = this.convertToArabic(text);
+		}
+		
+		if(null != substitute && substitute.length > 0){
+			for(int i = 0; i < substitute.length; i++){
+				if(substitute[i]!=null&& !substitute[i].isEmpty()){
+					text = text.replaceFirst("~", substitute[i]);
+				}
+			}
+		}
+		
+		return text;
+	}
+
+	/**
+	 * @param refTableName
+	 * @param columnId
+	 * @param code
+	 * @param language
+	 * @return
+	 */
+	private String getColumnValue(String refTableName, int columnId,
+			String code, String language) {
+
+		String text = iref.getColumnValue(refTableName, columnId, code,
+				language);
+		if (language != null
+				&& AppConstants.LANGUAGE_CD_ARABIC.equalsIgnoreCase(language)) {
+			text = this.convertToArabic(text);
+		}
+		return text;
+	}
+
+	/**
+	 * @param doc
+	 * @param pdfParagraph
+	 * @throws Exception
+	 */
+	private void getParagraphIntoDoc(Document doc, Paragraph pdfParagraph)
+			throws Exception {
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			PdfPTable tab = new PdfPTable(1);
+			tab.getDefaultCell().setBorder(0);
+			float width[] = { 1 };
+			tab.setWidths(width);
+			tab.setTotalWidth(100);
+			tab.setWidthPercentage(100);
+
+			PdfPCell pdfPNewCell = new PdfPCell(pdfParagraph);
+			pdfPNewCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+			pdfPNewCell.setBorder(0);
+			tab.addCell(pdfPNewCell);
+			doc.add(tab);
+
+		} else
+			try {
+				doc.add(pdfParagraph);
+
+			} catch (DocumentException de) {
+
+				StringWriter sw = new StringWriter();
+				sw.append("DocumentException.getParagraphIntoDoc").append("\n");
+				logger.log(this.getClass(), ILog.ERROR, sw.toString());	
+
+			}
+
+	}
+
+	/**
+	 * @param textID
+	 * @param font
+	 * @param language_indicator
+	 * @return
+	 */
+	private PdfPCell getPdfPCell(String textID, Font font,
+			String language_indicator) {
+
+		PdfPCell pdfPNewCell = null;
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			pdfPNewCell = new PdfPCell(new Paragraph(textID, font));
+			pdfPNewCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+
+		} else {
+			pdfPNewCell = new PdfPCell(new Paragraph(textID, font));
+		}
+
+		return pdfPNewCell;
+	}
+
+	/**
+	 * @param sPara
+	 * @param language_indicator
+	 * @return
+	 */
+	private PdfPCell getPdfPCell(Paragraph sPara, String language_indicator) {
+
+		PdfPCell pdfPNewCell = null;
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			pdfPNewCell = new PdfPCell(sPara);
+			pdfPNewCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+
+		} else {
+			pdfPNewCell = new PdfPCell(sPara);
+		}
+
+		return pdfPNewCell;
+	}
+
+	/**
+	 * @param text
+	 * @param language_indicator
+	 * @return
+	 */
+	public String getTimeStamp(String text, String language_indicator) {
+
+		if (language_indicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(language_indicator)) {
+			text = this.convertToArabic(text);
+		}
+		return text;
+	}
+
+	private void getListItem(Document doc, com.lowagie.text.ListItem listItem)
+			throws Exception {
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			PdfPTable tab = new PdfPTable(1);
+			tab.getDefaultCell().setBorder(0);
+			float width[] = { 1 };
+			tab.setWidths(width);
+			tab.setTotalWidth(100);
+			tab.setWidthPercentage(100);
+
+			PdfPCell pdfPNewCell = new PdfPCell(listItem);
+			pdfPNewCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+			pdfPNewCell.setBorder(0);
+			tab.addCell(pdfPNewCell);
+			doc.add(tab);
+		}
+	}
+
+	/**
+	 * @param pdfParagraph
+	 * @return
+	 */
+	private PdfPCell getPdfPCellFromParagraph(Paragraph pdfParagraph) {
+
+		PdfPCell pdfPCell = null;
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			pdfPCell = new PdfPCell(pdfParagraph);
+
+			pdfPCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+
+		} else {
+			pdfPCell = new PdfPCell(pdfParagraph);
+		}
+
+		return pdfPCell;
+	}
+
+	/**
+	 * @param pdfParagraph
+	 * @param language_indicator
+	 * @return
+	 */
+	private PdfPCell getPdfPCellFromPhrase(Phrase pdfPhrase,
+			String language_indicator) {
+
+		PdfPCell pdfPCell = null;
+
+		if (langIndicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(langIndicator)) {
+
+			pdfPCell = new PdfPCell(pdfPhrase);
+
+			pdfPCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+
+		} else {
+			pdfPCell = new PdfPCell(pdfPhrase);
+		}
+
+		return pdfPCell;
+	}
+
+	/**
+	 * @param table
+	 * @param pdfParagraph
+	 * @param language_indicator
+	 */
+	public void getParagraphInTable(PdfPTable table, Paragraph pdfParagraph,
+			String language_indicator) {
+
+		PdfPCell pdfPCell = null;
+		pdfPCell = new PdfPCell(pdfParagraph);
+
+		if (language_indicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(language_indicator)) {
+
+			pdfPCell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+
+			table.addCell(pdfPCell);
+
+		} else {
+			table.addCell(pdfPCell);
+		}
+
+	}
+
+	/**
+	 * @param table
+	 * @param pdfPcell
+	 * @param language_indicator
+	 */
+	public void getCellInTable(PdfPTable table, PdfPCell pdfPcell,
+			String language_indicator) {
+
+		if (language_indicator != null
+				&& AppConstants.LANGUAGE_CD_ARABIC
+						.equalsIgnoreCase(language_indicator)) {
+
+			pdfPcell.setRunDirection(PdfWriter.RUN_DIRECTION_RTL);
+
+			table.addCell(pdfPcell);
+
+		} else {
+			table.addCell(pdfPcell);
+		}
+
+	}
+
+	/**
+	 * @param str
+	 * @return
+	 */
+	public String convertToArabic(String str) {
+		final String[] inputs = { "&#x", "&#", "\\u", "U+", "#x", "#" };
+		StringBuffer result = new StringBuffer();
+
+		for (int i = 0; i < inputs.length; i++) {
+			int radix;
+			int foundIndex;
+			int startIndex = 0;
+			final int STR_LENGTH = str.length();
+			final String input = inputs[i];
+			final int input_LENGTH = input.length();
+
+			if ("&#".equals(input) || "#".equals(input)) {
+				radix = 10;
+			} else {
+				radix = 16;
+			}
+
+			while (startIndex < STR_LENGTH) {
+				foundIndex = str.indexOf(input, startIndex);
+
+				if (foundIndex == -1) {
+					result.append(str.substring(startIndex));
+					break;
+				}
+
+				result.append(str.substring(startIndex, foundIndex));
+				if ("\\u".equals(input) || "U+".equals(input)) {
+					startIndex = foundIndex + 6;
+					if (startIndex > str.length())
+						startIndex = -1; // for invalid Unicode escape sequences
+				} else {
+					startIndex = str.indexOf(";", foundIndex);
+				}
+
+				if (startIndex == -1) {
+					result.append(str.substring(foundIndex));
+					break;
+				}
+
+				String tok = str.substring(foundIndex + input_LENGTH,
+						startIndex);
+
+				try {
+					result.append((char) Integer.parseInt(tok, radix));
+				} catch (NumberFormatException nfe) {
+					try {
+						if ("\\u".equals(input) || "U+".equals(input)) {
+							result.append(input + tok);
+						} else {
+							result.append(input + tok + str.charAt(startIndex));
+						}
+					} catch (StringIndexOutOfBoundsException sioobe) {
+						result.append(input + tok);
+					}
+				}
+
+				if (!("\\u".equals(input)) && !("U+".equals(input))) {
+					startIndex++;
+				}
+			}
+
+			str = result.toString();
+			result.setLength(0);
+		}
+		return str;
+	}
+
+	/**
+	 * @param PDFMap
+	 * @return
+	 */
+	public ByteArrayOutputStream buildByteArray(Map PDFMap) {
+		String appNumber = null;
+		String caseNumber = null;
+		try {
+			caseNumber = (String) PDFMap.get(AppConstants.CASE_NUM);
+			// This application type determines whether it is RMC, RMB, mid point or program add based on status code.
+			app_type = (String) PDFMap.get(AppConstants.APP_TYPE);
+
+			ILog logger = (ILog) FwServiceFactory.getInstance().create(ILog.class);
+			logger.log(this.getClass(), ILog.DEBUG,"Start: buildByteArray(Map) - PrintRMCPdf");
+			ba = new ByteArrayOutputStream();
+			doc = new Document();
+			docWriter = PdfWriter.getInstance(doc, ba);
+			langIndicator = (String) PDFMap.get(AppConstants.LANGUAGE);
+			if (langIndicator == null) {
+				langIndicator = FwConstants.ENGLISH;
+				PDFMap.put(AppConstants.LANGUAGE, langIndicator);
+			}
+			if((String)PDFMap.get("batchSeqNm")!=null){
+				batchNum = (String)PDFMap.get("batchSeqNm");
+		     }else {
+		    	 batchNum ="";
+		     }
+			if((String)PDFMap.get("jobNM")!=null){
+				jobNm = (String)PDFMap.get("jobNM");
+		     }else {
+		    	 jobNm ="";
+		     }
+			if(MmcAppNum == null){
+				MmcAppNum = (String)PDFMap.get(AppConstants.APP_NUMBER);
+			}
+
+			if (langIndicator != null&& AppConstants.LANGUAGE_CD_ARABIC.equalsIgnoreCase(langIndicator)) {
+
+				BaseFont bf1 = BaseFont.createFont("fonts/arial.ttf",BaseFont.IDENTITY_H, true);
+
+				// fPageHeading =new Font(bf1,12,Font.BOLD);
+				fRegularTextBold = new Font(bf1, 10, Font.BOLD);
+				fRegularTextWhiteBold = new Font(bf1, 12, Font.BOLD, new Color(255, 255, 255));
+				fRegularText = new Font(bf1, 12);
+				fRegularTextTen = new Font(bf1, 10);
+			}
+
+			pdfEXT = new PrintRMCPdfExt(langIndicator);
+			PdfDocEventsForAFB events = new PdfDocEventsForAFB(langIndicator);
+			docWriter.setPageEvent(events);
+			doc.setPageSize(PageSize.LETTER);
+			doc.setMargins(36, 36, 48, 36);
+			IConfiguration configuration = (IConfiguration) FwServiceFactory.getInstance().create(IConfiguration.class);
+
+			logger.log(this.getClass(), ILog.DEBUG, "Start: doc.open()");
+			doc.open();
+			logger.log(this.getClass(), ILog.DEBUG, "Success: doc.open()");
+			String envmnt = (String) PDFMap.get(FwConstants.ENV);
+
+			if (envmnt != null && !envmnt.equals(AppConstants.EMPTY_STRING)) {
+				PdfGState gs1 = new PdfGState();
+				gs1.setFillOpacity(0.5f);
+				PdfContentByte cb = docWriter.getDirectContentUnder();
+				cb.saveState();
+				cb.setGState(gs1);
+				BaseFont bf = BaseFont.createFont(BaseFont.HELVETICA_BOLD,BaseFont.CP1252, BaseFont.NOT_EMBEDDED);
+				cb.beginText();
+				cb.setFontAndSize(bf, 58);
+				cb.setGrayFill(0.8f);
+				cb.showTextAligned(PdfContentByte.ALIGN_CENTER, envmnt, 280,390, 45);
+				cb.endText();
+			}
+			Paragraph pNewLine = new Paragraph("\n");
+			doc.add(pNewLine);
+
+			Map namesMap = (Map) PDFMap.get("NamesMap");
+			Map agesMap = (Map) PDFMap.get("AgesMap");
+			Map firstNamesMap = (Map) PDFMap.get("FirstNamesMap");
+			String loginIndvSeqNum = (String) PDFMap.get("INDV_SEQ_NUM");
+			RMC_RQST_Cargo rmcRequestCargo = (RMC_RQST_Cargo) PDFMap.get("RMC_RQST_Cargo");
+			Map bnftCaseAdrMap = (Map) PDFMap.get("BNFT_CASE_ADR_Collection");
+			appNumber = (String) PDFMap.get(AppConstants.APP_NUMBER);
+			List namesList = (List) PDFMap.get("NamesList");
+			langIndicator = (String) PDFMap.get(AppConstants.LANGUAGE);
+			String submissionTimeStamp = this.getTimeStamp(	displayFormatter.getFormattedTimeStamp(	rmcRequestCargo.getSbmt_tms(), langIndicator),langIndicator);
+
+			// Added by kattas for RMB
+			String isRMBString = (String) PDFMap.get("IS_RMB");
+			String isRMCString = (String) PDFMap.get("IS_RMC");
+			String rmbFormType = (String) PDFMap.get(AppConstants.APP_TYPE);
+			// if(PDFMap.get(FwConstants.RMB_FORM_TYPE)!= null){
+			// if(isRMBString != null &&
+			// isRMBString.equalsIgnoreCase(AppConstants.YES))
+			if (rmbFormType != null && rmbFormType.trim().equals(AppConstants.APP_TYPE_CD_RMB)) {
+				isRMB = true;
+				isCdcExists = true;
+			}
+		
+			if (rmbFormType != null && rmbFormType.trim().equals(AppConstants.APP_TYPE_CD_RMC)) {
+				isRMC = true;
+			}
+
+			// if(PDFMap.get("IS_RMB")!=null &&
+			// ((String)PDFMap.get("IS_RMB")).equalsIgnoreCase("Y") )
+			// isCdcExists=true;
+
+			Map RMCDriverMap = (Map) PDFMap.get("RMCDriverMap");
+			IDriver driverManager = DriverManager.getInstance();
+			int[] rmcDriver = (int[]) RMCDriverMap.get("RMC_DRVR");
+			// call print SubHeader
+			printSubHeader(doc, PDFMap);			
+
+			RMC_IN_PRFL_Collection rmcInPrflColl = (RMC_IN_PRFL_Collection) PDFMap.get(AppConstants.RMC_IN_PRFL_MASTER);
+
+			if (isRMB) {
+				// RMB Gatepost
+				if (driverManager
+						.getStatus(FwConstants.RMC_DRIVER, "ARARI", rmcDriver)
+						.equals(String
+								.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+					Chapter rmbGatepostChapter = new Chapter(new Paragraph(
+							"CONC", fRegularTextWhiteBold), 1);
+					// Chapter addrcontactChapter=new Chapter(new
+					// Paragraph("CONC - Address Contact Information ",fRegularTextWhiteBold),1);
+					rmbGatepostChapter.setNumberDepth(0);
+					rmbGatepostChapter.setTriggerNewPage(false);
+					printRMBGatepostResponse(doc, PDFMap, rmbGatepostChapter,rmcInPrflColl);
+					doc.add(rmbGatepostChapter);
+				}
+			}
+
+			// Added by Suresh for the Midpoint report generation
+			if (rmbFormType.trim().equals(AppConstants.APP_TYPE_CD_MPR)) {
+				Chapter mpGatepostChapter = new Chapter(new Paragraph(
+						"MPGatePost", fRegularTextWhiteBold), 1);
+				mpGatepostChapter.setTriggerNewPage(false);
+				printMPGatepostResponse(doc, PDFMap, mpGatepostChapter,	rmcInPrflColl);
+				doc.add(mpGatepostChapter);
+			}
+
+			// Added by Suresh for loading the Program Add questions in the pdf
+			if (rmbFormType.trim().equals(AppConstants.APP_TYPE_CD_AAB)) {
+				printProgramAddDetails(doc, PDFMap);
+			}
+			//Print RMB Tax information
+			Chapter taxChapter= null; 
+			if (isRMB) {
+				// RMB Gatepost
+				if (driverManager
+						.getStatus(FwConstants.RMC_DRIVER, "ARARI", rmcDriver)
+						.equals(String
+								.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+					if( taxChapter == null){
+						taxChapter = new Chapter(new Paragraph("ARARITax",
+								fRegularTextWhiteBold), 1);
+						taxChapter.setNumberDepth(0);
+						taxChapter.setTriggerNewPage(false);
+					}
+					String pinNum = (String) PDFMap.get(AppConstants.USER_PIN_NUM);
+					caseNumber = (String) PDFMap.get(AppConstants.CASE_NUM);
+					CMBQueryBO cmbQueryBO = new CMBQueryBO();
+					Map<String, String> enablingLogic = cmbQueryBO.getRMBGatePostEnablingLogicMap(caseNumber, pinNum);
+//					ILIES-317789 || Nandini || 01/07/2026 || commenting below logic for RMB as below section display is taken care by printRMCTaxDetails || Start
+				/*	if (enablingLogic.get("taxInformation") != null && enablingLogic.get("taxInformation").equals(AppConstants.YES)) {
+						printTaxDetails(doc, PDFMap, firstNamesMap, agesMap, taxChapter);
+					}*/
+//					ILIES-317789 || Nandini || 01/07/2026 || commenting below logic for RMB as below section display is taken care by printRMCTaxDetails || End
+					if (enablingLogic.get("Parole") != null && enablingLogic.get("Parole").equals(AppConstants.YES)) {
+						printDrugFeloniesParoleGatepost(doc, PDFMap, firstNamesMap, agesMap);
+					}
+					
+					if (enablingLogic.get("DrugFelonies") != null && enablingLogic.get("DrugFelonies").equals(AppConstants.YES)) {
+						drugFelRespSection(doc, PDFMap, namesMap, agesMap);
+					}
+					
+					if (enablingLogic.get("DrugTreatment") != null && enablingLogic.get("DrugTreatment").equals(AppConstants.YES)) {
+						prescriptionDrugSection(doc, PDFMap, namesMap, agesMap);
+					}
+				}
+			}
+			// household information changes title
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHCS",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				doc.add(new Paragraph("\n"));
+				// set under line :: PCR# 31106
+				fRegularBoldUnderlined.setStyle(Font.UNDERLINE);
+				this.getParagraphs(doc,
+						this.getDisplayText(45624, langIndicator),
+						fRegularBoldUnderlined);	
+				errorSectionHeader =  this.getDisplayText( 45624, langIndicator);
+			}
+
+			// Moved In - people in home
+			Chapter moveinChapter = null;
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMI",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (moveinChapter == null) {
+					moveinChapter = new Chapter(new Paragraph("MVIC",
+							fRegularTextWhiteBold), 1);
+					moveinChapter.setNumberDepth(0);
+					moveinChapter.setTriggerNewPage(false);
+				}
+				printPeopleInHome(doc, PDFMap, rmcInPrflColl, moveinChapter);
+				// doc.add(moveinChapter);
+			}
+		
+
+			// more info based on moved in details
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMI",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (moveinChapter == null) {
+					moveinChapter = new Chapter(new Paragraph("MVIC",
+							fRegularTextWhiteBold), 1);
+					moveinChapter.setNumberDepth(0);
+					moveinChapter.setTriggerNewPage(false);
+				}
+				printMoreInfoinMovedIndetails(doc, PDFMap, rmcInPrflColl,
+						moveinChapter);
+				// doc.add(moveinChapter);
+
+			}
+
+			// New Born
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHRL",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (moveinChapter == null) {
+					moveinChapter = new Chapter(new Paragraph("MVIC",
+							fRegularTextWhiteBold), 1);
+					moveinChapter.setNumberDepth(0);
+					moveinChapter.setTriggerNewPage(false);
+				}
+				printNewBorn(doc, PDFMap, namesMap, moveinChapter);
+			}
+
+			// Contact Details
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARACD",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				Chapter addrcontactChapter = new Chapter(new Paragraph("CONC",
+						fRegularTextWhiteBold), 1);
+				addrcontactChapter.setNumberDepth(0);
+				addrcontactChapter.setTriggerNewPage(false);
+				printContactDetails(doc, PDFMap, addrcontactChapter);
+				doc.add(addrcontactChapter);
+			}
+
+			// Moved out Details
+			Chapter movedoutChapter = null;
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMO",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+
+				if (movedoutChapter == null) {
+					movedoutChapter = new Chapter(new Paragraph("MVOC",
+							fRegularTextWhiteBold), 1);
+					movedoutChapter.setNumberDepth(0);
+					movedoutChapter.setTriggerNewPage(false);
+				}
+				printMovedOutDetails(doc, PDFMap, namesMap, agesMap);
+			}
+			// death Details - // for one book mark of Marriage,Divorce and
+			// Death (MDD)
+			Chapter mddChapter = null;
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMO",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				// for one book mark of Marriage,Divorce and Death (MDD)
+				if (mddChapter == null) {
+					mddChapter = new Chapter(new Paragraph("MDDC",
+							fRegularTextWhiteBold), 1);
+					mddChapter.setNumberDepth(0);
+					mddChapter.setTriggerNewPage(false);
+				}
+				printDeathDetails(doc, PDFMap, namesMap, agesMap, mddChapter);
+
+			}
+			// marriage
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMA",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (mddChapter == null) {
+					mddChapter = new Chapter(new Paragraph("MDDC",
+							fRegularTextWhiteBold), 1);
+					mddChapter.setNumberDepth(0);
+					mddChapter.setTriggerNewPage(false);
+				}
+				printMarriageDetails(doc, PDFMap, namesMap, agesMap, mddChapter);
+			}
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARBWD",rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))){
+		            	printExemptionSelected(doc,PDFMap);
+		            }
+			// Divorce Details
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMA",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (mddChapter == null) {
+					mddChapter = new Chapter(new Paragraph("MDDC",
+							fRegularTextWhiteBold), 1);
+					mddChapter.setNumberDepth(0);
+					mddChapter.setTriggerNewPage(false);
+				}
+
+				printDivorceDetails(doc, PDFMap, namesMap, agesMap, mddChapter);
+
+			}
+			if (mddChapter != null && !mddChapter.isEmpty())
+				doc.add(mddChapter);
+			
+			// Relationships
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHRL",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (moveinChapter == null) {
+					moveinChapter = new Chapter(new Paragraph("MVIC",
+							fRegularTextWhiteBold), 1);
+					moveinChapter.setNumberDepth(0);
+					moveinChapter.setTriggerNewPage(false);
+				}
+				printRelationship(doc, PDFMap, rmcInPrflColl, namesMap,
+						agesMap, moveinChapter);
+			}
+			
+			//Changes done as part of ILIES-316965 - START
+			
+			String programs = PDFMap.get("CURRENT_PLUS_REQUESTED_PROGRAMS") == null ? "" : PDFMap.get("CURRENT_PLUS_REQUESTED_PROGRAMS").toString();
+			
+			//Release 2.38.2 - ILIES-319711 - applicable for ME and HB pgm codes also
+			boolean isMedicalOrFP = programs.contains("MA") || programs.contains("FP") || programs.contains("ME") || programs.contains("HB");
+
+				
+			//ILIES-317476 | 12/24/2025 | susmanov | Tax block in PDF | START
+			//if (isRMC || PDFMap.get("APP_TYPE").toString().equalsIgnoreCase("PA") && (isMedicalOrFP)) {		
+			if (isMedicalOrFP) {	
+							
+				if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHRL",
+						rmcDriver).equals(
+						String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+					if (moveinChapter == null) {
+						moveinChapter = new Chapter(new Paragraph("MVIC",
+								fRegularTextWhiteBold), 1);
+						moveinChapter.setNumberDepth(0);
+						moveinChapter.setTriggerNewPage(false);
+					}
+					 printRMCMoveInTaxDetails(doc, PDFMap, namesMap, agesMap, moveinChapter);
+				}else{
+				    //Release 2.38.0  - ILIES-319017 - START
+					String taxShow = PDFMap.get("taxSection") == null ? "" : PDFMap.get("taxSection").toString();
+					
+					if(taxShow.equalsIgnoreCase("")||taxShow.equalsIgnoreCase("true")){
+						printRMCTaxDetails(doc, PDFMap, namesMap, agesMap);
+					//Release 2.38.0  - ILIES-319017 - END
+					}
+				}
+				
+			}
+			//ILIES-317476 | 12/24/2025 | susmanov | Tax block in PDF | END
+			
+			//Changes done as part of ILIES-316965 - END
+		
+			// for medicalBills info - Indrani
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARMBD",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+				// get medical Bills changed collection and new collection
+				Map medicalBillsMap = (Map) PDFMap.get("Medical_Bills");
+
+				APP_IN_MED_BILLS_Collection mbChangeColl = (APP_IN_MED_BILLS_Collection) medicalBillsMap
+						.get("mbChangeColl");
+				APP_IN_MED_BILLS_Collection mbNewColl = (APP_IN_MED_BILLS_Collection) medicalBillsMap
+						.get("mbNewColl");
+				APP_IN_MED_BILLS_Collection mbEndColl = (APP_IN_MED_BILLS_Collection) medicalBillsMap
+						.get("mbEndColl");
+
+				// develop PDF code for modified medical bills
+				if (mbChangeColl != null && !mbChangeColl.isEmpty()) {
+					printMedicalBills(doc, PDFMap, namesMap, langIndicator,
+							mbChangeColl, false, agesMap);
+				}
+
+				// develop PDF code for new medical bills
+				if (mbNewColl != null && !mbNewColl.isEmpty()) {
+					printMedicalBills(doc, PDFMap, namesMap, langIndicator,
+							mbNewColl, true, agesMap);
+				}
+
+				// develop PDF code for end medical bills
+				if (mbEndColl != null && !mbEndColl.isEmpty()) {
+					printEndMedicalBills(doc, PDFMap, namesMap, langIndicator,
+							mbEndColl, agesMap);
+				}
+			}
+
+			// Medicare
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMD",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+
+				if (moveinChapter == null) {
+					moveinChapter = new Chapter(new Paragraph("MVIC",
+							fRegularTextWhiteBold), 1);
+					moveinChapter.setNumberDepth(0);
+					moveinChapter.setTriggerNewPage(false);
+				}
+				printMedicareDetails(doc, PDFMap, rmcDriver, driverManager,
+						moveinChapter);
+			}
+
+			// printing Medicare - Indrani
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARLAC",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+				// get medicare changed collection and new collection
+				Map medicareMap = (Map) PDFMap.get("Medicare_Bills");
+
+				APP_IN_MEDCR_Collection mcChangeColl = (APP_IN_MEDCR_Collection) medicareMap
+						.get("mcChangeColl");
+				APP_IN_MEDCR_Collection mcNewColl = (APP_IN_MEDCR_Collection) medicareMap
+						.get("mcNewColl");
+				APP_IN_MEDCR_Collection mcEndColl = (APP_IN_MEDCR_Collection) medicareMap
+						.get("mcEndColl");
+
+				// develop PDF code for modified medicare
+				if (mcChangeColl != null && !mcChangeColl.isEmpty()) {
+					// FIMXE: Changes here
+					printMedicare(doc, PDFMap, namesMap, langIndicator,
+							mcChangeColl, false, agesMap);
+				}
+
+				// develop PDF code for new medicare
+				if (mcNewColl != null && !mcNewColl.isEmpty()) {
+					// FIMXE: Changes here
+					printMedicare(doc, PDFMap, namesMap, langIndicator,
+							mcNewColl, true, agesMap);
+				}
+
+				// develop PDF code for end medicare
+				if (mcEndColl != null && !mcEndColl.isEmpty()) {
+					printEndMedicare(doc, PDFMap, namesMap, langIndicator,
+							mcEndColl, agesMap);
+				}
+			}
+
+			// School Enrollment Details
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHSE",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (moveinChapter == null) {
+					moveinChapter = new Chapter(new Paragraph("MVIC",
+							fRegularTextWhiteBold), 1);
+					moveinChapter.setNumberDepth(0);
+					moveinChapter.setTriggerNewPage(false);
+				}
+				printSchoolEnrollmentDetails(doc, PDFMap, rmcDriver,
+						driverManager, moveinChapter);
+			}
+
+			if (isRMB) {
+				if (rmbFormType
+						.equalsIgnoreCase(AppConstants.FORM_TYPE_CODE_1010)) {
+
+					if (driverManager
+							.getStatus(FwConstants.RMC_DRIVER, "ARSCI",
+									rmcDriver)
+							.equals(String
+									.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+
+						Map schoolEnrollMap = (Map) PDFMap
+								.get("SCHOOL_ENROLLMENT_MAP");
+
+						APP_IN_SCHLE_Collection schoolChangeColl = (APP_IN_SCHLE_Collection) schoolEnrollMap
+								.get("schoolChangeColl");
+						APP_IN_SCHLE_Collection schoolNewColl = (APP_IN_SCHLE_Collection) schoolEnrollMap
+								.get("schoolNewColl");
+						APP_IN_SCHLE_Collection schoolEndColl = (APP_IN_SCHLE_Collection) schoolEnrollMap
+								.get("schoolEndColl");
+
+						doc.newPage();
+
+						if (schoolChangeColl != null
+								&& !schoolChangeColl.isEmpty()) {
+							printSchoolEnrollment(doc, PDFMap, namesMap,
+									langIndicator, schoolChangeColl, false,
+									agesMap, false);
+						}
+						if (schoolNewColl != null && !schoolNewColl.isEmpty()) {
+							printSchoolEnrollment(doc, PDFMap, namesMap,
+									langIndicator, schoolNewColl, true,
+									agesMap, false);
+						}
+						if (schoolEndColl != null && !schoolEndColl.isEmpty()) {
+							printSchoolEnrollment(doc, PDFMap, namesMap,
+									langIndicator, schoolEndColl, false,
+									agesMap, true);
+						}
+					}
+				}
+			}
+
+			// Disability (for PCR 30677)
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHDD",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				Chapter disabilityChapter = new Chapter(new Paragraph("DSAC",
+						fRegularTextWhiteBold), 1);
+				disabilityChapter.setNumberDepth(0);
+				disabilityChapter.setTriggerNewPage(false);
+				printDisabilityDetails(doc, PDFMap, namesMap, agesMap,
+						disabilityChapter);
+				doc.add(disabilityChapter);
+
+			}
+			// TODO - adding this logger for testing
+			log(ILog.INFO, " Before calling printErjaDetails() ");
+			// ERJA
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHMR",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				log(ILog.INFO, " Beginning Inside the if condition for ARHMR "); 
+				Chapter erjaChapter = new Chapter(new Paragraph("ERJA",
+						fRegularTextWhiteBold), 1);
+				erjaChapter.setNumberDepth(0);
+				erjaChapter.setTriggerNewPage(false);
+				printErjaDetails(doc, PDFMap, rmcInPrflColl, erjaChapter);
+				log(ILog.INFO, " Ending Inside the if condition for ARHMR ");
+				doc.add(erjaChapter);
+			}
+
+			// Indrani - uncommeted for self service Expansion
+			// for pregnancy info
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHPD",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+
+				APP_IN_PREG_Collection endPregColl = (APP_IN_PREG_Collection) PDFMap
+						.get("endPregColl");
+				APP_IN_PREG_Collection addPregColl = (APP_IN_PREG_Collection) PDFMap
+						.get("addPregColl");
+
+				// develop PDF code for modified medical bills
+				if (endPregColl != null && !endPregColl.isEmpty()) {
+					printEndPregnancyInfo(doc, PDFMap, namesMap, agesMap);
+				}
+
+				if (addPregColl != null && !addPregColl.isEmpty()) {
+					printAddPregnancyInfo(doc, PDFMap, namesMap, agesMap);
+				}
+			}
+
+			// Absent Parent Details
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARHAP",
+					rmcDriver).equals(
+					String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				if (moveinChapter == null) {
+					moveinChapter = new Chapter(new Paragraph("MVIC",
+							fRegularTextWhiteBold), 1);
+					moveinChapter.setNumberDepth(0);
+					moveinChapter.setTriggerNewPage(false);
+				}
+				printAbsentParent(doc, PDFMap, namesMap, moveinChapter);
+			}
+
+			// All Asset Details
+			// Indrani - Liquid asset
+			/** Modified by Nancy G K for ILIES-281879: Added logic to enter the if block when Resources page is queued - STARTS **/
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARLAD",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARASI_PAGE_ID, rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+			/** ILIES-281879 - ENDS **/
+				// get Life Insurance changed collection and new collection
+				Map lqdAsetMap = (Map) PDFMap.get(AppConstants.LQD_ASSET_MAP);
+
+				APP_IN_LQD_ASET_Collection lqdChangeColl = (APP_IN_LQD_ASET_Collection) lqdAsetMap
+						.get("lqdChangeColl");
+				APP_IN_LQD_ASET_Collection lqdNewColl = (APP_IN_LQD_ASET_Collection) lqdAsetMap
+						.get("lqdNewColl");
+				APP_IN_LQD_ASET_Collection lqdEndColl = (APP_IN_LQD_ASET_Collection) lqdAsetMap
+						.get("lqdEndColl");
+				
+				/** Modified by Nancy G K for ILIES-281879: To display the Existing Liquid Resource details - STARTS **/
+				APP_IN_LQD_ASET_Collection lqdExistingColl = (APP_IN_LQD_ASET_Collection) lqdAsetMap
+				.get("lqdExistingColl");
+				
+				// develop PDF code for existing Liquid Asset
+				if (lqdExistingColl != null && !lqdExistingColl.isEmpty()) {
+					printEndLqdAssetDetails(doc, namesMap,
+							langIndicator, lqdExistingColl, false, true, agesMap);
+				}
+				/** ILIES-281879 - ENDS **/
+
+				// develop PDF code for modified medical bills
+				if (lqdChangeColl != null && !lqdChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printEndLqdAssetDetails(doc, namesMap,
+							langIndicator, lqdChangeColl, false, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for new medical bills
+				if (lqdNewColl != null && !lqdNewColl.isEmpty()) {
+					printLqdAssetDetails(doc, PDFMap, namesMap, langIndicator,
+							lqdNewColl, agesMap);
+				}
+
+				// develop PDF code for end medical bills
+				if (lqdEndColl != null && !lqdEndColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printEndLqdAssetDetails(doc, namesMap,
+							langIndicator, lqdEndColl, true, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+			}
+
+			/** Modified by Nancy G K for ILIES-281879: Added logic to enter the if block when Resources page is queued - STARTS **/
+			// Indrani - Vehicle asset
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARVAD",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARASI_PAGE_ID, rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+			/** ILIES-281879 - ENDS **/
+				Map vehicleAssetMap = (Map) PDFMap.get(AppConstants.VEH_ASSET_MAP);
+
+				APP_IN_VEH_ASET_Collection vaChangeColl = (APP_IN_VEH_ASET_Collection) vehicleAssetMap
+						.get("vaChangeColl");
+				APP_IN_VEH_ASET_Collection vaNewColl = (APP_IN_VEH_ASET_Collection) vehicleAssetMap
+						.get("vaNewColl");
+				APP_IN_VEH_ASET_Collection vaEndColl = (APP_IN_VEH_ASET_Collection) vehicleAssetMap
+						.get("vaEndColl");
+				
+				/** Modified by Nancy G K for ILIES-281879: To display the Existing Vehicle Resource details - STARTS **/
+				APP_IN_VEH_ASET_Collection vaExistingColl = (APP_IN_VEH_ASET_Collection) vehicleAssetMap
+				.get("vaExistingColl");
+				
+				// develop PDF code for existing Vehicle Asset
+				if (vaExistingColl != null && !vaExistingColl.isEmpty()) {
+					printVehicleAssetInformation(doc, PDFMap, namesMap,
+							langIndicator, vaExistingColl,agesMap, false, true);
+				}
+				/** ILIES-281879 - ENDS **/
+
+				// develop PDF code for modified vehicle asset
+				if (vaChangeColl != null && !vaChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printVehicleAssetInformation(doc, PDFMap, namesMap,
+							langIndicator, vaChangeColl,agesMap, false, false);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for new vehicle asset
+				if (vaNewColl != null && !vaNewColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printVehicleAssetInformation(doc, PDFMap, namesMap,
+							langIndicator, vaNewColl,agesMap, true, false);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for end medical bills
+				if (vaEndColl != null && !vaEndColl.isEmpty()) {
+					printEndVehicleAsset(doc, PDFMap, namesMap, langIndicator,
+							vaEndColl, agesMap);
+				}
+			}
+
+			/** Modified by Nancy G K for ILIES-281879: Added logic to enter the if block when Resources page is queued - STARTS **/
+			// Indrani Real Property asset
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARRAD",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARASI_PAGE_ID, rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+			/** ILIES-281879 - ENDS **/
+				// get Life Insurance changed collection and new collection
+				Map realPropertyMap = (Map) PDFMap.get(AppConstants.REAL_PROP_MAP);
+
+				APP_IN_R_PROP_ASET_Collection rpChangeColl = (APP_IN_R_PROP_ASET_Collection) realPropertyMap
+						.get("rpChangeColl");
+				APP_IN_R_PROP_ASET_Collection rpNewColl = (APP_IN_R_PROP_ASET_Collection) realPropertyMap
+						.get("rpNewColl");
+				APP_IN_R_PROP_ASET_Collection rpEndColl = (APP_IN_R_PROP_ASET_Collection) realPropertyMap
+						.get("rpEndColl");
+				
+				/** Modified by Nancy G K for ILIES-281879: To display the Existing Real Property Resource details - STARTS **/
+				APP_IN_R_PROP_ASET_Collection rpExistingColl = (APP_IN_R_PROP_ASET_Collection) realPropertyMap
+				.get("rpExistingColl");
+				
+				// develop PDF code for existing Real Property Asset
+				if (rpExistingColl != null && !rpExistingColl.isEmpty()) {
+					printRealPropDetails(doc, PDFMap, namesMap, langIndicator,
+							rpExistingColl, false, true, agesMap);
+				}
+				/** ILIES-281879 - ENDS **/
+
+				// develop PDF code for modified medical bills
+				if (rpChangeColl != null && !rpChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printRealPropDetails(doc, PDFMap, namesMap, langIndicator,
+							rpChangeColl, false, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for new medical bills
+				if (rpNewColl != null && !rpNewColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printRealPropDetails(doc, PDFMap, namesMap, langIndicator,
+							rpNewColl, true, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for end medical bills
+				if (rpEndColl != null && !rpEndColl.isEmpty()) {
+					printEndRealPropDetails(doc, PDFMap, namesMap,
+							langIndicator, rpEndColl, agesMap);
+				}
+			}
+
+			/** Modified by Nancy G K for ILIES-281879: Added logic to enter the if block when Resources page is queued - STARTS **/
+			// Indrani - burial asset
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARBAD",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARASI_PAGE_ID, rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+			/** ILIES-281879 - ENDS **/
+				Map burialAssetMap = (Map) PDFMap.get(AppConstants.BURIAL_ASSET_MAP);
+
+				APP_IN_BURY_ASET_Collection baChangeColl = (APP_IN_BURY_ASET_Collection) burialAssetMap
+						.get("baChangeColl");
+				APP_IN_BURY_ASET_Collection baNewColl = (APP_IN_BURY_ASET_Collection) burialAssetMap
+						.get("baNewColl");
+				APP_IN_BURY_ASET_Collection baEndColl = (APP_IN_BURY_ASET_Collection) burialAssetMap
+						.get("baEndColl");
+				
+				/** Modified by Nancy G K for ILIES-281879: To display the Existing Burial Resource details - STARTS **/
+				APP_IN_BURY_ASET_Collection baExistingColl = (APP_IN_BURY_ASET_Collection) burialAssetMap
+				.get("baExistingColl");
+				
+				// develop PDF code for existing Burial Asset
+				if (baExistingColl != null && !baExistingColl.isEmpty()) {
+					printBurialInformation(doc, PDFMap, namesMap,
+							 baExistingColl, false,  true, agesMap);
+				}
+				/** ILIES-281879 - ENDS **/
+
+				// develop PDF code for modified medical bills
+				if (baChangeColl != null && !baChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printBurialInformation(doc, PDFMap, namesMap,
+							 baChangeColl, false,  false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for new medical bills
+				if (baNewColl != null && !baNewColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printBurialInformation(doc, PDFMap, namesMap,
+							 baNewColl, true,  false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for end medical bills
+				if (baEndColl != null && !baEndColl.isEmpty()) {
+					printEndBurialInformation(doc, PDFMap, namesMap,
+							langIndicator, baEndColl, agesMap);
+				}
+			}
+
+			/** Modified by Nancy G K for ILIES-281879: Added logic to enter the if block when Resources page is queued - STARTS **/
+			// Indrani - Life Insurance asset
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARLID",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARASI_PAGE_ID, rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+			/** ILIES-281879 - ENDS **/
+				// get Life Insurance changed collection and new collection
+				Map lifeInsuranceMap = (Map) PDFMap.get("lifeInsuranceMap");
+
+				APP_IN_L_INS_ASET_Collection liChangeColl = (APP_IN_L_INS_ASET_Collection) lifeInsuranceMap
+						.get("liChangeColl");
+				APP_IN_L_INS_ASET_Collection liNewColl = (APP_IN_L_INS_ASET_Collection) lifeInsuranceMap
+						.get("liNewColl");
+				APP_IN_L_INS_ASET_Collection liEndColl = (APP_IN_L_INS_ASET_Collection) lifeInsuranceMap
+						.get("liEndColl");
+				
+				/** Modified by Nancy G K for ILIES-281879: To display the Existing Life Insurance Resource details - STARTS **/
+				APP_IN_L_INS_ASET_Collection liExistingColl = (APP_IN_L_INS_ASET_Collection) lifeInsuranceMap
+				.get("liExistingColl");
+				
+				// develop PDF code for existing Life Insurance
+				if (liExistingColl != null && !liExistingColl.isEmpty()) {
+					printLifeInsuranceDetails(doc, namesMap,
+							langIndicator, liExistingColl, false, true, agesMap);
+				}
+				/** ILIES-281879 - ENDS **/
+
+				// develop PDF code for modified medical bills
+				if (liChangeColl != null && !liChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printLifeInsuranceDetails(doc, namesMap,
+							langIndicator, liChangeColl, false, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for new medical bills
+				if (liNewColl != null && !liNewColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printLifeInsuranceDetails(doc, namesMap,
+							langIndicator, liNewColl, true, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for end medical bills
+				if (liEndColl != null && !liEndColl.isEmpty()) {
+					printEndLifeInsuranceDetails(doc, PDFMap, namesMap,
+							langIndicator, liEndColl, agesMap);
+				}
+			}
+			
+			// Scherala - Lottery/Gambling Winnings Information
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ALGAP",rmcDriver).equals(String.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+				log(ILog.DEBUG, "Inside: PrintRMCPdf.buildByteArray - ALGAP ,Lottery Gambling start, Lottery Gambling Details");
+				// get Lottery/Gambling Winnings Information and new collection
+				Map lifeInsuranceMap = (Map) PDFMap.get(AppConstants.LG_INDV_DTL_MAP);
+
+				
+				LG_INDV_DETAILS_Collection lgNewColl = (LG_INDV_DETAILS_Collection) lifeInsuranceMap
+						.get("lgIndvDetailsNewColl");
+				
+				// develop PDF code for new medical bills
+				if (lgNewColl != null && !lgNewColl.isEmpty()) {
+					printLotteryGamblingInformation(doc, PDFMap, namesMap,
+							langIndicator, lgNewColl, true, agesMap);
+				}
+			log(ILog.DEBUG, "Inside: PrintRMCPdf.buildByteArray - ALGAP ,Lottery Gambling end, Lottery Gambling PDF Complete");
+			}
+		
+			/** Modified by Nancy G K for ILIES-281879: Added logic to enter the if block when Resources page is queued - STARTS **/
+			// Indrani - Additional asset
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARAAD",
+					rmcDriver).equals(
+					String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARASI_PAGE_ID, rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+			/** ILIES-281879 - ENDS **/
+				// get Life Insurance changed collection and new collection
+				Map additionalAssetMap = (Map) PDFMap.get(AppConstants.ADTL_ASSET_MAP);
+
+				APP_IN_ADDITIONAL_ASSET_Collection aaChangeColl = (APP_IN_ADDITIONAL_ASSET_Collection) additionalAssetMap
+						.get("aaChangeColl");
+				APP_IN_ADDITIONAL_ASSET_Collection aaNewColl = (APP_IN_ADDITIONAL_ASSET_Collection) additionalAssetMap
+						.get("aaNewColl");
+				APP_IN_ADDITIONAL_ASSET_Collection aaEndColl = (APP_IN_ADDITIONAL_ASSET_Collection) additionalAssetMap
+						.get("aaEndColl");
+				
+				/** Modified by Nancy G K for ILIES-281879: To display the Existing Additional Resource details - STARTS **/
+				APP_IN_ADDITIONAL_ASSET_Collection aaExistingColl = (APP_IN_ADDITIONAL_ASSET_Collection) additionalAssetMap
+				.get("aaExistingColl");
+				
+				// develop PDF code for existing Additional Asset
+				if (aaExistingColl != null && !aaExistingColl.isEmpty()) {
+					printAddAssetDetails(doc, PDFMap, namesMap, langIndicator,
+							aaExistingColl, false, true, agesMap);
+				}
+				/** ILIES-281879 - ENDS **/
+
+				// develop PDF code for modified medical bills
+				if (aaChangeColl != null && !aaChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printAddAssetDetails(doc, PDFMap, namesMap, langIndicator,
+							aaChangeColl, false, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for new medical bills
+				if (aaNewColl != null && !aaNewColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281879: Passing boolean param to check if it is an existing detail - STARTS **/
+					printAddAssetDetails(doc, PDFMap, namesMap, langIndicator,
+							aaNewColl, true, false, agesMap);
+					/** ILIES-281879 - ENDS **/
+				}
+
+				// develop PDF code for end medical bills
+				if (aaEndColl != null && !aaEndColl.isEmpty()) {
+					printEndAddDetails(doc, PDFMap, namesMap, langIndicator,
+							aaEndColl, agesMap);
+				}
+			}
+
+			// Job Income
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARJSE",rmcDriver).equals(String.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+				// get empl changed collection and new collection
+				APP_IN_EMPL_Collection emplChangeColl = (APP_IN_EMPL_Collection) PDFMap.get("emplChangeColl");
+				APP_IN_EMPL_Collection emplNewColl = (APP_IN_EMPL_Collection) PDFMap.get("emplNewColl");
+				// get changed job_custom collection and new job_custom collection
+				JOBINCOME_Custom_Collection jobCustChangeColl = (JOBINCOME_Custom_Collection) PDFMap.get("JOBINCOME_Custom_Collection_Changed");
+				JOBINCOME_Custom_Collection jobCustNewColl = (JOBINCOME_Custom_Collection) PDFMap.get("JOBINCOME_Custom_Collection_New");
+				APP_IN_EMPL_Collection emplJobEndColl = (APP_IN_EMPL_Collection) PDFMap.get(AppConstants.EMP_END_COLL);
+
+				/** Modified by Nancy G K for ILIES-281876: Getting the existing job income details - STARTS **/
+				APP_IN_EMPL_Collection emplExistingColl = (APP_IN_EMPL_Collection) PDFMap.get("emplExistingColl");
+				JOBINCOME_Custom_Collection jobCustExistingColl = (JOBINCOME_Custom_Collection) PDFMap.get("JOBINCOME_Custom_Collection_Existing");
+				/** ILIES-281876 - ENDS **/
+				Timestamp referenceTableDate = Timestamp.valueOf(this.getColumnValue("TPDF", 94, "003", langIndicator));
+				Timestamp submissionDate = Timestamp.valueOf(rmcRequestCargo.getSbmt_tms());
+				boolean isBeforeDate = submissionDate.before(referenceTableDate);
+
+				Chapter regularjobincomeChapter = null;
+				
+				/** Modified by Nancy G K for ILIES-281876: To display existing Job Income details in PDF - STARTS **/
+				// develop PDF code for Existing jobs
+				if (jobCustExistingColl != null && !jobCustExistingColl.isEmpty()) {
+					if (regularjobincomeChapter == null) {
+						regularjobincomeChapter = new Chapter(new Paragraph("RJBC", fRegularTextWhiteBold), 1);
+						regularjobincomeChapter.setNumberDepth(0);
+						regularjobincomeChapter.setTriggerNewPage(false);
+					}
+					doc.newPage();
+					printReportedJobIncome(doc, PDFMap, namesMap, namesList,langIndicator, jobCustExistingColl, emplExistingColl,false, isBeforeDate, agesMap, driverManager,rmcDriver, true);
+				}
+				/** ILIES-281876 - ENDS **/
+				
+				// develop PDF code for modified jobs
+				if (jobCustChangeColl != null && !jobCustChangeColl.isEmpty()) {
+					if (regularjobincomeChapter == null) {
+						regularjobincomeChapter = new Chapter(new Paragraph("RJBC", fRegularTextWhiteBold), 1);
+						regularjobincomeChapter.setNumberDepth(0);
+						regularjobincomeChapter.setTriggerNewPage(false);
+					}
+					doc.newPage();
+					/** Modified by Nancy G K for ILIES-281876: Passing boolean param to check if it is an existing Job Income - STARTS **/
+					printReportedJobIncome(doc, PDFMap, namesMap, namesList,langIndicator, jobCustChangeColl, emplChangeColl,false, isBeforeDate, agesMap, driverManager,rmcDriver, false);
+					/** ILIES-281876 - ENDS **/
+				}
+
+				// develop PDF code for new jobs For PCR # 30765, we have to show selected individuals for New Job Income
+				if (jobCustNewColl != null && !jobCustNewColl.isEmpty()) {
+					if (regularjobincomeChapter == null) {
+						regularjobincomeChapter = new Chapter(new Paragraph("RJBC", fRegularTextWhiteBold), 1);
+						regularjobincomeChapter.setNumberDepth(0);
+						regularjobincomeChapter.setTriggerNewPage(false);
+					}
+					if(jobCustChangeColl == null || jobCustChangeColl.isEmpty()){
+						doc.newPage();
+					}
+					/** Modified by Nancy G K for ILIES-281876: Passing boolean param to check if it is an existing Job Income - STARTS **/
+					printReportedJobIncome(doc, PDFMap, namesMap, namesList,langIndicator, jobCustNewColl, emplNewColl, true,isBeforeDate, agesMap, driverManager, rmcDriver, false);
+					/** ILIES-281876 - ENDS **/
+				}
+
+				// develop PDF code for end jobs
+				if (emplJobEndColl != null && !emplJobEndColl.isEmpty()) {
+					if (regularjobincomeChapter == null) {
+						regularjobincomeChapter = new Chapter(new Paragraph("RJBC", fRegularTextWhiteBold), 1);
+						regularjobincomeChapter.setNumberDepth(0);
+						regularjobincomeChapter.setTriggerNewPage(false);
+					}
+					/** Added by Nancy G K for ILIES-281876: SONAR Fixes - STARTS **/
+					printEndJobIncome(doc, PDFMap, namesMap, agesMap);
+					/** ILIES-281876 - ENDS **/
+				}				
+			}
+
+			// Self Employment
+			// For PCR 30765: Checking the selection page for completeness. If selection page is complete, and Details page is required then we will display the individual names only.
+			// changing ARJSD below to ARJSE
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARJSE",rmcDriver).equals(String.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+				logger.log(this.getClass(), ILog.DEBUG,"Printing Self Emplyoment");
+				Map selfEmplMap = (Map) PDFMap.get("selfEmplMap");
+				/** Added by Nancy G K for ILIES-281877 - STARTS **/
+				APP_IN_SELFE_Collection selfEmpExistingColl = null;
+				/** ILIES-281877 - ENDS **/
+				APP_IN_SELFE_Collection selfEmpNewColl = null;
+				APP_IN_SELFE_Collection selfEmpChangeColl = null;
+				APP_IN_SELFE_Collection emplEndColl = null;
+				Chapter selfempChapter = null;
+
+				if (selfEmplMap != null && !selfEmplMap.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281877: Getting existing Job Income details - STARTS **/
+					selfEmpExistingColl = (APP_IN_SELFE_Collection) selfEmplMap.get("selfEExistingColl");
+					/** ILIES-281877 - ENDS **/
+					selfEmpNewColl = (APP_IN_SELFE_Collection) selfEmplMap.get("selfENewColl");
+					selfEmpChangeColl = (APP_IN_SELFE_Collection) selfEmplMap.get("selfEChangeColl");
+					emplEndColl = (APP_IN_SELFE_Collection) selfEmplMap.get("selfEEndColl");
+				}
+				
+				/** Modified by Nancy G K for ILIES-281877: To display existing Job Income in PDF - STARTS **/
+				// existing self empl
+				if (selfEmpExistingColl != null && !selfEmpExistingColl.isEmpty()) {
+					if (selfempChapter == null) {
+						selfempChapter = new Chapter(new Paragraph("SJBC",fRegularTextWhiteBold), 1);
+						selfempChapter.setNumberDepth(0);
+						selfempChapter.setTriggerNewPage(false);
+					}
+					printSelfEmployment(doc, PDFMap, false, namesMap, agesMap,selfEmpExistingColl, rmcDriver, driverManager, true);
+				}
+				/** ILIES-281877 - ENDS **/
+
+				// changed self empl
+				if (selfEmpChangeColl != null && !selfEmpChangeColl.isEmpty()) {
+					if (selfempChapter == null) {
+						selfempChapter = new Chapter(new Paragraph("SJBC",fRegularTextWhiteBold), 1);
+						selfempChapter.setNumberDepth(0);
+						selfempChapter.setTriggerNewPage(false);
+					}
+					/** Modified by Nancy G K for ILIES-281877: Passing boolean param to check if it is an existing Self-Employment Income - STARTS **/
+					printSelfEmployment(doc, PDFMap, false, namesMap, agesMap,selfEmpChangeColl, rmcDriver, driverManager, false);
+					/** ILIES-281877 - ENDS **/
+				}
+				// new self empl
+				if (selfEmpNewColl != null && !selfEmpNewColl.isEmpty()) {
+					if (selfempChapter == null) {
+						selfempChapter = new Chapter(new Paragraph("SJBC",fRegularTextWhiteBold), 1);
+						selfempChapter.setNumberDepth(0);
+						selfempChapter.setTriggerNewPage(false);
+					}
+					/** Modified by Nancy G K for ILIES-281877: Passing boolean param to check if it is an existing Self-Employment Income - STARTS **/
+					printSelfEmployment(doc, PDFMap, true, namesMap, agesMap,selfEmpNewColl, rmcDriver, driverManager, false);
+					/** ILIES-281877 - ENDS **/
+				}
+				//end self empl
+				if (emplEndColl != null && !emplEndColl.isEmpty()) {
+					if (selfempChapter == null) {
+						selfempChapter = new Chapter(new Paragraph("SJBC",fRegularTextWhiteBold), 1);
+						selfempChapter.setNumberDepth(0);
+						selfempChapter.setTriggerNewPage(false);
+					}
+					printEndSelfEmpl(doc, PDFMap, namesMap, agesMap,emplEndColl, selfempChapter);
+				}
+			}
+
+			// Other income
+			// For PCR 30765: Checking the selection page for completeness. If selection page is complete, and Details page is required then we will display the individual names only.
+			// changing ARUID below to ARUII
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, "ARUII",rmcDriver).equals(String.valueOf(IRMCResponseProfileManager.STATUS_COMPLETE))) {
+				logger.log(this.getClass(), ILog.DEBUG, "Printing Other Income");
+				Map otherIncomeMap = (Map) PDFMap.get("otherIncomeMap");
+				/** Added by Nancy G K for ILIES-281878 - STARTS **/
+				APP_IN_UEI_Collection appInUEIExistingColl = new APP_IN_UEI_Collection();
+				/** ILIES-281878 - ENDS **/
+				APP_IN_UEI_Collection appInUEIChangedColl = new APP_IN_UEI_Collection();
+				APP_IN_UEI_Collection appInUEINewColl = new APP_IN_UEI_Collection();
+				APP_IN_UEI_Collection appInUEIEndColl = new APP_IN_UEI_Collection();
+				Chapter otherincomeChapter = null;
+
+				if (otherIncomeMap != null && !otherIncomeMap.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281878: Getting existing Unearned/Other Income details - STARTS **/
+					appInUEIExistingColl = (APP_IN_UEI_Collection) otherIncomeMap.get("ueiExistingColl");
+					/** ILIES-281878 - ENDS **/
+					appInUEIChangedColl = (APP_IN_UEI_Collection) otherIncomeMap.get("ueiChangeColl");
+					appInUEINewColl = (APP_IN_UEI_Collection) otherIncomeMap.get("ueiNewColl");
+					appInUEIEndColl = (APP_IN_UEI_Collection) otherIncomeMap.get("ueiEndColl");
+				}
+				
+				/** Modified by Nancy G K for ILIES-281878: To display Unearned/Other Income details in PDF - STARTS **/
+				// existing other income
+				if (appInUEIExistingColl != null	&& !appInUEIExistingColl.isEmpty()) {
+					if (otherincomeChapter == null) {
+						otherincomeChapter = new Chapter(new Paragraph("OJBC",fRegularTextWhiteBold), 1);
+						otherincomeChapter.setNumberDepth(0);
+						otherincomeChapter.setTriggerNewPage(false);
+					}
+					printOtherIncome(doc, PDFMap, rmcDriver, driverManager,namesMap, agesMap, false, appInUEIExistingColl,otherincomeChapter, true);
+					/** ILIES-281878 - ENDS **/
+				}
+
+				// changed other income
+				if (appInUEIChangedColl != null	&& !appInUEIChangedColl.isEmpty()) {
+					if (otherincomeChapter == null) {
+						otherincomeChapter = new Chapter(new Paragraph("OJBC",fRegularTextWhiteBold), 1);
+						otherincomeChapter.setNumberDepth(0);
+						otherincomeChapter.setTriggerNewPage(false);
+					}
+					/** Modified by Nancy G K for ILIES-281878: Passing boolean param to check if it is an existing Unearned/Other Income - STARTS **/
+					printOtherIncome(doc, PDFMap, rmcDriver, driverManager,namesMap, agesMap, false, appInUEIChangedColl,otherincomeChapter, false);
+					/** ILIES-281878 - ENDS **/
+				}
+				// new other income
+				if (appInUEINewColl != null && !appInUEINewColl.isEmpty()) {
+					if (otherincomeChapter == null) {
+						otherincomeChapter = new Chapter(new Paragraph("OJBC",fRegularTextWhiteBold), 1);
+						otherincomeChapter.setNumberDepth(0);
+						otherincomeChapter.setTriggerNewPage(false);
+					}
+					/** Modified by Nancy G K for ILIES-281878: Passing boolean param to check if it is an existing Unearned/Other Income - STARTS **/
+					printOtherIncome(doc, PDFMap, rmcDriver, driverManager,namesMap, agesMap, true, appInUEINewColl,otherincomeChapter, false);
+					/** ILIES-281878 - ENDS **/
+				}
+				// end other income
+				if (appInUEIEndColl != null && !appInUEIEndColl.isEmpty()) {
+					if (otherincomeChapter == null) {
+						otherincomeChapter = new Chapter(new Paragraph("OJBC",fRegularTextWhiteBold), 1);
+						otherincomeChapter.setNumberDepth(0);
+						otherincomeChapter.setTriggerNewPage(false);
+					}
+					printEndOtherIncome(doc, PDFMap, namesMap, agesMap,appInUEIEndColl, otherincomeChapter);
+				}
+			}
+
+			/** Modified by Nancy G K for ILIES-281881: Added logic to enter the if block when Child & Spousal Support page is queued - STARTS **/
+			// For Child support
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARCSD_PAGE_ID, rmcDriver).equals(String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARCSI_PAGE_ID, rmcDriver).equals(String.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+			/** ILIES-281881 - ENDS **/
+				// get Child Support changed collection and new collection
+				Map childSupportMap = (Map) PDFMap.get(AppConstants.CHLD_SUPPORT);
+
+				APP_IN_SUPPORT_DETAIL_Collection csChangeColl = (APP_IN_SUPPORT_DETAIL_Collection) childSupportMap.get(AppConstants.CS_CHANGE_COLL);
+				APP_IN_SUPPORT_DETAIL_Collection csNewColl = (APP_IN_SUPPORT_DETAIL_Collection) childSupportMap.get(AppConstants.CS_NEW_COLL);
+				APP_IN_SUPPORT_DETAIL_Collection csEndColl = (APP_IN_SUPPORT_DETAIL_Collection) childSupportMap.get(AppConstants.CS_END_COLL);
+
+				/** Modified by Nancy G K for ILIES-281881: To display Child Support details in PDF - STARTS **/
+				APP_IN_SUPPORT_DETAIL_Collection csExistingColl = (APP_IN_SUPPORT_DETAIL_Collection) childSupportMap.get("csExistingColl");
+				
+				// develop PDF code for existing child support
+				if (csExistingColl != null && !csExistingColl.isEmpty()) {
+					printSupportDetails(doc, namesMap,langIndicator, csExistingColl, false, AppConstants.RMC_CAT_CHILD_SUPPORT_INC_PRFL, true, agesMap);
+				}
+				/** ILIES-281881 - ENDS **/
+				// develop PDF code for modified support
+				if (csChangeColl != null && !csChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281881: Passing boolean param to check if it is an existing Unearned/Other Income - STARTS **/
+					printSupportDetails(doc, namesMap,langIndicator, csChangeColl, false, AppConstants.RMC_CAT_CHILD_SUPPORT_INC_PRFL, false, agesMap);
+					/** ILIES-281881 - ENDS **/
+				}
+
+				// develop PDF code for new support
+				if (csNewColl != null && !csNewColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281881: Passing boolean param to check if it is an existing Unearned/Other Income - STARTS **/
+					printSupportDetails(doc, namesMap,langIndicator, csNewColl, true, AppConstants.RMC_CAT_CHILD_SUPPORT_INC_PRFL, false, agesMap);
+					/** ILIES-281881 - ENDS **/
+				}
+
+				// develop PDF code for end support
+				if (csEndColl != null && !csEndColl.isEmpty()) {
+					printEndSupport(doc, PDFMap, namesMap, langIndicator,csEndColl, agesMap,AppConstants.RMC_CAT_CHILD_SUPPORT_INC_PRFL);
+				}
+			}
+			
+			/** Modified by Nancy G K for ILIES-281881: Added logic to enter the if block when Child & Spousal Support page is queued - STARTS **/
+			// For Alimony/Spousal support
+			if (driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARCSD_PAGE_ID, rmcDriver).equals(String.valueOf(IApplicationManager.STATUS_COMPLETE)) 
+					|| driverManager.getStatus(FwConstants.RMC_DRIVER, AppConstants.ARCSI_PAGE_ID, rmcDriver).equals(String.valueOf(IApplicationManager.STATUS_COMPLETE))) {
+			/** ILIES-281881 - ENDS **/
+				// get spousal Support changed collection and new collection
+				Map spousalSupportMap = (Map) PDFMap.get("Spousal_Support");
+
+				APP_IN_SUPPORT_DETAIL_Collection csChangeColl = (APP_IN_SUPPORT_DETAIL_Collection) spousalSupportMap.get(AppConstants.CS_CHANGE_COLL);
+				APP_IN_SUPPORT_DETAIL_Collection csNewColl = (APP_IN_SUPPORT_DETAIL_Collection) spousalSupportMap.get(AppConstants.CS_NEW_COLL);
+				APP_IN_SUPPORT_DETAIL_Collection csEndColl = (APP_IN_SUPPORT_DETAIL_Collection) spousalSupportMap.get(AppConstants.CS_END_COLL);
+
+				/** Modified by Nancy G K for ILIES-281881: To display Spousal Support details in PDF - STARTS **/
+				APP_IN_SUPPORT_DETAIL_Collection spExistingColl = (APP_IN_SUPPORT_DETAIL_Collection) spousalSupportMap.get("spExistingColl");
+				
+				// develop PDF code for existing Spousal Support
+				if (spExistingColl != null && !spExistingColl.isEmpty()) {
+					printSupportDetails(doc, namesMap,langIndicator, spExistingColl, false, AppConstants.RMC_CAT_SPOUSAL_SUPPORT_INC_PRFL, true, agesMap);
+				}
+				/** ILIES-281881 - ENDS **/
+				
+				// develop PDF code for modified support
+				if (csChangeColl != null && !csChangeColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281881: Passing boolean param to check if it is an existing Unearned/Other Income - STARTS **/
+					printSupportDetails(doc, namesMap,langIndicator, csChangeColl, false, AppConstants.RMC_CAT_SPOUSAL_SUPPORT_INC_PRFL, false, agesMap);
+					/** ILIES-281881 - ENDS **/
+				}
+
+				// develop PDF code for new support
+				if (csNewColl != null && !csNewColl.isEmpty()) {
+					/** Modified by Nancy G K for ILIES-281881: Passing boolean param to check if it is an existing Unearned/Other Income - STARTS **/
+					printSupportDetails(doc, namesMap,langIndicator, csNewColl, true, AppConstants.RMC_CAT_SPOUSAL_SUPPORT_INC_PRFL, false, agesMap);
+					/** ILIES-281881 - ENDS **/
+				}
+
+				// develop PDF code for end support
+				if (csEndColl != null && !csEndColl.isEmpty()) {
+					printEndSupport(doc, PDFMap, namesMap, langIndicator,csEndColl, agesMap,AppConstants.RMC_CAT_SPOUSAL_SUPPORT_INC_PRFL);
+				}
+			}
